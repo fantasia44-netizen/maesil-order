@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}사용자 관리 - 오토툴{% endblock %}
+{% block page_title %}사용자 관리{% endblock %}
+
+{% block content %}
+{% if pending_count > 0 %}
+<div class="alert alert-warning">
+    <i class="bi bi-person-exclamation"></i> 승인 대기 중인 사용자: <strong>{{ pending_count }}명</strong>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people"></i> 전체 사용자 ({{ users|length }}명)</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>아이디</th>
+                        <th>이름</th>
+                        <th>소속</th>
+                        <th>상태</th>
+                        <th>최근 로그인</th>
+                        <th>가입일</th>
+                        <th style="width:220px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr class="{% if not user.is_approved %}table-warning{% elif not user.is_active_user %}table-secondary{% endif %}">
+                        <td><strong>{{ user.username }}</strong></td>
+                        <td>{{ user.name }}</td>
+                        <td>
+                            <span class="badge badge-role badge-{{ user.role }}">{{ user.role_name }}</span>
+                        </td>
+                        <td>
+                            {% if not user.is_approved %}
+                                <span class="badge bg-warning text-dark">승인 대기</span>
+                            {% elif user.is_locked() %}
+                                <span class="badge bg-danger">잠금</span>
+                            {% elif user.is_active_user %}
+                                <span class="badge bg-success">활성</span>
+                            {% else %}
+                                <span class="badge bg-secondary">비활성</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if user.last_login %}
+                                {{ user.last_login.strftime('%m/%d %H:%M') }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            {% if not user.is_approved %}
+                            <form method="POST" action="{{ url_for('admin.user_approve', user_id=user.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-success" title="승인">
+                                    <i class="bi bi-check-lg"></i> 승인
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            <a href="{{ url_for('admin.user_edit', user_id=user.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+
+                            {% if user.is_locked() %}
+                            <form method="POST" action="{{ url_for('admin.user_unlock', user_id=user.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-warning" title="잠금 해제">
+                                    <i class="bi bi-unlock"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+
+                            <form method="POST" action="{{ url_for('admin.user_reset_password', user_id=user.id) }}" class="d-inline"
+                                  onsubmit="return confirm('{{ user.name }}의 비밀번호를 초기화하시겠습니까?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-secondary" title="비밀번호 초기화">
+                                    <i class="bi bi-key"></i>
+                                </button>
+                            </form>
+
+                            {% if user.id != current_user.id %}
+                            <form method="POST" action="{{ url_for('admin.user_toggle_active', user_id=user.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm {% if user.is_active_user %}btn-outline-danger{% else %}btn-outline-success{% endif %}"
+                                        title="{% if user.is_active_user %}비활성화{% else %}활성화{% endif %}">
+                                    <i class="bi {% if user.is_active_user %}bi-person-x{% else %}bi-person-check{% endif %}"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

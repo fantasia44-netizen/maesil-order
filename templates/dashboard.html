@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}대시보드 - 오토툴{% endblock %}
+{% block page_title %}대시보드{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    {% for menu in menus %}
+    {% if menu.url != '/' %}
+    <div class="col-md-4 col-lg-3">
+        <a href="{{ menu.url }}" class="text-decoration-none">
+            <div class="card h-100 border-0 shadow-sm" style="transition: transform 0.2s;"
+                 onmouseenter="this.style.transform='translateY(-4px)'"
+                 onmouseleave="this.style.transform='translateY(0)'">
+                <div class="card-body text-center py-4">
+                    <i class="bi {{ menu.icon }}" style="font-size: 2.5rem; color: #3498db;"></i>
+                    <h6 class="mt-3 mb-1 fw-bold text-dark">{{ menu.name }}</h6>
+                    <small class="text-muted">
+                        {% if menu.roles == 'admin' %}관리자 전용
+                        {% elif menu.roles == 'manager' %}책임자 이상
+                        {% else %}{{ menu.roles }}
+                        {% endif %}
+                    </small>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% endif %}
+    {% endfor %}
+</div>
+
+{% if current_user.is_admin() %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-bell"></i> 알림</span>
+            </div>
+            <div class="card-body">
+                {% if pending_users %}
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-person-exclamation"></i>
+                    승인 대기 중인 사용자가 <strong>{{ pending_users }}명</strong> 있습니다.
+                    <a href="{{ url_for('admin.user_list') }}" class="alert-link">확인하기</a>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">새로운 알림이 없습니다.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

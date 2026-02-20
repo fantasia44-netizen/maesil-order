@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}로그인 - 오토툴{% endblock %}
+
+{% block public_content %}
+<div class="min-vh-100 d-flex align-items-center justify-content-center" style="background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);">
+    <div class="card shadow-lg" style="width: 400px; border-radius: 16px;">
+        <div class="card-body p-5">
+            <div class="text-center mb-4">
+                <i class="bi bi-gear-wide-connected" style="font-size: 2.5rem; color: #3498db;"></i>
+                <h3 class="mt-2 fw-bold">오토툴</h3>
+                <p class="text-muted">업무 자동화 시스템</p>
+            </div>
+
+            <form method="POST" novalidate>
+                {{ form.hidden_tag() }}
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">{{ form.username.label.text }}</label>
+                    {{ form.username(class="form-control form-control-lg", placeholder="아이디 입력", autofocus=true) }}
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">{{ form.password.label.text }}</label>
+                    {{ form.password(class="form-control form-control-lg", placeholder="비밀번호 입력") }}
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">
+                    <i class="bi bi-box-arrow-in-right"></i> 로그인
+                </button>
+            </form>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} py-2 small" role="alert">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <div class="text-center">
+                <a href="{{ url_for('auth.register') }}" class="text-decoration-none">
+                    계정이 없으신가요? <strong>회원가입</strong>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

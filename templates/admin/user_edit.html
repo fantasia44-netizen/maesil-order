@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}사용자 수정 - 오토툴{% endblock %}
+{% block page_title %}사용자 수정: {{ user.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="mb-3">
+                    <strong>아이디:</strong> {{ user.username }}
+                    <br><strong>가입일:</strong> {{ user.created_at.strftime('%Y-%m-%d %H:%M') }}
+                    <br><strong>최근 로그인:</strong>
+                    {% if user.last_login %}{{ user.last_login.strftime('%Y-%m-%d %H:%M') }}{% else %}-{% endif %}
+                </div>
+                <hr>
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">{{ form.name.label.text }}</label>
+                        {{ form.name(class="form-control") }}
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">{{ form.role.label.text }}</label>
+                        {{ form.role(class="form-select") }}
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            {{ form.is_active_user(class="form-check-input") }}
+                            <label class="form-check-label">{{ form.is_active_user.label.text }}</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            {{ form.is_approved(class="form-check-input") }}
+                            <label class="form-check-label">{{ form.is_approved.label.text }}</label>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-lg"></i> 저장
+                    </button>
+                    <a href="{{ url_for('admin.user_list') }}" class="btn btn-outline-secondary">취소</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
