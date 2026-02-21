@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}이력 관리 - 오토툴{% endblock %}
+{% block page_title %}이력 관리{% endblock %}
+
+{% block content %}
+<!-- 검색 필터 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('history.index') }}" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">품목명</label>
+                <input type="text" name="product_name" class="form-control" value="{{ product_name|default('') }}" placeholder="품목명 검색">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">유형</label>
+                <select name="type" class="form-select">
+                    <option value="">전체</option>
+                    <option value="입고" {% if type_filter|default('') == '입고' %}selected{% endif %}>입고</option>
+                    <option value="생산" {% if type_filter|default('') == '생산' %}selected{% endif %}>생산</option>
+                    <option value="출고" {% if type_filter|default('') == '출고' %}selected{% endif %}>출고</option>
+                    <option value="이동" {% if type_filter|default('') == '이동' %}selected{% endif %}>이동</option>
+                    <option value="소분" {% if type_filter|default('') == '소분' %}selected{% endif %}>소분</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 검색
+                </button>
+                <a href="{{ url_for('history.index') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-counterclockwise"></i> 초기화
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 결과 테이블 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history"></i> 이력 목록 ({{ records|default([])|length }}건)</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>날짜</th>
+                        <th>유형</th>
+                        <th>품목명</th>
+                        <th class="text-end">수량</th>
+                        <th>단위</th>
+                        <th>위치</th>
+                        <th>카테고리</th>
+                        <th style="width:120px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rec in records|default([]) %}
+                    <tr>
+                        <td>{{ rec.id }}</td>
+                        <td>{{ rec.date }}</td>
+                        <td>
+                            {% if rec.type == '입고' %}
+                                <span class="badge bg-primary">입고</span>
+                            {% elif rec.type == '생산' %}
+                                <span class="badge bg-success">생산</span>
+                            {% elif rec.type == '출고' %}
+                                <span class="badge bg-warning text-dark">출고</span>
+                            {% elif rec.type == '이동' %}
+                                <span class="badge bg-info">이동</span>
+                            {% elif rec.type == '소분' %}
+                                <span class="badge bg-secondary">소분</span>
+                            {% else %}
+                                <span class="badge bg-dark">{{ rec.type }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ rec.product_name }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(rec.qty) }}</td>
+                        <td>{{ rec.unit|default('-') }}</td>
+                        <td>{{ rec.location|default('-') }}</td>
+                        <td>{{ rec.category|default('-') }}</td>
+                        <td>
+                            <a href="{{ url_for('history.edit', record_id=rec.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                            <form method="POST" action="{{ url_for('history.delete', record_id=rec.id) }}" class="d-inline"
+                                  onsubmit="return confirm('이 이력을 삭제하시겠습니까?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

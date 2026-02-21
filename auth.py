@@ -7,7 +7,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField
 from wtforms.validators import DataRequired, Length, EqualTo, Regexp
 
-from models import db, User, AuditLog
+from models import User
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -79,15 +79,13 @@ def level_required(min_level):
 
 
 def _log_action(action, target=None, detail=None, user_id=None):
-    log = AuditLog(
-        user_id=user_id or (current_user.id if current_user.is_authenticated else None),
-        action=action,
-        target=target,
-        detail=detail,
-        ip_address=request.remote_addr
-    )
-    db.session.add(log)
-    db.session.commit()
+    current_app.db.insert_audit_log({
+        'user_id': user_id or (current_user.id if current_user.is_authenticated else None),
+        'action': action,
+        'target': target,
+        'detail': detail,
+        'ip_address': request.remote_addr,
+    })
 
 
 # ── Routes ──
@@ -99,7 +97,8 @@ def login():
 
     form = LoginForm()
     if form.validate_on_submit():
-        user = User.query.filter_by(username=form.username.data).first()
+        row = current_app.db.query_user_by_username(form.username.data)
+        user = User(row) if row else None
 
         # 계정 잠금 확인
         if user and user.is_locked():
@@ -116,10 +115,11 @@ def login():
                 return render_template('login.html', form=form)
 
             # 로그인 성공
-            user.failed_login_count = 0
-            user.locked_until = None
-            user.last_login = datetime.now(timezone.utc)
-            db.session.commit()
+            current_app.db.update_user(user.id, {
+                'failed_login_count': 0,
+                'locked_until': None,
+                'last_login': datetime.now(timezone.utc).isoformat(),
+            })
 
             login_user(user, remember=False)
             _log_action('login', target=user.username)
@@ -131,13 +131,16 @@ def login():
         else:
             # 로그인 실패
             if user:
-                user.failed_login_count += 1
+                new_count = user.failed_login_count + 1
+                update_data = {'failed_login_count': new_count}
                 max_attempts = current_app.config.get('LOGIN_MAX_ATTEMPTS', 5)
-                if user.failed_login_count >= max_attempts:
+                if new_count >= max_attempts:
                     lockout = current_app.config.get('LOGIN_LOCKOUT_MINUTES', 15)
-                    user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=lockout)
+                    update_data['locked_until'] = (
+                        datetime.now(timezone.utc) + timedelta(minutes=lockout)
+                    ).isoformat()
                     flash(f'로그인 {max_attempts}회 실패. {lockout}분간 잠금됩니다.', 'danger')
-                db.session.commit()
+                current_app.db.update_user(user.id, update_data)
                 _log_action('login_failed', target=form.username.data, user_id=user.id)
             flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'danger')
 
@@ -151,22 +154,29 @@ def register():
 
     form = RegisterForm()
     if form.validate_on_submit():
-        if User.query.filter_by(username=form.username.data).first():
+        existing = current_app.db.query_user_by_username(form.username.data)
+        if existing:
             flash('이미 사용 중인 아이디입니다.', 'danger')
             return render_template('register.html', form=form)
 
-        user = User(
-            username=form.username.data,
-            name=form.name.data,
-            role=form.role.data,
-            is_approved=False  # 관리자 승인 필요
-        )
-        user.set_password(form.password.data)
+        # 비밀번호 해시 생성
+        temp_user = User()
+        temp_user.set_password(form.password.data)
 
-        db.session.add(user)
-        db.session.commit()
+        current_app.db.insert_user({
+            'username': form.username.data,
+            'name': form.name.data,
+            'password_hash': temp_user.password_hash,
+            'role': form.role.data,
+            'is_approved': False,
+            'is_active_user': True,
+        })
 
-        _log_action('register', target=user.username, user_id=user.id)
+        # 새로 생성된 사용자 조회하여 audit log 에 user_id 기록
+        created = current_app.db.query_user_by_username(form.username.data)
+        created_id = created['id'] if created else None
+
+        _log_action('register', target=form.username.data, user_id=created_id)
         flash('회원가입이 완료되었습니다. 관리자 승인 후 이용 가능합니다.', 'success')
         return redirect(url_for('auth.login'))
 
@@ -192,7 +202,10 @@ def change_password():
             return render_template('change_password.html', form=form)
 
         current_user.set_password(form.new_password.data)
-        db.session.commit()
+        current_app.db.update_user(current_user.id, {
+            'password_hash': current_user.password_hash,
+            'password_changed_at': current_user.password_changed_at,
+        })
         _log_action('change_password', target=current_user.username)
         flash('비밀번호가 변경되었습니다.', 'success')
         return redirect(url_for('main.dashboard'))

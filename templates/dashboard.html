@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="row g-4">
-    {% for menu in menus %}
+    {% for menu in sidebar_menus %}
     {% if menu.url != '/' %}
     <div class="col-md-4 col-lg-3">
         <a href="{{ menu.url }}" class="text-decoration-none">
@@ -13,13 +13,7 @@
                  onmouseleave="this.style.transform='translateY(0)'">
                 <div class="card-body text-center py-4">
                     <i class="bi {{ menu.icon }}" style="font-size: 2.5rem; color: #3498db;"></i>
-                    <h6 class="mt-3 mb-1 fw-bold text-dark">{{ menu.name }}</h6>
-                    <small class="text-muted">
-                        {% if menu.roles == 'admin' %}관리자 전용
-                        {% elif menu.roles == 'manager' %}책임자 이상
-                        {% else %}{{ menu.roles }}
-                        {% endif %}
-                    </small>
+                    <h6 class="mt-3 mb-0 fw-bold text-dark">{{ menu.name }}</h6>
                 </div>
             </div>
         </a>

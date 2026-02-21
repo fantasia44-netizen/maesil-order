@@ -1,48 +1,90 @@
-from datetime import datetime, timezone
-from flask_sqlalchemy import SQLAlchemy
+"""
+models.py — Supabase 기반 User/AuditLog 모델 (Flask-Login 호환)
+SQLAlchemy 제거, Supabase 직접 쿼리
+"""
+from datetime import datetime, timezone, timedelta
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 
-db = SQLAlchemy()
+
+# ── check_db_v12 상수 (기존 그대로) ──
+
+VERSION = "v12"
+VERSION_DATE = "2026-02-20"
+
+INV_TYPE_LABELS = {
+    "INBOUND": "입고", "PRODUCTION": "생산", "PROD_OUT": "생산출고",
+    "SALES_OUT": "판매출고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고",
+    "INIT": "기초재고", "REPACK_OUT": "소분투입", "REPACK_IN": "소분산출",
+}
+
+LEDGER_CATEGORY_MAP = {
+    "제품수불부": ["제품", "완제품"],
+    "반제품수불부": ["반제품"],
+    "원료수불부": ["원료", "원재료"],
+    "부자재수불부": ["부자재"],
+}
+
+REVENUE_CATEGORIES = ["일반매출", "쿠팡매출", "로켓", "N배송(용인)"]
+APPROVAL_LABELS = ["담당자", "과장", "본부장", "상무", "대표"]
+TEMPLATE_OPTIONS = [
+    "재고현황", "제품수불부", "반제품수불부", "원료수불부",
+    "부자재수불부", "생산일지", "소분작업일지",
+]
+
+CHANGE_LOG = [
+    "v12.1: 거래 관리 모듈 — 거래처 등록, 수동 거래등록(재고연동), 거래명세서 PDF, 내 사업장 관리",
+    "v12: 소분(리패킹) 탭 추가",
+    "v11: HACCP 템플릿 기반 PDF",
+]
 
 
-class User(UserMixin, db.Model):
-    __tablename__ = 'users'
+# ── Supabase 기반 User 클래스 (Flask-Login 호환) ──
 
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    name = db.Column(db.String(100), nullable=False)  # 실명
-    password_hash = db.Column(db.String(256), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='sales')
-    is_active_user = db.Column(db.Boolean, default=True)
-    is_approved = db.Column(db.Boolean, default=False)  # 관리자 승인 필요
+class User(UserMixin):
+    """Supabase app_users 테이블과 매핑되는 User 클래스"""
 
-    # 보안
-    failed_login_count = db.Column(db.Integer, default=0)
-    locked_until = db.Column(db.DateTime, nullable=True)
-    last_login = db.Column(db.DateTime, nullable=True)
-    password_changed_at = db.Column(db.DateTime, nullable=True)
+    def __init__(self, data=None):
+        if data is None:
+            data = {}
+        self.id = data.get('id')
+        self.username = data.get('username', '')
+        self.name = data.get('name', '')
+        self.password_hash = data.get('password_hash', '')
+        self.role = data.get('role', 'sales')
+        self.is_active_user = data.get('is_active_user', True)
+        self.is_approved = data.get('is_approved', False)
+        self.failed_login_count = data.get('failed_login_count', 0)
+        self.locked_until = data.get('locked_until')
+        self.last_login = data.get('last_login')
+        self.password_changed_at = data.get('password_changed_at')
+        self.created_at = data.get('created_at')
+        self.updated_at = data.get('updated_at')
 
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
-                           onupdate=lambda: datetime.now(timezone.utc))
+    def get_id(self):
+        return str(self.id)
 
-    # 관계
-    logs = db.relationship('AuditLog', backref='user', lazy='dynamic')
+    @property
+    def is_active(self):
+        return self.is_active_user and self.is_approved
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='scrypt')
-        self.password_changed_at = datetime.now(timezone.utc)
+        self.password_changed_at = datetime.now(timezone.utc).isoformat()
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
     def is_locked(self):
-        if self.locked_until and self.locked_until > datetime.now(timezone.utc):
-            return True
-        if self.locked_until and self.locked_until <= datetime.now(timezone.utc):
-            self.failed_login_count = 0
-            self.locked_until = None
+        if self.locked_until:
+            lock_time = self.locked_until
+            if isinstance(lock_time, str):
+                try:
+                    lock_time = datetime.fromisoformat(lock_time.replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    return False
+            if lock_time > datetime.now(timezone.utc):
+                return True
         return False
 
     @property
@@ -59,43 +101,7 @@ class User(UserMixin, db.Model):
         return self.role_level >= required_level
 
     def can_view_all(self):
-        """책임자 이상: 모든 데이터 조회 가능"""
         return self.role_level >= 80
 
     def is_admin(self):
         return self.role == 'admin'
-
-
-class AuditLog(db.Model):
-    """감사 로그 - 주요 작업 기록"""
-    __tablename__ = 'audit_logs'
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    action = db.Column(db.String(50), nullable=False)  # login, logout, create, update, delete
-    target = db.Column(db.String(200), nullable=True)   # 대상
-    detail = db.Column(db.Text, nullable=True)
-    ip_address = db.Column(db.String(45), nullable=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-
-
-# ============================================================
-# 아래는 나중에 회사에서 check DB 기능 통합 시 사용할 테이블 예시
-# 필요에 따라 수정/추가하세요
-# ============================================================
-
-class Customer(db.Model):
-    """거래처 관리"""
-    __tablename__ = 'customers'
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False)
-    code = db.Column(db.String(50), unique=True, nullable=True)
-    contact = db.Column(db.String(100), nullable=True)
-    phone = db.Column(db.String(20), nullable=True)
-    address = db.Column(db.String(300), nullable=True)
-    memo = db.Column(db.Text, nullable=True)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
-                           onupdate=lambda: datetime.now(timezone.utc))

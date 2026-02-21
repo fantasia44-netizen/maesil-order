@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}수불장 - 오토툴{% endblock %}
+{% block page_title %}수불장{% endblock %}
+
+{% block content %}
+<!-- 검색 필터 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('ledger.index') }}" class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">위치</label>
+                <select name="location" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for loc in locations|default([]) %}
+                    <option value="{{ loc }}" {% if location|default('전체') == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">카테고리</label>
+                <select name="category" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for cat in categories|default([]) %}
+                    <option value="{{ cat }}" {% if category|default('전체') == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+                {% if ledger is defined and ledger %}
+                <a href="{{ url_for('ledger.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), category=category|default('전체')) }}"
+                   class="btn btn-outline-success">
+                    <i class="bi bi-download"></i> 엑셀 다운로드
+                </a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 수불장 테이블 -->
+{% if ledger is defined and ledger %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-journal-text"></i> 수불장 ({{ ledger|length }}건)
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>품목명</th>
+                        <th class="text-end">기초재고</th>
+                        <th class="text-end">입고</th>
+                        <th class="text-end">생산</th>
+                        <th class="text-end">출고</th>
+                        <th class="text-end">이동</th>
+                        <th class="text-end">기말재고</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in ledger %}
+                    <tr>
+                        <td><strong>{{ row.product_name }}</strong></td>
+                        <td class="text-end">{{ '{:,.0f}'.format(row.opening|default(0)) }}</td>
+                        <td class="text-end text-primary">{{ '{:,.0f}'.format(row.inbound|default(0)) }}</td>
+                        <td class="text-end text-success">{{ '{:,.0f}'.format(row.production|default(0)) }}</td>
+                        <td class="text-end text-danger">{{ '{:,.0f}'.format(row.outbound|default(0)) }}</td>
+                        <td class="text-end text-info">{{ '{:,.0f}'.format(row.transfer|default(0)) }}</td>
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.closing|default(0)) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% elif date_from is defined and date_from %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 해당 조건의 수불장 데이터가 없습니다.
+</div>
+{% endif %}
+{% endblock %}

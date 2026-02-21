@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}집계 처리 결과 - 오토툴{% endblock %}
+{% block page_title %}집계 처리 결과{% endblock %}
+
+{% block content %}
+<!-- 로그 메시지 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-terminal"></i> 처리 로그
+    </div>
+    <div class="card-body p-0">
+        <div class="bg-dark text-light p-3" style="min-height: 200px; max-height: 500px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.85rem; line-height: 1.6;">
+            {% for log in logs|default([]) %}
+            <div class="{% if 'ERROR' in log or '오류' in log %}text-danger{% elif 'WARNING' in log or '경고' in log %}text-warning{% elif '완료' in log or 'OK' in log %}text-success{% endif %}">
+                {{ log }}
+            </div>
+            {% else %}
+            <div class="text-muted">처리 로그가 없습니다.</div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- 다운로드 링크 -->
+{% if downloads is defined and downloads %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-download"></i> 다운로드 파일
+    </div>
+    <div class="card-body">
+        <div class="list-group">
+            {% for dl in downloads %}
+            <a href="{{ dl.url }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-file-earmark-arrow-down text-primary"></i>
+                    {{ dl.name }}
+                </span>
+                {% if dl.size is defined %}
+                <small class="text-muted">{{ dl.size }}</small>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 뒤로가기 버튼 -->
+<div class="text-center">
+    <a href="{{ url_for('aggregation.index') }}" class="btn btn-outline-primary btn-lg">
+        <i class="bi bi-arrow-left"></i> 통합 집계로 돌아가기
+    </a>
+</div>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}재고 현황 - 오토툴{% endblock %}
+{% block page_title %}재고 현황{% endblock %}
+
+{% block content %}
+<!-- 검색 필터 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('stock.index') }}" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">기준일</label>
+                <input type="date" name="date" class="form-control" value="{{ date_str }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">위치</label>
+                <select name="location" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc }}" {% if location == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 통계 카드 -->
+{% if date_str %}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">총 품목 수</div>
+                <h3 class="mb-0 fw-bold text-primary">{{ stats.total_items }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">총 수량</div>
+                <h3 class="mb-0 fw-bold text-success">{{ '{:,.0f}'.format(stats.total_qty) }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 재고 테이블 -->
+{% if snapshot %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-box"></i> 재고 현황 ({{ snapshot|length }}건)</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>품목명</th>
+                        <th>카테고리</th>
+                        <th class="text-end">수량</th>
+                        <th>단위</th>
+                        <th>보관방법</th>
+                        <th>유통기한</th>
+                        <th>원산지</th>
+                        <th>제조일</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for product_name, info in snapshot.items() %}
+                    {% for group in info.groups %}
+                    <tr>
+                        {% if loop.first %}
+                        <td rowspan="{{ info.groups|length }}">
+                            <strong>{{ product_name }}</strong>
+                        </td>
+                        {% endif %}
+                        <td>{{ group.category|default('-', true) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(group.qty) }}</td>
+                        <td>{{ info.unit|default('-', true) }}</td>
+                        <td>{{ group.storage_method|default('-', true) }}</td>
+                        <td>{{ group.expiry_date|default('-', true) }}</td>
+                        <td>{{ group.origin|default('-', true) }}</td>
+                        <td>{{ group.manufacture_date|default('-', true) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% elif date_str %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 해당 조건의 재고 데이터가 없습니다.
+</div>
+{% endif %}
+{% endblock %}

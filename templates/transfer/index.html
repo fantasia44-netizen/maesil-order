@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}창고 이동 - 오토툴{% endblock %}
+{% block page_title %}창고 이동{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 수동 이동 -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-arrow-left-right"></i> 수동 이동
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('transfer.manual') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">품목명</label>
+                        <input type="text" name="product_name" class="form-control" placeholder="품목명 입력" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">수량</label>
+                        <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">출발 위치</label>
+                            <select name="from_location" class="form-select" required>
+                                <option value="">선택</option>
+                                {% for loc in locations|default([]) %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">도착 위치</label>
+                            <select name="to_location" class="form-select" required>
+                                <option value="">선택</option>
+                                {% for loc in locations|default([]) %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-arrow-left-right"></i> 이동 처리
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 엑셀 일괄 이동 -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-file-earmark-excel"></i> 엑셀 일괄 이동
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('transfer.batch') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">이동 내역 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100">
+                        <i class="bi bi-upload"></i> 일괄 이동 처리
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 결과 영역 -->
+{% if result is defined and result %}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-check-circle"></i> 처리 결과
+    </div>
+    <div class="card-body">
+        <p class="mb-1">처리 건수: <strong>{{ result.count|default(0) }}건</strong></p>
+        {% if result.warnings %}
+        <hr>
+        <h6 class="text-warning"><i class="bi bi-exclamation-triangle"></i> 경고</h6>
+        <ul class="mb-0">
+            {% for w in result.warnings %}
+            <li class="text-warning">{{ w }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

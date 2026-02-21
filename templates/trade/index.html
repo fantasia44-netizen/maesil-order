@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}거래처 관리 - 오토툴{% endblock %}
+{% block page_title %}거래처 관리{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 거래처 목록 -->
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-building"></i> 거래처 목록 ({{ partners|default([])|length }}건)</span>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPartnerModal">
+                    <i class="bi bi-plus-lg"></i> 거래처 추가
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>거래처명</th>
+                                <th>담당자</th>
+                                <th>연락처</th>
+                                <th>유형</th>
+                                <th style="width:100px">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in partners|default([]) %}
+                            <tr>
+                                <td><strong>{{ p.name }}</strong></td>
+                                <td>{{ p.contact_name|default('-') }}</td>
+                                <td>{{ p.contact_phone|default('-') }}</td>
+                                <td>
+                                    {% if p.type == '매입' %}
+                                        <span class="badge bg-primary">매입</span>
+                                    {% elif p.type == '매출' %}
+                                        <span class="badge bg-success">매출</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ p.type|default('-') }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('trade.edit_partner', partner_id=p.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <form method="POST" action="{{ url_for('trade.delete_partner', partner_id=p.id) }}" class="d-inline"
+                                          onsubmit="return confirm('{{ p.name }} 거래처를 삭제하시겠습니까?')">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">등록된 거래처가 없습니다.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 거래 등록 -->
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-receipt"></i> 거래 등록
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('trade.add_trade') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">거래처</label>
+                        <select name="partner_id" class="form-select" required>
+                            <option value="">선택</option>
+                            {% for p in partners|default([]) %}
+                            <option value="{{ p.id }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">거래일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">품목명</label>
+                        <input type="text" name="product_name" class="form-control" placeholder="품목명 입력" required>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">수량</label>
+                            <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">단가</label>
+                            <input type="number" name="unit_price" class="form-control" step="1" min="0">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">비고</label>
+                        <input type="text" name="memo" class="form-control" placeholder="비고 입력">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-plus-lg"></i> 거래 등록
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 거래 내역 -->
+{% if trades is defined and trades %}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-list-ul"></i> 최근 거래 내역
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>거래일</th>
+                        <th>거래처</th>
+                        <th>품목명</th>
+                        <th class="text-end">수량</th>
+                        <th class="text-end">단가</th>
+                        <th class="text-end">금액</th>
+                        <th>비고</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for t in trades %}
+                    <tr>
+                        <td>{{ t.date }}</td>
+                        <td>{{ t.partner_name|default('-') }}</td>
+                        <td>{{ t.product_name }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(t.qty) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(t.unit_price|default(0)) }}</td>
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(t.amount|default(0)) }}</td>
+                        <td><small class="text-muted">{{ t.memo|default('') }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 거래처 추가 모달 -->
+<div class="modal fade" id="addPartnerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('trade.add_partner') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-building"></i> 거래처 추가</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">거래처명</label>
+                        <input type="text" name="name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">유형</label>
+                        <select name="type" class="form-select">
+                            <option value="매입">매입</option>
+                            <option value="매출">매출</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">담당자</label>
+                        <input type="text" name="contact_name" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">연락처</label>
+                        <input type="text" name="contact_phone" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">추가</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

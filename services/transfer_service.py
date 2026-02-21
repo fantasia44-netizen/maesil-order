@@ -1,0 +1,236 @@
+"""
+transfer_service.py — 창고이동(Tab 4) 비즈니스 로직.
+Tkinter 의존 제거. db 파라미터(SupabaseDB 인스턴스)를 받고 결과를 dict/list로 반환.
+"""
+import pandas as pd
+from datetime import datetime
+
+from excel_io import (
+    safe_int, normalize_location, build_stock_snapshot, snapshot_lookup
+)
+
+
+def _validate_date(date_str):
+    """날짜 형식 검증. 실패 시 ValueError raise."""
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
+
+
+def _load_stock_snapshot(db, location):
+    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환."""
+    try:
+        all_data = db.query_stock_by_location(location)
+        return build_stock_snapshot(all_data)
+    except Exception as e:
+        print(f"재고 스냅샷 조회 에러: {e}")
+        return {}
+
+
+def process_manual_transfer(db, product_name, qty, from_location, to_location,
+                            date_str, mode="신규입력"):
+    """수동 창고 이동 (FIFO 자동 상속).
+
+    Args:
+        db: SupabaseDB instance
+        product_name: 품목명
+        qty: 이동 수량 (양수)
+        from_location: 현재 창고 (정규화 전)
+        to_location: 이동 창고 (정규화 전)
+        date_str: 이동 일자 (YYYY-MM-DD)
+        mode: "신규입력" or "수정입력"
+
+    Returns:
+        dict: {
+            "moved_count": int,   # 이동 처리된 FIFO 그룹 수
+            "warnings": list,     # 경고 메시지 목록
+            "deleted_count": int  # 수정입력 시 삭제된 기존 건수
+        }
+
+    Raises:
+        ValueError: 날짜 형식 오류 또는 유효성 검증 실패
+        Exception: DB 오류
+    """
+    _validate_date(date_str)
+
+    remain = int(qty)
+    name = str(product_name).strip()
+    src = normalize_location(from_location)
+    dst = normalize_location(to_location)
+
+    warnings = []
+    deleted_count = 0
+
+    # 수정입력: 해당 날짜의 기존 이동 기록 삭제
+    if mode == "수정입력":
+        del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT")
+        del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN")
+        deleted_count = del1 + del2
+
+    # 재고 스냅샷 로드 (수정입력으로 삭제된 후 로드해야 정확)
+    stock = _load_stock_snapshot(db, src)
+    _snap = snapshot_lookup(stock, name)
+    groups = _snap.get('groups', [])
+    total = _snap.get('total', 0)
+    u = _snap.get('unit', '개')
+
+    if remain > total:
+        warnings.append(
+            f"[{src}] {name}: 재고 {total}{u} / 이동요청 {remain}{u} — 재고 부족 상태에서 이동 처리됨"
+        )
+
+    payload = []
+    if not groups:
+        # 재고 그룹 없음 — 빈 속성으로 이동
+        payload.append({
+            "transaction_date": date_str, "type": "MOVE_OUT",
+            "product_name": name, "qty": -remain, "location": src,
+            "manufacture_date": ''
+        })
+        payload.append({
+            "transaction_date": date_str, "type": "MOVE_IN",
+            "product_name": name, "qty": remain, "location": dst,
+            "manufacture_date": ''
+        })
+    else:
+        # FIFO 순서로 그룹별 이동 (속성 상속)
+        for g in groups:
+            if remain <= 0:
+                break
+            deduct = min(remain, g['qty'])
+            payload.append({
+                "transaction_date": date_str, "type": "MOVE_OUT",
+                "product_name": name,
+                "qty": -deduct, "location": src,
+                "category": g['category'], "expiry_date": g['expiry_date'],
+                "storage_method": g['storage_method'],
+                "unit": g.get('unit', '개'),
+                "manufacture_date": g.get('manufacture_date', '')
+            })
+            payload.append({
+                "transaction_date": date_str, "type": "MOVE_IN",
+                "product_name": name,
+                "qty": deduct, "location": dst,
+                "category": g['category'], "expiry_date": g['expiry_date'],
+                "storage_method": g['storage_method'],
+                "unit": g.get('unit', '개'),
+                "manufacture_date": g.get('manufacture_date', '')
+            })
+            remain -= deduct
+
+    db.insert_stock_ledger(payload)
+
+    return {
+        "moved_count": len(payload) // 2,
+        "warnings": warnings,
+        "deleted_count": deleted_count,
+    }
+
+
+def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
+    """엑셀 일괄 창고 이동 (FIFO 자동 상속).
+
+    Args:
+        db: SupabaseDB instance
+        excel_df: pandas DataFrame (컬럼: 품목명, 현재창고위치, 이동창고위치, 수량입력)
+        date_str: 이동 일자 (YYYY-MM-DD)
+        mode: "신규입력" or "수정입력"
+
+    Returns:
+        dict: {
+            "count": int,         # 이동 처리된 건수 (MOVE_OUT/MOVE_IN 쌍 수)
+            "warnings": list,     # 경고 메시지 목록
+            "deleted_count": int  # 수정입력 시 삭제된 기존 건수
+        }
+
+    Raises:
+        ValueError: 날짜 형식 오류
+        KeyError: 필수 컬럼 누락
+        Exception: DB 오류
+    """
+    _validate_date(date_str)
+
+    df = excel_df.fillna("")
+    warnings = []
+    deleted_count = 0
+
+    # 수정입력: 해당 날짜의 기존 이동 기록 삭제
+    if mode == "수정입력":
+        del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT")
+        del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN")
+        deleted_count = del1 + del2
+
+    # 재고 스냅샷 캐시 (창고별)
+    snapshots = {}
+
+    # 1단계: 재고 부족 체크
+    shortage = []
+    for _, row in df.iterrows():
+        name = str(row['품목명']).strip()
+        src = normalize_location(row['현재창고위치'])
+        move_qty = int(row['수량입력'])
+        if src not in snapshots:
+            snapshots[src] = _load_stock_snapshot(db, src)
+        _snap = snapshot_lookup(snapshots[src], name)
+        total = _snap.get('total', 0)
+        u = _snap.get('unit', '개')
+        if move_qty > total:
+            shortage.append(f"[{src}] {name}: 요청 {move_qty}{u} / 재고 {total}{u}")
+
+    if shortage:
+        warnings.extend([f"재고 부족: {s}" for s in shortage])
+
+    # 2단계: FIFO 이동 payload 생성
+    payload = []
+    for _, row in df.iterrows():
+        name = str(row['품목명']).strip()
+        src = normalize_location(row['현재창고위치'])
+        dst = normalize_location(row['이동창고위치'])
+        remain = int(row['수량입력'])
+
+        groups = snapshot_lookup(snapshots[src], name).get('groups', [])
+
+        if not groups:
+            payload.append({
+                "transaction_date": date_str, "type": "MOVE_OUT",
+                "product_name": name, "qty": -remain, "location": src,
+                "manufacture_date": ''
+            })
+            payload.append({
+                "transaction_date": date_str, "type": "MOVE_IN",
+                "product_name": name, "qty": remain, "location": dst,
+                "manufacture_date": ''
+            })
+        else:
+            for g in groups:
+                if remain <= 0:
+                    break
+                deduct = min(remain, g['qty'])
+                payload.append({
+                    "transaction_date": date_str, "type": "MOVE_OUT",
+                    "product_name": name,
+                    "qty": -deduct, "location": src,
+                    "category": g['category'], "expiry_date": g['expiry_date'],
+                    "storage_method": g['storage_method'],
+                    "unit": g.get('unit', '개'),
+                    "manufacture_date": g.get('manufacture_date', '')
+                })
+                payload.append({
+                    "transaction_date": date_str, "type": "MOVE_IN",
+                    "product_name": name,
+                    "qty": deduct, "location": dst,
+                    "category": g['category'], "expiry_date": g['expiry_date'],
+                    "storage_method": g['storage_method'],
+                    "unit": g.get('unit', '개'),
+                    "manufacture_date": g.get('manufacture_date', '')
+                })
+                remain -= deduct
+
+    db.insert_stock_ledger(payload)
+
+    return {
+        "count": len(payload) // 2,
+        "warnings": warnings,
+        "deleted_count": deleted_count,
+    }

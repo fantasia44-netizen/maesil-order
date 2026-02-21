@@ -1,0 +1,127 @@
+"""
+transfer.py — 창고 이동 관리 Blueprint.
+수동 이동 입력 + 엑셀 일괄 이동.
+"""
+import os
+from datetime import datetime
+
+import pandas as pd
+from flask import (
+    Blueprint, render_template, request, current_app,
+    flash, redirect, url_for,
+)
+from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
+
+from auth import role_required
+
+transfer_bp = Blueprint('transfer', __name__, url_prefix='/transfer')
+
+ALLOWED_EXT = {'xlsx', 'xls'}
+
+
+def _allowed(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
+
+
+@transfer_bp.route('/')
+@role_required('admin', 'manager', 'logistics')
+def index():
+    """창고 이동 폼 (수동 + 엑셀)"""
+    db = current_app.db
+    locations = []
+    try:
+        locations, _ = db.query_filter_options()
+    except Exception:
+        pass
+    return render_template('transfer/index.html', locations=locations)
+
+
+@transfer_bp.route('/manual', methods=['POST'])
+@role_required('admin', 'manager', 'logistics')
+def manual():
+    """수동 창고 이동"""
+    product_name = request.form.get('product_name', '').strip()
+    qty = request.form.get('qty', 0, type=int)
+    from_location = request.form.get('from_location', '').strip()
+    to_location = request.form.get('to_location', '').strip()
+    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    mode = request.form.get('mode', '신규입력')
+
+    if not product_name or qty <= 0 or not from_location or not to_location:
+        flash('품목명, 수량, 출발/도착 창고를 모두 입력하세요.', 'danger')
+        return redirect(url_for('transfer.index'))
+
+    if from_location == to_location:
+        flash('출발 창고와 도착 창고가 같습니다.', 'danger')
+        return redirect(url_for('transfer.index'))
+
+    try:
+        from services.transfer_service import process_manual_transfer
+        result = process_manual_transfer(
+            current_app.db, product_name, qty,
+            from_location, to_location, date_str, mode,
+        )
+
+        if result.get('warnings'):
+            for w in result['warnings']:
+                flash(w, 'warning')
+
+        flash(f"창고 이동 완료: {result.get('moved_count', 0)}건 처리"
+              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
+              'success')
+    except ValueError as e:
+        flash(str(e), 'danger')
+    except Exception as e:
+        flash(f'창고 이동 중 오류: {e}', 'danger')
+
+    return redirect(url_for('transfer.index'))
+
+
+@transfer_bp.route('/excel', methods=['POST'])
+@role_required('admin', 'manager', 'logistics')
+def excel():
+    """엑셀 일괄 창고 이동"""
+    file = request.files.get('file')
+    if not file or not _allowed(file.filename):
+        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
+        return redirect(url_for('transfer.index'))
+
+    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    mode = request.form.get('mode', '신규입력')
+
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(upload_dir, filename)
+    file.save(filepath)
+
+    try:
+        df = pd.read_excel(filepath)
+        required_cols = {'품목명', '현재창고위치', '이동창고위치', '수량입력'}
+        if not required_cols.issubset(set(df.columns)):
+            missing = required_cols - set(df.columns)
+            flash(f'필수 컬럼 누락: {", ".join(missing)}', 'danger')
+            return redirect(url_for('transfer.index'))
+
+        from services.transfer_service import process_transfer_excel
+        result = process_transfer_excel(current_app.db, df, date_str, mode)
+
+        if result.get('warnings'):
+            for w in result['warnings']:
+                flash(w, 'warning')
+
+        flash(f"엑셀 이동 완료: {result.get('count', 0)}건 처리"
+              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
+              'success')
+    except KeyError as e:
+        flash(f'엑셀 컬럼 오류: {e}', 'danger')
+    except ValueError as e:
+        flash(str(e), 'danger')
+    except Exception as e:
+        flash(f'엑셀 이동 처리 중 오류: {e}', 'danger')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    return redirect(url_for('transfer.index'))

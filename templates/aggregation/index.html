@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}통합 집계 - 오토툴{% endblock %}
+{% block page_title %}통합 집계{% endblock %}
+
+{% block content %}
+<form method="POST" action="{{ url_for('aggregation.process') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <!-- 파일 입력 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-file-earmark-excel"></i> 파일 업로드
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">집계표 <span class="text-danger">*</span></label>
+                    <input type="file" name="aggregation_files" class="form-control" accept=".xlsx,.xls,.csv" multiple required>
+                    <div class="form-text">집계표 파일 (복수 선택 가능, 필수)</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">세트옵션BOM <span class="text-danger">*</span></label>
+                    <input type="file" name="bom_file" class="form-control" accept=".xlsx,.xls,.csv" required>
+                    <div class="form-text">세트옵션 BOM 파일 (필수)</div>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">옵션리스트</label>
+                    <input type="file" name="option_file" class="form-control" accept=".xlsx,.xls,.csv">
+                    <div class="form-text">옵션리스트 파일 (선택)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 처리 버튼 -->
+    <div class="text-center mb-4">
+        <button type="submit" class="btn btn-primary btn-lg">
+            <i class="bi bi-calculator"></i> 집계 처리
+        </button>
+    </div>
+</form>
+
+<!-- 결과 영역 -->
+{% if result is defined and result %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-check-circle"></i> 집계 결과
+    </div>
+    <div class="card-body">
+        {% if result.logs %}
+        <div class="bg-dark text-light p-3 rounded mb-3" style="max-height: 300px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.85rem;">
+            {% for log in result.logs %}
+            <div>{{ log }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if result.downloads %}
+        <h6><i class="bi bi-download"></i> 다운로드</h6>
+        <div class="list-group">
+            {% for dl in result.downloads %}
+            <a href="{{ dl.url }}" class="list-group-item list-group-item-action">
+                <i class="bi bi-file-earmark-arrow-down"></i> {{ dl.name }}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

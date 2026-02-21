@@ -1,0 +1,440 @@
+"""
+stock_service.py -- 재고 조회/통계 비즈니스 로직.
+Tkinter UI 제거, 순수 데이터 반환.
+"""
+import pandas as pd
+from datetime import datetime
+
+from services.excel_io import build_stock_snapshot, snapshot_lookup
+
+
+# ─── 헬퍼 ───
+
+def validate_date(date_str):
+    """날짜 형식 검증. 유효하면 True, 아니면 ValueError 발생."""
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
+
+
+# ─── 재고 스냅샷 ───
+
+def get_stock_snapshot(db, date_str=None, location='전체'):
+    """특정 창고의 재고 FIFO 스냅샷 딕셔너리를 반환.
+    date_str 미지정 시 location 기반으로만 조회.
+    returns: {product_name: {groups: [...], total: int, unit: str}}
+    """
+    try:
+        loc = location if location and location != '전체' else None
+        all_data = db.query_stock_by_location(loc) if loc else db.query_stock_by_location(location)
+        return build_stock_snapshot(all_data)
+    except Exception as e:
+        print(f"재고 스냅샷 조회 에러: {e}")
+        return {}
+
+
+def load_stock_snapshot(db, location):
+    """app.py의 load_stock_snapshot과 동일한 인터페이스.
+    location 기반 재고 FIFO 스냅샷을 반환.
+    returns: {product_name: {groups: [...], total: int, unit: str}}
+    """
+    try:
+        all_data = db.query_stock_by_location(location)
+        return build_stock_snapshot(all_data)
+    except Exception as e:
+        print(f"재고 스냅샷 조회 에러: {e}")
+        return {}
+
+
+# ─── 전체 재고 원장 데이터 조회 ───
+
+def query_all_stock_data(db, date_to, date_from=None, location=None,
+                         category=None, type_list=None, order_desc=False):
+    """stock_ledger 전체 조회 → DataFrame 반환.
+    app.py의 _query_all_stock_data + query_stock_ledger 호출 통합.
+
+    Args:
+        db: SupabaseDB instance
+        date_to: 종료일 (필수)
+        date_from: 시작일 (선택)
+        location: 창고 필터 (선택, '전체'이면 None 처리)
+        category: 종류 필터 (선택, '전체'이면 None 처리)
+        type_list: 유형 필터 리스트 (선택)
+        order_desc: 역순 정렬 여부
+
+    Returns:
+        pd.DataFrame
+    """
+    loc = location if location and location != '전체' else None
+    cat = category if category and category != '전체' else None
+
+    all_data = db.query_stock_ledger(
+        date_to,
+        date_from=date_from or None,
+        location=loc,
+        category=cat,
+        type_list=type_list,
+        order_desc=order_desc,
+    )
+    if not all_data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_data)
+    df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
+    df['unit'] = df['unit'].fillna('개') if 'unit' in df.columns else '개'
+    for col in ['origin', 'manufacture_date', 'expiry_date', 'lot_number',
+                'grade', 'storage_method', 'memo', 'repack_doc_no', 'category']:
+        if col not in df.columns:
+            df[col] = ''
+        df[col] = df[col].fillna('')
+    return df
+
+
+# ─── 재고 현황 (스냅샷 뷰) ───
+
+def query_stock_snapshot(db, date_str, location=None, category=None,
+                         search=None, storage_method=None,
+                         split_expiry=False, split_manufacture=False):
+    """기준일 기준 재고현황을 조회하여 리스트로 반환.
+    app.py의 _refresh_stock_view 로직과 동일.
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 기준일 (YYYY-MM-DD)
+        location: 창고 필터 (선택, '전체' = 전체)
+        category: 종류 필터 (선택, '전체' = 전체)
+        search: 품목명 검색어 (선택)
+        storage_method: 보관방법 필터 (선택, '전체' = 전체)
+        split_expiry: 소비기한 분리 여부
+        split_manufacture: 제조일 분리 여부
+
+    Returns:
+        list of dict: [
+            {product_name, qty, unit, location, category, storage_method,
+             expiry_date(optional), manufacture_date(optional), is_negative},
+            ...
+        ]
+    """
+    all_data = db.query_stock_ledger(date_str)
+    if not all_data:
+        return []
+
+    df = pd.DataFrame(all_data)
+    if df.empty:
+        return []
+
+    for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin']:
+        if col not in df.columns:
+            df[col] = ''
+        df[col] = df[col].fillna('')
+    if 'unit' not in df.columns:
+        df['unit'] = '개'
+    df['unit'] = df['unit'].fillna('개')
+
+    if split_manufacture:
+        group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'manufacture_date']
+    elif split_expiry:
+        group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'expiry_date']
+    else:
+        group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit']
+
+    summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()
+    summary = summary[summary['qty'] != 0]
+
+    if search:
+        summary = summary[summary['product_name'].str.contains(search, case=False, na=False)]
+    if location and location != '전체':
+        summary = summary[summary['location'] == location]
+    if category and category != '전체':
+        summary = summary[summary['category'] == category]
+    if storage_method and storage_method != '전체':
+        summary = summary[summary['storage_method'] == storage_method]
+
+    results = []
+    for _, r in summary.iterrows():
+        unit = r['unit'] if pd.notna(r.get('unit')) else '개'
+        qty_val = int(r['qty'])
+        item = {
+            'product_name': r['product_name'],
+            'qty': qty_val,
+            'qty_str': f"{qty_val:,}{unit}",
+            'unit': unit,
+            'location': r['location'],
+            'category': r['category'],
+            'storage_method': r['storage_method'],
+            'is_negative': qty_val < 0,
+        }
+        if split_manufacture:
+            item['manufacture_date'] = r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else ''
+        if split_expiry:
+            item['expiry_date'] = r['expiry_date'] if pd.notna(r.get('expiry_date')) else ''
+        results.append(item)
+
+    return results
+
+
+# ─── 이력 뷰 ───
+
+def query_history_view(db, date_str, mode='전체이력', location=None,
+                       category=None, search=None, storage_method=None):
+    """이력 조회 모드별 필터링하여 리스트 반환.
+    app.py의 _refresh_history_view 로직과 동일.
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 기준일 (종료일)
+        mode: 조회 모드 (OUT(출고), SALES_OUT(매출출고), etc.)
+        location: 창고 필터 ('전체' = 전체)
+        category: 종류 필터 ('전체' = 전체)
+        search: 품목명 검색어
+        storage_method: 보관방법 필터 ('전체' = 전체)
+
+    Returns:
+        list of dict
+    """
+    type_map = {
+        "OUT(출고)": ["OUT", "SALES_OUT", "PROD_OUT"],
+        "SALES_OUT(매출출고)": ["SALES_OUT"],
+        "PROD_OUT(생산출고)": ["PROD_OUT"],
+        "IN(생산/입고)": ["IN", "PRODUCTION", "INBOUND"],
+        "PRODUCTION(생산)": ["PRODUCTION"],
+        "INBOUND(입고)": ["INBOUND"],
+        "MOVE(창고이동)": ["MOVE_IN", "MOVE_OUT"],
+        "REPACK(소분)": ["REPACK_OUT", "REPACK_IN"],
+        "INIT(기초)": ["INIT"],
+        "전체이력": None,
+    }
+    filter_types = type_map.get(mode)
+    all_data = db.query_stock_ledger(date_str, order_desc=True)
+
+    results = []
+    for r in all_data:
+        if r.get('qty', 0) == 0:
+            continue
+        if filter_types and r.get('type') not in filter_types:
+            continue
+        if search and search.lower() not in r.get('product_name', '').lower():
+            continue
+        if location and location != '전체' and r.get('location') != location:
+            continue
+        if category and category != '전체' and r.get('category') != category:
+            continue
+        if storage_method and storage_method != '전체' and r.get('storage_method') != storage_method:
+            continue
+
+        unit = r.get('unit', '개') or '개'
+        results.append({
+            'transaction_date': r.get('transaction_date', ''),
+            'type': r.get('type', ''),
+            'product_name': r.get('product_name', ''),
+            'qty': r.get('qty', 0),
+            'qty_str': f"{r.get('qty', 0)}{unit}",
+            'unit': unit,
+            'location': r.get('location', ''),
+            'category': r.get('category', ''),
+            'expiry_date': r.get('expiry_date', '') or '',
+            'storage_method': r.get('storage_method', ''),
+            'lot_number': r.get('lot_number', '') or '',
+            'grade': r.get('grade', '') or '',
+        })
+
+    return results
+
+
+# ─── 통합 조회 (refresh_stats 대체) ───
+
+def get_stats(db, date_str, location='전체', category='전체',
+              search=None, storage_method='전체', view_mode='재고현황'):
+    """탭1 재고통계 조회 (refresh_stats 대체).
+    view_mode에 따라 재고현황 또는 이력 데이터를 반환.
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 기준일 (YYYY-MM-DD)
+        location: 창고 필터
+        category: 종류 필터
+        search: 품목명 검색어
+        storage_method: 보관방법 필터
+        view_mode: 조회 모드
+
+    Returns:
+        dict: {
+            'mode': str,
+            'columns': tuple of str,
+            'rows': list of dict,
+            'total_items': int,
+            'total_qty': int (재고현황 모드일 때),
+            'locations': list of str,
+            'categories': list of str,
+        }
+    """
+    if view_mode == '재고현황':
+        columns = ("품목명", "수량(기준일)", "창고위치", "종류", "보관방법")
+        rows = query_stock_snapshot(db, date_str, location=location,
+                                    category=category, search=search,
+                                    storage_method=storage_method)
+    elif view_mode == '재고현황(소비기한분리)':
+        columns = ("품목명", "수량(기준일)", "창고위치", "종류", "소비기한", "보관방법")
+        rows = query_stock_snapshot(db, date_str, location=location,
+                                    category=category, search=search,
+                                    storage_method=storage_method,
+                                    split_expiry=True)
+    elif view_mode == '재고현황(제조일분리)':
+        columns = ("품목명", "수량(기준일)", "창고위치", "종류", "제조일", "보관방법")
+        rows = query_stock_snapshot(db, date_str, location=location,
+                                    category=category, search=search,
+                                    storage_method=storage_method,
+                                    split_manufacture=True)
+    else:
+        columns = ("일자", "유형", "품목명", "수량", "창고위치", "종류",
+                   "소비기한", "보관방법", "이력번호", "등급")
+        rows = query_history_view(db, date_str, mode=view_mode,
+                                  location=location, category=category,
+                                  search=search, storage_method=storage_method)
+
+    # 집계 정보
+    total_qty = 0
+    locations_set = set()
+    categories_set = set()
+    for r in rows:
+        total_qty += r.get('qty', 0)
+        loc = r.get('location', '')
+        cat = r.get('category', '')
+        if loc:
+            locations_set.add(loc)
+        if cat:
+            categories_set.add(cat)
+
+    return {
+        'mode': view_mode,
+        'columns': columns,
+        'rows': rows,
+        'total_items': len(rows),
+        'total_qty': total_qty,
+        'locations': sorted(locations_set),
+        'categories': sorted(categories_set),
+    }
+
+
+# ─── 수불장 데이터 조회 ───
+
+def query_ledger_data(db, date_from, date_to, location=None, category=None,
+                      search=None, split_manufacture=False):
+    """수불장(전일이월 + 기간거래) 데이터를 조회하여 dict로 반환.
+    app.py의 _query_ledger_data 로직과 동일.
+
+    Returns:
+        dict: {
+            'prev_dict': {key: int},           -- 전일이월 잔고
+            'period_groups': {key: [rows]},     -- 기간 거래
+            'sorted_keys': [key, ...],          -- 정렬된 그룹 키
+            'group_keys': [str, ...],           -- 그룹핑 컬럼명
+        }
+    """
+    df = query_all_stock_data(db, date_to)
+    if df.empty:
+        return {'prev_dict': {}, 'period_groups': {}, 'sorted_keys': [], 'group_keys': []}
+
+    if search:
+        df = df[df['product_name'].str.contains(search, case=False, na=False)]
+    if location and location != '전체':
+        df = df[df['location'] == location]
+    if category and category != '전체':
+        df = df[df['category'] == category]
+    if df.empty:
+        return {'prev_dict': {}, 'period_groups': {}, 'sorted_keys': [], 'group_keys': []}
+
+    group_keys = ['product_name', 'location', 'category', 'unit']
+    if split_manufacture:
+        group_keys = ['product_name', 'location', 'category', 'unit', 'manufacture_date']
+
+    if date_from:
+        df_before = df[df['transaction_date'] < date_from]
+        df_period = df[(df['transaction_date'] >= date_from) & (df['transaction_date'] <= date_to)]
+    else:
+        df_before = pd.DataFrame(columns=df.columns)
+        df_period = df.copy()
+
+    prev_dict = {}
+    if not df_before.empty:
+        pb = df_before.groupby(group_keys)['qty'].sum().reset_index()
+        for _, r in pb.iterrows():
+            key = tuple(r[k] for k in group_keys)
+            prev_dict[key] = int(r['qty'])
+
+    sort_cols = ['transaction_date']
+    if 'id' in df_period.columns:
+        sort_cols.append('id')
+    df_period = df_period.sort_values(by=sort_cols).reset_index(drop=True)
+
+    period_groups = {}
+    for _, row in df_period.iterrows():
+        key = tuple(row[k] for k in group_keys)
+        if key not in period_groups:
+            period_groups[key] = []
+        period_groups[key].append(row.to_dict())
+
+    for key in prev_dict:
+        if key not in period_groups:
+            period_groups[key] = []
+
+    sorted_keys = sorted(period_groups.keys(), key=lambda k: (k[1], k[2], k[0]))
+
+    return {
+        'prev_dict': prev_dict,
+        'period_groups': period_groups,
+        'sorted_keys': sorted_keys,
+        'group_keys': group_keys,
+    }
+
+
+# ─── 생산 로그 조회 ───
+
+def query_production_log(db, target_date, location=None):
+    """특정 일자의 생산/생산출고 기록을 조회.
+    app.py의 _query_production_log_data 로직과 동일.
+
+    Returns:
+        dict: {
+            'production': list of dict,   -- PRODUCTION 기록
+            'prod_out': list of dict,      -- PROD_OUT 기록
+        }
+    """
+    df = query_all_stock_data(db, target_date)
+    if df.empty:
+        return {'production': [], 'prod_out': []}
+
+    df = df[df['transaction_date'] == target_date]
+    if location and location != '전체':
+        df = df[df['location'] == location]
+
+    df_prod = df[df['type'] == 'PRODUCTION']
+    df_out = df[df['type'] == 'PROD_OUT']
+
+    return {
+        'production': df_prod.to_dict('records'),
+        'prod_out': df_out.to_dict('records'),
+    }
+
+
+# ─── 필터 옵션 조회 ───
+
+def get_filter_options(db):
+    """창고/종류 필터 옵션 목록을 반환.
+
+    Returns:
+        dict: {
+            'locations': list of str,
+            'categories': list of str,
+        }
+    """
+    try:
+        locs, cats = db.query_filter_options()
+        return {
+            'locations': locs or [],
+            'categories': cats or [],
+        }
+    except Exception:
+        return {'locations': [], 'categories': []}

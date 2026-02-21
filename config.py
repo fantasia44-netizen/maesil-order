@@ -3,15 +3,16 @@ from datetime import timedelta
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
+SUPABASE_URL = "https://pbocckpuiyzijspqpvqz.supabase.co"
+SUPABASE_KEY = "sb_publishable_5TAy2FEAWeRmRCbOz6S14g_x4a8aOYI"
+
 
 class Config:
-    # 보안 키 (배포 시 환경변수로 반드시 변경)
     SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
 
-    # DB
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(basedir, 'instance', 'app.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Supabase
+    SUPABASE_URL = os.environ.get('SUPABASE_URL') or SUPABASE_URL
+    SUPABASE_KEY = os.environ.get('SUPABASE_KEY') or SUPABASE_KEY
 
     # 세션 보안
     SESSION_COOKIE_HTTPONLY = True
@@ -24,6 +25,7 @@ class Config:
 
     # 파일 업로드
     UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
+    OUTPUT_FOLDER = os.path.join(basedir, 'output')
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
 
     # 팀/권한 정의
@@ -37,7 +39,7 @@ class Config:
 
 
 class ProductionConfig(Config):
-    SESSION_COOKIE_SECURE = True  # HTTPS only
+    SESSION_COOKIE_SECURE = True
 
 
 class DevelopmentConfig(Config):

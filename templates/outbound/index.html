@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}출고 관리 - 오토툴{% endblock %}
+{% block page_title %}출고 관리{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 단건 출고 -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-truck"></i> 단건 출고
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('outbound.single') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">위치</label>
+                        <select name="location" class="form-select">
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">카테고리</label>
+                        <select name="category" class="form-select">
+                            <option value="">선택</option>
+                            {% for cat in categories|default([]) %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">출고 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-upload"></i> 단건 출고 처리
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 일괄 출고 -->
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-files"></i> 일괄 출고
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('outbound.batch') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일 (복수 선택 가능)</label>
+                        <input type="file" name="files" class="form-control" accept=".xlsx,.xls" multiple required>
+                        <div class="form-text">여러 출고 엑셀 파일을 한번에 업로드하세요.</div>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100">
+                        <i class="bi bi-upload"></i> 일괄 출고 처리
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 결과 영역 -->
+{% if result is defined and result %}
+<div class="card mt-4">
+    <div class="card-header">
+        <i class="bi bi-check-circle"></i> 처리 결과
+    </div>
+    <div class="card-body">
+        <p class="mb-1">처리 건수: <strong>{{ result.count|default(0) }}건</strong></p>
+        {% if result.warnings %}
+        <hr>
+        <h6 class="text-warning"><i class="bi bi-exclamation-triangle"></i> 경고</h6>
+        <ul class="mb-0">
+            {% for w in result.warnings %}
+            <li class="text-warning">{{ w }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

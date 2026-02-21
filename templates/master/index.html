@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}마스터 관리 - 오토툴{% endblock %}
+{% block page_title %}마스터 관리{% endblock %}
+
+{% block content %}
+<!-- 마스터 카드 영역 -->
+<div class="row g-4 mb-4">
+    <!-- 옵션마스터 -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul"></i> 옵션마스터</span>
+                <span class="badge bg-primary">{{ option_count|default(0) }}건</span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('master.sync_option') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 mb-2">
+                        <i class="bi bi-arrow-repeat"></i> 동기화
+                    </button>
+                </form>
+                <a href="{{ url_for('master.view_option') }}" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-eye"></i> 보기
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- 가격표 -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-tags"></i> 가격표</span>
+                <span class="badge bg-success">{{ price_count|default(0) }}건</span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('master.sync_price') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100 mb-2">
+                        <i class="bi bi-arrow-repeat"></i> 동기화
+                    </button>
+                </form>
+                <a href="{{ url_for('master.view_price') }}" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-eye"></i> 보기
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOM 세트옵션 -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-diagram-3"></i> BOM 세트옵션</span>
+                <span class="badge bg-warning text-dark">{{ bom_count|default(0) }}건</span>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('master.sync_bom') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100 mb-2">
+                        <i class="bi bi-arrow-repeat"></i> 동기화
+                    </button>
+                </form>
+                <a href="{{ url_for('master.view_bom') }}" class="btn btn-outline-secondary w-100">
+                    <i class="bi bi-eye"></i> 보기
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 품목명 공백 정리 -->
+<div class="card mb-4">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+            <h6 class="mb-1"><i class="bi bi-text-indent-left"></i> 품목명 공백 정리</h6>
+            <small class="text-muted">모든 마스터 데이터의 품목명에서 불필요한 공백을 제거합니다.</small>
+        </div>
+        <form method="POST" action="{{ url_for('master.trim_names') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-primary">
+                <i class="bi bi-magic"></i> 공백 정리 실행
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- 검색/편집 -->
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-search"></i> 마스터 검색
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('master.index') }}" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label fw-semibold">품목명</label>
+                <input type="text" name="search" class="form-control" value="{{ search_query|default('') }}" placeholder="품목명 검색">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">마스터 유형</label>
+                <select name="master_type" class="form-select">
+                    <option value="option" {% if master_type|default('option') == 'option' %}selected{% endif %}>옵션마스터</option>
+                    <option value="price" {% if master_type|default('') == 'price' %}selected{% endif %}>가격표</option>
+                    <option value="bom" {% if master_type|default('') == 'bom' %}selected{% endif %}>BOM</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 검색
+                </button>
+            </div>
+        </form>
+
+        {% if search_results is defined and search_results %}
+        <hr>
+        <div class="table-responsive mt-3">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        {% for col in search_columns|default([]) %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                        <th style="width:80px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in search_results %}
+                    <tr>
+                        {% for col in search_columns|default([]) %}
+                        <td>{{ row[col]|default('-') }}</td>
+                        {% endfor %}
+                        <td>
+                            <a href="{{ url_for('master.edit_item', master_type=master_type|default('option'), item_id=row.id) }}"
+                               class="btn btn-sm btn-outline-primary" title="수정">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

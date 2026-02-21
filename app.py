@@ -1,13 +1,11 @@
 import os
-import sys
 
-from flask import Flask, redirect, url_for
+from flask import Flask
 from flask_login import LoginManager, current_user
 from flask_wtf.csrf import CSRFProtect
-from flask_migrate import Migrate
 
 from config import Config, DevelopmentConfig
-from models import db, User
+from models import User
 
 
 def create_app(config_class=None):
@@ -23,10 +21,13 @@ def create_app(config_class=None):
 
     app.config.from_object(config_class)
 
-    # 확장 초기화
-    db.init_app(app)
-    migrate = Migrate(app, db)
-    csrf = CSRFProtect(app)
+    # CSRF
+    CSRFProtect(app)
+
+    # Supabase DB 초기화
+    from db_supabase import SupabaseDB
+    app.db = SupabaseDB()
+    app.db.connect()
 
     # 로그인 매니저
     login_manager = LoginManager()
@@ -37,78 +38,97 @@ def create_app(config_class=None):
 
     @login_manager.user_loader
     def load_user(user_id):
-        return db.session.get(User, int(user_id))
+        row = app.db.query_user_by_id(int(user_id))
+        return User(row) if row else None
 
     # 사이드바 메뉴 (모든 페이지에서 사용)
     @app.context_processor
     def inject_sidebar():
         if not current_user.is_authenticated:
-            return dict(sidebar_menus=[])
+            return dict(sidebar_menus=[], pending_users=0)
 
         menus = [{'name': '대시보드', 'icon': 'bi-house', 'url': '/'}]
 
         if current_user.role in ('admin', 'manager', 'sales'):
-            menus.append({'name': '주문 관리', 'icon': 'bi-cart', 'url': '#'})
-            menus.append({'name': '거래처 관리', 'icon': 'bi-building', 'url': '#'})
+            menus.append({'name': '주문 처리', 'icon': 'bi-cart', 'url': '/orders'})
+            menus.append({'name': '통합 집계', 'icon': 'bi-calculator', 'url': '/aggregation'})
+            menus.append({'name': '거래처 관리', 'icon': 'bi-building', 'url': '/trade'})
 
         if current_user.role in ('admin', 'manager', 'logistics'):
-            menus.append({'name': '출고 관리', 'icon': 'bi-truck', 'url': '#'})
-            menus.append({'name': '재고 조회', 'icon': 'bi-box', 'url': '#'})
+            menus.append({'name': '출고 관리', 'icon': 'bi-truck', 'url': '/outbound'})
+            menus.append({'name': '재고 현황', 'icon': 'bi-box', 'url': '/stock'})
+            menus.append({'name': '창고 이동', 'icon': 'bi-arrow-left-right', 'url': '/transfer'})
 
         if current_user.role in ('admin', 'manager', 'production'):
-            menus.append({'name': '생산 관리', 'icon': 'bi-gear', 'url': '#'})
-            menus.append({'name': '원자재 관리', 'icon': 'bi-clipboard-data', 'url': '#'})
+            menus.append({'name': '생산/입고', 'icon': 'bi-gear', 'url': '/production'})
+            menus.append({'name': '소분 관리', 'icon': 'bi-scissors', 'url': '/repack'})
 
         if current_user.can_view_all():
-            menus.append({'name': '통합 현황', 'icon': 'bi-graph-up', 'url': '#'})
-            menus.append({'name': '일일 매출', 'icon': 'bi-currency-won', 'url': '#'})
+            menus.append({'name': '수불장', 'icon': 'bi-journal-text', 'url': '/ledger'})
+            menus.append({'name': '매출 관리', 'icon': 'bi-currency-won', 'url': '/revenue'})
 
         if current_user.is_admin():
+            menus.append({'name': '마스터 관리', 'icon': 'bi-database', 'url': '/master'})
+            menus.append({'name': '이력 관리', 'icon': 'bi-clock-history', 'url': '/history'})
+            menus.append({'name': '기초 데이터', 'icon': 'bi-hdd', 'url': '/base-data'})
             menus.append({'name': '사용자 관리', 'icon': 'bi-people', 'url': '/admin/users'})
-            menus.append({'name': '감사 로그', 'icon': 'bi-journal-text', 'url': '/admin/logs'})
+            menus.append({'name': '감사 로그', 'icon': 'bi-shield-check', 'url': '/admin/logs'})
 
-        # 대시보드에서 승인 대기 알림용
-        pending_users = User.query.filter_by(is_approved=False).count() if current_user.is_admin() else 0
+        pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
 
         return dict(sidebar_menus=menus, pending_users=pending_users)
 
-    # 블루프린트 등록
+    # Blueprint 등록
     from auth import auth_bp
     from admin import admin_bp
-    from routes import main_bp
+    from blueprints.dashboard import dashboard_bp
+    from blueprints.stock import stock_bp
+    from blueprints.production import production_bp
+    from blueprints.outbound import outbound_bp
+    from blueprints.transfer import transfer_bp
+    from blueprints.base_data import base_data_bp
+    from blueprints.history import history_bp
+    from blueprints.revenue import revenue_bp
+    from blueprints.master import master_bp
+    from blueprints.ledger import ledger_bp
+    from blueprints.repack import repack_bp
+    from blueprints.trade import trade_bp
+    from blueprints.orders import orders_bp
+    from blueprints.aggregation import aggregation_bp
 
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(admin_bp)
-    app.register_blueprint(main_bp)
+    for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
+               outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
+               master_bp, ledger_bp, repack_bp, trade_bp, orders_bp, aggregation_bp]:
+        app.register_blueprint(bp)
 
-    # 인스턴스/업로드 폴더 생성
-    os.makedirs(app.instance_path, exist_ok=True)
+    # 폴더 생성
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)
+    os.makedirs(app.config.get('OUTPUT_FOLDER', 'output'), exist_ok=True)
 
     return app
 
 
 def init_db(app):
-    """DB 초기화 및 기본 관리자 계정 생성"""
+    """기본 관리자 계정 확인/생성 (app_users 테이블이 없으면 건너뜀)"""
     with app.app_context():
-        db.create_all()
-
-        # 관리자 계정이 없으면 생성
-        if not User.query.filter_by(role='admin').first():
-            admin = User(
-                username='admin',
-                name='관리자',
-                role='admin',
-                is_approved=True,
-                is_active_user=True
-            )
-            admin.set_password('admin1234!')
-            db.session.add(admin)
-            db.session.commit()
-            print('[초기화] 관리자 계정 생성 완료')
-            print('  아이디: admin')
-            print('  비밀번호: admin1234!')
-            print('  ※ 첫 로그인 후 반드시 비밀번호를 변경하세요!')
+        try:
+            existing = app.db.query_user_by_username('admin')
+            if not existing:
+                admin_user = User()
+                admin_user.set_password('admin1234!')
+                app.db.insert_user({
+                    'username': 'admin',
+                    'name': '관리자',
+                    'password_hash': admin_user.password_hash,
+                    'role': 'admin',
+                    'is_approved': True,
+                    'is_active_user': True,
+                })
+                print('[초기화] 관리자 계정 생성 완료')
+                print('  아이디: admin / 비밀번호: admin1234!')
+        except Exception as e:
+            print(f'[경고] 사용자 테이블 초기화 실패: {e}')
+            print('  Supabase에서 app_users, audit_logs 테이블을 먼저 생성하세요.')
 
 
 if __name__ == '__main__':
