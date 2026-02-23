@@ -507,13 +507,21 @@ class SupabaseDB(DBBase):
             return -1
 
     def sync_option_master(self, payload_list, batch_size=500):
-        """옵션마스터 전체 교체."""
-        self.client.table("option_master").delete().neq("id", 0).execute()
+        """옵션마스터 전체 교체 (엑셀 내 중복 match_key 자동 제거)."""
+        # match_key 생성 + 중복 제거 (뒤에 나오는 행이 우선)
+        seen = {}
         for row in payload_list:
             orig = row.get('original_name', '')
             row['match_key'] = str(orig).replace(' ', '').upper()
-        for i in range(0, len(payload_list), batch_size):
-            self.client.table("option_master").insert(payload_list[i:i + batch_size]).execute()
+            seen[row['match_key']] = row
+        deduped = list(seen.values())
+
+        # 기존 데이터 전체 삭제 후 삽입
+        self.client.table("option_master").delete().neq("id", 0).execute()
+        for i in range(0, len(deduped), batch_size):
+            self.client.table("option_master").insert(
+                deduped[i:i + batch_size]
+            ).execute()
         self._invalidate_option_cache()
 
     def touch_option_matched(self, match_keys):
