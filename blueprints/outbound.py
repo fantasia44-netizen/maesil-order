@@ -226,12 +226,26 @@ def single():
             except Exception as rev_err:
                 current_app.logger.warning(f'거래처매출 등록 실패: {rev_err}')
 
+        # 본사 정보를 세션에 미리 저장 (result 페이지에서 DB 조회 불필요)
+        my_biz_info = {}
+        try:
+            if my_biz_id:
+                all_biz = db.query_my_business()
+                my_biz_info = next(
+                    (b for b in all_biz if b.get('id') == int(my_biz_id)), {}
+                )
+            if not my_biz_info:
+                my_biz_info = db.query_default_business()
+        except Exception:
+            my_biz_info = {}
+
         # 결과 데이터를 세션에 저장 (거래명세서 생성용)
         session['outbound_result'] = {
             'date': date_str,
             'location': location,
             'partner_name': partner_name,
             'my_biz_id': int(my_biz_id) if my_biz_id else None,
+            'my_biz': my_biz_info,
             'items': items,
             'count': result['count'],
         }
@@ -248,41 +262,31 @@ def single():
 @outbound_bp.route('/result')
 @role_required('admin', 'manager', 'sales', 'general')
 def result():
-    """단건 출고 결과 — 거래명세서 생성 버튼 포함"""
-    result_data = session.get('outbound_result')
-    if not result_data:
+    """단건 출고 결과 — 거래명세서 생성 버튼 포함 (DB 조회 없음)"""
+    try:
+        result_data = session.get('outbound_result')
+        if not result_data:
+            return redirect(url_for('outbound.index'))
+
+        # 본사 정보는 세션에 저장된 것 사용 (DB 조회 불필요)
+        my_biz = result_data.get('my_biz', {})
+
+        # 합계 계산
+        total_qty = sum(abs(int(i.get('qty', 0))) for i in result_data.get('items', []))
+        total_amount = sum(
+            abs(int(i.get('qty', 0))) * int(i.get('unit_price', 0))
+            for i in result_data.get('items', [])
+        )
+
+        return render_template('outbound/result.html',
+                               result=result_data,
+                               my_biz=my_biz,
+                               total_qty=total_qty,
+                               total_amount=total_amount)
+    except Exception as e:
+        current_app.logger.error(f'결과 페이지 오류: {e}')
+        flash('출고 처리는 완료되었습니다. (결과 페이지 표시 중 오류 발생)', 'warning')
         return redirect(url_for('outbound.index'))
-
-    # 본사 정보 조회
-    db = current_app.db
-    my_biz = {}
-    if result_data.get('my_biz_id'):
-        try:
-            all_biz = db.query_my_business()
-            my_biz = next(
-                (b for b in all_biz if b.get('id') == result_data['my_biz_id']),
-                {}
-            )
-        except Exception:
-            pass
-    if not my_biz:
-        try:
-            my_biz = db.query_default_business()
-        except Exception:
-            pass
-
-    # 합계 계산
-    total_qty = sum(abs(int(i.get('qty', 0))) for i in result_data.get('items', []))
-    total_amount = sum(
-        abs(int(i.get('qty', 0))) * int(i.get('unit_price', 0))
-        for i in result_data.get('items', [])
-    )
-
-    return render_template('outbound/result.html',
-                           result=result_data,
-                           my_biz=my_biz,
-                           total_qty=total_qty,
-                           total_amount=total_amount)
 
 
 @outbound_bp.route('/invoice')
