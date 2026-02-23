@@ -162,16 +162,28 @@ def sync_option():
         payload = []
         for _, row in df.iterrows():
             orig = str(row.iloc[0]).strip()
-            if not orig:
+            if not orig or orig == 'nan':
                 continue
-            sort_val = pd.to_numeric(row.iloc[4], errors='coerce')
-            sort_order = int(sort_val) if pd.notna(sort_val) else 999
+            try:
+                sv = float(str(row.iloc[4]).strip() or '999')
+                sort_order = 999 if (sv != sv) else int(sv)  # NaN != NaN
+            except (ValueError, TypeError):
+                sort_order = 999
+            bc = str(row.iloc[5]).strip() if len(row) > 5 else ''
+            if bc == 'nan':
+                bc = ''
+            pn = str(row.iloc[1]).strip()
+            if pn == 'nan':
+                pn = ''
+            lc = str(row.iloc[2]).strip()
+            if lc == 'nan':
+                lc = '0'
             payload.append({
                 'original_name': orig,
-                'product_name': str(row.iloc[1]).strip(),
-                'line_code': str(row.iloc[2]).strip(),
+                'product_name': pn,
+                'line_code': lc,
                 'sort_order': sort_order,
-                'barcode': str(row.iloc[5]).strip() if len(row) > 5 else '',
+                'barcode': bc,
             })
 
         current_app.db.sync_option_master(payload)
