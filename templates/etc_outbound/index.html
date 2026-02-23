@@ -19,7 +19,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">창고위치</label>
-                        <select name="location" class="form-select" required>
+                        <select name="location" id="locationSelect" class="form-select" required>
                             <option value="">선택</option>
                             {% for loc in locations|default([]) %}
                             <option value="{{ loc }}">{{ loc }}</option>
@@ -34,18 +34,26 @@
                             <i class="bi bi-plus-lg"></i> 행 추가
                         </button>
                     </div>
+                    <div class="alert alert-info small py-1 px-2 mb-2">
+                        <i class="bi bi-info-circle"></i>
+                        수량: <strong>양수</strong> = 재고 차감 (출고), <strong>음수</strong> (-10 등) = 재고 증량 (입고)
+                    </div>
 
                     <div id="itemRows">
                         <!-- 기본 1행 -->
                         <div class="item-row border rounded p-2 mb-2">
                             <div class="row g-2">
                                 <div class="col-12">
-                                    <input type="text" name="product_name[]" class="form-control form-control-sm"
-                                           placeholder="품목명" required>
+                                    <div class="position-relative">
+                                        <input type="text" name="product_name[]" class="form-control form-control-sm product-input"
+                                               placeholder="품목명 (입력하면 자동완성)" required autocomplete="off">
+                                        <div class="autocomplete-list list-group position-absolute w-100" style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                                    </div>
+                                    <small class="text-muted product-stock"></small>
                                 </div>
                                 <div class="col-4">
                                     <input type="number" name="qty[]" class="form-control form-control-sm"
-                                           placeholder="수량" min="1" required>
+                                           placeholder="수량" required>
                                 </div>
                                 <div class="col-5">
                                     <select name="reason[]" class="form-select form-select-sm">
@@ -68,7 +76,7 @@
                     </div>
 
                     <button type="submit" class="btn btn-warning w-100 mt-2"
-                            onclick="return confirm('기타출고를 실행하시겠습니까?\n재고가 차감됩니다.');">
+                            onclick="return confirm('기타출고를 실행하시겠습니까?\n양수=재고차감, 음수=재고증량');">
                         <i class="bi bi-box-arrow-right"></i> 기타출고 실행
                     </button>
                 </form>
@@ -112,6 +120,7 @@
                         <thead class="table-light">
                             <tr>
                                 <th>날짜</th>
+                                <th>유형</th>
                                 <th>품목명</th>
                                 <th class="text-end">수량</th>
                                 <th>창고</th>
@@ -122,14 +131,23 @@
                             {% for row in history|default([]) %}
                             <tr>
                                 <td>{{ row.transaction_date|default('-') }}</td>
+                                <td>
+                                    {% if row.type == 'ETC_IN' %}
+                                    <span class="badge bg-success">증량</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">차감</span>
+                                    {% endif %}
+                                </td>
                                 <td>{{ row.product_name }}</td>
-                                <td class="text-end text-danger">{{ '{:,.0f}'.format(row.qty) }}</td>
+                                <td class="text-end {{ 'text-success' if row.qty > 0 else 'text-danger' }}">
+                                    {{ '{:,.0f}'.format(row.qty) }}
+                                </td>
                                 <td>{{ row.location|default('-') }}</td>
                                 <td class="text-muted small">{{ row.memo|default('-') }}</td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-4">
+                                <td colspan="6" class="text-center text-muted py-4">
                                     {% if date_from or date_to %}
                                     해당 기간의 기타출고 이력이 없습니다.
                                     {% else %}
@@ -147,6 +165,64 @@
 </div>
 
 <script>
+// 품목 목록 캐시
+let productCache = [];
+
+// 창고 변경 시 품목 목록 로드
+document.getElementById('locationSelect').addEventListener('change', function() {
+    const loc = this.value;
+    productCache = [];
+    if (!loc) return;
+
+    fetch(`{{ url_for('etc_outbound.api_products') }}?location=${encodeURIComponent(loc)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (Array.isArray(data)) productCache = data;
+        })
+        .catch(err => console.error('품목 로드 실패:', err));
+});
+
+// 자동완성 바인딩
+function bindAutocomplete(input) {
+    const listEl = input.nextElementSibling;
+    const stockEl = input.closest('.col-12').querySelector('.product-stock');
+
+    input.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        listEl.innerHTML = '';
+        if (!q || productCache.length === 0) { listEl.style.display = 'none'; return; }
+
+        const matches = productCache.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
+        if (matches.length === 0) { listEl.style.display = 'none'; return; }
+
+        matches.forEach(p => {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
+            item.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                input.value = p.name;
+                if (stockEl) stockEl.textContent = `현재고: ${p.qty} ${p.unit}`;
+                listEl.style.display = 'none';
+            });
+            listEl.appendChild(item);
+        });
+        listEl.style.display = 'block';
+    });
+
+    input.addEventListener('blur', function() {
+        setTimeout(() => { listEl.style.display = 'none'; }, 200);
+    });
+
+    input.addEventListener('focus', function() {
+        if (this.value.trim()) this.dispatchEvent(new Event('input'));
+    });
+}
+
+// 초기 바인딩
+document.querySelectorAll('.product-input').forEach(bindAutocomplete);
+
 function addRow() {
     const container = document.getElementById('itemRows');
     const reasons = {{ reasons|tojson }};
@@ -157,12 +233,16 @@ function addRow() {
     <div class="item-row border rounded p-2 mb-2">
         <div class="row g-2">
             <div class="col-12">
-                <input type="text" name="product_name[]" class="form-control form-control-sm"
-                       placeholder="품목명" required>
+                <div class="position-relative">
+                    <input type="text" name="product_name[]" class="form-control form-control-sm product-input"
+                           placeholder="품목명 (입력하면 자동완성)" required autocomplete="off">
+                    <div class="autocomplete-list list-group position-absolute w-100" style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                </div>
+                <small class="text-muted product-stock"></small>
             </div>
             <div class="col-4">
                 <input type="number" name="qty[]" class="form-control form-control-sm"
-                       placeholder="수량" min="1" required>
+                       placeholder="수량" required>
             </div>
             <div class="col-5">
                 <select name="reason[]" class="form-select form-select-sm">
@@ -181,6 +261,10 @@ function addRow() {
         </div>
     </div>`;
     container.insertAdjacentHTML('beforeend', html);
+
+    // 새 행 자동완성 바인딩
+    const newInput = container.lastElementChild.querySelector('.product-input');
+    bindAutocomplete(newInput);
 }
 
 function removeRow(btn) {

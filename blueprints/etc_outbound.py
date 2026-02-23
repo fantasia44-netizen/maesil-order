@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for, send_file,
+    flash, redirect, url_for, send_file, jsonify,
 )
 from flask_login import login_required, current_user
 
@@ -41,7 +41,7 @@ def index():
             raw = db.query_stock_ledger(
                 date_to=date_to or '9999-12-31',
                 date_from=date_from or None,
-                type_list=['ETC_OUT'],
+                type_list=['ETC_OUT', 'ETC_IN'],
                 order_desc=True,
             )
             history = raw
@@ -55,6 +55,31 @@ def index():
                            date_from=date_from,
                            date_to=date_to,
                            type_labels=INV_TYPE_LABELS)
+
+
+@etc_outbound_bp.route('/api/products')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+def api_products():
+    """창고별 재고 품목 목록 JSON 반환 (자동완성용)"""
+    location = request.args.get('location', '')
+    if not location:
+        return jsonify([])
+    try:
+        from services.excel_io import build_stock_snapshot
+        all_data = current_app.db.query_stock_by_location(location)
+        snapshot = build_stock_snapshot(all_data)
+        products = []
+        for name, info in snapshot.items():
+            if info['total'] > 0:
+                products.append({
+                    'name': name,
+                    'qty': info['total'],
+                    'unit': info.get('unit', '개'),
+                })
+        products.sort(key=lambda x: x['name'])
+        return jsonify(products)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @etc_outbound_bp.route('/process', methods=['POST'])
@@ -84,10 +109,10 @@ def process():
         reason = reasons[i] if i < len(reasons) else '기타'
         memo = memos[i].strip() if i < len(memos) else ''
 
-        if name and qty > 0:
+        if name and qty != 0:
             items.append({
                 'product_name': name,
-                'qty': qty,
+                'qty': qty,       # 양수=차감, 음수=증량
                 'reason': reason,
                 'memo': memo,
             })
@@ -109,9 +134,14 @@ def process():
                 flash(f'⚠️ {s}', 'danger')
 
         if result.get('success'):
+            parts = []
+            if result.get('out_count', 0):
+                parts.append(f"차감 {result['out_count']}건")
+            if result.get('in_count', 0):
+                parts.append(f"증량 {result['in_count']}건")
             flash(
                 f"기타출고 완료: {result.get('item_count', 0)}개 품목, "
-                f"총 {result.get('out_count', 0)}건 차감",
+                f"{', '.join(parts) if parts else '0건 처리'}",
                 'success'
             )
     except Exception as e:
@@ -133,7 +163,7 @@ def export():
         raw = db.query_stock_ledger(
             date_to=date_to or '9999-12-31',
             date_from=date_from or None,
-            type_list=['ETC_OUT'],
+            type_list=['ETC_OUT', 'ETC_IN'],
             order_desc=True,
         )
 

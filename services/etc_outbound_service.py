@@ -45,12 +45,12 @@ def process_etc_outbound(db, date_str, location, items):
 
     if not items:
         return {'success': False, 'warnings': ['출고할 품목이 없습니다.'],
-                'shortage': [], 'out_count': 0}
+                'shortage': [], 'out_count': 0, 'in_count': 0}
 
     # 재고 스냅샷 로드
     snapshot = _load_stock_snapshot(db, location)
 
-    # 부족 체크
+    # 부족 체크 (차감 항목만)
     shortage = []
     for item in items:
         name = item.get('product_name', '').strip()
@@ -67,11 +67,12 @@ def process_etc_outbound(db, date_str, location, items):
     if shortage:
         return {'success': False,
                 'warnings': ['재고 부족으로 기타출고를 진행할 수 없습니다.'],
-                'shortage': shortage, 'out_count': 0}
+                'shortage': shortage, 'out_count': 0, 'in_count': 0}
 
-    # FIFO 차감 payload 생성
+    # payload 생성 (양수=차감 ETC_OUT, 음수=증량 ETC_IN)
     payload = []
     out_count = 0
+    in_count = 0
 
     for item in items:
         name = item.get('product_name', '').strip()
@@ -79,17 +80,39 @@ def process_etc_outbound(db, date_str, location, items):
         reason = item.get('reason', '기타')
         memo = item.get('memo', '').strip()
 
-        if not name or qty <= 0:
+        if not name or qty == 0:
             continue
 
         memo_str = f"[{reason}] {memo}" if memo else f"[{reason}]"
 
         snap_data = snapshot_lookup(snapshot, name)
         groups = snap_data.get('groups', [])
+
+        # ── 음수 수량 = 증량 (ETC_IN) ──
+        if qty < 0:
+            add_qty = abs(qty)
+            base = groups[0] if groups else {}
+            payload.append({
+                "transaction_date": date_str,
+                "type": "ETC_IN",
+                "product_name": name,
+                "qty": add_qty,
+                "location": location,
+                "category": base.get('category', ''),
+                "expiry_date": base.get('expiry_date', ''),
+                "storage_method": base.get('storage_method', ''),
+                "unit": base.get('unit', snap_data.get('unit', '개')),
+                "origin": base.get('origin', ''),
+                "manufacture_date": base.get('manufacture_date', ''),
+                "memo": memo_str,
+            })
+            in_count += 1
+            continue
+
+        # ── 양수 수량 = 차감 (ETC_OUT, FIFO) ──
         remain = qty
 
         if not groups:
-            # 그룹 정보 없이 전체 차감
             payload.append({
                 "transaction_date": date_str,
                 "type": "ETC_OUT",
@@ -128,17 +151,18 @@ def process_etc_outbound(db, date_str, location, items):
     # DB 삽입
     if not payload:
         return {'success': False, 'warnings': ['처리할 출고 항목이 없습니다.'],
-                'shortage': [], 'out_count': 0}
+                'shortage': [], 'out_count': 0, 'in_count': 0}
 
     try:
         db.insert_stock_ledger(payload)
     except Exception as e:
         return {'success': False, 'warnings': [f'DB 저장 중 오류: {e}'],
-                'shortage': [], 'out_count': 0}
+                'shortage': [], 'out_count': 0, 'in_count': 0}
 
     return {
         'success': True,
         'out_count': out_count,
+        'in_count': in_count,
         'item_count': len(items),
         'warnings': [],
         'shortage': [],

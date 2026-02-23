@@ -18,9 +18,10 @@ INV_TYPE_LABELS = {
     "INIT": "기초재고", "REPACK_OUT": "소분투입", "REPACK_IN": "소분산출",
     "SET_OUT": "세트투입", "SET_IN": "세트산출",
     "ETC_OUT": "기타출고",
+    "ETC_IN": "기타입고",
 }
 
-ETC_OUT_REASONS = ["무상출고", "실험사용", "샘플", "폐기", "기타"]
+ETC_OUT_REASONS = ["무상출고", "실험사용", "샘플", "폐기", "클레임", "오배송", "기타"]
 
 LEDGER_CATEGORY_MAP = {
     "제품수불부": ["제품", "완제품"],

@@ -74,7 +74,7 @@ def index():
                     q = tx.get('qty', 0)
                     if t == 'INBOUND':
                         inbound += q
-                    elif t in ('PRODUCTION', 'REPACK_IN', 'SET_IN'):
+                    elif t in ('PRODUCTION', 'REPACK_IN', 'SET_IN', 'ETC_IN'):
                         production += q
                     elif t in ('SALES_OUT', 'PROD_OUT', 'REPACK_OUT', 'SET_OUT', 'ETC_OUT'):
                         outbound += abs(q)
