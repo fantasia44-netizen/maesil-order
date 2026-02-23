@@ -103,6 +103,9 @@ def index():
                     row_data['manufacture_date'] = key[4] or '-'
                 elif view_mode == 'expiry' and len(key) > 4:
                     row_data['expiry_date'] = key[4] or '-'
+                # 종료일 재고 0이고 기간 거래도 없으면 제외
+                if closing == 0 and not txns:
+                    continue
                 ledger_rows.append(row_data)
         except Exception as e:
             flash(f'수불장 조회 중 오류: {e}', 'danger')
