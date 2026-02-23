@@ -4,6 +4,7 @@ import time
 from flask import Flask, redirect, request, session, url_for, flash
 from flask_login import LoginManager, current_user, logout_user
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config, DevelopmentConfig
 from models import User
@@ -21,6 +22,9 @@ def create_app(config_class=None):
             config_class = DevelopmentConfig
 
     app.config.from_object(config_class)
+
+    # 리버스 프록시 지원 (Render, Nginx 등)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # CSRF
     CSRFProtect(app)
