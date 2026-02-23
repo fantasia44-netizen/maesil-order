@@ -237,7 +237,7 @@ class OrderProcessor:
 
             elif mode == "오아시스":
                 df = self.load_generic(order_file, header=0)
-                m = {'n': 31, 'a': 36, 'p1': 32, 'msg': 37, 'opt': 10, 'prod': 10, 'qty': 11, 'p2': 32, 'date': 1, 'no': 2}
+                m = {'n': 31, 'a': 36, 'p1': 32, 'msg': 37, 'opt': 10, 'prod': 10, 'qty': 14, 'p2': 32, 'date': 1, 'no': 2}
                 target = df.copy()
 
             # [3] 매칭 프로세스
