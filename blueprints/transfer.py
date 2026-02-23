@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for,
+    flash, redirect, url_for, jsonify,
 )
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -35,6 +35,31 @@ def index():
     except Exception:
         pass
     return render_template('transfer/index.html', locations=locations)
+
+
+@transfer_bp.route('/api/products')
+@role_required('admin', 'manager', 'logistics', 'general')
+def api_products():
+    """출발 창고 기준 재고 품목 목록 JSON (자동완성용)"""
+    location = request.args.get('location', '')
+    if not location:
+        return jsonify([])
+    try:
+        from services.excel_io import build_stock_snapshot
+        all_data = current_app.db.query_stock_by_location(location)
+        snapshot = build_stock_snapshot(all_data)
+        products = []
+        for name, info in snapshot.items():
+            if info['total'] > 0:
+                products.append({
+                    'name': name,
+                    'qty': info['total'],
+                    'unit': info.get('unit', '개'),
+                })
+        products.sort(key=lambda x: x['name'])
+        return jsonify(products)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @transfer_bp.route('/manual', methods=['POST'])

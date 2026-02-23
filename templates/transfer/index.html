@@ -24,18 +24,10 @@
                             <option value="수정입력">수정입력 (해당일 이동 삭제 후 재입력)</option>
                         </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">품목명</label>
-                        <input type="text" name="product_name" class="form-control" placeholder="품목명 입력" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">수량</label>
-                        <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
-                    </div>
                     <div class="row mb-3">
                         <div class="col-6">
                             <label class="form-label fw-semibold">출발 위치</label>
-                            <select name="from_location" class="form-select" required>
+                            <select name="from_location" id="fromLocation" class="form-select" required>
                                 <option value="">선택</option>
                                 {% for loc in locations|default([]) %}
                                 <option value="{{ loc }}">{{ loc }}</option>
@@ -51,6 +43,20 @@
                                 {% endfor %}
                             </select>
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">품목명</label>
+                        <div class="position-relative">
+                            <input type="text" name="product_name" id="productInput" class="form-control"
+                                   placeholder="출발 위치를 선택하면 자동완성" required autocomplete="off" disabled>
+                            <div id="acList" class="autocomplete-list list-group position-absolute w-100"
+                                 style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                        </div>
+                        <small class="text-muted" id="stockInfo"></small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">수량</label>
+                        <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
                     </div>
                     <button type="submit" class="btn btn-primary w-100">
                         <i class="bi bi-arrow-left-right"></i> 이동 처리
@@ -114,4 +120,75 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    let products = [];
+    const fromSelect = document.getElementById('fromLocation');
+    const productInput = document.getElementById('productInput');
+    const acList = document.getElementById('acList');
+    const stockInfo = document.getElementById('stockInfo');
+    if (!fromSelect || !productInput) return;
+
+    // 출발 위치 변경 시 품목 로드
+    fromSelect.addEventListener('change', async function() {
+        const loc = this.value;
+        productInput.value = '';
+        stockInfo.textContent = '';
+        products = [];
+
+        if (!loc) {
+            productInput.disabled = true;
+            productInput.placeholder = '출발 위치를 선택하면 자동완성';
+            return;
+        }
+
+        try {
+            const res = await fetch(`{{ url_for('transfer.api_products') }}?location=${encodeURIComponent(loc)}`);
+            products = await res.json();
+            productInput.disabled = false;
+            productInput.placeholder = `품목명 입력 (${products.length}개 품목)`;
+            productInput.focus();
+        } catch (e) {
+            console.error(e);
+            productInput.disabled = false;
+            productInput.placeholder = '품목명 입력';
+        }
+    });
+
+    // 자동완성
+    productInput.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        acList.innerHTML = '';
+        if (!q || products.length === 0) { acList.style.display = 'none'; return; }
+
+        const matches = products.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
+        if (matches.length === 0) { acList.style.display = 'none'; return; }
+
+        matches.forEach(p => {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
+            item.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                productInput.value = p.name;
+                stockInfo.textContent = `현재 재고: ${p.qty} ${p.unit}`;
+                acList.style.display = 'none';
+            });
+            acList.appendChild(item);
+        });
+        acList.style.display = 'block';
+    });
+
+    productInput.addEventListener('blur', function() {
+        setTimeout(() => { acList.style.display = 'none'; }, 200);
+    });
+    productInput.addEventListener('focus', function() {
+        if (this.value.trim()) this.dispatchEvent(new Event('input'));
+    });
+})();
+</script>
 {% endblock %}

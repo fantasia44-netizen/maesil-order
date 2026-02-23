@@ -37,7 +37,7 @@
                     <option value="제조일분리" {% if view_mode == '제조일분리' %}selected{% endif %}>제조일 분리</option>
                 </select>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-2">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-search"></i> 조회
                 </button>
@@ -49,6 +49,17 @@
                 {% endif %}
             </div>
         </form>
+        {% if rows %}
+        <div class="mt-3">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" id="productSearch" class="form-control"
+                       placeholder="품목명 검색 (입력하면 즉시 필터링)">
+                <button type="button" class="btn btn-outline-secondary" id="clearSearch">&times;</button>
+            </div>
+            <small class="text-muted" id="filterCount"></small>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -124,4 +135,39 @@
     <i class="bi bi-info-circle"></i> 해당 조건의 재고 데이터가 없습니다.
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const searchInput = document.getElementById('productSearch');
+    const clearBtn = document.getElementById('clearSearch');
+    const filterCount = document.getElementById('filterCount');
+    if (!searchInput) return;
+
+    const table = document.querySelector('.table-responsive table');
+    if (!table) return;
+    const rows = table.querySelectorAll('tbody tr');
+    const totalRows = rows.length;
+
+    searchInput.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        let visible = 0;
+        rows.forEach(tr => {
+            const name = tr.querySelector('td:first-child');
+            if (!name) return;
+            const match = !q || name.textContent.toLowerCase().includes(q);
+            tr.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        filterCount.textContent = q ? `${visible}/${totalRows}건 표시` : '';
+    });
+
+    clearBtn.addEventListener('click', function() {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input'));
+        searchInput.focus();
+    });
+})();
+</script>
 {% endblock %}
