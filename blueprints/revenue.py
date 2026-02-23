@@ -66,6 +66,7 @@ def import_revenue():
         return redirect(url_for('revenue.index'))
 
     upload_date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    mode = request.form.get('mode', '신규입력')
 
     upload_dir = current_app.config['UPLOAD_FOLDER']
     os.makedirs(upload_dir, exist_ok=True)
@@ -82,7 +83,14 @@ def import_revenue():
             flash('엑셀에서 유효한 매출 데이터가 없습니다.', 'warning')
             return redirect(url_for('revenue.index'))
 
-        current_app.db.upsert_revenue(payload)
+        db = current_app.db
+
+        # 수정입력: 해당일 기존 매출 삭제 후 재입력
+        if mode == '수정입력':
+            deleted = db.delete_revenue_by_date(date_from=upload_date, date_to=upload_date)
+            flash(f'기존 매출 {deleted}건 삭제 후 재입력합니다.', 'info')
+
+        db.upsert_revenue(payload)
         flash(f'매출 {len(payload)}건 등록 완료 (합계: {total_rev:,}원)', 'success')
     except Exception as e:
         flash(f'매출 업로드 중 오류: {e}', 'danger')

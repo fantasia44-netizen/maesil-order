@@ -18,6 +18,13 @@
                         <input type="date" name="date" class="form-control" required>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label fw-semibold">입력 모드</label>
+                        <select name="mode" class="form-select">
+                            <option value="신규입력">신규입력</option>
+                            <option value="수정입력">수정입력 (해당일 매출 삭제 후 재입력)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label fw-semibold">매출 엑셀 파일</label>
                         <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
                     </div>
