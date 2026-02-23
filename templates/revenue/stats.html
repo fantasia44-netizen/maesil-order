@@ -6,10 +6,10 @@
 <!-- 탭 네비게이션 -->
 <ul class="nav nav-tabs mb-4">
     <li class="nav-item">
-        <a class="nav-link" href="{{ url_for('revenue.index') }}">매출 관리</a>
+        <a class="nav-link" href="{{ url_for('revenue.index') }}"><i class="bi bi-currency-won"></i> 매출 관리</a>
     </li>
     <li class="nav-item">
-        <a class="nav-link active" href="{{ url_for('revenue.stats') }}">매출 통계</a>
+        <a class="nav-link active" href="{{ url_for('revenue.stats') }}"><i class="bi bi-bar-chart-line"></i> 매출 통계</a>
     </li>
 </ul>
 
@@ -49,7 +49,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <div class="text-muted small">총 매출</div>
+                <div class="text-muted small"><i class="bi bi-cash-coin"></i> 총 매출</div>
                 <h3 class="mb-0 fw-bold text-primary">{{ '{:,.0f}'.format(stats.summary.total_revenue) }}<small class="fs-6 text-muted">원</small></h3>
             </div>
         </div>
@@ -57,7 +57,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <div class="text-muted small">총 건수</div>
+                <div class="text-muted small"><i class="bi bi-receipt"></i> 총 건수</div>
                 <h3 class="mb-0 fw-bold text-success">{{ '{:,.0f}'.format(stats.summary.total_count) }}<small class="fs-6 text-muted">건</small></h3>
             </div>
         </div>
@@ -65,7 +65,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <div class="text-muted small">조회 일수</div>
+                <div class="text-muted small"><i class="bi bi-calendar-range"></i> 조회 일수</div>
                 <h3 class="mb-0 fw-bold text-info">{{ stats.summary.days }}<small class="fs-6 text-muted">일</small></h3>
             </div>
         </div>
@@ -73,7 +73,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <div class="text-muted small">일평균 매출</div>
+                <div class="text-muted small"><i class="bi bi-calculator"></i> 일평균 매출</div>
                 <h3 class="mb-0 fw-bold text-warning">{{ '{:,.0f}'.format(stats.summary.daily_avg) }}<small class="fs-6 text-muted">원</small></h3>
             </div>
         </div>
