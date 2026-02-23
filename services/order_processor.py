@@ -254,7 +254,13 @@ class OrderProcessor:
                         k = self.get_safe_val(r, m['opt']) if self.get_safe_val(r, m['opt']) != '' else self.get_safe_val(r, m['prod'])
 
                     c_k = k.replace(" ", "").upper()
-                    match = next((o for o in opt_list if c_k == o['Key'] or o['Key'] in c_k), None)
+                    # 1차: 정확 매칭 (우선)
+                    match = next((o for o in opt_list if c_k == o['Key']), None)
+                    # 2차: 부분 매칭 (가장 긴 Key 우선 → 오트밀가루 > 오트밀)
+                    if not match:
+                        candidates = [o for o in opt_list if o['Key'] in c_k]
+                        if candidates:
+                            match = max(candidates, key=lambda o: len(o['Key']))
 
                     if match:
                         # 스마트스토어: AH(앞주소) + AI(상세주소) 합산
