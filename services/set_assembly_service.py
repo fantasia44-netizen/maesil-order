@@ -5,7 +5,10 @@ BOM(bom_master) 기반으로 단품 FIFO 차감(SET_OUT) + 세트 산출(SET_IN)
 from datetime import datetime
 from collections import defaultdict
 
-from excel_io import build_stock_snapshot, snapshot_lookup
+try:
+    from excel_io import build_stock_snapshot, snapshot_lookup
+except ImportError:
+    from services.excel_io import build_stock_snapshot, snapshot_lookup
 
 
 def _validate_date(date_str):
