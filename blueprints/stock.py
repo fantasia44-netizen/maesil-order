@@ -24,6 +24,7 @@ def index():
     location = request.args.get('location', '전체')
     category = request.args.get('category', '전체')
     view_mode = request.args.get('view_mode', '기본')
+    product_filter = request.args.get('product', '').strip()
 
     db = current_app.db
     locations, categories = [], []
@@ -48,6 +49,12 @@ def index():
                 split_manufacture=split_manufacture,
                 split_expiry=split_expiry,
             )
+
+            # 품목명 필터
+            if product_filter:
+                pf = product_filter.lower()
+                rows = [r for r in rows if pf in r.get('product_name', '').lower()]
+
             stats = {
                 'total_items': len(set(r['product_name'] for r in rows)),
                 'total_qty': sum(r['qty'] for r in rows),
@@ -58,6 +65,7 @@ def index():
     return render_template('stock/index.html',
                            date_str=date_str, location=location,
                            category=category, view_mode=view_mode,
+                           product_filter=product_filter,
                            locations=locations, categories=categories,
                            rows=rows, stats=stats)
 
@@ -72,6 +80,7 @@ def pdf():
     location = request.args.get('location', '전체')
     category = request.args.get('category', '전체')
     view_mode = request.args.get('view_mode', '기본')
+    product_filter = request.args.get('product', '').strip()
 
     if not date_str:
         flash('기준일을 입력하세요.', 'warning')
@@ -94,6 +103,11 @@ def pdf():
             split_manufacture=split_manufacture,
             split_expiry=split_expiry,
         )
+
+        # 품목명 필터
+        if product_filter:
+            pf = product_filter.lower()
+            rows = [r for r in rows if pf in r.get('product_name', '').lower()]
 
         if not rows:
             flash('PDF로 출력할 데이터가 없습니다.', 'warning')
