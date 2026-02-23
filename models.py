@@ -16,6 +16,7 @@ INV_TYPE_LABELS = {
     "INBOUND": "입고", "PRODUCTION": "생산", "PROD_OUT": "생산출고",
     "SALES_OUT": "판매출고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고",
     "INIT": "기초재고", "REPACK_OUT": "소분투입", "REPACK_IN": "소분산출",
+    "SET_OUT": "세트투입", "SET_IN": "세트산출",
 }
 
 LEDGER_CATEGORY_MAP = {

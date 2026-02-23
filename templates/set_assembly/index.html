@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}세트작업 - 배마마 통합시스템{% endblock %}
+{% block page_title %}세트작업{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 세트작업 입력폼 -->
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-boxes"></i> 세트작업 실행
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('set_assembly.process') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">판매처 (채널)</label>
+                        <select name="channel" id="channelSelect" class="form-select" required>
+                            <option value="">선택</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">세트종류</label>
+                        <select name="set_name" id="setNameSelect" class="form-select" required>
+                            <option value="">채널을 먼저 선택하세요</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">수량</label>
+                        <input type="number" name="qty" class="form-control" value="1" min="1" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">창고위치</label>
+                        <select name="location" class="form-select" required>
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100"
+                            onclick="return confirm('세트작업을 실행하시겠습니까?\n단품 재고가 차감되고 세트가 생성됩니다.');">
+                        <i class="bi bi-play-fill"></i> 세트작업 실행
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 세트작업 이력 -->
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 세트작업 이력 조회
+            </div>
+            <div class="card-body">
+                <!-- 이력 조회 폼 -->
+                <form method="GET" action="{{ url_for('set_assembly.index') }}" class="row g-2 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold small">시작일</label>
+                        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from|default('') }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold small">종료일</label>
+                        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to|default('') }}">
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                        {% if history is defined and history %}
+                        <a href="{{ url_for('set_assembly.export', date_from=date_from|default(''), date_to=date_to|default('')) }}"
+                           class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-download"></i> 엑셀
+                        </a>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <!-- 이력 테이블 -->
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>날짜</th>
+                                <th>품목명</th>
+                                <th>유형</th>
+                                <th class="text-end">수량</th>
+                                <th>창고</th>
+                                <th>비고</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in history|default([]) %}
+                            <tr>
+                                <td>{{ row.transaction_date|default('-') }}</td>
+                                <td>{{ row.product_name }}</td>
+                                <td>
+                                    {% set t = row.type|default('') %}
+                                    {% if t == 'SET_OUT' %}
+                                        <span class="badge bg-danger">{{ type_labels.get(t, '세트투입') }}</span>
+                                    {% elif t == 'SET_IN' %}
+                                        <span class="badge bg-success">{{ type_labels.get(t, '세트산출') }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">{{ type_labels.get(t, t) }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">{{ '{:,.0f}'.format(row.qty) }}</td>
+                                <td>{{ row.location|default('-') }}</td>
+                                <td class="text-muted small">{{ row.memo|default('-') }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">
+                                    {% if date_from or date_to %}
+                                    해당 기간의 세트작업 이력이 없습니다.
+                                    {% else %}
+                                    날짜를 입력하고 조회하세요.
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// BOM 데이터 (서버에서 전달)
+const bomData = {{ bom_data_json|safe }};
+
+const channelSelect = document.getElementById('channelSelect');
+const setNameSelect = document.getElementById('setNameSelect');
+
+// 채널 옵션 동적 생성
+const channels = Object.keys(bomData);
+channels.forEach(ch => {
+    const opt = document.createElement('option');
+    opt.value = ch;
+    opt.textContent = ch;
+    channelSelect.appendChild(opt);
+});
+
+// 채널 변경 시 세트 목록 업데이트
+channelSelect.addEventListener('change', function() {
+    const ch = this.value;
+    setNameSelect.innerHTML = '<option value="">선택</option>';
+
+    if (ch && bomData[ch]) {
+        bomData[ch].forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            setNameSelect.appendChild(opt);
+        });
+    }
+});
+</script>
+{% endblock %}

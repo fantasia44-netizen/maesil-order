@@ -1,0 +1,177 @@
+"""
+set_assembly.py — 세트작업 관리 Blueprint.
+BOM 기반 세트 조립: 단품 FIFO 차감 → 세트 산출, 이력 조회, 엑셀 다운로드.
+"""
+import io
+import json
+from datetime import datetime
+
+import pandas as pd
+from flask import (
+    Blueprint, render_template, request, current_app,
+    flash, redirect, url_for, send_file,
+)
+from flask_login import login_required, current_user
+
+from auth import role_required
+from models import INV_TYPE_LABELS
+
+set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly')
+
+
+@set_assembly_bp.route('/')
+@role_required('admin', 'manager', 'logistics', 'production')
+def index():
+    """세트작업 폼 + 이력 조회"""
+    db = current_app.db
+
+    # 위치 목록
+    locations = []
+    try:
+        locations, _ = db.query_filter_options()
+    except Exception:
+        pass
+
+    # BOM 데이터 로드 (채널별 세트 목록)
+    bom_data = {}
+    try:
+        raw = db.query_master_table('bom_master')
+        for row in raw:
+            ch = row.get('channel', '')
+            sn = row.get('set_name', '')
+            if ch and sn:
+                if ch not in bom_data:
+                    bom_data[ch] = []
+                bom_data[ch].append(sn)
+    except Exception as e:
+        flash(f'BOM 데이터 로드 실패: {e}', 'danger')
+
+    # 이력 조회
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    history = []
+    if date_from or date_to:
+        try:
+            raw = db.query_stock_ledger(
+                date_to=date_to or '9999-12-31',
+                date_from=date_from or None,
+                type_list=['SET_OUT', 'SET_IN'],
+                order_desc=True,
+            )
+            history = raw
+        except Exception as e:
+            flash(f'세트작업 이력 조회 중 오류: {e}', 'danger')
+
+    return render_template('set_assembly/index.html',
+                           history=history,
+                           locations=locations,
+                           bom_data_json=json.dumps(bom_data, ensure_ascii=False),
+                           date_from=date_from,
+                           date_to=date_to,
+                           type_labels=INV_TYPE_LABELS)
+
+
+@set_assembly_bp.route('/process', methods=['POST'])
+@role_required('admin', 'manager', 'logistics', 'production')
+def process():
+    """세트작업 처리"""
+    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    set_name = request.form.get('set_name', '').strip()
+    channel = request.form.get('channel', '').strip()
+    location = request.form.get('location', '').strip()
+    qty_str = request.form.get('qty', '1').strip()
+
+    if not set_name or not channel or not location:
+        flash('세트종류, 판매처, 창고위치를 모두 선택해주세요.', 'danger')
+        return redirect(url_for('set_assembly.index'))
+
+    try:
+        qty = int(qty_str)
+    except ValueError:
+        flash('수량은 숫자로 입력해주세요.', 'danger')
+        return redirect(url_for('set_assembly.index'))
+
+    try:
+        from services.set_assembly_service import process_set_assembly
+        result = process_set_assembly(
+            current_app.db, date_str, set_name, channel, location, qty
+        )
+
+        if result.get('warnings'):
+            for w in result['warnings']:
+                flash(w, 'warning')
+
+        if result.get('shortage'):
+            for s in result['shortage']:
+                flash(f'⚠️ {s}', 'danger')
+
+        if result.get('success'):
+            flash(
+                f"세트작업 완료: {set_name} x{qty} ({channel}) — "
+                f"단품 차감 {result.get('set_out_count', 0)}건, "
+                f"세트 산출 {result.get('set_in_count', 0)}건, "
+                f"구성품 {result.get('component_count', 0)}종 총 {result.get('total_deducted', 0)}개 차감",
+                'success'
+            )
+    except Exception as e:
+        flash(f'세트작업 처리 중 오류: {e}', 'danger')
+
+    return redirect(url_for('set_assembly.index'))
+
+
+@set_assembly_bp.route('/export')
+@role_required('admin', 'manager', 'logistics', 'production')
+def export():
+    """세트작업 이력 엑셀 다운로드"""
+    db = current_app.db
+
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    try:
+        raw = db.query_stock_ledger(
+            date_to=date_to or '9999-12-31',
+            date_from=date_from or None,
+            type_list=['SET_OUT', 'SET_IN'],
+            order_desc=True,
+        )
+
+        if not raw:
+            flash('다운로드할 세트작업 이력이 없습니다.', 'warning')
+            return redirect(url_for('set_assembly.index'))
+
+        df = pd.DataFrame(raw)
+
+        col_map = {
+            'transaction_date': '일자',
+            'type': '유형',
+            'product_name': '품목명',
+            'qty': '수량',
+            'location': '창고',
+            'category': '종류',
+            'unit': '단위',
+            'expiry_date': '소비기한',
+            'memo': '비고',
+        }
+        export_cols = [c for c in col_map.keys() if c in df.columns]
+        df = df[export_cols].rename(columns=col_map)
+
+        if '유형' in df.columns:
+            df['유형'] = df['유형'].map(lambda x: INV_TYPE_LABELS.get(x, x))
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='세트작업이력')
+        output.seek(0)
+
+        fname = f"세트작업이력_{date_from or 'all'}_{date_to or 'all'}.xlsx"
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'세트작업 이력 다운로드 중 오류: {e}', 'danger')
+        return redirect(url_for('set_assembly.index'))
