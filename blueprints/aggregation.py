@@ -1,10 +1,12 @@
 """
 aggregation.py — 통합 집계 Blueprint (기존 집계프로그램 기능).
 집계 파일 + BOM 파일 업로드 → 가공 → 결과 엑셀 다운로드.
+출고/매출 반영: 집계 결과 파일을 바로 stock_ledger + daily_revenue 에 반영.
 """
 import os
 from datetime import datetime
 
+import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
     flash, redirect, url_for, send_file,
@@ -162,3 +164,72 @@ def download(filename):
         as_attachment=True,
         download_name=safe_name,
     )
+
+
+@aggregation_bp.route('/apply', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def apply_results():
+    """집계 결과 파일을 출고(stock_ledger) + 매출(daily_revenue)에 반영"""
+    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    mode = request.form.get('mode', '신규입력')
+    selected_files = request.form.getlist('apply_files')
+
+    if not selected_files:
+        flash('반영할 파일을 선택하세요.', 'danger')
+        return redirect(url_for('aggregation.index'))
+
+    output_dir = os.path.abspath(current_app.config['OUTPUT_FOLDER'])
+
+    # 선택된 파일 경로 구성 (보안 검증)
+    file_paths = []
+    for fname in selected_files:
+        safe_name = os.path.basename(fname)
+        fpath = os.path.join(output_dir, safe_name)
+        if not os.path.abspath(fpath).startswith(output_dir):
+            continue
+        if os.path.exists(fpath):
+            file_paths.append(fpath)
+
+    if not file_paths:
+        flash('선택된 파일을 찾을 수 없습니다.', 'danger')
+        return redirect(url_for('aggregation.index'))
+
+    try:
+        from services.outbound_service import process_batch_outbound
+
+        # 수정입력 + 매출: 해당일 매출 데이터도 삭제
+        if mode == '수정입력':
+            revenue_files_exist = any(
+                os.path.basename(p).startswith('일일매출') for p in file_paths
+            )
+            if revenue_files_exist:
+                db = current_app.db
+                rev_deleted = db.delete_revenue_by_date(
+                    date_from=date_str, date_to=date_str)
+                if rev_deleted:
+                    flash(f'기존 매출 {rev_deleted}건 삭제 후 재입력합니다.', 'info')
+
+        result = process_batch_outbound(
+            current_app.db, file_paths, date_str,
+            mode=mode, force_shortage=True,
+        )
+
+        # 결과 메시지
+        if result.get('deleted_count'):
+            flash(f"기존 출고 {result['deleted_count']}건 삭제 후 재입력", 'info')
+
+        for msg in result.get('results', []):
+            flash(msg, 'success')
+
+        for err in result.get('errors', []):
+            flash(err, 'danger')
+
+        if result.get('duplicate_warning'):
+            flash(result['duplicate_warning'], 'warning')
+
+        flash(f"출고/매출 반영 완료: 총 출고 {result.get('total_count', 0)}건", 'success')
+
+    except Exception as e:
+        flash(f'출고/매출 반영 중 오류: {e}', 'danger')
+
+    return redirect(url_for('aggregation.index'))

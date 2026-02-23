@@ -69,19 +69,190 @@
 </div>
 {% endif %}
 
-<!-- 최근 처리 결과 -->
+<!-- 출고/매출 반영 -->
 {% if result_files is defined and result_files %}
-<div class="card">
-    <div class="card-header">
-        <i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)
+<div class="row g-4">
+    <!-- 최근 처리 결과 + 파일 선택 -->
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)
+            </div>
+            <div class="card-body p-0">
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width: 40px" class="text-center">
+                                    <input type="checkbox" id="checkAll" class="form-check-input">
+                                </th>
+                                <th>파일명</th>
+                                <th style="width: 80px" class="text-center">구분</th>
+                                <th style="width: 60px" class="text-center">다운</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for f in result_files %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input file-check"
+                                           value="{{ f }}" data-type="{% if f.startswith('통합출고') %}outbound{% elif f.startswith('일일매출') %}revenue{% else %}info{% endif %}"
+                                           {% if f.startswith('통합출고') or f.startswith('일일매출') %}checked{% endif %}>
+                                </td>
+                                <td class="small">{{ f }}</td>
+                                <td class="text-center">
+                                    {% if f.startswith('통합출고') %}
+                                    <span class="badge bg-primary">출고</span>
+                                    {% elif f.startswith('일일매출') %}
+                                    <span class="badge bg-success">매출</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">집계</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <a href="{{ url_for('aggregation.download', filename=f) }}" class="btn btn-sm btn-outline-secondary py-0 px-1">
+                                        <i class="bi bi-download"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
-        {% for f in result_files %}
-        <a href="{{ url_for('aggregation.download', filename=f) }}" class="list-group-item list-group-item-action">
-            <i class="bi bi-file-earmark-arrow-down"></i> {{ f }}
-        </a>
-        {% endfor %}
+
+    <!-- 반영 설정 -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header bg-warning bg-opacity-25">
+                <i class="bi bi-arrow-right-circle"></i> 출고/매출 반영
+            </div>
+            <div class="card-body">
+                <form id="applyForm" method="POST" action="{{ url_for('aggregation.apply_results') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">입력 모드</label>
+                        <select name="mode" class="form-select">
+                            <option value="신규입력">신규입력</option>
+                            <option value="수정입력">수정입력 (해당일 삭제 후 재입력)</option>
+                        </select>
+                    </div>
+
+                    <!-- 선택된 파일 요약 -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">선택된 파일</label>
+                        <div id="selectedSummary" class="small text-muted">
+                            선택된 파일이 없습니다.
+                        </div>
+                    </div>
+
+                    <!-- 숨은 파일 필드 (JS로 동적 생성) -->
+                    <div id="hiddenFiles"></div>
+
+                    <button type="submit" class="btn btn-warning w-100" id="applyBtn" disabled>
+                        <i class="bi bi-arrow-right-circle"></i> 출고/매출 반영
+                    </button>
+                </form>
+
+                <div class="mt-3">
+                    <div class="small text-muted">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>통합출고</strong> 파일 → 재고 차감 (FIFO)<br>
+                        <i class="bi bi-info-circle"></i>
+                        <strong>일일매출</strong> 파일 → 매출 등록<br>
+                        <i class="bi bi-info-circle"></i>
+                        <strong>수정입력</strong> → 해당일 기존 출고/매출 삭제 후 재입력
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const checkAll = document.getElementById('checkAll');
+    const fileChecks = document.querySelectorAll('.file-check');
+    const applyBtn = document.getElementById('applyBtn');
+    const hiddenFiles = document.getElementById('hiddenFiles');
+    const selectedSummary = document.getElementById('selectedSummary');
+
+    if (!checkAll) return;
+
+    function updateSelection() {
+        // 숨은 필드 초기화
+        hiddenFiles.innerHTML = '';
+
+        let outCount = 0, revCount = 0, totalCount = 0;
+
+        fileChecks.forEach(cb => {
+            if (cb.checked) {
+                totalCount++;
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'apply_files';
+                inp.value = cb.value;
+                hiddenFiles.appendChild(inp);
+
+                if (cb.dataset.type === 'outbound') outCount++;
+                if (cb.dataset.type === 'revenue') revCount++;
+            }
+        });
+
+        // 요약 업데이트
+        if (totalCount === 0) {
+            selectedSummary.innerHTML = '선택된 파일이 없습니다.';
+            applyBtn.disabled = true;
+        } else {
+            let parts = [];
+            if (outCount > 0) parts.push(`<span class="badge bg-primary">출고 ${outCount}건</span>`);
+            if (revCount > 0) parts.push(`<span class="badge bg-success">매출 ${revCount}건</span>`);
+            if (totalCount - outCount - revCount > 0) parts.push(`<span class="badge bg-secondary">기타 ${totalCount - outCount - revCount}건</span>`);
+            selectedSummary.innerHTML = parts.join(' ');
+            applyBtn.disabled = false;
+        }
+    }
+
+    // 전체 선택/해제
+    checkAll.addEventListener('change', function() {
+        fileChecks.forEach(cb => { cb.checked = this.checked; });
+        updateSelection();
+    });
+
+    // 개별 체크박스
+    fileChecks.forEach(cb => {
+        cb.addEventListener('change', updateSelection);
+    });
+
+    // 폼 제출 확인
+    const applyForm = document.getElementById('applyForm');
+    if (applyForm) {
+        applyForm.addEventListener('submit', function(e) {
+            const checked = document.querySelectorAll('.file-check:checked');
+            if (checked.length === 0) {
+                e.preventDefault();
+                alert('반영할 파일을 선택하세요.');
+                return;
+            }
+            if (!confirm('선택된 파일을 출고/매출에 반영하시겠습니까?')) {
+                e.preventDefault();
+            }
+        });
+    }
+
+    // 초기 상태
+    updateSelection();
+})();
+</script>
 {% endblock %}
