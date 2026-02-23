@@ -240,7 +240,7 @@
                     <tr>
                         <td colspan="5" class="text-end fw-bold">합계</td>
                         <td class="text-end fw-bold text-primary">
-                            {{ '{:,.0f}'.format(trades|sum(attribute='amount', default=0)) }}
+                            {{ '{:,.0f}'.format(trades|map(attribute='amount')|select('number')|sum) }}
                         </td>
                         <td colspan="2"></td>
                     </tr>
