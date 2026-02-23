@@ -29,6 +29,7 @@ def index():
     date_to = request.args.get('date_to', '')
     location = request.args.get('location', '전체')
     ledger_type = request.args.get('ledger_type', '')
+    view_mode = request.args.get('view_mode', 'default')  # default / manufacture / expiry
 
     locations, categories = [], []
     try:
@@ -42,8 +43,12 @@ def index():
             from services.stock_service import query_ledger_data
 
             loc = location if location != '전체' else None
-            result = query_ledger_data(db, date_from, date_to or '9999-12-31',
-                                       location=loc)
+            result = query_ledger_data(
+                db, date_from, date_to or '9999-12-31',
+                location=loc,
+                split_manufacture=(view_mode == 'manufacture'),
+                split_expiry=(view_mode == 'expiry'),
+            )
 
             # 수불장 유형 필터 적용
             sorted_keys = result['sorted_keys']
@@ -81,8 +86,8 @@ def index():
                 period_total = sum(tx.get('qty', 0) for tx in txns)
                 closing = opening + period_total
 
-                # key = (product_name, location, category, unit, ...)
-                ledger_rows.append({
+                # key = (product_name, location, category, unit, [manufacture_date/expiry_date])
+                row_data = {
                     'product_name': key[0],
                     'location': key[1],
                     'category': key[2],
@@ -93,7 +98,12 @@ def index():
                     'outbound': outbound,
                     'transfer': transfer,
                     'closing': closing,
-                })
+                }
+                if view_mode == 'manufacture' and len(key) > 4:
+                    row_data['manufacture_date'] = key[4] or '-'
+                elif view_mode == 'expiry' and len(key) > 4:
+                    row_data['expiry_date'] = key[4] or '-'
+                ledger_rows.append(row_data)
         except Exception as e:
             flash(f'수불장 조회 중 오류: {e}', 'danger')
 
@@ -101,6 +111,7 @@ def index():
                            ledger=ledger_rows,
                            date_from=date_from, date_to=date_to,
                            location=location, ledger_type=ledger_type,
+                           view_mode=view_mode,
                            locations=locations,
                            ledger_types=list(LEDGER_CATEGORY_MAP.keys()),
                            type_labels=INV_TYPE_LABELS)
@@ -184,6 +195,7 @@ def pdf():
     date_to = request.args.get('date_to', '')
     location = request.args.get('location', '전체')
     ledger_type = request.args.get('ledger_type', '')
+    view_mode = request.args.get('view_mode', 'default')
     fit_one_page = request.args.get('fit_one_page', '') == '1'
 
     if not date_to:
@@ -199,7 +211,11 @@ def pdf():
 
         loc = location if location != '전체' else None
 
-        result = query_ledger_data(db, date_from, date_to, location=loc)
+        result = query_ledger_data(
+            db, date_from, date_to, location=loc,
+            split_manufacture=(view_mode == 'manufacture'),
+            split_expiry=(view_mode == 'expiry'),
+        )
 
         # 수불장 유형 필터 적용
         if ledger_type and ledger_type in LEDGER_CATEGORY_MAP:

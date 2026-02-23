@@ -321,7 +321,7 @@ def get_stats(db, date_str, location='전체', category='전체',
 # ─── 수불장 데이터 조회 ───
 
 def query_ledger_data(db, date_from, date_to, location=None, category=None,
-                      search=None, split_manufacture=False):
+                      search=None, split_manufacture=False, split_expiry=False):
     """수불장(전일이월 + 기간거래) 데이터를 조회하여 dict로 반환.
     app.py의 _query_ledger_data 로직과 동일.
 
@@ -349,6 +349,8 @@ def query_ledger_data(db, date_from, date_to, location=None, category=None,
     group_keys = ['product_name', 'location', 'category', 'unit']
     if split_manufacture:
         group_keys = ['product_name', 'location', 'category', 'unit', 'manufacture_date']
+    elif split_expiry:
+        group_keys = ['product_name', 'location', 'category', 'unit', 'expiry_date']
 
     if date_from:
         df_before = df[df['transaction_date'] < date_from]
