@@ -12,8 +12,19 @@ from reports import (HAS_REPORTLAB, A4, landscape, mm, colors,
 
 def register_font():
     """한글 폰트 등록. 등록된 폰트명 반환."""
-    for fp in ["C:/Windows/Fonts/malgun.ttf", "C:/Windows/Fonts/gulim.ttc",
-                "C:/Windows/Fonts/batang.ttc"]:
+    font_paths = [
+        # Windows
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/gulim.ttc",
+        "C:/Windows/Fonts/batang.ttc",
+        # Linux (Docker: fonts-nanum 패키지)
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumMyeongjo.ttf",
+        # macOS
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    ]
+    for fp in font_paths:
         if os.path.exists(fp):
             try:
                 pdfmetrics.registerFont(TTFont('Korean', fp))

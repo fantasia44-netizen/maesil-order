@@ -2,9 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 시스템 패키지
+# 시스템 패키지 + 한글 폰트
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc && \
+    gcc fonts-nanum && \
     rm -rf /var/lib/apt/lists/*
 
 # 의존성 설치
@@ -23,4 +23,4 @@ USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "2", "--timeout", "120", "--worker-class", "gthread", "app:create_app()"]
