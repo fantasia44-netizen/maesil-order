@@ -163,6 +163,31 @@ class Aggregator:
             self.log(f"❌ BOM 로드 에러: {e}")
             return False
 
+    def load_option_from_db(self, db):
+        """옵션리스트를 DB(option_master)에서 로드"""
+        try:
+            rows = db.query_option_master()
+            if not rows:
+                self.log("ℹ️ 옵션마스터(DB) 데이터 없음 → 입력순서 유지 모드")
+                self.opt_map = {}
+                return True
+            self.opt_map = {}
+            for r in rows:
+                nm = _norm(r.get('product_name', ''))
+                if not nm:
+                    continue
+                if nm not in self.opt_map:
+                    self.opt_map[nm] = {
+                        '출력순서': int(r.get('sort_order', 999) or 999),
+                        '라인코드': str(r.get('line_code', '0') or '0').strip()
+                    }
+            self.log(f"✅ 옵션리스트(DB) 로드: {len(self.opt_map)}종 품목 매핑")
+            return True
+        except Exception as e:
+            self.log(f"❌ 옵션리스트(DB) 로드 에러: {e}")
+            self.opt_map = {}
+            return True  # DB 실패해도 진행 허용
+
     def load_option_list(self, file_input):
         """옵션리스트 파일 로드: A=원문명, B=품목명, C=라인코드, E=출력순서"""
         try:
@@ -302,7 +327,7 @@ class Aggregator:
                 result['error'] = "BOM 파일 로드 실패"
                 return result
 
-            # 옵션리스트 로드 (선택사항)
+            # 옵션리스트 로드 (선택사항: 파일 → DB fallback)
             if option_file:
                 if not self.load_option_list(option_file):
                     result['error'] = "옵션리스트 로드 실패"
@@ -311,6 +336,8 @@ class Aggregator:
                 opt_filename = self._get_filename(option_file)
                 if opt_filename.lower().endswith('.xlsx'):
                     self.load_price_table(option_file)
+            elif db is not None:
+                self.load_option_from_db(db)
             else:
                 self.opt_map = {}
                 self.log("ℹ️ 옵션리스트 미선택 → 입력순서 유지 모드")
