@@ -14,6 +14,7 @@
                 <form id="singleForm" method="POST" action="{{ url_for('outbound.single') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="items" id="itemsInput">
+                    <input type="hidden" name="_form_nonce" id="formNonce" value="{{ form_nonce }}">
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-4">
@@ -387,8 +388,16 @@
         totalAmountEl.textContent = total.toLocaleString();
     }
 
-    // 폼 제출 시 items JSON 생성
+    // 폼 제출 시 items JSON 생성 + 중복 제출 방지
+    let isSubmitting = false;
     singleForm.addEventListener('submit', function(e) {
+        // 이미 제출 중이면 차단
+        if (isSubmitting) {
+            e.preventDefault();
+            alert('처리 중입니다. 잠시 기다려주세요.');
+            return;
+        }
+
         const rows = itemBody.querySelectorAll('tr');
         if (rows.length === 0) {
             e.preventDefault();
@@ -426,6 +435,14 @@
         }
 
         itemsInput.value = JSON.stringify(items);
+
+        // 중복 제출 방지: 버튼 비활성화 + 로딩 표시
+        isSubmitting = true;
+        const submitBtn = singleForm.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 처리 중...';
+        }
     });
 })();
 

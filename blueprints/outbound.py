@@ -5,6 +5,7 @@ outbound.py — 거래처주문처리 Blueprint.
 """
 import json
 import os
+import uuid
 from datetime import datetime
 
 import pandas as pd
@@ -65,12 +66,17 @@ def index():
         except Exception as e:
             flash(f'거래 이력 조회 중 오류: {e}', 'danger')
 
+    # 중복 제출 방지용 nonce 생성
+    form_nonce = str(uuid.uuid4())
+    session['outbound_nonce'] = form_nonce
+
     return render_template('outbound/index.html',
                            locations=locations, partners=partners,
                            my_businesses=my_businesses,
                            trades=trade_list,
                            date_from=date_from, date_to=date_to,
-                           partner_filter=partner_filter)
+                           partner_filter=partner_filter,
+                           form_nonce=form_nonce)
 
 
 @outbound_bp.route('/api/products')
@@ -103,6 +109,20 @@ def api_products():
 @role_required('admin', 'manager', 'sales', 'general')
 def single():
     """단건 출고 — 폼 기반 (FIFO 재고차감 + 거래기록)"""
+
+    # ── 중복 제출 방지 (idempotency token 검증) ──
+    form_nonce = request.form.get('_form_nonce', '')
+    saved_nonce = session.pop('outbound_nonce', None)
+
+    if not form_nonce or form_nonce != saved_nonce:
+        # nonce 불일치 → 이미 처리된 요청의 재전송
+        # 결과 페이지가 있으면 그쪽으로 리다이렉트
+        if session.get('outbound_result'):
+            flash('이미 처리된 출고입니다. (중복 제출 방지)', 'warning')
+            return redirect(url_for('outbound.result'))
+        flash('이미 처리된 요청이거나 세션이 만료되었습니다. 다시 시도하세요.', 'warning')
+        return redirect(url_for('outbound.index'))
+
     date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
     location = request.form.get('location', '')
     partner_name = request.form.get('partner_name', '')
@@ -136,6 +156,32 @@ def single():
     try:
         from services.outbound_service import process_single_outbound
         db = current_app.db
+
+        # ── DB 중복 체크: 같은 날짜+거래처+품목+수량 이미 존재 여부 ──
+        try:
+            existing = db.query_manual_trades(
+                date_from=date_str, date_to=date_str,
+                partner_name=partner_name,
+            )
+            if existing:
+                # 현재 요청의 품목 시그니처 생성
+                new_sig = set()
+                for item in items:
+                    pname = str(item['product_name']).strip()
+                    qty = abs(int(item['qty']))
+                    new_sig.add(f"{pname}|{qty}")
+
+                # 기존 거래의 시그니처
+                old_sig = set()
+                for t in existing:
+                    old_sig.add(f"{t.get('product_name', '')}|{t.get('qty', 0)}")
+
+                # 모든 품목이 이미 존재하면 중복으로 판단
+                if new_sig and new_sig.issubset(old_sig):
+                    flash('⚠️ 동일한 거래가 이미 등록되어 있습니다. 중복 입력을 방지합니다.', 'warning')
+                    return redirect(url_for('outbound.index'))
+        except Exception as dup_err:
+            current_app.logger.warning(f'중복 체크 실패 (계속 진행): {dup_err}')
 
         result = process_single_outbound(db, date_str, location, items)
 
