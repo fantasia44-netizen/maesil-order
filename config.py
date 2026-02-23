@@ -17,6 +17,7 @@ class Config:
     # 세션 보안
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SECURE = False
     PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
 
     # 로그인 시도 제한

@@ -8,12 +8,13 @@ services:
     ports:
       - "8080:5000"
     environment:
-      - FLASK_ENV=production
+      - FLASK_ENV=development
       - SECRET_KEY=haeser-nas-autotool-secret-2026
       - TZ=Asia/Seoul
     volumes:
       - ./uploads:/app/uploads
       - ./output:/app/output
+      - ./config.py:/app/config.py:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/login')"]
       interval: 60s
