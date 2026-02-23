@@ -5,10 +5,16 @@ Tkinter 의존 제거. db 파라미터(SupabaseDB 인스턴스)를 받고 결과
 import pandas as pd
 from datetime import datetime
 
-from excel_io import (
-    safe_int, safe_date, normalize_location, detect_material_groups,
-    build_stock_snapshot, snapshot_lookup
-)
+try:
+    from excel_io import (
+        safe_int, safe_date, normalize_location, detect_material_groups,
+        build_stock_snapshot, snapshot_lookup
+    )
+except ImportError:
+    from services.excel_io import (
+        safe_int, safe_date, normalize_location, detect_material_groups,
+        build_stock_snapshot, snapshot_lookup
+    )
 from models import INV_TYPE_LABELS
 
 

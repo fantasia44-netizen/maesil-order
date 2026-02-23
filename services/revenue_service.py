@@ -5,7 +5,10 @@ Tkinter 의존 제거. db 파라미터(SupabaseDB 인스턴스)를 받고 결과
 import pandas as pd
 from datetime import datetime
 
-from excel_io import parse_revenue_payload
+try:
+    from excel_io import parse_revenue_payload
+except ImportError:
+    from services.excel_io import parse_revenue_payload
 
 
 def _validate_date(date_str):
