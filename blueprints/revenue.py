@@ -4,6 +4,7 @@ revenue.py — 매출 관리 Blueprint.
 """
 import os
 import io
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -170,3 +171,32 @@ def delete_revenue(revenue_id):
     category = request.form.get('category', '')
     return redirect(url_for('revenue.index',
                             date_from=date_from, date_to=date_to, category=category))
+
+
+@revenue_bp.route('/stats')
+@role_required('admin', 'manager', 'sales', 'general')
+def stats():
+    """매출 통계 + 그래프"""
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    category = request.args.get('category', '전체')
+
+    stats_data = None
+    if date_from or date_to:
+        try:
+            from services.revenue_service import get_revenue_stats
+            stats_data = get_revenue_stats(
+                current_app.db,
+                date_from=date_from or None,
+                date_to=date_to or None,
+                category=category if category != '전체' else None,
+            )
+        except Exception as e:
+            flash(f'통계 조회 중 오류: {e}', 'danger')
+
+    return render_template('revenue/stats.html',
+                           date_from=date_from, date_to=date_to,
+                           category=category,
+                           categories=REVENUE_CATEGORIES,
+                           stats=stats_data,
+                           stats_json=json.dumps(stats_data, ensure_ascii=False) if stats_data else '{}')

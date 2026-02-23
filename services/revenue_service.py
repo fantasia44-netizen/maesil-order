@@ -89,6 +89,91 @@ def import_revenue(db, excel_df, date_str):
     }
 
 
+def get_revenue_stats(db, date_from=None, date_to=None, category=None):
+    """매출 통계 데이터 산출 (메인 오케스트레이터).
+
+    Args:
+        db: SupabaseDB instance
+        date_from: 시작일 (YYYY-MM-DD) or None
+        date_to: 종료일 (YYYY-MM-DD) or None
+        category: 매출유형 필터 or None
+
+    Returns:
+        dict: summary, daily_totals, monthly_totals, category_breakdown, top_products
+    """
+    raw = db.query_revenue(
+        date_from=date_from,
+        date_to=date_to,
+        category=category if category and category != '전체' else None,
+    )
+    return {
+        'summary': _calc_summary(raw),
+        'daily_totals': _calc_daily_totals(raw),
+        'monthly_totals': _calc_monthly_totals(raw),
+        'category_breakdown': _calc_category_breakdown(raw),
+        'top_products': _calc_top_products(raw, limit=15),
+    }
+
+
+def _calc_summary(raw):
+    """총 매출, 건수, 일수, 일평균 매출 산출."""
+    total = sum(r.get('revenue', 0) for r in raw)
+    count = len(raw)
+    dates = set(r.get('revenue_date', '') for r in raw if r.get('revenue_date'))
+    days = len(dates) or 1
+    return {
+        'total_revenue': total,
+        'total_count': count,
+        'days': days,
+        'daily_avg': total / days,
+    }
+
+
+def _calc_daily_totals(raw):
+    """일별 매출합계 리스트 반환."""
+    by_date = {}
+    for r in raw:
+        d = r.get('revenue_date', '')
+        if d:
+            by_date[d] = by_date.get(d, 0) + r.get('revenue', 0)
+    return [{'date': k, 'total': v} for k, v in sorted(by_date.items())]
+
+
+def _calc_monthly_totals(raw):
+    """월별 매출합계 리스트 반환."""
+    by_month = {}
+    for r in raw:
+        d = r.get('revenue_date', '')
+        if d and len(d) >= 7:
+            m = d[:7]
+            by_month[m] = by_month.get(m, 0) + r.get('revenue', 0)
+    return [{'month': k, 'total': v} for k, v in sorted(by_month.items())]
+
+
+def _calc_category_breakdown(raw):
+    """카테고리별 매출 비중 리스트 반환 (내림차순)."""
+    by_cat = {}
+    for r in raw:
+        cat = r.get('category', '기타')
+        by_cat[cat] = by_cat.get(cat, 0) + r.get('revenue', 0)
+    return [{'category': k, 'total': v}
+            for k, v in sorted(by_cat.items(), key=lambda x: -x[1])]
+
+
+def _calc_top_products(raw, limit=15):
+    """매출 상위 품목 리스트 반환."""
+    by_prod = {}
+    for r in raw:
+        name = r.get('product_name', '')
+        if name not in by_prod:
+            by_prod[name] = {'qty': 0, 'revenue': 0}
+        by_prod[name]['qty'] += r.get('qty', 0)
+        by_prod[name]['revenue'] += r.get('revenue', 0)
+    items = [{'name': k, **v} for k, v in by_prod.items()]
+    items.sort(key=lambda x: -x['revenue'])
+    return items[:limit]
+
+
 def get_revenue(db, date_from=None, date_to=None, category=None, search=None):
     """매출 데이터 조회.
 

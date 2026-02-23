@@ -3,6 +3,16 @@
 {% block page_title %}매출 관리{% endblock %}
 
 {% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link active" href="{{ url_for('revenue.index') }}">매출 관리</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" href="{{ url_for('revenue.stats') }}">매출 통계</a>
+    </li>
+</ul>
+
 <div class="row g-4">
     <!-- 매출 가져오기 -->
     <div class="col-lg-4">

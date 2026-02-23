@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block title %}매출 통계 - 배마마 통합시스템{% endblock %}
+{% block page_title %}매출 통계{% endblock %}
+
+{% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link" href="{{ url_for('revenue.index') }}">매출 관리</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link active" href="{{ url_for('revenue.stats') }}">매출 통계</a>
+    </li>
+</ul>
+
+<!-- 필터 카드 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('revenue.stats') }}" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">카테고리</label>
+                <select name="category" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for cat in categories|default([]) %}
+                    <option value="{{ cat }}" {% if category|default('') == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-bar-chart"></i> 통계 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if stats %}
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">총 매출</div>
+                <h3 class="mb-0 fw-bold text-primary">{{ '{:,.0f}'.format(stats.summary.total_revenue) }}<small class="fs-6 text-muted">원</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">총 건수</div>
+                <h3 class="mb-0 fw-bold text-success">{{ '{:,.0f}'.format(stats.summary.total_count) }}<small class="fs-6 text-muted">건</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">조회 일수</div>
+                <h3 class="mb-0 fw-bold text-info">{{ stats.summary.days }}<small class="fs-6 text-muted">일</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small">일평균 매출</div>
+                <h3 class="mb-0 fw-bold text-warning">{{ '{:,.0f}'.format(stats.summary.daily_avg) }}<small class="fs-6 text-muted">원</small></h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 그래프 영역: 일별 추이 + 카테고리 비중 -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-graph-up"></i> 일별 매출 추이
+            </div>
+            <div class="card-body">
+                <canvas id="dailyChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-pie-chart"></i> 카테고리별 비중
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 월별 매출 막대차트 -->
+{% if stats.monthly_totals|length > 1 %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-bar-chart-fill"></i> 월별 매출 합계
+    </div>
+    <div class="card-body">
+        <canvas id="monthlyChart" style="max-height:300px"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- 상위 품목 랭킹 -->
+{% if stats.top_products %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-trophy"></i> 매출 상위 품목 (최대 15개)
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:50px">순위</th>
+                        <th>품목명</th>
+                        <th class="text-end">수량</th>
+                        <th class="text-end">매출액</th>
+                        <th style="width:30%">비중</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in stats.top_products %}
+                    <tr>
+                        <td class="text-center fw-bold">{{ loop.index }}</td>
+                        <td><strong>{{ p.name }}</strong></td>
+                        <td class="text-end">{{ '{:,.0f}'.format(p.qty) }}</td>
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(p.revenue) }}원</td>
+                        <td>
+                            {% set pct = (p.revenue / stats.summary.total_revenue * 100) if stats.summary.total_revenue > 0 else 0 %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height:18px">
+                                    <div class="progress-bar bg-primary" style="width:{{ pct }}%"></div>
+                                </div>
+                                <small class="text-muted" style="min-width:45px">{{ '{:.1f}'.format(pct) }}%</small>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% elif date_from or date_to %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 해당 조건의 매출 데이터가 없습니다.
+</div>
+{% else %}
+<div class="alert alert-secondary">
+    <i class="bi bi-info-circle"></i> 시작일과 종료일을 선택한 후 <strong>통계 조회</strong> 버튼을 눌러주세요.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if stats %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7"></script>
+<script>
+(function() {
+    const statsData = {{ stats_json|safe }};
+    if (!statsData || !statsData.daily_totals) return;
+
+    // 숫자 포맷 헬퍼
+    function formatKRW(val) {
+        return new Intl.NumberFormat('ko-KR').format(Math.round(val)) + '원';
+    }
+
+    // 색상 팔레트
+    const COLORS = [
+        '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
+        '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'
+    ];
+
+    // 1) 일별 매출 추이 (Line)
+    const dailyCtx = document.getElementById('dailyChart');
+    if (dailyCtx && statsData.daily_totals.length > 0) {
+        new Chart(dailyCtx, {
+            type: 'line',
+            data: {
+                labels: statsData.daily_totals.map(d => d.date),
+                datasets: [{
+                    label: '일별 매출',
+                    data: statsData.daily_totals.map(d => d.total),
+                    borderColor: '#4e79a7',
+                    backgroundColor: 'rgba(78, 121, 167, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: statsData.daily_totals.length > 60 ? 0 : 3,
+                    pointHoverRadius: 5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => formatKRW(ctx.parsed.y)
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            maxTicksLimit: 15,
+                            maxRotation: 45,
+                        }
+                    },
+                    y: {
+                        ticks: {
+                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 2) 카테고리별 비중 (Doughnut)
+    const catCtx = document.getElementById('categoryChart');
+    if (catCtx && statsData.category_breakdown.length > 0) {
+        new Chart(catCtx, {
+            type: 'doughnut',
+            data: {
+                labels: statsData.category_breakdown.map(c => c.category),
+                datasets: [{
+                    data: statsData.category_breakdown.map(c => c.total),
+                    backgroundColor: COLORS.slice(0, statsData.category_breakdown.length),
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 11 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                                return ctx.label + ': ' + formatKRW(ctx.parsed) + ' (' + pct + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3) 월별 매출 (Bar) — 2개월 이상일 때만 표시
+    const monthCtx = document.getElementById('monthlyChart');
+    if (monthCtx && statsData.monthly_totals && statsData.monthly_totals.length > 1) {
+        new Chart(monthCtx, {
+            type: 'bar',
+            data: {
+                labels: statsData.monthly_totals.map(m => m.month),
+                datasets: [{
+                    label: '월별 매출',
+                    data: statsData.monthly_totals.map(m => m.total),
+                    backgroundColor: '#59a14f',
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => formatKRW(ctx.parsed.y)
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        ticks: {
+                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
+                        }
+                    }
+                }
+            }
+        });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}
