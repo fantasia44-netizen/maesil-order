@@ -25,7 +25,7 @@ LEDGER_CATEGORY_MAP = {
     "부자재수불부": ["부자재"],
 }
 
-REVENUE_CATEGORIES = ["일반매출", "쿠팡매출", "로켓", "N배송(용인)"]
+REVENUE_CATEGORIES = ["일반매출", "쿠팡매출", "로켓", "N배송(용인)", "거래처매출"]
 APPROVAL_LABELS = ["담당자", "과장", "본부장", "상무", "대표"]
 TEMPLATE_OPTIONS = [
     "재고현황", "제품수불부", "반제품수불부", "원료수불부",
@@ -44,6 +44,18 @@ CHANGE_LOG = [
 class User(UserMixin):
     """Supabase app_users 테이블과 매핑되는 User 클래스"""
 
+    @staticmethod
+    def _parse_dt(val):
+        """ISO datetime 문자열을 datetime 객체로 변환. None/실패 시 None."""
+        if val is None:
+            return None
+        if isinstance(val, str):
+            try:
+                return datetime.fromisoformat(val.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                return None
+        return val
+
     def __init__(self, data=None):
         if data is None:
             data = {}
@@ -55,11 +67,11 @@ class User(UserMixin):
         self.is_active_user = data.get('is_active_user', True)
         self.is_approved = data.get('is_approved', False)
         self.failed_login_count = data.get('failed_login_count', 0)
-        self.locked_until = data.get('locked_until')
-        self.last_login = data.get('last_login')
+        self.locked_until = self._parse_dt(data.get('locked_until'))
+        self.last_login = self._parse_dt(data.get('last_login'))
         self.password_changed_at = data.get('password_changed_at')
-        self.created_at = data.get('created_at')
-        self.updated_at = data.get('updated_at')
+        self.created_at = self._parse_dt(data.get('created_at'))
+        self.updated_at = self._parse_dt(data.get('updated_at'))
 
     def get_id(self):
         return str(self.id)
@@ -76,15 +88,8 @@ class User(UserMixin):
         return check_password_hash(self.password_hash, password)
 
     def is_locked(self):
-        if self.locked_until:
-            lock_time = self.locked_until
-            if isinstance(lock_time, str):
-                try:
-                    lock_time = datetime.fromisoformat(lock_time.replace('Z', '+00:00'))
-                except (ValueError, TypeError):
-                    return False
-            if lock_time > datetime.now(timezone.utc):
-                return True
+        if self.locked_until and isinstance(self.locked_until, datetime):
+            return self.locked_until > datetime.now(timezone.utc)
         return False
 
     @property

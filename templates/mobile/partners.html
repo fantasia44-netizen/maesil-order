@@ -1,0 +1,62 @@
+{% extends "mobile/base.html" %}
+{% block title %}거래처목록 - 배마마{% endblock %}
+
+{% block content %}
+<h6 class="fw-bold mb-3"><i class="bi bi-building"></i> 거래처목록</h6>
+
+<!-- 검색 -->
+<div class="m-filter">
+    <form method="GET" action="{{ url_for('mobile.partners') }}">
+        <div class="input-group">
+            <input type="text" name="q" class="form-control form-control-sm"
+                   placeholder="거래처명 검색" value="{{ q|default('') }}">
+            <button type="submit" class="btn btn-primary btn-sm">
+                <i class="bi bi-search"></i>
+            </button>
+        </div>
+    </form>
+</div>
+
+{% if partners %}
+<div class="text-muted small mb-2 px-1">총 {{ partners|length }}건</div>
+
+{% for p in partners %}
+<div class="m-list-item">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <div class="item-title">{{ p.partner_name }}</div>
+            <div class="item-sub">
+                {% if p.representative %}{{ p.representative }}{% endif %}
+                {% if p.phone %} · {{ p.phone }}{% endif %}
+            </div>
+            {% if p.address %}
+            <div class="item-sub mt-1"><i class="bi bi-geo-alt"></i> {{ p.address }}</div>
+            {% endif %}
+        </div>
+        <div>
+            {% if p.type == '매입' %}
+                <span class="badge badge-purchase item-badge">매입</span>
+            {% elif p.type == '매출' %}
+                <span class="badge badge-sales item-badge">매출</span>
+            {% else %}
+                <span class="badge bg-secondary item-badge">{{ p.type|default('-') }}</span>
+            {% endif %}
+        </div>
+    </div>
+    {% if p.business_number %}
+    <div class="item-sub mt-1"><i class="bi bi-upc"></i> {{ p.business_number }}</div>
+    {% endif %}
+</div>
+{% endfor %}
+
+{% else %}
+<div class="m-empty">
+    <i class="bi bi-building"></i>
+    {% if q %}
+    <div>"{{ q }}" 검색 결과가 없습니다.</div>
+    {% else %}
+    <div>등록된 거래처가 없습니다.</div>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

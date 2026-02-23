@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{% block title %}배마마{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        body {
+            background: #f0f2f5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding-bottom: 70px;
+            font-size: 14px;
+        }
+
+        /* 상단 헤더 */
+        .m-header {
+            background: linear-gradient(135deg, #2c3e50, #1a252f);
+            color: #fff;
+            padding: 12px 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .m-header .brand { font-weight: 700; font-size: 1rem; }
+        .m-header .user-info { font-size: 0.75rem; color: #bdc3c7; }
+
+        /* 하단 탭바 */
+        .m-tabbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            z-index: 100;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .m-tabbar a {
+            flex: 1;
+            text-align: center;
+            padding: 8px 4px 6px;
+            text-decoration: none;
+            color: #999;
+            font-size: 0.65rem;
+            transition: color 0.2s;
+        }
+        .m-tabbar a.active { color: #3498db; }
+        .m-tabbar a i { display: block; font-size: 1.2rem; margin-bottom: 2px; }
+
+        /* 페이지 컨텐츠 */
+        .m-content { padding: 12px; }
+
+        /* 카드 */
+        .m-card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .m-card-header {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        /* 필터 바 */
+        .m-filter {
+            background: #fff;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        .m-filter .form-select, .m-filter .form-control {
+            font-size: 0.85rem;
+            border-radius: 8px;
+        }
+
+        /* 데이터 행 */
+        .m-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .m-row:last-child { border-bottom: none; }
+        .m-row .label { color: #666; font-size: 0.8rem; }
+        .m-row .value { font-weight: 600; font-size: 0.9rem; }
+
+        /* 리스트 아이템 */
+        .m-list-item {
+            background: #fff;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .m-list-item .item-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+        .m-list-item .item-sub {
+            font-size: 0.75rem;
+            color: #888;
+        }
+        .m-list-item .item-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+
+        /* 통계 카드 */
+        .m-stat {
+            text-align: center;
+            padding: 12px 8px;
+        }
+        .m-stat .num {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        .m-stat .desc {
+            font-size: 0.7rem;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        /* 검색 없음 */
+        .m-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #aaa;
+        }
+        .m-empty i { font-size: 2.5rem; margin-bottom: 10px; display: block; }
+
+        /* 배지 */
+        .badge-purchase { background: #3498db; }
+        .badge-sales { background: #27ae60; }
+
+        /* 버튼 */
+        .m-btn {
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        /* 알림 */
+        .m-alert {
+            border-radius: 10px;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 상단 헤더 -->
+    <div class="m-header">
+        <div>
+            <span class="brand"><i class="bi bi-phone"></i> 배마마</span>
+        </div>
+        <div class="text-end">
+            <span class="user-info">{{ current_user.name }} ({{ current_user.role_name }})</span>
+            <a href="{{ url_for('auth.logout') }}" class="text-white ms-2" style="font-size:0.8rem;">
+                <i class="bi bi-box-arrow-right"></i>
+            </a>
+        </div>
+    </div>
+
+    <!-- 플래시 메시지 -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="px-3 pt-2">
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} m-alert alert-dismissible fade show py-2" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+            </div>
+        {% endfor %}
+        </div>
+    {% endif %}
+    {% endwith %}
+
+    <!-- 컨텐츠 -->
+    <div class="m-content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- 하단 탭바 -->
+    <nav class="m-tabbar">
+        <a href="{{ url_for('mobile.home') }}" class="{% if request.endpoint == 'mobile.home' %}active{% endif %}">
+            <i class="bi bi-house-fill"></i>홈
+        </a>
+        <a href="{{ url_for('mobile.stock') }}" class="{% if request.endpoint == 'mobile.stock' %}active{% endif %}">
+            <i class="bi bi-box-seam-fill"></i>재고
+        </a>
+        <a href="{{ url_for('mobile.revenue') }}" class="{% if request.endpoint == 'mobile.revenue' %}active{% endif %}">
+            <i class="bi bi-graph-up"></i>매출
+        </a>
+        <a href="{{ url_for('mobile.partners') }}" class="{% if request.endpoint == 'mobile.partners' %}active{% endif %}">
+            <i class="bi bi-building"></i>거래처
+        </a>
+        <a href="{{ url_for('mobile.history') }}" class="{% if request.endpoint == 'mobile.history' %}active{% endif %}">
+            <i class="bi bi-clock-history"></i>이력
+        </a>
+    </nav>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -120,6 +120,90 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
     }
 
 
+# ─── 단건 출고 (폼 기반) ───
+
+def process_single_outbound(db, date_str, location, items):
+    """폼 기반 단건 출고 처리 (FIFO).
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 처리일자 (YYYY-MM-DD)
+        location: 출고 창고명
+        items: list of dict -- [{product_name, qty, unit_price, unit}, ...]
+
+    Returns:
+        dict: {success, count, shortage, warnings}
+    """
+    _validate_date(date_str)
+    stock = _load_stock_snapshot(db, location)
+    shortage = []
+    warnings = []
+
+    # 재고 검증
+    for item in items:
+        name = str(item['product_name']).strip()
+        req_qty = abs(int(item['qty']))
+        _snap = snapshot_lookup(stock, name)
+        total = _snap.get('total', 0)
+        u = _snap.get('unit', item.get('unit', '개'))
+        if req_qty > total:
+            shortage.append(f"{name}: 요청 {req_qty}{u} / 재고 {total}{u}")
+
+    if shortage:
+        return {
+            'success': False,
+            'count': 0,
+            'shortage': shortage,
+            'warnings': ['재고 부족으로 출고가 중단되었습니다.'],
+        }
+
+    # FIFO 차감
+    payload = []
+    for item in items:
+        name = str(item['product_name']).strip()
+        remain = abs(int(item['qty']))
+        groups = snapshot_lookup(stock, name).get('groups', [])
+        if not groups:
+            payload.append({
+                "transaction_date": date_str,
+                "type": "SALES_OUT",
+                "product_name": name,
+                "qty": -remain,
+                "location": location,
+                "manufacture_date": '',
+            })
+            continue
+        for g in groups:
+            if remain <= 0:
+                break
+            deduct = min(remain, g['qty'])
+            if deduct <= 0:
+                continue
+            payload.append({
+                "transaction_date": date_str,
+                "type": "SALES_OUT",
+                "product_name": name,
+                "qty": -deduct,
+                "location": location,
+                "category": g['category'],
+                "expiry_date": g['expiry_date'],
+                "storage_method": g['storage_method'],
+                "unit": g.get('unit', '개'),
+                "manufacture_date": g.get('manufacture_date', ''),
+            })
+            remain -= deduct
+
+    if payload:
+        db.insert_stock_ledger(payload)
+
+    return {
+        'success': True,
+        'count': len(payload),
+        'shortage': [],
+        'warnings': warnings,
+    }
+
+
 # ─── 개별 출고 (run_outbound_ledger) ───
 
 def process_outbound(db, excel_df, date_str, location='넥스원',

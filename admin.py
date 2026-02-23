@@ -85,11 +85,11 @@ class UserEditForm(FlaskForm):
 # ── Helper ──
 
 def _get_user_or_404(user_id):
-    """Fetch a user via Supabase; abort 404 if not found."""
-    user = current_app.db.query_user_by_id(user_id)
-    if user is None:
+    """Fetch a user via Supabase; abort 404 if not found. Returns User object."""
+    row = current_app.db.query_user_by_id(user_id)
+    if row is None:
         abort(404)
-    return user
+    return User(row)
 
 
 def _parse_datetime(value):
@@ -110,7 +110,9 @@ def _parse_datetime(value):
 @admin_bp.route('/users')
 @role_required('admin')
 def user_list():
-    users = current_app.db.query_all_users()
+    raw_users = current_app.db.query_all_users()
+    # Wrap dicts in User objects for attribute access in templates
+    users = [User(row) for row in raw_users]
     # Sort by created_at descending (newest first)
     users.sort(key=lambda u: u.created_at or '', reverse=True)
     pending_count = current_app.db.count_pending_users()

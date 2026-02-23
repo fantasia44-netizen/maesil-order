@@ -4,6 +4,7 @@ repack.py — 소분(리패킹) 관리 Blueprint.
 """
 import os
 import io
+import tempfile
 from datetime import datetime
 
 import pandas as pd
@@ -32,6 +33,13 @@ def index():
     """소분 관리 폼 + 이력"""
     db = current_app.db
 
+    # 위치 목록 로드
+    locations = []
+    try:
+        locations, _ = db.query_filter_options()
+    except Exception:
+        pass
+
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
 
@@ -49,7 +57,7 @@ def index():
             flash(f'소분 이력 조회 중 오류: {e}', 'danger')
 
     return render_template('repack/index.html',
-                           history=history,
+                           history=history, locations=locations,
                            date_from=date_from, date_to=date_to,
                            type_labels=INV_TYPE_LABELS)
 
@@ -75,14 +83,15 @@ def process():
 
     try:
         from services.repack_service import process_repack
-        result = process_repack(current_app.db, filepath, date_str, mode, location)
+        df = pd.read_excel(filepath).fillna("")
+        result = process_repack(current_app.db, df, date_str, mode)
 
         if result.get('warnings'):
             for w in result['warnings']:
                 flash(w, 'warning')
 
-        flash(f"소분 처리 완료: 투입 {result.get('out_count', 0)}건, "
-              f"산출 {result.get('in_count', 0)}건"
+        flash(f"소분 처리 완료: 투입 {result.get('repack_out_count', 0)}건, "
+              f"산출 {result.get('repack_in_count', 0)}건"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
               'success')
     except Exception as e:
@@ -149,4 +158,60 @@ def export():
         )
     except Exception as e:
         flash(f'소분 이력 다운로드 중 오류: {e}', 'danger')
+        return redirect(url_for('repack.index'))
+
+
+@repack_bp.route('/pdf')
+@role_required('admin', 'manager', 'production')
+def pdf():
+    """소분작업일지 PDF 다운로드"""
+    date_str = request.args.get('date', '')
+
+    if not date_str:
+        flash('작업일자를 입력하세요.', 'warning')
+        return redirect(url_for('repack.index'))
+
+    db = current_app.db
+
+    try:
+        from services.stock_service import query_all_stock_data
+        from models import APPROVAL_LABELS
+        from reports.repack_daily import generate_repack_log_pdf
+
+        df = query_all_stock_data(db, date_str)
+        if df.empty:
+            flash('해당 일자의 소분 데이터가 없습니다.', 'warning')
+            return redirect(url_for('repack.index'))
+
+        df = df[df['transaction_date'] == date_str]
+        df = df[df['type'].isin(['REPACK_OUT', 'REPACK_IN'])].copy()
+
+        if df.empty:
+            flash('해당 일자의 소분 데이터가 없습니다.', 'warning')
+            return redirect(url_for('repack.index'))
+
+        config = {
+            'target_date': date_str,
+            'approvals': {label: '' for label in APPROVAL_LABELS},
+            'title': '소분작업일지',
+            'include_warnings': False,
+        }
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        try:
+            generate_repack_log_pdf(tmp_path, config, df)
+            with open(tmp_path, 'rb') as f:
+                pdf_bytes = io.BytesIO(f.read())
+            fname = f"소분작업일지_{date_str}.pdf"
+            return send_file(pdf_bytes, mimetype='application/pdf',
+                             as_attachment=True, download_name=fname)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    except Exception as e:
+        flash(f'소분작업일지 PDF 생성 중 오류: {e}', 'danger')
         return redirect(url_for('repack.index'))

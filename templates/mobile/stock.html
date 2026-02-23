@@ -1,0 +1,80 @@
+{% extends "mobile/base.html" %}
+{% block title %}재고현황 - 배마마{% endblock %}
+
+{% block content %}
+<h6 class="fw-bold mb-3"><i class="bi bi-box-seam"></i> 재고현황</h6>
+
+<!-- 필터 -->
+<div class="m-filter">
+    <form method="GET" action="{{ url_for('mobile.stock') }}">
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">기준일</label>
+                <input type="date" name="date" class="form-control form-control-sm"
+                       value="{{ date_str }}" required>
+            </div>
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">창고</label>
+                <select name="location" class="form-select form-select-sm">
+                    <option value="전체">전체</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc }}" {% if location == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary btn-sm w-100 m-btn">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if rows %}
+<!-- 통계 -->
+<div class="m-card">
+    <div class="row">
+        <div class="col-6 m-stat">
+            <div class="num">{{ stats.total_items }}</div>
+            <div class="desc">품목 수</div>
+        </div>
+        <div class="col-6 m-stat">
+            <div class="num">{{ '{:,.0f}'.format(stats.total_qty) }}</div>
+            <div class="desc">총 수량</div>
+        </div>
+    </div>
+</div>
+
+<!-- 품목 목록 -->
+{% for row in rows %}
+<div class="m-list-item">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <div class="item-title">{{ row.product_name }}</div>
+            <div class="item-sub">
+                {{ row.location|default('') }}
+                {% if row.category %} · {{ row.category }}{% endif %}
+                {% if row.unit %} · {{ row.unit }}{% endif %}
+            </div>
+        </div>
+        <div class="text-end">
+            <span class="fw-bold text-primary" style="font-size:1.1rem;">{{ '{:,.0f}'.format(row.qty) }}</span>
+            <div class="item-sub">{{ row.unit|default('개') }}</div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% elif date_str %}
+<div class="m-empty">
+    <i class="bi bi-inbox"></i>
+    <div>해당 조건의 재고 데이터가 없습니다.</div>
+</div>
+{% else %}
+<div class="m-empty">
+    <i class="bi bi-calendar-date"></i>
+    <div>기준일을 선택하고 조회하세요.</div>
+</div>
+{% endif %}
+{% endblock %}

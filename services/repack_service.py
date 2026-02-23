@@ -185,6 +185,13 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     if date_str < datetime.now().strftime('%Y-%m-%d'):
         warnings.append(f"작업일자가 과거입니다: {date_str}")
 
+    # ── 수정입력: 기존 소분 데이터를 먼저 삭제 (재고 복원 후 부족 체크) ──
+    deleted_count = 0
+    if mode == "수정입력":
+        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT")
+        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN")
+        deleted_count = del1 + del2
+
     # ── 투입품 재고 부족 체크 ──
     input_demand = {}
     for _, row in df.iterrows():
@@ -348,13 +355,6 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
 
     if not payload:
         raise ValueError("생성할 소분 거래가 없습니다.")
-
-    # ── 수정입력: 기존 소분 데이터 삭제 ──
-    deleted_count = 0
-    if mode == "수정입력":
-        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT")
-        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN")
-        deleted_count = del1 + del2
 
     # ── DB 저장 ──
     db.insert_stock_ledger(payload)

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}수불장 - 오토툴{% endblock %}
+{% block title %}수불장 - 배마마 통합시스템{% endblock %}
 {% block page_title %}수불장{% endblock %}
 
 {% block content %}
@@ -25,11 +25,11 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label fw-semibold">카테고리</label>
-                <select name="category" class="form-select">
-                    <option value="전체">전체</option>
-                    {% for cat in categories|default([]) %}
-                    <option value="{{ cat }}" {% if category|default('전체') == cat %}selected{% endif %}>{{ cat }}</option>
+                <label class="form-label fw-semibold">수불부 유형</label>
+                <select name="ledger_type" class="form-select">
+                    <option value="">전체</option>
+                    {% for lt in ledger_types|default([]) %}
+                    <option value="{{ lt }}" {% if ledger_type|default('') == lt %}selected{% endif %}>{{ lt }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -38,10 +38,20 @@
                     <i class="bi bi-search"></i> 조회
                 </button>
                 {% if ledger is defined and ledger %}
-                <a href="{{ url_for('ledger.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), category=category|default('전체')) }}"
+                <a href="{{ url_for('ledger.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default('')) }}"
                    class="btn btn-outline-success">
-                    <i class="bi bi-download"></i> 엑셀 다운로드
+                    <i class="bi bi-download"></i> 엑셀
                 </a>
+                <div class="btn-group">
+                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default('')) }}"
+                       class="btn btn-outline-danger">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </a>
+                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), fit_one_page='1') }}"
+                       class="btn btn-outline-danger" title="가로방향, 한 페이지에 축소 출력">
+                        <i class="bi bi-file-earmark-pdf"></i> 한장출력
+                    </a>
+                </div>
                 {% endif %}
             </div>
         </form>
@@ -60,18 +70,24 @@
                 <thead class="table-light">
                     <tr>
                         <th>품목명</th>
-                        <th class="text-end">기초재고</th>
+                        <th>위치</th>
+                        <th>종류</th>
+                        <th>단위</th>
+                        <th class="text-end">이월재고</th>
                         <th class="text-end">입고</th>
                         <th class="text-end">생산</th>
                         <th class="text-end">출고</th>
                         <th class="text-end">이동</th>
-                        <th class="text-end">기말재고</th>
+                        <th class="text-end">종료일재고</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in ledger %}
                     <tr>
                         <td><strong>{{ row.product_name }}</strong></td>
+                        <td>{{ row.location|default('') }}</td>
+                        <td>{{ row.category|default('') }}</td>
+                        <td>{{ row.unit|default('') }}</td>
                         <td class="text-end">{{ '{:,.0f}'.format(row.opening|default(0)) }}</td>
                         <td class="text-end text-primary">{{ '{:,.0f}'.format(row.inbound|default(0)) }}</td>
                         <td class="text-end text-success">{{ '{:,.0f}'.format(row.production|default(0)) }}</td>

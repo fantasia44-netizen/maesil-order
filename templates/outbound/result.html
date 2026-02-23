@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}출고 결과 - 배마마 통합시스템{% endblock %}
+{% block page_title %}출고 처리 결과{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-8 mx-auto">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-check-circle"></i> 출고 처리 완료
+            </div>
+            <div class="card-body">
+                <!-- 요약 정보 -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <table class="table table-sm table-borderless">
+                            <tr>
+                                <td class="fw-semibold text-muted" style="width:100px">기준일</td>
+                                <td>{{ result.date }}</td>
+                            </tr>
+                            <tr>
+                                <td class="fw-semibold text-muted">매출처</td>
+                                <td><strong>{{ result.partner_name }}</strong></td>
+                            </tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm table-borderless">
+                            <tr>
+                                <td class="fw-semibold text-muted" style="width:100px">창고</td>
+                                <td>{{ result.location }}</td>
+                            </tr>
+                            <tr>
+                                <td class="fw-semibold text-muted">본사</td>
+                                <td>{{ my_biz.business_name|default('미지정') }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 품목 상세 -->
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>No</th>
+                                <th>품목명</th>
+                                <th class="text-end">수량</th>
+                                <th>단위</th>
+                                <th class="text-end">단가</th>
+                                <th class="text-end">금액</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in result.items %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ item.product_name }}</td>
+                                <td class="text-end">{{ '{:,.0f}'.format(item.qty|abs) }}</td>
+                                <td>{{ item.unit|default('개') }}</td>
+                                <td class="text-end">{{ '{:,.0f}'.format(item.unit_price|default(0)) }}</td>
+                                <td class="text-end fw-bold">{{ '{:,.0f}'.format((item.qty|abs) * (item.unit_price|default(0))) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light fw-bold">
+                                <td colspan="2" class="text-end">합계</td>
+                                <td class="text-end">{{ '{:,.0f}'.format(total_qty) }}</td>
+                                <td></td>
+                                <td></td>
+                                <td class="text-end">{{ '{:,.0f}'.format(total_amount) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <!-- 버튼 -->
+                <div class="d-flex gap-2 mt-4">
+                    <a href="{{ url_for('outbound.invoice') }}" class="btn btn-danger">
+                        <i class="bi bi-file-earmark-pdf"></i> 거래명세서 다운로드
+                    </a>
+                    <a href="{{ url_for('outbound.index') }}" class="btn btn-outline-secondary ms-auto">
+                        <i class="bi bi-arrow-left"></i> 거래처주문처리로 돌아가기
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

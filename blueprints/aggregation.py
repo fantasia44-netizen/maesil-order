@@ -16,7 +16,7 @@ from auth import role_required
 
 aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
-ALLOWED_EXT = {'xlsx', 'xls'}
+ALLOWED_EXT = {'xlsx', 'xls', 'csv'}
 
 
 def _allowed(filename):
@@ -32,7 +32,7 @@ def index():
     if os.path.exists(output_dir):
         result_files = sorted(
             [f for f in os.listdir(output_dir)
-             if f.startswith('집계') and f.endswith('.xlsx')],
+             if f.endswith('.xlsx') and (f.startswith('통합') or f.startswith('일일매출'))],
             reverse=True,
         )[:20]
 
@@ -42,9 +42,10 @@ def index():
 @aggregation_bp.route('/process', methods=['POST'])
 @role_required('admin', 'manager', 'sales')
 def process():
-    """집계 파일(들) + BOM 파일 업로드 → 처리"""
+    """집계 파일(들) + BOM 파일 + 옵션리스트 업로드 → 처리"""
     agg_files = request.files.getlist('agg_files')
     bom_file = request.files.get('bom_file')
+    option_file = request.files.get('option_file')
 
     if not agg_files or all(f.filename == '' for f in agg_files):
         flash('집계 엑셀 파일을 하나 이상 선택하세요.', 'danger')
@@ -68,36 +69,66 @@ def process():
         flash('유효한 엑셀 파일이 없습니다.', 'danger')
         return redirect(url_for('aggregation.index'))
 
-    # BOM 파일 저장 (선택)
+    # BOM 파일 저장 (필수)
     bom_path = None
     if bom_file and bom_file.filename and _allowed(bom_file.filename):
         bom_fname = secure_filename(bom_file.filename)
         bom_path = os.path.join(upload_dir, bom_fname)
         bom_file.save(bom_path)
 
+    if not bom_path:
+        flash('세트옵션BOM 파일을 선택하세요.', 'danger')
+        # 업로드 파일 정리
+        for p in agg_paths:
+            if os.path.exists(p):
+                os.remove(p)
+        return redirect(url_for('aggregation.index'))
+
+    # 옵션리스트 파일 저장 (선택)
+    option_path = None
+    if option_file and option_file.filename and _allowed(option_file.filename):
+        opt_fname = secure_filename(option_file.filename)
+        option_path = os.path.join(upload_dir, opt_fname)
+        option_file.save(option_path)
+
     try:
-        from services.aggregation_service import process_aggregation
+        from services.aggregator import Aggregator
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"집계결과_{timestamp}.xlsx"
-        output_path = os.path.join(output_dir, output_filename)
+        aggregator = Aggregator()
+        result = aggregator.run(agg_paths, option_path, bom_path, output_dir)
 
-        result = process_aggregation(
-            db=current_app.db,
-            agg_paths=agg_paths,
-            bom_path=bom_path,
-            output_path=output_path,
-        )
+        if result.get('error'):
+            flash(result['error'], 'danger')
 
-        if result.get('warnings'):
-            for w in result['warnings']:
-                flash(w, 'warning')
+        if result.get('success'):
+            summary = result.get('summary', {})
+            flash(f"집계 처리 완료: {summary.get('total_items', 0)}종, "
+                  f"총 {summary.get('total_qty', 0):,}개", 'success')
 
-        flash(f"집계 처리 완료: {result.get('count', 0)}건 → {output_filename}", 'success')
-        return redirect(url_for('aggregation.download', filename=output_filename))
+        # 다운로드 링크 생성
+        downloads = []
+        for fpath in result.get('files', []):
+            fname = os.path.basename(fpath)
+            downloads.append({
+                'name': fname,
+                'url': url_for('aggregation.download', filename=fname),
+            })
+
+        # 최근 처리 결과 파일 목록
+        result_files = sorted(
+            [f for f in os.listdir(output_dir)
+             if f.endswith('.xlsx') and (f.startswith('통합') or f.startswith('일일매출'))],
+            reverse=True,
+        )[:20]
+
+        return render_template('aggregation/index.html',
+                               result={'logs': result.get('logs', []),
+                                       'downloads': downloads},
+                               result_files=result_files)
 
     except Exception as e:
         flash(f'집계 처리 중 오류: {e}', 'danger')
+        return redirect(url_for('aggregation.index'))
     finally:
         # 업로드 파일 정리
         for p in agg_paths:
@@ -105,8 +136,8 @@ def process():
                 os.remove(p)
         if bom_path and os.path.exists(bom_path):
             os.remove(bom_path)
-
-    return redirect(url_for('aggregation.index'))
+        if option_path and os.path.exists(option_path):
+            os.remove(option_path)
 
 
 @aggregation_bp.route('/download/<filename>')

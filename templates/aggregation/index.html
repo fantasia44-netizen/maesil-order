@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}통합 집계 - 오토툴{% endblock %}
+{% block title %}통합 집계 - 배마마 통합시스템{% endblock %}
 {% block page_title %}통합 집계{% endblock %}
 
 {% block content %}
@@ -15,7 +15,7 @@
             <div class="row g-3">
                 <div class="col-md-4">
                     <label class="form-label fw-semibold">집계표 <span class="text-danger">*</span></label>
-                    <input type="file" name="aggregation_files" class="form-control" accept=".xlsx,.xls,.csv" multiple required>
+                    <input type="file" name="agg_files" class="form-control" accept=".xlsx,.xls,.csv" multiple required>
                     <div class="form-text">집계표 파일 (복수 선택 가능, 필수)</div>
                 </div>
                 <div class="col-md-4">
@@ -26,7 +26,7 @@
                 <div class="col-md-4">
                     <label class="form-label fw-semibold">옵션리스트</label>
                     <input type="file" name="option_file" class="form-control" accept=".xlsx,.xls,.csv">
-                    <div class="form-text">옵션리스트 파일 (선택)</div>
+                    <div class="form-text">옵션리스트 파일 (선택, 정렬+출고지+매출)</div>
                 </div>
             </div>
         </div>
@@ -42,7 +42,7 @@
 
 <!-- 결과 영역 -->
 {% if result is defined and result %}
-<div class="card">
+<div class="card mb-4">
     <div class="card-header">
         <i class="bi bi-check-circle"></i> 집계 결과
     </div>
@@ -65,6 +65,22 @@
             {% endfor %}
         </div>
         {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 최근 처리 결과 -->
+{% if result_files is defined and result_files %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)
+    </div>
+    <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+        {% for f in result_files %}
+        <a href="{{ url_for('aggregation.download', filename=f) }}" class="list-group-item list-group-item-action">
+            <i class="bi bi-file-earmark-arrow-down"></i> {{ f }}
+        </a>
+        {% endfor %}
     </div>
 </div>
 {% endif %}

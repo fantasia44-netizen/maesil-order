@@ -25,7 +25,7 @@ def _allowed(filename):
 
 
 @transfer_bp.route('/')
-@role_required('admin', 'manager', 'logistics')
+@role_required('admin', 'manager', 'logistics', 'general')
 def index():
     """창고 이동 폼 (수동 + 엑셀)"""
     db = current_app.db
@@ -38,7 +38,7 @@ def index():
 
 
 @transfer_bp.route('/manual', methods=['POST'])
-@role_required('admin', 'manager', 'logistics')
+@role_required('admin', 'manager', 'logistics', 'general')
 def manual():
     """수동 창고 이동"""
     product_name = request.form.get('product_name', '').strip()
@@ -79,7 +79,7 @@ def manual():
 
 
 @transfer_bp.route('/excel', methods=['POST'])
-@role_required('admin', 'manager', 'logistics')
+@role_required('admin', 'manager', 'logistics', 'general')
 def excel():
     """엑셀 일괄 창고 이동"""
     file = request.files.get('file')

@@ -25,7 +25,7 @@ def _allowed(filename):
 
 
 @base_data_bp.route('/')
-@role_required('admin')
+@role_required('admin', 'manager')
 def index():
     """기초 데이터 관리 폼"""
     db = current_app.db
@@ -43,7 +43,7 @@ def index():
 
 
 @base_data_bp.route('/reset-base', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager')
 def reset_base():
     """기초재고 초기화 — 전체 삭제 후 엑셀 업로드로 재설정"""
     confirm = request.form.get('confirm', '')
@@ -94,7 +94,7 @@ def reset_base():
 
 
 @base_data_bp.route('/reset-revenue', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager')
 def reset_revenue():
     """매출 데이터 초기화 — 전체 또는 기간 삭제"""
     confirm = request.form.get('confirm', '')

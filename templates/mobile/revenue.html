@@ -1,0 +1,77 @@
+{% extends "mobile/base.html" %}
+{% block title %}매출현황 - 배마마{% endblock %}
+
+{% block content %}
+<h6 class="fw-bold mb-3"><i class="bi bi-graph-up"></i> 매출현황</h6>
+
+<!-- 필터 -->
+<div class="m-filter">
+    <form method="GET" action="{{ url_for('mobile.revenue') }}">
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm"
+                       value="{{ date_from }}">
+            </div>
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm"
+                       value="{{ date_to }}">
+            </div>
+            <div class="col-8">
+                <label class="form-label small fw-semibold mb-1">카테고리</label>
+                <select name="category" class="form-select form-select-sm">
+                    <option value="전체">전체</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-4 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary btn-sm w-100 m-btn">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if revenues %}
+<!-- 합계 -->
+<div class="m-card">
+    <div class="m-stat">
+        <div class="num text-success">{{ '{:,.0f}'.format(total_revenue) }}원</div>
+        <div class="desc">매출 합계 ({{ revenues|length }}건)</div>
+    </div>
+</div>
+
+<!-- 매출 목록 -->
+{% for r in revenues %}
+<div class="m-list-item">
+    <div class="d-flex justify-content-between align-items-start">
+        <div>
+            <div class="item-title">{{ r.product_name|default('-') }}</div>
+            <div class="item-sub">
+                {{ r.revenue_date|default('') }}
+                {% if r.category %} · <span class="badge bg-secondary item-badge">{{ r.category }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="text-end">
+            <span class="fw-bold text-success">{{ '{:,.0f}'.format(r.revenue|default(0)) }}</span>
+            <div class="item-sub">
+                {% if r.qty %}{{ '{:,.0f}'.format(r.qty) }}개{% endif %}
+                {% if r.unit_price %} @ {{ '{:,.0f}'.format(r.unit_price) }}{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="m-empty">
+    <i class="bi bi-bar-chart"></i>
+    <div>조회 조건을 선택하세요.</div>
+    <small class="text-muted">기간 또는 카테고리를 선택 후 조회</small>
+</div>
+{% endif %}
+{% endblock %}

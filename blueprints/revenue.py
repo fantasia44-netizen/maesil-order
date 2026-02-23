@@ -27,7 +27,7 @@ def _allowed(filename):
 
 
 @revenue_bp.route('/')
-@role_required('admin', 'manager')
+@role_required('admin', 'manager', 'sales', 'general')
 def index():
     """매출 조회"""
     db = current_app.db
@@ -50,14 +50,14 @@ def index():
         flash(f'매출 조회 중 오류: {e}', 'danger')
 
     return render_template('revenue/index.html',
-                           data=data, total_revenue=total_revenue,
+                           revenues=data, total_revenue=total_revenue,
                            date_from=date_from, date_to=date_to,
                            category=category,
                            categories=REVENUE_CATEGORIES)
 
 
 @revenue_bp.route('/import', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin', 'manager', 'sales', 'general')
 def import_revenue():
     """매출 엑셀 업로드"""
     file = request.files.get('file')
@@ -94,7 +94,7 @@ def import_revenue():
 
 
 @revenue_bp.route('/export')
-@role_required('admin', 'manager')
+@role_required('admin', 'manager', 'sales', 'general')
 def export():
     """매출 데이터 엑셀 다운로드"""
     db = current_app.db

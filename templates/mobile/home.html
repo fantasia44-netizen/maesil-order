@@ -1,0 +1,57 @@
+{% extends "mobile/base.html" %}
+{% block title %}배마마 모바일{% endblock %}
+
+{% block content %}
+<div class="text-center mb-3">
+    <h6 class="fw-bold text-muted mb-1">배마마 통합시스템</h6>
+    <small class="text-muted">모바일 조회</small>
+</div>
+
+<div class="row g-3">
+    <div class="col-6">
+        <a href="{{ url_for('mobile.stock') }}" class="text-decoration-none">
+            <div class="m-card text-center py-4">
+                <i class="bi bi-box-seam-fill text-primary" style="font-size:2rem;"></i>
+                <div class="fw-bold mt-2">재고현황</div>
+                <small class="text-muted">창고별 재고 조회</small>
+            </div>
+        </a>
+    </div>
+    <div class="col-6">
+        <a href="{{ url_for('mobile.revenue') }}" class="text-decoration-none">
+            <div class="m-card text-center py-4">
+                <i class="bi bi-graph-up text-success" style="font-size:2rem;"></i>
+                <div class="fw-bold mt-2">매출현황</div>
+                <small class="text-muted">일별 매출 조회</small>
+            </div>
+        </a>
+    </div>
+    <div class="col-6">
+        <a href="{{ url_for('mobile.partners') }}" class="text-decoration-none">
+            <div class="m-card text-center py-4">
+                <i class="bi bi-building text-warning" style="font-size:2rem;"></i>
+                <div class="fw-bold mt-2">거래처목록</div>
+                <small class="text-muted">거래처 정보 조회</small>
+            </div>
+        </a>
+    </div>
+    <div class="col-6">
+        <a href="{{ url_for('mobile.history') }}" class="text-decoration-none">
+            <div class="m-card text-center py-4">
+                <i class="bi bi-clock-history text-info" style="font-size:2rem;"></i>
+                <div class="fw-bold mt-2">이력조회</div>
+                <small class="text-muted">입출고 이력 조회</small>
+            </div>
+        </a>
+    </div>
+</div>
+
+<div class="m-card mt-3">
+    <div class="m-row">
+        <span class="label">PC 버전으로 이동</span>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-display"></i> PC 버전
+        </a>
+    </div>
+</div>
+{% endblock %}

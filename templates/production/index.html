@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}생산/입고 - 오토툴{% endblock %}
+{% block title %}생산/입고 - 배마마 통합시스템{% endblock %}
 {% block page_title %}생산/입고 관리{% endblock %}
 
 {% block content %}
@@ -69,6 +69,34 @@
                     <button type="submit" class="btn btn-success w-100">
                         <i class="bi bi-upload"></i> 생산 업로드
                     </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 생산일지 PDF 다운로드 -->
+<div class="row g-4 mt-2">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF 다운로드
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('production.log_pdf') }}" class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label fw-semibold">생산일자</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-semibold">위치 (선택)</label>
+                        <input type="text" name="location" class="form-control" placeholder="전체 (미입력시)">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-outline-danger">
+                            <i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

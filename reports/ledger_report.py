@@ -74,11 +74,11 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
         elements.append(Spacer(1, 3 * mm))
 
         if has_mfg:
-            headers = ["품목명", "창고", "제조일", "단위", "전일재고", "입고", "출고", "현재고"]
+            headers = ["품목명", "창고", "제조일", "단위", "이월재고", "입고", "출고", "종료일재고"]
             cw = [usable_w * 0.18, usable_w * 0.10, usable_w * 0.12, usable_w * 0.06,
                   usable_w * 0.12, usable_w * 0.12, usable_w * 0.12, usable_w * 0.12]
         else:
-            headers = ["품목명", "창고", "단위", "전일재고", "입고", "출고", "현재고"]
+            headers = ["품목명", "창고", "단위", "이월재고", "입고", "출고", "종료일재고"]
             cw = [usable_w * 0.22, usable_w * 0.12, usable_w * 0.08,
                   usable_w * 0.14, usable_w * 0.14, usable_w * 0.14, usable_w * 0.14]
 
@@ -161,7 +161,7 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
         loc_summary[location]["out"] += total_out
         loc_summary[location]["closing"] += closing
 
-    sum_data = [["창고", "품목 수", "기초재고", "입고합계", "출고합계", "기말재고"]]
+    sum_data = [["창고", "품목 수", "이월재고", "입고합계", "출고합계", "종료일재고"]]
     grand = {"items": 0, "opening": 0, "in": 0, "out": 0, "closing": 0}
     for loc in sorted(loc_summary.keys()):
         s = loc_summary[loc]
@@ -194,7 +194,7 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
         elements.append(Paragraph(f"※ 데이터 경고: {len(warnings)}건 (문서 말미 참조)", warn_note))
 
     # --- 상세 페이지 ---
-    headers = ["일자", "구분", "단위", "전일재고", "입고", "출고", "현재고", "증빙번호", "비고"]
+    headers = ["일자", "구분", "단위", "이월재고", "입고", "출고", "종료일재고", "증빙번호", "비고"]
     cw = [usable_w * 0.11, usable_w * 0.09, usable_w * 0.06, usable_w * 0.10,
           usable_w * 0.10, usable_w * 0.10, usable_w * 0.10, usable_w * 0.17, usable_w * 0.17]
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}주문 처리 - 오토툴{% endblock %}
-{% block page_title %}주문 처리{% endblock %}
+{% block title %}온라인주문처리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}온라인주문처리{% endblock %}
 
 {% block content %}
 <form method="POST" action="{{ url_for('orders.process') }}" enctype="multipart/form-data" id="orderForm">
@@ -57,7 +57,7 @@
                 <div class="col-md-4">
                     <label class="form-label fw-semibold">3. 송장결과</label>
                     <input type="file" name="invoice_file" class="form-control" accept=".xlsx,.xls,.csv">
-                    <div class="form-text">송장 결과 파일 (선택)</div>
+                    <div class="form-text">송장 결과 파일 (리얼패킹/외부일괄 시 필수)</div>
                 </div>
             </div>
         </div>
@@ -86,7 +86,7 @@
 
 <!-- 결과 영역 -->
 {% if result is defined and result %}
-<div class="card">
+<div class="card mb-4">
     <div class="card-header">
         <i class="bi bi-check-circle"></i> 처리 결과
     </div>
@@ -109,6 +109,22 @@
             {% endfor %}
         </div>
         {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 최근 처리 결과 -->
+{% if result_files is defined and result_files %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)
+    </div>
+    <div class="list-group list-group-flush" style="max-height: 300px; overflow-y: auto;">
+        {% for f in result_files %}
+        <a href="{{ url_for('orders.download', filename=f) }}" class="list-group-item list-group-item-action">
+            <i class="bi bi-file-earmark-arrow-down"></i> {{ f }}
+        </a>
+        {% endfor %}
     </div>
 </div>
 {% endif %}

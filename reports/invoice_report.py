@@ -114,7 +114,8 @@ def generate_invoice_pdf(path, my_biz, partner, trades, trade_date=""):
     sup_table = _info_table("공 급 자", supplier_info)
     buy_table = _info_table("공 급 받 는 자", buyer_info)
 
-    info_row = Table([[sup_table, "", buy_table]], colWidths=[half_w, gap_w, half_w])
+    # 왼쪽: 공급받는자(매출처), 오른쪽: 공급자(본사)
+    info_row = Table([[buy_table, "", sup_table]], colWidths=[half_w, gap_w, half_w])
     info_row.setStyle(TableStyle([
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('LEFTPADDING', (0, 0), (-1, -1), 0),

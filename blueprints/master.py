@@ -149,6 +149,22 @@ def search():
     except Exception as e:
         flash(f'마스터 검색 중 오류: {e}', 'danger')
 
-    return render_template('master/search.html',
-                           table_key=table_key, search_term=search_term,
-                           data=data, tables=MASTER_TABLES)
+    # counts 데이터도 함께 전달 (index.html의 마스터 카드 영역에 필요)
+    counts = {}
+    for key, tbl in MASTER_TABLES.items():
+        try:
+            counts[key] = current_app.db.count_master_table(tbl)
+        except Exception:
+            counts[key] = -1
+
+    # 검색 결과 컬럼 추출
+    search_columns = list(data[0].keys()) if data else []
+
+    return render_template('master/index.html',
+                           counts=counts,
+                           search_results=data,
+                           search_columns=search_columns,
+                           search_query=search_term,
+                           master_type=table_key,
+                           table_key=table_key,
+                           tables=MASTER_TABLES)

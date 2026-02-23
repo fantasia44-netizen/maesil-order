@@ -2,19 +2,28 @@
 stock.py — 재고 현황 조회 Blueprint.
 """
 import os
-from flask import Blueprint, render_template, request, current_app, jsonify
+import io
+import tempfile
+
+from flask import (
+    Blueprint, render_template, request, current_app,
+    flash, redirect, url_for, send_file,
+)
 from flask_login import login_required
+
 from auth import role_required
 
 stock_bp = Blueprint('stock', __name__, url_prefix='/stock')
 
 
 @stock_bp.route('/')
-@role_required('admin', 'manager', 'logistics')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def index():
     """재고 현황 조회"""
     date_str = request.args.get('date', '')
     location = request.args.get('location', '전체')
+    category = request.args.get('category', '전체')
+    view_mode = request.args.get('view_mode', '기본')
 
     db = current_app.db
     locations, categories = [], []
@@ -23,19 +32,105 @@ def index():
     except Exception:
         pass
 
-    snapshot = {}
+    rows = []
     stats = {'total_items': 0, 'total_qty': 0}
 
     if date_str:
         try:
-            from services.stock_service import get_stock_snapshot, get_stats
-            snapshot = get_stock_snapshot(db, date_str, location)
-            stats = get_stats(db, date_str, location)
+            from services.stock_service import query_stock_snapshot
+            split_manufacture = (view_mode == '제조일분리')
+            split_expiry = (view_mode == '소비기한분리')
+
+            rows = query_stock_snapshot(
+                db, date_str,
+                location=location,
+                category=category,
+                split_manufacture=split_manufacture,
+                split_expiry=split_expiry,
+            )
+            stats = {
+                'total_items': len(set(r['product_name'] for r in rows)),
+                'total_qty': sum(r['qty'] for r in rows),
+            }
         except Exception as e:
-            from flask import flash
             flash(f'재고 조회 중 오류: {e}', 'danger')
 
     return render_template('stock/index.html',
                            date_str=date_str, location=location,
+                           category=category, view_mode=view_mode,
                            locations=locations, categories=categories,
-                           snapshot=snapshot, stats=stats)
+                           rows=rows, stats=stats)
+
+
+@stock_bp.route('/pdf')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+def pdf():
+    """재고현황 PDF 다운로드"""
+    import pandas as pd
+
+    date_str = request.args.get('date', '')
+    location = request.args.get('location', '전체')
+    category = request.args.get('category', '전체')
+    view_mode = request.args.get('view_mode', '기본')
+
+    if not date_str:
+        flash('기준일을 입력하세요.', 'warning')
+        return redirect(url_for('stock.index'))
+
+    db = current_app.db
+
+    try:
+        from services.stock_service import query_stock_snapshot
+        from models import APPROVAL_LABELS
+        from reports.snapshot_report import generate_stock_snapshot_pdf
+
+        split_manufacture = (view_mode == '제조일분리')
+        split_expiry = (view_mode == '소비기한분리')
+
+        rows = query_stock_snapshot(
+            db, date_str,
+            location=location,
+            category=category,
+            split_manufacture=split_manufacture,
+            split_expiry=split_expiry,
+        )
+
+        if not rows:
+            flash('PDF로 출력할 데이터가 없습니다.', 'warning')
+            return redirect(url_for('stock.index', date=date_str,
+                                     location=location, category=category,
+                                     view_mode=view_mode))
+
+        df = pd.DataFrame(rows)
+        # PDF에 필요한 컬럼 보완
+        for col in ['origin', 'manufacture_date', 'expiry_date', 'storage_method']:
+            if col not in df.columns:
+                df[col] = ''
+
+        config = {
+            'target_date': date_str,
+            'approvals': {label: '' for label in APPROVAL_LABELS},
+            'title': '재고현황',
+            'include_warnings': False,
+        }
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        try:
+            generate_stock_snapshot_pdf(tmp_path, config, df)
+            with open(tmp_path, 'rb') as f:
+                pdf_bytes = io.BytesIO(f.read())
+            fname = f"재고현황_{date_str}.pdf"
+            return send_file(pdf_bytes, mimetype='application/pdf',
+                             as_attachment=True, download_name=fname)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    except Exception as e:
+        flash(f'PDF 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('stock.index', date=date_str,
+                                 location=location, category=category,
+                                 view_mode=view_mode))

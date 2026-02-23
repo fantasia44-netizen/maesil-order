@@ -1,55 +1,97 @@
 {% extends "base.html" %}
-{% block title %}출고 관리 - 오토툴{% endblock %}
-{% block page_title %}출고 관리{% endblock %}
+{% block title %}거래처주문처리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}거래처주문처리{% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <!-- 단건 출고 -->
-    <div class="col-lg-6">
+    <!-- 단건 출고 (폼 기반) -->
+    <div class="col-lg-7">
         <div class="card h-100">
             <div class="card-header">
                 <i class="bi bi-truck"></i> 단건 출고
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('outbound.single') }}" enctype="multipart/form-data">
+                <form id="singleForm" method="POST" action="{{ url_for('outbound.single') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
+                    <input type="hidden" name="items" id="itemsInput">
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">기준일</label>
+                            <input type="date" name="date" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">창고</label>
+                            <select name="location" id="locationSelect" class="form-select" required>
+                                <option value="">선택</option>
+                                {% for loc in locations|default([]) %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">매출처</label>
+                            <select name="partner_name" class="form-select" required>
+                                <option value="">선택</option>
+                                {% for p in partners|default([]) %}
+                                <option value="{{ p.partner_name }}">{{ p.partner_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
+
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">위치</label>
-                        <select name="location" class="form-select">
-                            <option value="">선택</option>
-                            {% for loc in locations|default([]) %}
-                            <option value="{{ loc }}">{{ loc }}</option>
+                        <label class="form-label fw-semibold">본사 (거래명세서용)</label>
+                        <select name="my_biz_id" class="form-select">
+                            {% for b in my_businesses|default([]) %}
+                            <option value="{{ b.id }}" {% if b.is_default %}selected{% endif %}>
+                                {{ b.business_name }}{% if b.is_default %} (기본){% endif %}
+                            </option>
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">카테고리</label>
-                        <select name="category" class="form-select">
-                            <option value="">선택</option>
-                            {% for cat in categories|default([]) %}
-                            <option value="{{ cat }}">{{ cat }}</option>
-                            {% endfor %}
-                        </select>
+
+                    <!-- 품목 테이블 -->
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered align-middle" id="itemTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:35%">품목</th>
+                                    <th style="width:12%">재고</th>
+                                    <th style="width:12%">수량</th>
+                                    <th style="width:15%">단가</th>
+                                    <th style="width:18%">금액</th>
+                                    <th style="width:8%"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemBody">
+                                <!-- 동적 행 추가 -->
+                            </tbody>
+                            <tfoot>
+                                <tr class="table-light fw-bold">
+                                    <td colspan="4" class="text-end">합계</td>
+                                    <td id="totalAmount">0</td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">출고 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" id="addRowBtn" disabled>
+                            <i class="bi bi-plus-circle"></i> 품목 추가
+                        </button>
+                        <button type="submit" class="btn btn-primary ms-auto">
+                            <i class="bi bi-check-circle"></i> 출고 처리
+                        </button>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-upload"></i> 단건 출고 처리
-                    </button>
                 </form>
             </div>
         </div>
     </div>
 
     <!-- 일괄 출고 -->
-    <div class="col-lg-6">
+    <div class="col-lg-5">
         <div class="card h-100">
             <div class="card-header">
                 <i class="bi bi-files"></i> 일괄 출고
@@ -60,6 +102,13 @@
                     <div class="mb-3">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">입력 모드</label>
+                        <select name="mode" class="form-select">
+                            <option value="신규입력">신규입력</option>
+                            <option value="수정입력">수정입력 (해당일 출고 삭제 후 재입력)</option>
+                        </select>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">엑셀 파일 (복수 선택 가능)</label>
@@ -74,25 +123,147 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
-<!-- 결과 영역 -->
-{% if result is defined and result %}
-<div class="card mt-4">
-    <div class="card-header">
-        <i class="bi bi-check-circle"></i> 처리 결과
-    </div>
-    <div class="card-body">
-        <p class="mb-1">처리 건수: <strong>{{ result.count|default(0) }}건</strong></p>
-        {% if result.warnings %}
-        <hr>
-        <h6 class="text-warning"><i class="bi bi-exclamation-triangle"></i> 경고</h6>
-        <ul class="mb-0">
-            {% for w in result.warnings %}
-            <li class="text-warning">{{ w }}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-    </div>
-</div>
-{% endif %}
+{% block extra_js %}
+<script>
+(function() {
+    let products = [];
+    const locationSelect = document.getElementById('locationSelect');
+    const addRowBtn = document.getElementById('addRowBtn');
+    const itemBody = document.getElementById('itemBody');
+    const singleForm = document.getElementById('singleForm');
+    const itemsInput = document.getElementById('itemsInput');
+    const totalAmountEl = document.getElementById('totalAmount');
+
+    // 창고 선택 시 품목 로드
+    locationSelect.addEventListener('change', async function() {
+        const loc = this.value;
+        itemBody.innerHTML = '';
+        products = [];
+        updateTotal();
+
+        if (!loc) {
+            addRowBtn.disabled = true;
+            return;
+        }
+
+        try {
+            const res = await fetch(`{{ url_for('outbound.api_products') }}?location=${encodeURIComponent(loc)}`);
+            products = await res.json();
+            addRowBtn.disabled = false;
+            addRow();
+        } catch (e) {
+            console.error(e);
+            addRowBtn.disabled = true;
+        }
+    });
+
+    // 행 추가
+    addRowBtn.addEventListener('click', () => addRow());
+
+    function addRow() {
+        const tr = document.createElement('tr');
+        const optionsHtml = products.map(p =>
+            `<option value="${p.name}" data-qty="${p.qty}" data-unit="${p.unit}">${p.name}</option>`
+        ).join('');
+
+        tr.innerHTML = `
+            <td>
+                <select class="form-select form-select-sm product-select" required>
+                    <option value="">선택</option>
+                    ${optionsHtml}
+                </select>
+            </td>
+            <td class="stock-qty text-center text-muted">-</td>
+            <td><input type="number" class="form-control form-control-sm qty-input" min="1" required></td>
+            <td><input type="number" class="form-control form-control-sm price-input" min="0" value="0"></td>
+            <td class="row-amount text-end">0</td>
+            <td class="text-center">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-row">
+                    <i class="bi bi-x"></i>
+                </button>
+            </td>
+        `;
+
+        itemBody.appendChild(tr);
+
+        // 품목 선택 시 재고 표시
+        tr.querySelector('.product-select').addEventListener('change', function() {
+            const opt = this.selectedOptions[0];
+            const stockQty = opt?.dataset.qty || '-';
+            const unit = opt?.dataset.unit || '';
+            tr.querySelector('.stock-qty').textContent = stockQty ? `${stockQty}${unit}` : '-';
+            calcRow(tr);
+        });
+
+        // 수량/단가 변경 시 금액 계산
+        tr.querySelector('.qty-input').addEventListener('input', () => calcRow(tr));
+        tr.querySelector('.price-input').addEventListener('input', () => calcRow(tr));
+
+        // 행 삭제
+        tr.querySelector('.remove-row').addEventListener('click', () => {
+            tr.remove();
+            updateTotal();
+        });
+    }
+
+    function calcRow(tr) {
+        const qty = parseInt(tr.querySelector('.qty-input').value) || 0;
+        const price = parseInt(tr.querySelector('.price-input').value) || 0;
+        const amount = qty * price;
+        tr.querySelector('.row-amount').textContent = amount.toLocaleString();
+        updateTotal();
+    }
+
+    function updateTotal() {
+        let total = 0;
+        itemBody.querySelectorAll('.row-amount').forEach(el => {
+            total += parseInt(el.textContent.replace(/,/g, '')) || 0;
+        });
+        totalAmountEl.textContent = total.toLocaleString();
+    }
+
+    // 폼 제출 시 items JSON 생성
+    singleForm.addEventListener('submit', function(e) {
+        const rows = itemBody.querySelectorAll('tr');
+        if (rows.length === 0) {
+            e.preventDefault();
+            alert('품목을 추가하세요.');
+            return;
+        }
+
+        const items = [];
+        let valid = true;
+        rows.forEach(tr => {
+            const productSelect = tr.querySelector('.product-select');
+            const qtyInput = tr.querySelector('.qty-input');
+            const priceInput = tr.querySelector('.price-input');
+            const product = productSelect.value;
+            const qty = parseInt(qtyInput.value) || 0;
+            const unitPrice = parseInt(priceInput.value) || 0;
+            const unit = productSelect.selectedOptions[0]?.dataset.unit || '개';
+
+            if (!product || qty <= 0) {
+                valid = false;
+                return;
+            }
+            items.push({
+                product_name: product,
+                qty: qty,
+                unit_price: unitPrice,
+                unit: unit,
+            });
+        });
+
+        if (!valid) {
+            e.preventDefault();
+            alert('품목과 수량을 모두 입력하세요.');
+            return;
+        }
+
+        itemsInput.value = JSON.stringify(items);
+    });
+})();
+</script>
 {% endblock %}

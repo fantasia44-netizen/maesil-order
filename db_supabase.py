@@ -235,6 +235,24 @@ class SupabaseDB(DBBase):
         """내 사업장 삭제."""
         self.client.table("my_business").delete().eq("id", biz_id).execute()
 
+    def set_default_business(self, biz_id):
+        """기본 사업장 지정 (나머지 해제)."""
+        all_biz = self.query_my_business()
+        for b in all_biz:
+            self.client.table("my_business").update(
+                {"is_default": b["id"] == biz_id}
+            ).eq("id", b["id"]).execute()
+
+    def query_default_business(self):
+        """기본 사업장 1건 반환. 없으면 첫 번째 레코드."""
+        all_biz = self.query_my_business()
+        if not all_biz:
+            return {}
+        for b in all_biz:
+            if b.get("is_default"):
+                return b
+        return all_biz[0]
+
     # --- manual_trades ---
 
     def query_manual_trades(self, date_from=None, date_to=None, partner_name=None):

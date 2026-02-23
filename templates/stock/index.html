@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}재고 현황 - 오토툴{% endblock %}
+{% block title %}재고 현황 - 배마마 통합시스템{% endblock %}
 {% block page_title %}재고 현황{% endblock %}
 
 {% block content %}
@@ -7,11 +7,11 @@
 <div class="card mb-4">
     <div class="card-body">
         <form method="GET" action="{{ url_for('stock.index') }}" class="row g-3 align-items-end">
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label fw-semibold">기준일</label>
                 <input type="date" name="date" class="form-control" value="{{ date_str }}" required>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label fw-semibold">위치</label>
                 <select name="location" class="form-select">
                     <option value="전체">전체</option>
@@ -20,10 +20,33 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">카테고리</label>
+                <select name="category" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">보기 옵션</label>
+                <select name="view_mode" class="form-select">
+                    <option value="기본" {% if view_mode|default('기본') == '기본' %}selected{% endif %}>기본</option>
+                    <option value="소비기한분리" {% if view_mode == '소비기한분리' %}selected{% endif %}>소비기한 분리</option>
+                    <option value="제조일분리" {% if view_mode == '제조일분리' %}selected{% endif %}>제조일 분리</option>
+                </select>
+            </div>
+            <div class="col-md-4">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-search"></i> 조회
                 </button>
+                {% if rows is defined and rows %}
+                <a href="{{ url_for('stock.pdf', date=date_str, location=location, category=category, view_mode=view_mode) }}"
+                   class="btn btn-outline-danger">
+                    <i class="bi bi-file-earmark-pdf"></i> PDF 다운로드
+                </a>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -52,10 +75,10 @@
 {% endif %}
 
 <!-- 재고 테이블 -->
-{% if snapshot %}
+{% if rows %}
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-box"></i> 재고 현황 ({{ snapshot|length }}건)</span>
+        <span><i class="bi bi-box"></i> 재고 현황 ({{ rows|length }}건)</span>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -66,30 +89,30 @@
                         <th>카테고리</th>
                         <th class="text-end">수량</th>
                         <th>단위</th>
+                        <th>위치</th>
                         <th>보관방법</th>
-                        <th>유통기한</th>
-                        <th>원산지</th>
+                        {% if view_mode == '소비기한분리' %}
+                        <th>소비기한</th>
+                        {% elif view_mode == '제조일분리' %}
                         <th>제조일</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
-                    {% for product_name, info in snapshot.items() %}
-                    {% for group in info.groups %}
-                    <tr>
-                        {% if loop.first %}
-                        <td rowspan="{{ info.groups|length }}">
-                            <strong>{{ product_name }}</strong>
-                        </td>
+                    {% for row in rows %}
+                    <tr{% if row.is_negative %} class="table-danger"{% endif %}>
+                        <td><strong>{{ row.product_name }}</strong></td>
+                        <td>{{ row.category|default('-', true) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(row.qty) }}</td>
+                        <td>{{ row.unit|default('-', true) }}</td>
+                        <td>{{ row.location|default('-', true) }}</td>
+                        <td>{{ row.storage_method|default('-', true) }}</td>
+                        {% if view_mode == '소비기한분리' %}
+                        <td>{{ row.expiry_date|default('-', true) }}</td>
+                        {% elif view_mode == '제조일분리' %}
+                        <td>{{ row.manufacture_date|default('-', true) }}</td>
                         {% endif %}
-                        <td>{{ group.category|default('-', true) }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(group.qty) }}</td>
-                        <td>{{ info.unit|default('-', true) }}</td>
-                        <td>{{ group.storage_method|default('-', true) }}</td>
-                        <td>{{ group.expiry_date|default('-', true) }}</td>
-                        <td>{{ group.origin|default('-', true) }}</td>
-                        <td>{{ group.manufacture_date|default('-', true) }}</td>
                     </tr>
-                    {% endfor %}
                     {% endfor %}
                 </tbody>
             </table>

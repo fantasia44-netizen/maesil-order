@@ -15,7 +15,7 @@ history_bp = Blueprint('history', __name__, url_prefix='/history')
 
 
 @history_bp.route('/')
-@role_required('admin')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def index():
     """이력 검색 폼 + 결과 표시"""
     db = current_app.db
@@ -64,11 +64,11 @@ def index():
                            product_name=product_name,
                            locations=locations,
                            type_labels=INV_TYPE_LABELS,
-                           results=results, searched=searched)
+                           records=results, searched=searched)
 
 
 @history_bp.route('/edit/<int:row_id>', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def edit(row_id):
     """개별 이력 수정"""
     db = current_app.db
@@ -102,7 +102,7 @@ def edit(row_id):
 
 
 @history_bp.route('/delete/<int:row_id>', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def delete(row_id):
     """개별 이력 삭제"""
     db = current_app.db

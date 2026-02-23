@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}마스터 관리 - 오토툴{% endblock %}
+{% block title %}마스터 관리 - 배마마 통합시스템{% endblock %}
 {% block page_title %}마스터 관리{% endblock %}
 
 {% block content %}
@@ -10,10 +10,10 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-list-ul"></i> 옵션마스터</span>
-                <span class="badge bg-primary">{{ option_count|default(0) }}건</span>
+                <span class="badge bg-primary">{{ counts.product|default(0) }}건</span>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('master.sync_option') }}" enctype="multipart/form-data">
+                <form method="POST" action="{{ url_for('master.sync_product') }}" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">엑셀 파일</label>
@@ -23,7 +23,7 @@
                         <i class="bi bi-arrow-repeat"></i> 동기화
                     </button>
                 </form>
-                <a href="{{ url_for('master.view_option') }}" class="btn btn-outline-secondary w-100">
+                <a href="{{ url_for('master.search', table='product') }}" class="btn btn-outline-secondary w-100">
                     <i class="bi bi-eye"></i> 보기
                 </a>
             </div>
@@ -35,7 +35,7 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-tags"></i> 가격표</span>
-                <span class="badge bg-success">{{ price_count|default(0) }}건</span>
+                <span class="badge bg-success">{{ counts.price|default(0) }}건</span>
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('master.sync_price') }}" enctype="multipart/form-data">
@@ -48,7 +48,7 @@
                         <i class="bi bi-arrow-repeat"></i> 동기화
                     </button>
                 </form>
-                <a href="{{ url_for('master.view_price') }}" class="btn btn-outline-secondary w-100">
+                <a href="{{ url_for('master.search', table='price') }}" class="btn btn-outline-secondary w-100">
                     <i class="bi bi-eye"></i> 보기
                 </a>
             </div>
@@ -60,7 +60,7 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-diagram-3"></i> BOM 세트옵션</span>
-                <span class="badge bg-warning text-dark">{{ bom_count|default(0) }}건</span>
+                <span class="badge bg-warning text-dark">{{ counts.bom|default(0) }}건</span>
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('master.sync_bom') }}" enctype="multipart/form-data">
@@ -73,7 +73,7 @@
                         <i class="bi bi-arrow-repeat"></i> 동기화
                     </button>
                 </form>
-                <a href="{{ url_for('master.view_bom') }}" class="btn btn-outline-secondary w-100">
+                <a href="{{ url_for('master.search', table='bom') }}" class="btn btn-outline-secondary w-100">
                     <i class="bi bi-eye"></i> 보기
                 </a>
             </div>
@@ -88,7 +88,7 @@
             <h6 class="mb-1"><i class="bi bi-text-indent-left"></i> 품목명 공백 정리</h6>
             <small class="text-muted">모든 마스터 데이터의 품목명에서 불필요한 공백을 제거합니다.</small>
         </div>
-        <form method="POST" action="{{ url_for('master.trim_names') }}">
+        <form method="POST" action="{{ url_for('master.fix_spaces') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-primary">
                 <i class="bi bi-magic"></i> 공백 정리 실행
@@ -103,17 +103,17 @@
         <i class="bi bi-search"></i> 마스터 검색
     </div>
     <div class="card-body">
-        <form method="GET" action="{{ url_for('master.index') }}" class="row g-3 align-items-end">
+        <form method="GET" action="{{ url_for('master.search') }}" class="row g-3 align-items-end">
             <div class="col-md-4">
                 <label class="form-label fw-semibold">품목명</label>
-                <input type="text" name="search" class="form-control" value="{{ search_query|default('') }}" placeholder="품목명 검색">
+                <input type="text" name="q" class="form-control" value="{{ search_query|default('') }}" placeholder="품목명 검색">
             </div>
             <div class="col-md-3">
                 <label class="form-label fw-semibold">마스터 유형</label>
-                <select name="master_type" class="form-select">
-                    <option value="option" {% if master_type|default('option') == 'option' %}selected{% endif %}>옵션마스터</option>
-                    <option value="price" {% if master_type|default('') == 'price' %}selected{% endif %}>가격표</option>
-                    <option value="bom" {% if master_type|default('') == 'bom' %}selected{% endif %}>BOM</option>
+                <select name="table" class="form-select">
+                    <option value="product" {% if table_key|default('product') == 'product' %}selected{% endif %}>옵션마스터</option>
+                    <option value="price" {% if table_key|default('') == 'price' %}selected{% endif %}>가격표</option>
+                    <option value="bom" {% if table_key|default('') == 'bom' %}selected{% endif %}>BOM</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -142,10 +142,9 @@
                         <td>{{ row[col]|default('-') }}</td>
                         {% endfor %}
                         <td>
-                            <a href="{{ url_for('master.edit_item', master_type=master_type|default('option'), item_id=row.id) }}"
-                               class="btn btn-sm btn-outline-primary" title="수정">
+                            <span class="btn btn-sm btn-outline-secondary disabled" title="수정 (준비중)">
                                 <i class="bi bi-pencil"></i>
-                            </a>
+                            </span>
                         </td>
                     </tr>
                     {% endfor %}

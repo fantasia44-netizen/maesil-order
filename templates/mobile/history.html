@@ -1,0 +1,98 @@
+{% extends "mobile/base.html" %}
+{% block title %}이력조회 - 배마마{% endblock %}
+
+{% block content %}
+<h6 class="fw-bold mb-3"><i class="bi bi-clock-history"></i> 이력조회</h6>
+
+<!-- 필터 -->
+<div class="m-filter">
+    <form method="GET" action="{{ url_for('mobile.history') }}">
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm"
+                       value="{{ date_from }}">
+            </div>
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm"
+                       value="{{ date_to }}">
+            </div>
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">유형</label>
+                <select name="type" class="form-select form-select-sm">
+                    <option value="">전체</option>
+                    {% for code, label in type_labels.items() %}
+                    <option value="{{ code }}" {% if record_type == code %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6">
+                <label class="form-label small fw-semibold mb-1">창고</label>
+                <select name="location" class="form-select form-select-sm">
+                    <option value="전체">전체</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc }}" {% if location == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-8">
+                <input type="text" name="product_name" class="form-control form-control-sm"
+                       placeholder="품목명 검색" value="{{ product_name }}">
+            </div>
+            <div class="col-4">
+                <button type="submit" class="btn btn-primary btn-sm w-100 m-btn">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if records %}
+<div class="text-muted small mb-2 px-1">{{ records|length }}건 표시 (최대 300건)</div>
+
+{% for r in records %}
+<div class="m-list-item">
+    <div class="d-flex justify-content-between align-items-start">
+        <div style="flex:1; min-width:0;">
+            <div class="item-title text-truncate">{{ r.product_name|default('-') }}</div>
+            <div class="item-sub">
+                {{ r.transaction_date|default('') }}
+                · {{ r.location|default('') }}
+            </div>
+        </div>
+        <div class="text-end ms-2" style="white-space:nowrap;">
+            {% set type_label = type_labels.get(r.type, r.type|default('')) %}
+            {% if r.type in ['INBOUND', 'PRODUCTION', 'MOVE_IN', 'INIT', 'REPACK_IN'] %}
+                <span class="badge bg-primary item-badge">{{ type_label }}</span>
+            {% else %}
+                <span class="badge bg-danger item-badge">{{ type_label }}</span>
+            {% endif %}
+            <div class="fw-bold mt-1" style="font-size:0.95rem;">
+                {% if r.qty is defined %}
+                    {% if r.qty > 0 %}
+                        <span class="text-primary">+{{ '{:,.0f}'.format(r.qty) }}</span>
+                    {% else %}
+                        <span class="text-danger">{{ '{:,.0f}'.format(r.qty) }}</span>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% elif searched %}
+<div class="m-empty">
+    <i class="bi bi-inbox"></i>
+    <div>검색 결과가 없습니다.</div>
+</div>
+{% else %}
+<div class="m-empty">
+    <i class="bi bi-search"></i>
+    <div>검색 조건을 입력하세요.</div>
+    <small class="text-muted">날짜 또는 품목명으로 조회</small>
+</div>
+{% endif %}
+{% endblock %}

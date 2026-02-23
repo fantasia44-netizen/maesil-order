@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}거래처 관리 - 오토툴{% endblock %}
+{% block title %}거래처 관리 - 배마마 통합시스템{% endblock %}
 {% block page_title %}거래처 관리{% endblock %}
 
 {% block content %}
@@ -28,9 +28,9 @@
                         <tbody>
                             {% for p in partners|default([]) %}
                             <tr>
-                                <td><strong>{{ p.name }}</strong></td>
-                                <td>{{ p.contact_name|default('-') }}</td>
-                                <td>{{ p.contact_phone|default('-') }}</td>
+                                <td><strong>{{ p.partner_name }}</strong></td>
+                                <td>{{ p.representative|default('-') }}</td>
+                                <td>{{ p.phone|default('-') }}</td>
                                 <td>
                                     {% if p.type == '매입' %}
                                         <span class="badge bg-primary">매입</span>
@@ -41,11 +41,11 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <a href="{{ url_for('trade.edit_partner', partner_id=p.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                                    <span class="btn btn-sm btn-outline-secondary disabled" title="수정 (준비중)">
                                         <i class="bi bi-pencil"></i>
-                                    </a>
+                                    </span>
                                     <form method="POST" action="{{ url_for('trade.delete_partner', partner_id=p.id) }}" class="d-inline"
-                                          onsubmit="return confirm('{{ p.name }} 거래처를 삭제하시겠습니까?')">
+                                          onsubmit="return confirm('{{ p.partner_name }} 거래처를 삭제하시겠습니까?')">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
                                             <i class="bi bi-trash"></i>
@@ -79,7 +79,7 @@
                         <select name="partner_id" class="form-select" required>
                             <option value="">선택</option>
                             {% for p in partners|default([]) %}
-                            <option value="{{ p.id }}">{{ p.name }}</option>
+                            <option value="{{ p.id }}">{{ p.partner_name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -137,7 +137,7 @@
                 <tbody>
                     {% for t in trades %}
                     <tr>
-                        <td>{{ t.date }}</td>
+                        <td>{{ t.trade_date|default(t.date|default('-')) }}</td>
                         <td>{{ t.partner_name|default('-') }}</td>
                         <td>{{ t.product_name }}</td>
                         <td class="text-end">{{ '{:,.0f}'.format(t.qty) }}</td>
@@ -152,6 +152,117 @@
     </div>
 </div>
 {% endif %}
+
+<!-- 본사 사업장 관리 -->
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-building-gear"></i> 본사 사업장 관리 ({{ my_businesses|default([])|length }}건)</span>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addBusinessModal">
+            <i class="bi bi-plus-lg"></i> 사업장 추가
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>상호</th>
+                        <th>사업자번호</th>
+                        <th>대표자</th>
+                        <th>연락처</th>
+                        <th>기본</th>
+                        <th style="width:120px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in my_businesses|default([]) %}
+                    <tr>
+                        <td><strong>{{ b.business_name }}</strong></td>
+                        <td>{{ b.business_number|default('-') }}</td>
+                        <td>{{ b.representative|default('-') }}</td>
+                        <td>{{ b.contact|default('-') }}</td>
+                        <td>
+                            {% if b.is_default %}
+                                <span class="badge bg-success">기본</span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not b.is_default %}
+                            <form method="POST" action="{{ url_for('trade.set_default_business', biz_id=b.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success" title="기본 지정">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                            <form method="POST" action="{{ url_for('trade.delete_business', biz_id=b.id) }}" class="d-inline"
+                                  onsubmit="return confirm('{{ b.business_name }} 사업장을 삭제하시겠습니까?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">등록된 사업장이 없습니다.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 사업장 추가 모달 -->
+<div class="modal fade" id="addBusinessModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('trade.add_business') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-building-gear"></i> 사업장 추가</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">상호 <span class="text-danger">*</span></label>
+                        <input type="text" name="business_name" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">사업자번호</label>
+                        <input type="text" name="business_number" class="form-control" placeholder="000-00-00000">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">대표자</label>
+                        <input type="text" name="representative" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">주소</label>
+                        <input type="text" name="address" class="form-control">
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">TEL</label>
+                            <input type="text" name="contact" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">FAX</label>
+                            <input type="text" name="fax" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">추가</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <!-- 거래처 추가 모달 -->
 <div class="modal fade" id="addPartnerModal" tabindex="-1">

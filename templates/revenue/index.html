@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}매출 관리 - 오토툴{% endblock %}
+{% block title %}매출 관리 - 배마마 통합시스템{% endblock %}
 {% block page_title %}매출 관리{% endblock %}
 
 {% block content %}
@@ -11,7 +11,7 @@
                 <i class="bi bi-upload"></i> 매출 가져오기
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('revenue.upload') }}" enctype="multipart/form-data">
+                <form method="POST" action="{{ url_for('revenue.import_revenue') }}" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">기준일</label>
@@ -50,7 +50,7 @@
                         <select name="category" class="form-select">
                             <option value="">전체</option>
                             {% for cat in categories|default([]) %}
-                            <option value="{{ cat }}" {% if category_filter|default('') == cat %}selected{% endif %}>{{ cat }}</option>
+                            <option value="{{ cat }}" {% if category|default('') == cat %}selected{% endif %}>{{ cat }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -70,7 +70,7 @@
 <div class="card mt-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-currency-won"></i> 매출 내역 ({{ revenues|length }}건)</span>
-        <a href="{{ url_for('revenue.export', date_from=date_from|default(''), date_to=date_to|default(''), category=category_filter|default('')) }}"
+        <a href="{{ url_for('revenue.export', date_from=date_from|default(''), date_to=date_to|default(''), category=category|default('')) }}"
            class="btn btn-sm btn-outline-success">
             <i class="bi bi-download"></i> 엑셀 다운로드
         </a>

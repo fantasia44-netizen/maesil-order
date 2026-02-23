@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}기초 데이터 - 오토툴{% endblock %}
+{% block title %}기초 데이터 - 배마마 통합시스템{% endblock %}
 {% block page_title %}기초 데이터{% endblock %}
 
 {% block content %}
@@ -20,9 +20,10 @@
                 <p class="text-muted small mb-3">
                     기준일 기준 재고 데이터를 초기화합니다. 기존 재고 데이터가 삭제되고 업로드한 엑셀 파일로 대체됩니다.
                 </p>
-                <form method="POST" action="{{ url_for('base_data.reset_stock') }}" enctype="multipart/form-data"
+                <form method="POST" action="{{ url_for('base_data.reset_base') }}" enctype="multipart/form-data"
                       onsubmit="return confirm('정말로 기초데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="confirm" value="RESET">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" name="date" class="form-control" required>
@@ -53,6 +54,7 @@
                 <form method="POST" action="{{ url_for('base_data.reset_revenue') }}"
                       onsubmit="return confirm('정말로 해당 기간의 매출 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="confirm" value="RESET">
                     <div class="row mb-3">
                         <div class="col-6">
                             <label class="form-label fw-semibold">시작일</label>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}이력 관리 - 오토툴{% endblock %}
+{% block title %}이력 관리 - 배마마 통합시스템{% endblock %}
 {% block page_title %}이력 관리{% endblock %}
 
 {% block content %}
@@ -23,11 +23,9 @@
                 <label class="form-label fw-semibold">유형</label>
                 <select name="type" class="form-select">
                     <option value="">전체</option>
-                    <option value="입고" {% if type_filter|default('') == '입고' %}selected{% endif %}>입고</option>
-                    <option value="생산" {% if type_filter|default('') == '생산' %}selected{% endif %}>생산</option>
-                    <option value="출고" {% if type_filter|default('') == '출고' %}selected{% endif %}>출고</option>
-                    <option value="이동" {% if type_filter|default('') == '이동' %}selected{% endif %}>이동</option>
-                    <option value="소분" {% if type_filter|default('') == '소분' %}selected{% endif %}>소분</option>
+                    {% for code, label in type_labels.items() %}
+                    <option value="{{ code }}" {% if record_type|default('') == code %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
                 </select>
             </div>
             <div class="col-md-3">
@@ -67,20 +65,23 @@
                     {% for rec in records|default([]) %}
                     <tr>
                         <td>{{ rec.id }}</td>
-                        <td>{{ rec.date }}</td>
+                        <td>{{ rec.transaction_date|default(rec.date|default('-')) }}</td>
                         <td>
-                            {% if rec.type == '입고' %}
-                                <span class="badge bg-primary">입고</span>
-                            {% elif rec.type == '생산' %}
-                                <span class="badge bg-success">생산</span>
-                            {% elif rec.type == '출고' %}
-                                <span class="badge bg-warning text-dark">출고</span>
-                            {% elif rec.type == '이동' %}
-                                <span class="badge bg-info">이동</span>
-                            {% elif rec.type == '소분' %}
-                                <span class="badge bg-secondary">소분</span>
+                            {% set t = rec.type|default('') %}
+                            {% if t in ('INBOUND',) %}
+                                <span class="badge bg-primary">{{ type_labels.get(t, t) }}</span>
+                            {% elif t in ('PRODUCTION', 'PROD_OUT') %}
+                                <span class="badge bg-success">{{ type_labels.get(t, t) }}</span>
+                            {% elif t in ('SALES_OUT',) %}
+                                <span class="badge bg-warning text-dark">{{ type_labels.get(t, t) }}</span>
+                            {% elif t in ('MOVE_OUT', 'MOVE_IN') %}
+                                <span class="badge bg-info">{{ type_labels.get(t, t) }}</span>
+                            {% elif t in ('REPACK_OUT', 'REPACK_IN') %}
+                                <span class="badge bg-secondary">{{ type_labels.get(t, t) }}</span>
+                            {% elif t == 'INIT' %}
+                                <span class="badge bg-dark">{{ type_labels.get(t, t) }}</span>
                             {% else %}
-                                <span class="badge bg-dark">{{ rec.type }}</span>
+                                <span class="badge bg-dark">{{ type_labels.get(t, t) }}</span>
                             {% endif %}
                         </td>
                         <td>{{ rec.product_name }}</td>
@@ -89,10 +90,11 @@
                         <td>{{ rec.location|default('-') }}</td>
                         <td>{{ rec.category|default('-') }}</td>
                         <td>
-                            <a href="{{ url_for('history.edit', record_id=rec.id) }}" class="btn btn-sm btn-outline-primary" title="수정">
+                            <button type="button" class="btn btn-sm btn-outline-primary" title="수정"
+                                    onclick="openEditModal({{ rec|tojson }})">
                                 <i class="bi bi-pencil"></i>
-                            </a>
-                            <form method="POST" action="{{ url_for('history.delete', record_id=rec.id) }}" class="d-inline"
+                            </button>
+                            <form method="POST" action="{{ url_for('history.delete', row_id=rec.id) }}" class="d-inline"
                                   onsubmit="return confirm('이 이력을 삭제하시겠습니까?')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
@@ -111,4 +113,71 @@
         </div>
     </div>
 </div>
+
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="editForm" method="POST" action="">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editModalLabel">이력 수정</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">날짜</label>
+                        <input type="date" name="transaction_date" id="edit_transaction_date" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">유형</label>
+                        <select name="type" id="edit_type" class="form-select">
+                            {% for code, label in type_labels.items() %}
+                            <option value="{{ code }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">품목명</label>
+                        <input type="text" name="product_name" id="edit_product_name" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">수량</label>
+                        <input type="number" name="qty" id="edit_qty" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">단위</label>
+                        <input type="text" name="unit" id="edit_unit" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">위치</label>
+                        <input type="text" name="location" id="edit_location" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">카테고리</label>
+                        <input type="text" name="category" id="edit_category" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">저장</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditModal(rec) {
+    document.getElementById('editForm').action = '/history/edit/' + rec.id;
+    document.getElementById('edit_transaction_date').value = rec.transaction_date || rec.date || '';
+    document.getElementById('edit_type').value = rec.type || '';
+    document.getElementById('edit_product_name').value = rec.product_name || '';
+    document.getElementById('edit_qty').value = rec.qty || '';
+    document.getElementById('edit_unit').value = rec.unit || '';
+    document.getElementById('edit_location').value = rec.location || '';
+    document.getElementById('edit_category').value = rec.category || '';
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
 {% endblock %}
