@@ -9,9 +9,39 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-building"></i> 거래처 목록 ({{ partners|default([])|length }}건)</span>
-                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPartnerModal">
-                    <i class="bi bi-plus-lg"></i> 거래처 추가
-                </button>
+                <div>
+                    <button class="btn btn-sm btn-success" data-bs-toggle="collapse" data-bs-target="#excelUploadArea">
+                        <i class="bi bi-file-earmark-excel"></i> 엑셀 일괄등록
+                    </button>
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPartnerModal">
+                        <i class="bi bi-plus-lg"></i> 거래처 추가
+                    </button>
+                </div>
+            </div>
+            <!-- 엑셀 일괄등록 영역 -->
+            <div class="collapse" id="excelUploadArea">
+                <div class="card-body border-bottom bg-light">
+                    <form method="POST" action="{{ url_for('trade.upload_partners') }}" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="row align-items-end g-2">
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">엑셀 파일</label>
+                                <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
+                                <div class="form-text">컬럼: 업체명, 소재지, 담당자, 연락처, 팩스번호, 이메일, 사업자등록번호, 비고</div>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-success btn-sm w-100">
+                                    <i class="bi bi-upload"></i> 일괄 등록
+                                </button>
+                            </div>
+                            <div class="col-md-3">
+                                <a href="{{ url_for('trade.download_partner_template') }}" class="btn btn-outline-secondary btn-sm w-100">
+                                    <i class="bi bi-download"></i> 양식 다운로드
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
@@ -170,6 +200,7 @@
                         <th>사업자번호</th>
                         <th>대표자</th>
                         <th>연락처</th>
+                        <th>이메일</th>
                         <th>기본</th>
                         <th style="width:120px">관리</th>
                     </tr>
@@ -181,6 +212,7 @@
                         <td>{{ b.business_number|default('-') }}</td>
                         <td>{{ b.representative|default('-') }}</td>
                         <td>{{ b.contact|default('-') }}</td>
+                        <td>{{ b.email|default('-') }}</td>
                         <td>
                             {% if b.is_default %}
                                 <span class="badge bg-success">기본</span>
@@ -208,7 +240,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted py-4">등록된 사업장이 없습니다.</td>
+                        <td colspan="7" class="text-center text-muted py-4">등록된 사업장이 없습니다.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -254,6 +286,10 @@
                             <input type="text" name="fax" class="form-control">
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">이메일</label>
+                        <input type="email" name="email" class="form-control" placeholder="example@company.com">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
@@ -287,12 +323,34 @@
                         </select>
                     </div>
                     <div class="mb-3">
+                        <label class="form-label fw-semibold">사업자등록번호</label>
+                        <input type="text" name="business_number" class="form-control" placeholder="000-00-00000">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">소재지</label>
+                        <input type="text" name="address" class="form-control">
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label fw-semibold">담당자</label>
                         <input type="text" name="contact_name" class="form-control">
                     </div>
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">연락처</label>
+                            <input type="text" name="contact_phone" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">팩스번호</label>
+                            <input type="text" name="fax" class="form-control">
+                        </div>
+                    </div>
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">연락처</label>
-                        <input type="text" name="contact_phone" class="form-control">
+                        <label class="form-label fw-semibold">이메일</label>
+                        <input type="email" name="email" class="form-control" placeholder="example@company.com">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">비고</label>
+                        <input type="text" name="notes" class="form-control">
                     </div>
                 </div>
                 <div class="modal-footer">

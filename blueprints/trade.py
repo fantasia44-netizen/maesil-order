@@ -1,11 +1,12 @@
 """
 trade.py — 거래처/거래 관리 Blueprint.
-거래처 CRUD, 수동 거래 등록, 거래명세서 PDF.
+거래처 CRUD, 수동 거래 등록, 거래명세서 PDF, 엑셀 일괄등록.
 """
 import os
 import io
 from datetime import datetime
 
+import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
     flash, redirect, url_for, send_file, abort,
@@ -65,6 +66,7 @@ def add_business():
         'address': request.form.get('address', '').strip() or None,
         'contact': request.form.get('contact', '').strip() or None,
         'fax': request.form.get('fax', '').strip() or None,
+        'email': request.form.get('email', '').strip() or None,
         'is_default': False,
     }
 
@@ -135,6 +137,96 @@ def add_partner():
         flash(f'거래처 등록 중 오류: {e}', 'danger')
 
     return redirect(url_for('trade.index'))
+
+
+@trade_bp.route('/upload-partners', methods=['POST'])
+@role_required('admin', 'manager', 'sales', 'general')
+def upload_partners():
+    """거래처 엑셀 일괄 등록"""
+    f = request.files.get('file')
+    if not f or not f.filename:
+        flash('파일을 선택하세요.', 'danger')
+        return redirect(url_for('trade.index'))
+
+    if not f.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('엑셀 파일(.xlsx/.xls)만 업로드 가능합니다.', 'danger')
+        return redirect(url_for('trade.index'))
+
+    try:
+        df = pd.read_excel(f, dtype=str)
+        df = df.fillna('')
+
+        # 컬럼 매핑 (유연하게 처리)
+        col_map = {
+            '업체명': 'partner_name', '거래처명': 'partner_name', '상호': 'partner_name',
+            '소재지': 'address', '주소': 'address',
+            '담당자': 'representative', '대표자': 'representative',
+            '연락처': 'phone', '전화번호': 'phone', '전화': 'phone', 'TEL': 'phone',
+            '팩스번호': 'fax', '팩스': 'fax', 'FAX': 'fax',
+            '이메일': 'email', 'E-mail': 'email', 'EMAIL': 'email',
+            '사업자등록번호': 'business_number', '사업자번호': 'business_number',
+            '유형': 'type', '업종': 'business_item', '비고': 'notes',
+        }
+
+        renamed = {}
+        for col in df.columns:
+            clean = col.strip()
+            if clean in col_map:
+                renamed[col] = col_map[clean]
+        df = df.rename(columns=renamed)
+
+        if 'partner_name' not in df.columns:
+            flash('엑셀에 "업체명" 또는 "거래처명" 컬럼이 필요합니다.', 'danger')
+            return redirect(url_for('trade.index'))
+
+        # 빈 업체명 제거
+        df = df[df['partner_name'].str.strip() != '']
+
+        if df.empty:
+            flash('등록할 거래처가 없습니다. 업체명을 확인하세요.', 'warning')
+            return redirect(url_for('trade.index'))
+
+        # DB 필드만 추출
+        valid_fields = ['partner_name', 'address', 'representative', 'phone',
+                        'fax', 'email', 'business_number', 'type', 'business_item', 'notes']
+        payload_list = []
+        for _, row in df.iterrows():
+            rec = {}
+            for field in valid_fields:
+                val = str(row.get(field, '')).strip()
+                if val:
+                    rec[field] = val
+            if rec.get('partner_name'):
+                payload_list.append(rec)
+
+        current_app.db.insert_partners_batch(payload_list)
+        _log_action('upload_partners', target=f'{len(payload_list)}건 일괄등록')
+        flash(f'거래처 {len(payload_list)}건 일괄 등록 완료!', 'success')
+
+    except Exception as e:
+        flash(f'엑셀 처리 중 오류: {e}', 'danger')
+
+    return redirect(url_for('trade.index'))
+
+
+@trade_bp.route('/download-partner-template')
+@role_required('admin', 'manager', 'sales', 'general')
+def download_partner_template():
+    """거래처 일괄등록 엑셀 양식 다운로드"""
+    df = pd.DataFrame(columns=['업체명', '소재지', '담당자', '연락처', '팩스번호', '이메일', '사업자등록번호', '유형', '비고'])
+    # 샘플 데이터 추가
+    df.loc[0] = ['(주)테스트업체', '서울시 강남구', '홍길동', '02-1234-5678', '02-1234-5679', 'test@example.com', '123-45-67890', '매입', '']
+
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, engine='openpyxl')
+    buf.seek(0)
+
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='거래처_일괄등록_양식.xlsx',
+    )
 
 
 @trade_bp.route('/delete/<int:partner_id>', methods=['POST'])
