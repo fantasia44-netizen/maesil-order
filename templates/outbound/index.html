@@ -292,18 +292,56 @@
     // 행 추가
     addRowBtn.addEventListener('click', () => addRow());
 
+    // 자동완성 바인딩
+    function bindProductAutocomplete(input, tr) {
+        const listEl = input.nextElementSibling;
+
+        input.addEventListener('input', function() {
+            const q = this.value.trim().toLowerCase();
+            listEl.innerHTML = '';
+            if (!q || products.length === 0) { listEl.style.display = 'none'; return; }
+
+            const matches = products.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
+            if (matches.length === 0) { listEl.style.display = 'none'; return; }
+
+            matches.forEach(p => {
+                const item = document.createElement('a');
+                item.href = '#';
+                item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+                item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
+                item.addEventListener('mousedown', function(e) {
+                    e.preventDefault();
+                    input.value = p.name;
+                    input.dataset.unit = p.unit;
+                    tr.querySelector('.stock-qty').textContent = `${p.qty}${p.unit}`;
+                    listEl.style.display = 'none';
+                    calcRow(tr);
+                });
+                listEl.appendChild(item);
+            });
+            listEl.style.display = 'block';
+        });
+
+        input.addEventListener('blur', function() {
+            setTimeout(() => { listEl.style.display = 'none'; }, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if (this.value.trim()) this.dispatchEvent(new Event('input'));
+        });
+    }
+
     function addRow() {
         const tr = document.createElement('tr');
-        const optionsHtml = products.map(p =>
-            `<option value="${p.name}" data-qty="${p.qty}" data-unit="${p.unit}">${p.name}</option>`
-        ).join('');
 
         tr.innerHTML = `
             <td>
-                <select class="form-select form-select-sm product-select" required>
-                    <option value="">선택</option>
-                    ${optionsHtml}
-                </select>
+                <div class="position-relative">
+                    <input type="text" class="form-control form-control-sm product-input"
+                           placeholder="품목명 (입력하면 자동완성)" required autocomplete="off" data-unit="개">
+                    <div class="autocomplete-list list-group position-absolute w-100"
+                         style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                </div>
             </td>
             <td class="stock-qty text-center text-muted">-</td>
             <td><input type="number" class="form-control form-control-sm qty-input" min="1" required></td>
@@ -318,14 +356,9 @@
 
         itemBody.appendChild(tr);
 
-        // 품목 선택 시 재고 표시
-        tr.querySelector('.product-select').addEventListener('change', function() {
-            const opt = this.selectedOptions[0];
-            const stockQty = opt?.dataset.qty || '-';
-            const unit = opt?.dataset.unit || '';
-            tr.querySelector('.stock-qty').textContent = stockQty ? `${stockQty}${unit}` : '-';
-            calcRow(tr);
-        });
+        // 자동완성 바인딩
+        const productInput = tr.querySelector('.product-input');
+        bindProductAutocomplete(productInput, tr);
 
         // 수량/단가 변경 시 금액 계산
         tr.querySelector('.qty-input').addEventListener('input', () => calcRow(tr));
@@ -366,13 +399,13 @@
         const items = [];
         let valid = true;
         rows.forEach(tr => {
-            const productSelect = tr.querySelector('.product-select');
+            const productInput = tr.querySelector('.product-input');
             const qtyInput = tr.querySelector('.qty-input');
             const priceInput = tr.querySelector('.price-input');
-            const product = productSelect.value;
+            const product = productInput.value.trim();
             const qty = parseInt(qtyInput.value) || 0;
             const unitPrice = parseInt(priceInput.value) || 0;
-            const unit = productSelect.selectedOptions[0]?.dataset.unit || '개';
+            const unit = productInput.dataset.unit || '개';
 
             if (!product || qty <= 0) {
                 valid = false;

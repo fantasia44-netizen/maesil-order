@@ -366,11 +366,28 @@ def batch():
 @outbound_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
 @role_required('admin', 'manager', 'sales', 'general')
 def delete_trade(trade_id):
-    """거래 삭제"""
+    """거래 삭제 (manual_trades + daily_revenue 연동 삭제)"""
+    db = current_app.db
     try:
-        current_app.db.delete_manual_trade(trade_id)
+        # 삭제 전 거래 정보 조회 (daily_revenue 연동 삭제용)
+        trade = db.query_manual_trade_by_id(trade_id)
+
+        # manual_trades 삭제
+        db.delete_manual_trade(trade_id)
+
+        # daily_revenue 연동 삭제
+        if trade:
+            try:
+                db.delete_revenue_specific(
+                    revenue_date=trade.get('trade_date', ''),
+                    product_name=trade.get('product_name', ''),
+                    category='거래처매출',
+                )
+            except Exception as rev_err:
+                current_app.logger.warning(f'매출 연동 삭제 실패: {rev_err}')
+
         _log_action('delete_trade', target=str(trade_id))
-        flash('거래 삭제 완료', 'success')
+        flash('거래 삭제 완료 (매출 데이터도 함께 삭제됨)', 'success')
     except Exception as e:
         flash(f'거래 삭제 중 오류: {e}', 'danger')
 

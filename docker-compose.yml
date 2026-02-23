@@ -11,6 +11,9 @@ services:
       - FLASK_ENV=development
       - SECRET_KEY=haeser-nas-autotool-secret-2026
       - TZ=Asia/Seoul
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    mem_limit: 512m
     volumes:
       - ./uploads:/app/uploads
       - ./output:/app/output

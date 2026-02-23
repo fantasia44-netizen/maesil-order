@@ -272,9 +272,24 @@ class SupabaseDB(DBBase):
         """수동 거래 1건 등록."""
         self.client.table("manual_trades").insert(payload).execute()
 
+    def query_manual_trade_by_id(self, trade_id):
+        """수동 거래 1건 조회 (ID 기준)."""
+        res = self.client.table("manual_trades").select("*").eq("id", trade_id).execute()
+        return res.data[0] if res.data else None
+
     def delete_manual_trade(self, trade_id):
         """수동 거래 1건 삭제."""
         self.client.table("manual_trades").delete().eq("id", trade_id).execute()
+
+    def delete_revenue_specific(self, revenue_date, product_name, category):
+        """daily_revenue에서 특정 조건의 레코드 삭제."""
+        res = (self.client.table("daily_revenue")
+               .delete()
+               .eq("revenue_date", revenue_date)
+               .eq("product_name", product_name)
+               .eq("category", category)
+               .execute())
+        return len(res.data) if res.data else 0
 
     # --- 품목명 공백 정리 ---
 
