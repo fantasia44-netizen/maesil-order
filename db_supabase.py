@@ -176,6 +176,10 @@ class SupabaseDB(DBBase):
         res = query.execute()
         return len(res.data) if res.data else 0
 
+    def delete_revenue_by_id(self, revenue_id):
+        """daily_revenue 1건 삭제 (ID 기준)."""
+        self.client.table("daily_revenue").delete().eq("id", revenue_id).execute()
+
     # --- master tables ---
 
     def sync_master_table(self, table_name, payload_list, batch_size=500):

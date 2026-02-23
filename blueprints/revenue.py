@@ -14,7 +14,7 @@ from flask import (
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from auth import role_required
+from auth import role_required, _log_action
 from models import REVENUE_CATEGORIES
 
 revenue_bp = Blueprint('revenue', __name__, url_prefix='/revenue')
@@ -151,3 +151,22 @@ def export():
     except Exception as e:
         flash(f'매출 다운로드 중 오류: {e}', 'danger')
         return redirect(url_for('revenue.index'))
+
+
+@revenue_bp.route('/delete/<int:revenue_id>', methods=['POST'])
+@role_required('admin', 'manager')
+def delete_revenue(revenue_id):
+    """매출 1건 삭제 (admin/manager만)"""
+    try:
+        current_app.db.delete_revenue_by_id(revenue_id)
+        _log_action('delete_revenue', target=str(revenue_id))
+        flash('매출 삭제 완료', 'success')
+    except Exception as e:
+        flash(f'매출 삭제 중 오류: {e}', 'danger')
+
+    # 기존 필터 유지하며 리다이렉트
+    date_from = request.form.get('date_from', '')
+    date_to = request.form.get('date_to', '')
+    category = request.form.get('category', '')
+    return redirect(url_for('revenue.index',
+                            date_from=date_from, date_to=date_to, category=category))

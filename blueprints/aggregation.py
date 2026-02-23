@@ -34,9 +34,9 @@ def index():
     if os.path.exists(output_dir):
         result_files = sorted(
             [f for f in os.listdir(output_dir)
-             if f.endswith('.xlsx') and (f.startswith('통합') or f.startswith('일일매출'))],
+             if f.endswith(('.xlsx', '.xls', '.csv'))],
             reverse=True,
-        )[:20]
+        )[:30]
 
     return render_template('aggregation/index.html', result_files=result_files)
 
@@ -129,9 +129,9 @@ def process():
         # 최근 처리 결과 파일 목록
         result_files = sorted(
             [f for f in os.listdir(output_dir)
-             if f.endswith('.xlsx') and (f.startswith('통합') or f.startswith('일일매출'))],
+             if f.endswith(('.xlsx', '.xls', '.csv'))],
             reverse=True,
-        )[:20]
+        )[:30]
 
         return render_template('aggregation/index.html',
                                result={'logs': result.get('logs', []),
@@ -174,6 +174,62 @@ def download(filename):
         as_attachment=True,
         download_name=safe_name,
     )
+
+
+@aggregation_bp.route('/delete-file', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def delete_file():
+    """집계 결과 파일 삭제"""
+    filenames = request.form.getlist('delete_files')
+    if not filenames:
+        flash('삭제할 파일을 선택하세요.', 'danger')
+        return redirect(url_for('aggregation.index'))
+
+    output_dir = os.path.abspath(current_app.config['OUTPUT_FOLDER'])
+    deleted = 0
+    for fname in filenames:
+        safe_name = os.path.basename(fname)
+        filepath = os.path.join(output_dir, safe_name)
+        if os.path.abspath(filepath).startswith(output_dir) and os.path.exists(filepath):
+            os.remove(filepath)
+            deleted += 1
+
+    if deleted > 0:
+        flash(f'파일 {deleted}건 삭제 완료', 'success')
+    else:
+        flash('삭제할 파일이 없습니다.', 'warning')
+
+    return redirect(url_for('aggregation.index'))
+
+
+@aggregation_bp.route('/upload-file', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def upload_file():
+    """외부 파일 업로드 (output 폴더에 저장)"""
+    files = request.files.getlist('upload_files')
+    if not files or all(f.filename == '' for f in files):
+        flash('업로드할 파일을 선택하세요.', 'danger')
+        return redirect(url_for('aggregation.index'))
+
+    output_dir = current_app.config['OUTPUT_FOLDER']
+    os.makedirs(output_dir, exist_ok=True)
+
+    uploaded = 0
+    for f in files:
+        if f and f.filename:
+            # 원본 한글 파일명 유지 (경로 분리자만 제거)
+            safe_name = os.path.basename(f.filename).replace('\\', '').replace('/', '')
+            if safe_name:
+                fpath = os.path.join(output_dir, safe_name)
+                f.save(fpath)
+                uploaded += 1
+
+    if uploaded > 0:
+        flash(f'파일 {uploaded}건 업로드 완료', 'success')
+    else:
+        flash('업로드할 유효한 파일이 없습니다.', 'warning')
+
+    return redirect(url_for('aggregation.index'))
 
 
 @aggregation_bp.route('/apply', methods=['POST'])

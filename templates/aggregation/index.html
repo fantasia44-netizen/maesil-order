@@ -69,16 +69,48 @@
 </div>
 {% endif %}
 
+<!-- 파일 업로드 (외부 파일) -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-cloud-upload"></i> 파일 업로드 (외부 파일 추가)
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('aggregation.upload_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-8">
+                <input type="file" name="upload_files" class="form-control form-control-sm" multiple required>
+                <div class="form-text">통합시스템 외부에서 만든 집계/출고/매출 파일을 업로드합니다.</div>
+            </div>
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+                    <i class="bi bi-upload"></i> 업로드
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- 출고/매출 반영 -->
 {% if result_files is defined and result_files %}
 <div class="row g-4">
     <!-- 최근 처리 결과 + 파일 선택 -->
     <div class="col-lg-8">
         <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="deleteFilesBtn" disabled
+                        onclick="document.getElementById('deleteForm').submit();">
+                    <i class="bi bi-trash"></i> 선택 삭제
+                </button>
             </div>
             <div class="card-body p-0">
+                <!-- 삭제 폼 (숨김) -->
+                <form id="deleteForm" method="POST" action="{{ url_for('aggregation.delete_file') }}"
+                      onsubmit="return confirm('선택한 파일을 삭제하시겠습니까?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div id="deleteHiddenFiles"></div>
+                </form>
+
                 <div style="max-height: 400px; overflow-y: auto;">
                     <table class="table table-hover table-sm mb-0">
                         <thead class="table-light sticky-top">
@@ -190,9 +222,13 @@
 
     if (!checkAll) return;
 
+    const deleteFilesBtn = document.getElementById('deleteFilesBtn');
+    const deleteHiddenFiles = document.getElementById('deleteHiddenFiles');
+
     function updateSelection() {
         // 숨은 필드 초기화
         hiddenFiles.innerHTML = '';
+        if (deleteHiddenFiles) deleteHiddenFiles.innerHTML = '';
 
         let outCount = 0, revCount = 0, totalCount = 0;
 
@@ -205,10 +241,22 @@
                 inp.value = cb.value;
                 hiddenFiles.appendChild(inp);
 
+                // 삭제 폼에도 추가
+                if (deleteHiddenFiles) {
+                    const dinp = document.createElement('input');
+                    dinp.type = 'hidden';
+                    dinp.name = 'delete_files';
+                    dinp.value = cb.value;
+                    deleteHiddenFiles.appendChild(dinp);
+                }
+
                 if (cb.dataset.type === 'outbound') outCount++;
                 if (cb.dataset.type === 'revenue') revCount++;
             }
         });
+
+        // 삭제 버튼 활성화
+        if (deleteFilesBtn) deleteFilesBtn.disabled = totalCount === 0;
 
         // 요약 업데이트
         if (totalCount === 0) {
