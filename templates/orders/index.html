@@ -39,8 +39,9 @@
 
     <!-- 파일 입력 -->
     <div class="card mb-4">
-        <div class="card-header">
-            <i class="bi bi-file-earmark-excel"></i> 파일 업로드
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-file-earmark-excel"></i> 파일 업로드</span>
+            <span class="badge bg-info">옵션마스터 DB: {{ option_count|default(0) }}건</span>
         </div>
         <div class="card-body">
             <div class="row g-3">
@@ -50,9 +51,9 @@
                     <div class="form-text">주문서 파일 (필수)</div>
                 </div>
                 <div class="col-md-4">
-                    <label class="form-label fw-semibold">2. 옵션리스트 <span class="text-danger">*</span></label>
-                    <input type="file" name="option_file" class="form-control" accept=".xlsx,.xls,.csv" required>
-                    <div class="form-text">옵션 매핑 리스트 (필수)</div>
+                    <label class="form-label fw-semibold">2. 옵션리스트 <span class="text-muted">(선택)</span></label>
+                    <input type="file" name="option_file" class="form-control" accept=".xlsx,.xls,.csv">
+                    <div class="form-text">미입력 시 DB 옵션마스터 사용. 파일 입력 시 DB에 추가 등록.</div>
                 </div>
                 <div class="col-md-4">
                     <label class="form-label fw-semibold">3. 송장결과</label>
@@ -113,6 +114,9 @@
 </div>
 {% endif %}
 
+<!-- AJAX 재처리 결과 영역 (JS에서 동적 삽입) -->
+<div id="reprocessResult"></div>
+
 <!-- 최근 처리 결과 -->
 {% if result_files is defined and result_files %}
 <div class="card">
@@ -128,4 +132,353 @@
     </div>
 </div>
 {% endif %}
+
+<!-- ================================================================ -->
+<!-- 미등록 항목 메인 모달 -->
+<!-- ================================================================ -->
+<div class="modal fade" id="unmatchedModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    옵션 미등록 항목 (<span id="unmatchedCount">0</span>건)
+                </h5>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">아래 상품이 옵션마스터에 등록되어 있지 않습니다.
+                각 항목을 기존 품목에 매핑하거나 신규 등록하세요.</p>
+                <div id="unmatchedList"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancelReprocess">
+                    취소
+                </button>
+                <button type="button" class="btn btn-primary" id="reprocessBtn" disabled>
+                    <i class="bi bi-arrow-clockwise"></i> 재처리 실행
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- 기존 옵션 검색/매핑 서브모달 -->
+<!-- ================================================================ -->
+<div class="modal fade" id="optionSearchModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-search"></i> 기존 옵션 매핑</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="mappingIdx">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">매핑할 원문명</label>
+                    <input type="text" id="mappingSourceName" class="form-control bg-light" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">기존 옵션 검색</label>
+                    <input type="text" id="optionSearchInput" class="form-control" placeholder="품목명으로 검색...">
+                </div>
+                <div id="optionSearchResults" class="list-group" style="max-height:300px; overflow-y:auto;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- 신규 옵션 등록 서브모달 -->
+<!-- ================================================================ -->
+<div class="modal fade" id="newOptionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> 신규 옵션 등록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="newIdx">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">원문명 (E커머스 상품명)</label>
+                    <input type="text" id="newOriginalName" class="form-control bg-light" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">품목명 <span class="text-danger">*</span></label>
+                    <input type="text" id="newProductName" class="form-control" required placeholder="내부 품목명 입력">
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">라인코드</label>
+                        <input type="text" id="newLineCode" class="form-control" value="0">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">출력순서</label>
+                        <input type="number" id="newSortOrder" class="form-control" value="999">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">바코드</label>
+                        <input type="text" id="newBarcode" class="form-control" value="">
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary w-100" id="registerNewOption">
+                    <i class="bi bi-check-circle"></i> 등록
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const csrfToken = '{{ csrf_token() }}';
+    let unmatchedItems = {{ unmatched_items|default([])|tojson }};
+    let registeredCount = 0;
+
+    // 미등록 항목이 있으면 모달 자동 오픈
+    if (unmatchedItems.length > 0) {
+        renderUnmatchedList();
+        new bootstrap.Modal(document.getElementById('unmatchedModal')).show();
+    }
+
+    function renderUnmatchedList() {
+        const container = document.getElementById('unmatchedList');
+        document.getElementById('unmatchedCount').textContent = unmatchedItems.length;
+        container.innerHTML = '';
+        registeredCount = 0;
+
+        unmatchedItems.forEach((item, idx) => {
+            const displayName = item.length > 60 ? item.substring(0, 60) + '...' : item;
+            const card = document.createElement('div');
+            card.className = 'card mb-2';
+            card.id = 'unmatched-' + idx;
+            card.innerHTML =
+                '<div class="card-body py-2 px-3 d-flex justify-content-between align-items-center">' +
+                    '<div style="flex:1; min-width:0;">' +
+                        '<strong class="text-truncate d-inline-block" style="max-width:400px;" title="' + item.replace(/"/g, '&quot;') + '">' +
+                            displayName +
+                        '</strong>' +
+                        '<span class="badge bg-danger ms-2 status-badge">미등록</span>' +
+                    '</div>' +
+                    '<div class="btn-group btn-group-sm ms-2 flex-shrink-0">' +
+                        '<button class="btn btn-outline-primary search-btn" data-idx="' + idx + '">' +
+                            '<i class="bi bi-search"></i> 기존 매핑' +
+                        '</button>' +
+                        '<button class="btn btn-outline-success new-btn" data-idx="' + idx + '">' +
+                            '<i class="bi bi-plus"></i> 신규 등록' +
+                        '</button>' +
+                    '</div>' +
+                '</div>';
+            container.appendChild(card);
+        });
+
+        container.querySelectorAll('.search-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() { openSearchModal(parseInt(this.dataset.idx)); });
+        });
+        container.querySelectorAll('.new-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() { openNewModal(parseInt(this.dataset.idx)); });
+        });
+
+        updateReprocessButton();
+    }
+
+    function updateReprocessButton() {
+        const btn = document.getElementById('reprocessBtn');
+        btn.disabled = registeredCount < unmatchedItems.length;
+        if (registeredCount > 0) {
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 재처리 실행 (' + registeredCount + '/' + unmatchedItems.length + ' 등록됨)';
+        }
+    }
+
+    function markAsRegistered(idx, productName) {
+        const card = document.getElementById('unmatched-' + idx);
+        if (!card) return;
+        const badge = card.querySelector('.status-badge');
+        badge.className = 'badge bg-success ms-2 status-badge';
+        badge.textContent = '\u2192 ' + productName;
+        card.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+        registeredCount++;
+        updateReprocessButton();
+    }
+
+    // --- 기존 옵션 검색 모달 ---
+    function openSearchModal(idx) {
+        document.getElementById('mappingIdx').value = idx;
+        document.getElementById('mappingSourceName').value = unmatchedItems[idx];
+        document.getElementById('optionSearchInput').value = '';
+        document.getElementById('optionSearchResults').innerHTML = '';
+
+        var modal = new bootstrap.Modal(document.getElementById('optionSearchModal'));
+        modal.show();
+        setTimeout(function() { document.getElementById('optionSearchInput').focus(); }, 300);
+    }
+
+    var searchTimeout;
+    document.getElementById('optionSearchInput').addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        var q = this.value.trim();
+        if (q.length < 2) {
+            document.getElementById('optionSearchResults').innerHTML = '';
+            return;
+        }
+        searchTimeout = setTimeout(function() {
+            fetch('/orders/api/option-search?q=' + encodeURIComponent(q))
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var idx = parseInt(document.getElementById('mappingIdx').value);
+                    renderSearchResults(data, idx);
+                })
+                .catch(function(e) { console.error(e); });
+        }, 300);
+    });
+
+    function renderSearchResults(results, idx) {
+        var container = document.getElementById('optionSearchResults');
+        container.innerHTML = '';
+        if (!results.length) {
+            container.innerHTML = '<div class="text-muted text-center py-3">검색 결과 없음</div>';
+            return;
+        }
+        results.forEach(function(r) {
+            var item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-2';
+            item.innerHTML =
+                '<strong>' + r.product_name + '</strong>' +
+                '<small class="text-muted ms-2">라인:' + r.line_code + ' | 순서:' + r.sort_order + ' | 바코드:' + (r.barcode || '-') + '</small>';
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                registerMapping(idx, unmatchedItems[idx], r.product_name, r.line_code, r.sort_order, r.barcode || '');
+                bootstrap.Modal.getInstance(document.getElementById('optionSearchModal')).hide();
+            });
+            container.appendChild(item);
+        });
+    }
+
+    // --- 신규 옵션 등록 모달 ---
+    function openNewModal(idx) {
+        document.getElementById('newIdx').value = idx;
+        document.getElementById('newOriginalName').value = unmatchedItems[idx];
+        document.getElementById('newProductName').value = '';
+        document.getElementById('newLineCode').value = '0';
+        document.getElementById('newSortOrder').value = '999';
+        document.getElementById('newBarcode').value = '';
+
+        var modal = new bootstrap.Modal(document.getElementById('newOptionModal'));
+        modal.show();
+        setTimeout(function() { document.getElementById('newProductName').focus(); }, 300);
+    }
+
+    document.getElementById('registerNewOption').addEventListener('click', function() {
+        var idx = parseInt(document.getElementById('newIdx').value);
+        var productName = document.getElementById('newProductName').value.trim();
+        if (!productName) { alert('품목명을 입력하세요.'); return; }
+
+        registerMapping(idx, unmatchedItems[idx], productName,
+            document.getElementById('newLineCode').value,
+            parseInt(document.getElementById('newSortOrder').value),
+            document.getElementById('newBarcode').value);
+
+        bootstrap.Modal.getInstance(document.getElementById('newOptionModal')).hide();
+    });
+
+    // --- API 등록 ---
+    function registerMapping(idx, originalName, productName, lineCode, sortOrder, barcode) {
+        fetch('/orders/api/option-register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+                original_name: originalName,
+                product_name: productName,
+                line_code: String(lineCode),
+                sort_order: parseInt(sortOrder) || 999,
+                barcode: barcode || ''
+            })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) {
+                markAsRegistered(idx, productName);
+            } else {
+                alert('등록 실패: ' + (data.error || ''));
+            }
+        })
+        .catch(function(e) { alert('등록 중 오류: ' + e.message); });
+    }
+
+    // --- 재처리 ---
+    document.getElementById('reprocessBtn').addEventListener('click', function() {
+        var btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 재처리 중...';
+
+        fetch('/orders/api/reprocess', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('unmatchedModal')).hide();
+                showProcessResult(data);
+            } else if (data.unmatched) {
+                unmatchedItems = data.unmatched;
+                renderUnmatchedList();
+                alert(data.message || '아직 미등록 항목이 있습니다.');
+            } else {
+                alert('처리 실패: ' + (data.error || ''));
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 재처리 실행';
+        })
+        .catch(function(e) {
+            alert('재처리 중 오류: ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 재처리 실행';
+        });
+    });
+
+    function showProcessResult(data) {
+        var container = document.getElementById('reprocessResult');
+        var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
+
+        if (data.logs && data.logs.length > 0) {
+            html += '<div class="card mb-3"><div class="card-header"><i class="bi bi-terminal"></i> 처리 로그</div>';
+            html += '<div class="card-body p-0"><div class="bg-dark text-light p-3 rounded" style="max-height:300px; overflow-y:auto; font-family:Consolas,monospace; font-size:0.85rem;">';
+            data.logs.forEach(function(log) { html += '<div>' + log + '</div>'; });
+            html += '</div></div></div>';
+        }
+
+        if (data.downloads && data.downloads.length > 0) {
+            html += '<div class="card"><div class="card-header"><i class="bi bi-download"></i> 다운로드</div>';
+            html += '<div class="list-group list-group-flush">';
+            data.downloads.forEach(function(dl) {
+                html += '<a href="' + dl.url + '" class="list-group-item list-group-item-action">' +
+                        '<i class="bi bi-file-earmark-arrow-down"></i> ' + dl.name + '</a>';
+            });
+            html += '</div></div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    // 취소 시 서버 임시파일 정리
+    document.getElementById('cancelReprocess').addEventListener('click', function() {
+        fetch('/orders/api/cancel-reprocess', {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrfToken}
+        }).catch(function() {});
+    });
+})();
+</script>
 {% endblock %}

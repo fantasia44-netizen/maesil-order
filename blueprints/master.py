@@ -7,7 +7,7 @@ import os
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for,
+    flash, redirect, url_for, jsonify,
 )
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -22,6 +22,7 @@ MASTER_TABLES = {
     'product': 'master_products',
     'price': 'master_prices',
     'bom': 'master_bom',
+    'option': 'option_master',
 }
 
 
@@ -37,7 +38,10 @@ def index():
     counts = {}
     for key, table_name in MASTER_TABLES.items():
         try:
-            counts[key] = db.count_master_table(table_name)
+            if key == 'option':
+                counts[key] = db.count_option_master()
+            else:
+                counts[key] = db.count_master_table(table_name)
         except Exception:
             counts[key] = -1
 
@@ -54,8 +58,77 @@ def sync_product():
 @master_bp.route('/sync-price', methods=['POST'])
 @role_required('admin')
 def sync_price():
-    """단가 마스터 동기화"""
-    return _sync_master('price', 'master_prices', '단가 마스터')
+    """가격표 동기화 (옵션 엑셀의 '가격표' 시트에서 읽기)"""
+    import unicodedata
+    def _n(t): return unicodedata.normalize('NFC', str(t).strip())
+
+    file = request.files.get('file')
+    if not file or not _allowed(file.filename):
+        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
+        return redirect(url_for('master.index'))
+
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(upload_dir, filename)
+    file.save(filepath)
+
+    try:
+        xls = pd.ExcelFile(filepath)
+        sheet_map = {_n(sn): sn for sn in xls.sheet_names}
+        price_sheet = sheet_map.get(_n('가격표'))
+
+        if not price_sheet:
+            flash(f'가격표 시트를 찾을 수 없습니다. 시트 목록: {xls.sheet_names}', 'danger')
+            return redirect(url_for('master.index'))
+
+        import numpy as np
+        df = pd.read_excel(xls, sheet_name=price_sheet)
+        df.columns = [_n(c) for c in df.columns]
+
+        # 빈 행 제거 (품목명이 없는 행)
+        name_col = next((c for c in df.columns if '품목' in c or '상품' in c), df.columns[0])
+        df = df[df[name_col].notna() & (df[name_col].astype(str).str.strip() != '')]
+
+        if df.empty:
+            flash('가격표 시트에 데이터가 없습니다.', 'warning')
+            return redirect(url_for('master.index'))
+
+        # NaN/inf/numpy 타입 → JSON 안전 값으로 완전 치환
+        def _clean(v):
+            if v is None:
+                return 0
+            try:
+                if pd.isna(v):
+                    return 0
+            except (TypeError, ValueError):
+                pass
+            if isinstance(v, (np.integer,)):
+                return int(v)
+            if isinstance(v, (np.floating,)):
+                if np.isnan(v) or np.isinf(v):
+                    return 0
+                return float(v)
+            if isinstance(v, float):
+                if v != v or v == float('inf') or v == float('-inf'):
+                    return 0
+            return v
+
+        payload = []
+        for row in df.to_dict('records'):
+            payload.append({k: _clean(v) for k, v in row.items()})
+
+        current_app.db.sync_master_table('master_prices', payload)
+        _log_action('sync_master', target='master_prices',
+                     detail=f'{len(payload)}건 동기화')
+        flash(f'가격표 동기화 완료: {len(payload)}건', 'success')
+    except Exception as e:
+        flash(f'가격표 동기화 중 오류: {e}', 'danger')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    return redirect(url_for('master.index'))
 
 
 @master_bp.route('/sync-bom', methods=['POST'])
@@ -63,6 +136,52 @@ def sync_price():
 def sync_bom():
     """BOM 마스터 동기화"""
     return _sync_master('bom', 'master_bom', 'BOM 마스터')
+
+
+@master_bp.route('/sync-option', methods=['POST'])
+@role_required('admin')
+def sync_option():
+    """옵션마스터 동기화 (옵션리스트 엑셀 → option_master 테이블)"""
+    file = request.files.get('file')
+    if not file or not _allowed(file.filename):
+        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
+        return redirect(url_for('master.index'))
+
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(upload_dir, filename)
+    file.save(filepath)
+
+    try:
+        df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
+        if len(df.columns) < 6:
+            flash('옵션리스트는 최소 F열(바코드)까지 필요합니다.', 'danger')
+            return redirect(url_for('master.index'))
+
+        payload = []
+        for _, row in df.iterrows():
+            orig = str(row.iloc[0]).strip()
+            if not orig:
+                continue
+            payload.append({
+                'original_name': orig,
+                'product_name': str(row.iloc[1]).strip(),
+                'line_code': str(row.iloc[2]).strip(),
+                'sort_order': int(pd.to_numeric(row.iloc[4], errors='coerce') or 999),
+                'barcode': str(row.iloc[5]).strip() if len(row) > 5 else '',
+            })
+
+        current_app.db.sync_option_master(payload)
+        _log_action('sync_option_master', detail=f'{len(payload)}건 동기화')
+        flash(f'옵션마스터 동기화 완료: {len(payload)}건', 'success')
+    except Exception as e:
+        flash(f'옵션마스터 동기화 중 오류: {e}', 'danger')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    return redirect(url_for('master.index'))
 
 
 def _sync_master(key, table_name, label):
@@ -122,6 +241,47 @@ def fix_spaces():
     return redirect(url_for('master.index'))
 
 
+@master_bp.route('/stale-options')
+@role_required('admin')
+def stale_options():
+    """미사용 옵션 조회 (30일 이상 매칭 안 된 옵션)"""
+    days = int(request.args.get('days', 30))
+    try:
+        stale = current_app.db.query_stale_options(days)
+    except Exception as e:
+        flash(f'미사용 옵션 조회 오류: {e}', 'danger')
+        stale = []
+
+    counts = {}
+    for key, tbl in MASTER_TABLES.items():
+        try:
+            if key == 'option':
+                counts[key] = current_app.db.count_option_master()
+            else:
+                counts[key] = current_app.db.count_master_table(tbl)
+        except Exception:
+            counts[key] = -1
+
+    return render_template('master/index.html',
+                           counts=counts,
+                           stale_options=stale,
+                           stale_days=days)
+
+
+@master_bp.route('/cleanup-options', methods=['POST'])
+@role_required('admin')
+def cleanup_options():
+    """미사용 옵션 일괄 삭제"""
+    days = int(request.form.get('days', 30))
+    try:
+        deleted = current_app.db.delete_stale_options(days)
+        _log_action('cleanup_stale_options', detail=f'{days}일 미사용 {deleted}건 삭제')
+        flash(f'{days}일 이상 미사용 옵션 {deleted}건 삭제 완료', 'success')
+    except Exception as e:
+        flash(f'미사용 옵션 삭제 오류: {e}', 'danger')
+    return redirect(url_for('master.index'))
+
+
 @master_bp.route('/search', methods=['GET', 'POST'])
 @role_required('admin')
 def search():
@@ -137,7 +297,10 @@ def search():
     data = []
 
     try:
-        raw = current_app.db.query_master_table(table_name)
+        if table_key == 'option':
+            raw = current_app.db.query_option_master()
+        else:
+            raw = current_app.db.query_master_table(table_name)
 
         if search_term:
             term_lower = search_term.replace(' ', '').lower()
@@ -153,7 +316,10 @@ def search():
     counts = {}
     for key, tbl in MASTER_TABLES.items():
         try:
-            counts[key] = current_app.db.count_master_table(tbl)
+            if key == 'option':
+                counts[key] = current_app.db.count_option_master()
+            else:
+                counts[key] = current_app.db.count_master_table(tbl)
         except Exception:
             counts[key] = -1
 

@@ -5,25 +5,26 @@
 {% block content %}
 <!-- 마스터 카드 영역 -->
 <div class="row g-4 mb-4">
-    <!-- 옵션마스터 -->
+    <!-- 옵션마스터 (option_master DB) -->
     <div class="col-lg-4">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-list-ul"></i> 옵션마스터</span>
-                <span class="badge bg-primary">{{ counts.product|default(0) }}건</span>
+                <span><i class="bi bi-link-45deg"></i> 옵션마스터</span>
+                <span class="badge bg-primary">{{ counts.option|default(0) }}건</span>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('master.sync_product') }}" enctype="multipart/form-data">
+                <form method="POST" action="{{ url_for('master.sync_option') }}" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <label class="form-label fw-semibold">옵션리스트 엑셀</label>
                         <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">A=원문명, B=품목명, C=라인코드, E=출력순서, F=바코드</div>
                     </div>
                     <button type="submit" class="btn btn-primary w-100 mb-2">
                         <i class="bi bi-arrow-repeat"></i> 동기화
                     </button>
                 </form>
-                <a href="{{ url_for('master.search', table='product') }}" class="btn btn-outline-secondary w-100">
+                <a href="{{ url_for('master.search', table='option') }}" class="btn btn-outline-secondary w-100">
                     <i class="bi bi-eye"></i> 보기
                 </a>
             </div>
@@ -41,8 +42,9 @@
                 <form method="POST" action="{{ url_for('master.sync_price') }}" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
+                        <label class="form-label fw-semibold">옵션 엑셀 파일</label>
                         <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">"가격표" 시트에서 자동 읽기 (품목명, SKU, 판매가)</div>
                     </div>
                     <button type="submit" class="btn btn-success w-100 mb-2">
                         <i class="bi bi-arrow-repeat"></i> 동기화
@@ -81,6 +83,77 @@
     </div>
 </div>
 
+<!-- 옵션 DB 관리 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-trash3"></i> 미사용 옵션 정리
+    </div>
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <small class="text-muted">일정 기간 동안 주문 매칭에 사용되지 않은 옵션을 정리하여 DB를 가볍게 유지합니다.</small>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <a href="{{ url_for('master.stale_options', days=30) }}" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-search"></i> 30일 미사용 조회
+                </a>
+                <a href="{{ url_for('master.stale_options', days=60) }}" class="btn btn-outline-secondary btn-sm">
+                    60일
+                </a>
+            </div>
+        </div>
+
+        {% if stale_options is defined and stale_options %}
+        <div class="alert alert-warning py-2 mb-3">
+            <strong>{{ stale_days|default(30) }}일</strong> 이상 매칭되지 않은 옵션: <strong>{{ stale_options|length }}건</strong>
+        </div>
+        <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>원문명</th>
+                        <th>품목명</th>
+                        <th>라인코드</th>
+                        <th>마지막 매칭</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for opt in stale_options[:100] %}
+                    <tr>
+                        <td class="text-truncate" style="max-width:200px;" title="{{ opt.original_name }}">{{ opt.original_name }}</td>
+                        <td>{{ opt.product_name }}</td>
+                        <td>{{ opt.line_code }}</td>
+                        <td>
+                            {% if opt.last_matched_at %}
+                                {{ opt.last_matched_at[:10] }}
+                            {% else %}
+                                <span class="text-muted">없음</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if stale_options|length > 100 %}
+                    <tr><td colspan="4" class="text-center text-muted">... 외 {{ stale_options|length - 100 }}건</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        <form method="POST" action="{{ url_for('master.cleanup_options') }}" class="mt-3"
+              onsubmit="return confirm('{{ stale_days|default(30) }}일 이상 미사용 옵션 {{ stale_options|length }}건을 삭제합니다.\n삭제 후 다시 추가할 수 있습니다.\n\n진행하시겠습니까?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="days" value="{{ stale_days|default(30) }}">
+            <button type="submit" class="btn btn-danger">
+                <i class="bi bi-trash3"></i> {{ stale_options|length }}건 일괄 삭제
+            </button>
+        </form>
+        {% elif stale_options is defined %}
+        <div class="alert alert-success py-2 mb-0">
+            <i class="bi bi-check-circle"></i> {{ stale_days|default(30) }}일 이상 미사용 옵션이 없습니다.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- 품목명 공백 정리 -->
 <div class="card mb-4">
     <div class="card-body d-flex justify-content-between align-items-center">
@@ -111,7 +184,8 @@
             <div class="col-md-3">
                 <label class="form-label fw-semibold">마스터 유형</label>
                 <select name="table" class="form-select">
-                    <option value="product" {% if table_key|default('product') == 'product' %}selected{% endif %}>옵션마스터</option>
+                    <option value="option" {% if table_key|default('option') == 'option' %}selected{% endif %}>옵션마스터</option>
+                    <option value="product" {% if table_key|default('') == 'product' %}selected{% endif %}>품목마스터</option>
                     <option value="price" {% if table_key|default('') == 'price' %}selected{% endif %}>가격표</option>
                     <option value="bom" {% if table_key|default('') == 'bom' %}selected{% endif %}>BOM</option>
                 </select>

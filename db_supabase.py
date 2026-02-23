@@ -2,10 +2,19 @@
 db_supabase.py — Supabase 구현 (CRUD/조회). 보고서용 조회는 raw rows까지만.
 + 사용자 인증/관리 CRUD (app_users, audit_logs)
 """
+import time
 import pandas as pd
 from supabase import create_client, Client
 from db_base import DBBase
 from config import SUPABASE_URL, SUPABASE_KEY
+
+# 옵션마스터 메모리 캐시 (TTL 기반)
+_option_cache = {
+    'data': None,         # 전체 옵션 목록
+    'data_list': None,    # OrderProcessor 호환 dict list
+    'ts': 0,              # 마지막 로드 시간
+    'ttl': 300,           # 5분 캐시 (초)
+}
 
 
 class SupabaseDB(DBBase):
@@ -238,6 +247,25 @@ class SupabaseDB(DBBase):
         except:
             return -1
 
+    def query_price_table(self):
+        """가격표(master_prices) 전체 조회 → aggregator.price_map 호환 dict 반환."""
+        import unicodedata
+        def _n(t): return unicodedata.normalize('NFC', str(t).strip())
+
+        rows = self.query_master_table('master_prices')
+        price_map = {}
+        for r in rows:
+            nm = _n(r.get('품목명', '') or r.get('product_name', ''))
+            if not nm:
+                continue
+            price_map[nm] = {
+                'SKU': str(r.get('SKU', r.get('sku', ''))),
+                '네이버판매가': float(r.get('네이버판매가', r.get('naver_price', 0)) or 0),
+                '쿠팡판매가': float(r.get('쿠팡판매가', r.get('coupang_price', 0)) or 0),
+                '로켓판매가': float(r.get('로켓판매가', r.get('rocket_price', 0)) or 0),
+            }
+        return price_map
+
     # --- business_partners ---
 
     def query_partners(self):
@@ -371,6 +399,197 @@ class SupabaseDB(DBBase):
                 fixed += 1
 
         return fixed, dupes
+
+    # ================================================================
+    # 옵션마스터 (option_master) CRUD
+    # ================================================================
+
+    def _invalidate_option_cache(self):
+        """옵션마스터 캐시 무효화 (데이터 변경 시 호출)."""
+        _option_cache['data'] = None
+        _option_cache['data_list'] = None
+        _option_cache['ts'] = 0
+
+    def query_option_master(self, use_cache=True):
+        """옵션마스터 전체 조회 (sort_order 정렬, 메모리 캐시 적용)."""
+        now = time.time()
+        if use_cache and _option_cache['data'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
+            return _option_cache['data']
+
+        def builder(table):
+            return self.client.table(table).select("*").order("sort_order")
+        data = self._paginate_query("option_master", builder)
+
+        # 캐시 갱신
+        _option_cache['data'] = data
+        _option_cache['data_list'] = None  # list 캐시도 다시 생성
+        _option_cache['ts'] = now
+        return data
+
+    def query_option_master_as_list(self):
+        """옵션마스터를 OrderProcessor 호환 dict list로 반환 (캐시)."""
+        # list 캐시가 유효하면 바로 반환
+        now = time.time()
+        if _option_cache['data_list'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
+            return _option_cache['data_list']
+
+        all_rows = self.query_option_master()
+        result = []
+        for r in all_rows:
+            result.append({
+                '원문명': r.get('original_name', ''),
+                '품목명': r.get('product_name', ''),
+                '라인코드': r.get('line_code', '0'),
+                '출력순서': float(r.get('sort_order', 999)),
+                '바코드': r.get('barcode', ''),
+                'Key': r.get('match_key', ''),
+            })
+        _option_cache['data_list'] = result
+        return result
+
+    def search_option_master(self, keyword):
+        """옵션마스터 검색 (품목명 or 원문명 부분 일치, 캐시 활용)."""
+        keyword_upper = keyword.replace(' ', '').upper()
+        all_rows = self.query_option_master()  # 캐시 사용
+        return [r for r in all_rows
+                if keyword_upper in (r.get('match_key', '') or '').upper()
+                or keyword_upper in (r.get('product_name', '') or '').replace(' ', '').upper()]
+
+    def insert_option_master(self, payload):
+        """옵션마스터 1건 등록 (match_key 자동 계산)."""
+        orig = payload.get('original_name', '')
+        payload['match_key'] = str(orig).replace(' ', '').upper()
+        self.client.table("option_master").insert(payload).execute()
+        self._invalidate_option_cache()
+
+    def insert_option_master_batch(self, payload_list, batch_size=500):
+        """옵션마스터 일괄 등록 (중복 시 upsert)."""
+        for row in payload_list:
+            orig = row.get('original_name', '')
+            row['match_key'] = str(orig).replace(' ', '').upper()
+        for i in range(0, len(payload_list), batch_size):
+            chunk = payload_list[i:i + batch_size]
+            try:
+                self.client.table("option_master").upsert(
+                    chunk, on_conflict="match_key"
+                ).execute()
+            except Exception:
+                for row in chunk:
+                    try:
+                        self.client.table("option_master").upsert(
+                            row, on_conflict="match_key"
+                        ).execute()
+                    except Exception:
+                        pass
+        self._invalidate_option_cache()
+
+    def update_option_master(self, option_id, update_data):
+        """옵션마스터 1건 수정."""
+        if 'original_name' in update_data:
+            update_data['match_key'] = str(update_data['original_name']).replace(' ', '').upper()
+        self.client.table("option_master").update(update_data).eq("id", option_id).execute()
+        self._invalidate_option_cache()
+
+    def delete_option_master(self, option_id):
+        """옵션마스터 1건 삭제."""
+        self.client.table("option_master").delete().eq("id", option_id).execute()
+        self._invalidate_option_cache()
+
+    def count_option_master(self):
+        """옵션마스터 건수 (캐시 활용)."""
+        cached = _option_cache.get('data')
+        if cached is not None and (time.time() - _option_cache['ts']) < _option_cache['ttl']:
+            return len(cached)
+        try:
+            res = self.client.table("option_master").select("id", count="exact").limit(1).execute()
+            return res.count if res.count is not None else len(res.data)
+        except Exception:
+            return -1
+
+    def sync_option_master(self, payload_list, batch_size=500):
+        """옵션마스터 전체 교체."""
+        self.client.table("option_master").delete().neq("id", 0).execute()
+        for row in payload_list:
+            orig = row.get('original_name', '')
+            row['match_key'] = str(orig).replace(' ', '').upper()
+        for i in range(0, len(payload_list), batch_size):
+            self.client.table("option_master").insert(payload_list[i:i + batch_size]).execute()
+        self._invalidate_option_cache()
+
+    def touch_option_matched(self, match_keys):
+        """매칭 성공한 옵션들의 last_matched_at 타임스탬프 갱신."""
+        if not match_keys:
+            return 0
+        from datetime import datetime, timezone
+        now_str = datetime.now(timezone.utc).isoformat()
+        updated = 0
+        for i in range(0, len(match_keys), 50):
+            chunk = match_keys[i:i + 50]
+            try:
+                self.client.table("option_master").update(
+                    {"last_matched_at": now_str}
+                ).in_("match_key", chunk).execute()
+                updated += len(chunk)
+            except Exception:
+                for mk in chunk:
+                    try:
+                        self.client.table("option_master").update(
+                            {"last_matched_at": now_str}
+                        ).eq("match_key", mk).execute()
+                        updated += 1
+                    except Exception:
+                        pass
+        self._invalidate_option_cache()
+        return updated
+
+    def query_stale_options(self, days=30):
+        """N일 이상 매칭되지 않은 옵션 조회 (last_matched_at이 NULL이거나 오래된 것)."""
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        stale = []
+        try:
+            # last_matched_at이 NULL인 항목 (한 번도 매칭 안 됨)
+            res1 = self.client.table("option_master").select("*") \
+                .is_("last_matched_at", "null").execute()
+            stale.extend(res1.data or [])
+            # last_matched_at이 cutoff보다 오래된 항목
+            res2 = self.client.table("option_master").select("*") \
+                .lt("last_matched_at", cutoff).execute()
+            stale.extend(res2.data or [])
+        except Exception:
+            pass
+        # 중복 제거 (id 기준)
+        seen = set()
+        result = []
+        for r in stale:
+            if r['id'] not in seen:
+                seen.add(r['id'])
+                result.append(r)
+        return result
+
+    def delete_stale_options(self, days=30):
+        """N일 이상 매칭되지 않은 옵션 일괄 삭제."""
+        stale = self.query_stale_options(days)
+        if not stale:
+            return 0
+        ids = [r['id'] for r in stale]
+        deleted = 0
+        for i in range(0, len(ids), 50):
+            chunk = ids[i:i + 50]
+            try:
+                self.client.table("option_master").delete() \
+                    .in_("id", chunk).execute()
+                deleted += len(chunk)
+            except Exception:
+                for rid in chunk:
+                    try:
+                        self.client.table("option_master").delete() \
+                            .eq("id", rid).execute()
+                        deleted += 1
+                    except Exception:
+                        pass
+        self._invalidate_option_cache()
+        return deleted
 
     # ================================================================
     # 사용자 관리 (app_users) CRUD

@@ -107,7 +107,8 @@ def process():
 
         aggregator = Aggregator()
         result = aggregator.run(agg_paths, option_path, bom_path, output_dir,
-                                original_names=agg_original_names)
+                                original_names=agg_original_names,
+                                db=current_app.db)
 
         if result.get('error'):
             flash(result['error'], 'danger')

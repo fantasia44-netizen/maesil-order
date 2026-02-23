@@ -119,20 +119,24 @@ class OrderProcessor:
             self.log(f"파일 로드 실패: {e}")
             return None
 
-    def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir):
+    def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir,
+            db=None, option_source='file'):
         """
         mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'
         order_file: file-like object or path
-        option_file: file-like object or path
+        option_file: file-like object or path (optional if option_source='db')
         invoice_file: file-like object or path (optional, for 리얼패킹/외부일괄)
         target_type: '송장'|'리얼패킹'|'외부일괄'
         output_dir: directory for output files
+        db: SupabaseDB instance (for option_source='db')
+        option_source: 'file' or 'db'
 
         returns: {
             'success': bool,
             'files': [list of output file paths],
             'logs': [list of log messages],
-            'error': str or None
+            'error': str or None,
+            'unmatched': list (미매칭 항목, 있을 때만)
         }
         """
         self.logs = []
@@ -149,14 +153,26 @@ class OrderProcessor:
         try:
             self.log(f"🚀 v16.10 [{mode}] {target_type} 가동")
 
-            # [1] 옵션지 분석
-            opt_df = self.load_generic(option_file)
-            if opt_df is None or opt_df.empty:
-                result['error'] = "옵션리스트 오류"
-                return result
-            opt_raw = opt_df.iloc[:, [0, 1, 2, 4, 5]].copy()
-            opt_raw.columns = ['원문명', '품목명', '라인코드', '출력순서', '바코드']
-            opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+            # [1] 옵션지 분석 (DB 또는 파일)
+            if option_source == 'db' and db is not None:
+                opt_list = db.query_option_master_as_list()
+                if not opt_list:
+                    result['error'] = "옵션마스터 DB에 데이터가 없습니다.\n마스터 관리에서 옵션리스트를 동기화하세요."
+                    return result
+                opt_raw = pd.DataFrame(opt_list)[['원문명', '품목명', '라인코드', '출력순서', '바코드']]
+                opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+                self.log(f"✅ 옵션마스터(DB) 로드: {len(opt_list)}건")
+            else:
+                opt_df = self.load_generic(option_file)
+                if opt_df is None or opt_df.empty:
+                    result['error'] = "옵션리스트 오류"
+                    return result
+                opt_raw = opt_df.iloc[:, [0, 1, 2, 4, 5]].copy()
+                opt_raw.columns = ['원문명', '품목명', '라인코드', '출력순서', '바코드']
+                opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+                opt_list = opt_raw.to_dict('records')
+                for o in opt_list:
+                    o['Key'] = str(o['원문명']).replace(" ", "").upper()
 
             # [검증] 같은 출력순서(E열)에 품목명(B열)이 다른 경우 체크
             line_groups = opt_raw.groupby('출력순서')['품목명'].apply(lambda x: list(x.unique())).to_dict()
@@ -178,9 +194,11 @@ class OrderProcessor:
                 else:
                     row['품목명'] = line_to_name[ln]
 
-            opt_list = opt_raw.to_dict('records')
-            for o in opt_list:
-                o['Key'] = str(o['원문명']).replace(" ", "").upper()
+            # DB에서 로드한 경우 Key가 이미 있음, 파일에서 로드한 경우 위에서 설정
+            if option_source == 'db':
+                pass  # Key already set from DB match_key
+            else:
+                pass  # Key already set above
 
             # [2] 플랫폼별 독립 엔진 (v16.10 필터링 보강)
             res = []
@@ -242,6 +260,7 @@ class OrderProcessor:
 
             # [3] 매칭 프로세스
             unmatched = []  # 매칭 실패 항목 수집
+            matched_keys = set()  # 매칭 성공한 Key 수집 (last_matched_at 갱신용)
             for i, r in target.iterrows():
                 try:
                     if mode == "쿠팡":
@@ -263,6 +282,7 @@ class OrderProcessor:
                             match = max(candidates, key=lambda o: len(o['Key']))
 
                     if match:
+                        matched_keys.add(match['Key'])
                         # 스마트스토어: AH(앞주소) + AI(상세주소) 합산
                         addr_front = self.get_safe_val(r, m['a'])
                         addr_detail = self.get_safe_val(r, m.get('a2', m['a'])) if 'a2' in m else ''
@@ -290,6 +310,13 @@ class OrderProcessor:
                 except:
                     continue
 
+            # 매칭 성공한 옵션 last_matched_at 갱신
+            if matched_keys and option_source == 'db' and db is not None:
+                try:
+                    db.touch_option_matched(list(matched_keys))
+                except Exception:
+                    pass  # 갱신 실패해도 처리는 계속
+
             # 미매칭 항목 → 처리 중단
             if unmatched:
                 self.log(f"⚠️ 옵션 미등록 {len(unmatched)}건 발견 → 처리 중단")
@@ -298,8 +325,9 @@ class OrderProcessor:
                     msg += f"  • {nm[:80]}\n"
                 if len(unmatched) > 20:
                     msg += f"  ... 외 {len(unmatched) - 20}건\n"
-                msg += f"\n옵션리스트 A열(원문명)에 위 상품명을 등록 후 다시 실행하세요."
+                msg += f"\n옵션마스터에 위 상품명을 등록 후 다시 실행하세요."
                 result['error'] = msg
+                result['unmatched'] = unmatched
                 return result
 
             if not res:

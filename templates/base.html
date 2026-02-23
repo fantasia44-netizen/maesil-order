@@ -13,12 +13,14 @@
         /* 사이드바 */
         .sidebar {
             width: var(--sidebar-width);
-            min-height: 100vh;
+            height: 100vh;
             background: linear-gradient(180deg, #2c3e50 0%, #1a252f 100%);
             position: fixed;
             top: 0; left: 0;
             z-index: 100;
             transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
         }
         .sidebar .brand {
             padding: 1.2rem;
@@ -26,7 +28,16 @@
             font-size: 1.2rem;
             font-weight: 700;
             border-bottom: 1px solid rgba(255,255,255,0.1);
+            flex-shrink: 0;
         }
+        .sidebar .nav-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 0;
+        }
+        .sidebar .nav-scroll::-webkit-scrollbar { width: 4px; }
+        .sidebar .nav-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
         .sidebar .nav-link {
             color: #bdc3c7;
             padding: 0.7rem 1.2rem;
@@ -39,6 +50,10 @@
             border-left-color: #3498db;
         }
         .sidebar .nav-link i { width: 24px; margin-right: 8px; }
+        .sidebar .sidebar-bottom {
+            flex-shrink: 0;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
 
         /* 메인 */
         .main-content {
@@ -92,17 +107,19 @@
         <div class="brand">
             <i class="bi bi-gear-wide-connected"></i> 배마마 통합시스템
         </div>
-        <ul class="nav flex-column mt-2">
-            {% for menu in sidebar_menus %}
-            <li class="nav-item">
-                <a class="nav-link {% if request.path == menu.url %}active{% endif %}"
-                   href="{{ menu.url }}">
-                    <i class="bi {{ menu.icon }}"></i> {{ menu.name }}
-                </a>
-            </li>
-            {% endfor %}
-        </ul>
-        <div class="mt-auto p-3" style="position:absolute; bottom:0; width:100%;">
+        <div class="nav-scroll">
+            <ul class="nav flex-column mt-2">
+                {% for menu in sidebar_menus %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.path == menu.url %}active{% endif %}"
+                       href="{{ menu.url }}">
+                        <i class="bi {{ menu.icon }}"></i> {{ menu.name }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="sidebar-bottom p-3">
             <div class="text-muted small px-2 mb-2">
                 <i class="bi bi-person"></i> {{ current_user.name }}
                 <span class="badge badge-role badge-{{ current_user.role }}">{{ current_user.role_name }}</span>

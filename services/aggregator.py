@@ -1,4 +1,4 @@
-import os, io, warnings
+import os, io, warnings, unicodedata
 from datetime import datetime
 import pandas as pd
 
@@ -31,6 +31,11 @@ def classify_file(filename):
         if keyword in filename:
             return category
     return "일반매출"
+
+
+def _norm(text):
+    """한글 텍스트 NFC 정규화 (서버/클라이언트 인코딩 차이 방지)"""
+    return unicodedata.normalize('NFC', str(text).strip())
 
 
 class Aggregator:
@@ -95,31 +100,64 @@ class Aggregator:
 
     def load_bom(self, file_input):
         try:
+            # ExcelFile로 열어서 시트명을 NFC 정규화 매칭
             if isinstance(file_input, (str, os.PathLike)):
-                all_ch = pd.read_excel(str(file_input), sheet_name="모든채널").fillna("")
-                cp_only = pd.read_excel(str(file_input), sheet_name="쿠팡전용").fillna("")
+                xls = pd.ExcelFile(str(file_input))
             else:
                 if hasattr(file_input, 'seek'):
                     file_input.seek(0)
                 data = file_input.read()
-                buf1 = io.BytesIO(data) if isinstance(data, bytes) else io.BytesIO(data.encode('utf-8'))
-                buf2 = io.BytesIO(data) if isinstance(data, bytes) else io.BytesIO(data.encode('utf-8'))
-                all_ch = pd.read_excel(buf1, sheet_name="모든채널").fillna("")
-                cp_only = pd.read_excel(buf2, sheet_name="쿠팡전용").fillna("")
+                buf = io.BytesIO(data) if isinstance(data, bytes) else io.BytesIO(data.encode('utf-8'))
+                xls = pd.ExcelFile(buf)
+
+            # 시트명 NFC 정규화 매핑 (서버 인코딩 차이 방지)
+            sheet_map = {_norm(sn): sn for sn in xls.sheet_names}
+            self.log(f"📋 BOM 시트 목록: {xls.sheet_names}")
+
+            all_ch_sheet = sheet_map.get(_norm("모든채널"))
+            cp_sheet = sheet_map.get(_norm("쿠팡전용"))
+
+            if not all_ch_sheet:
+                self.log(f"❌ '모든채널' 시트를 찾을 수 없습니다.")
+                return False
+
+            all_ch = pd.read_excel(xls, sheet_name=all_ch_sheet).fillna("")
+            if cp_sheet:
+                cp_only = pd.read_excel(xls, sheet_name=cp_sheet).fillna("")
+            else:
+                cp_only = pd.DataFrame()
+                self.log("⚠️ '쿠팡전용' 시트 없음 → 모든채널만 사용")
 
             def parse(df):
+                if df.empty:
+                    return {}
+                # 컬럼명도 NFC 정규화
+                df.columns = [_norm(c) for c in df.columns]
+                col_set = _norm("세트명")
+                col_comp = _norm("구성품")
+                if col_set not in df.columns or col_comp not in df.columns:
+                    self.log(f"⚠️ BOM 컬럼 매칭 실패: {list(df.columns)} (세트명/구성품 필요)")
+                    return {}
                 m = {}
                 for _, r in df.iterrows():
-                    s_nm, comps = str(r['세트명']).strip(), str(r['구성품']).strip()
+                    s_nm = _norm(r[col_set])
+                    comps = str(r[col_comp]).strip()
                     if not s_nm or not comps:
                         continue
                     m[s_nm] = [
-                        (c.rsplit('x', 1)[0].strip(), int(c.rsplit('x', 1)[1]))
+                        (_norm(c.rsplit('x', 1)[0]), int(c.rsplit('x', 1)[1]))
                         for c in comps.split(',') if 'x' in c
                     ]
                 return m
 
             self.bom_map = {"모든채널": parse(all_ch), "쿠팡전용": parse(cp_only)}
+
+            # 디버그: 각 BOM에 로드된 세트명 로그
+            for bk, bm in self.bom_map.items():
+                if bm:
+                    names = list(bm.keys())
+                    self.log(f"  {bk} 세트: {', '.join(names[:8])}{'...' if len(names) > 8 else ''}")
+
             return True
         except Exception as e:
             self.log(f"❌ BOM 로드 에러: {e}")
@@ -140,7 +178,7 @@ class Aggregator:
 
             self.opt_map = {}
             for _, row in opt_raw.iterrows():
-                nm = str(row['품목명']).strip()
+                nm = _norm(row['품목명'])
                 if not nm:
                     continue
                 if nm not in self.opt_map:
@@ -155,52 +193,80 @@ class Aggregator:
             self.log(f"❌ 옵션리스트 로드 에러: {e}")
             return False
 
-    def decompose(self, name, qty, current_bom):
-        if name not in current_bom:
+    def decompose(self, name, qty, current_bom, fallback_bom=None):
+        """세트 분해 (NFC 정규화 + fallback BOM 지원)"""
+        n = _norm(name)
+        if n in current_bom:
+            bom = current_bom
+        elif fallback_bom and n in fallback_bom:
+            bom = fallback_bom
+        else:
             return {name: qty}
         res = {}
-        for c_nm, c_qty in current_bom[name]:
-            sub = self.decompose(c_nm, qty * c_qty, current_bom)
+        for c_nm, c_qty in bom[n]:
+            sub = self.decompose(c_nm, qty * c_qty, current_bom, fallback_bom)
             for k, v in sub.items():
                 res[k] = res.get(k, 0) + v
         return res
 
     def _get_warehouse(self, name, fallback="넥스원"):
         """품목명 → 출고지 결정 (opt_map 라인코드 기반)"""
-        if self.opt_map and name in self.opt_map:
-            lc = str(self.opt_map[name].get('라인코드', '0')).strip()
+        n = _norm(name)
+        if self.opt_map and n in self.opt_map:
+            lc = str(self.opt_map[n].get('라인코드', '0')).strip()
             return "해서" if lc == '5' else "넥스원"
         return fallback
+
+    def load_price_from_db(self, db):
+        """가격표를 DB(master_prices)에서 로드 → self.price_map"""
+        try:
+            self.price_map = db.query_price_table()
+            if self.price_map:
+                self.log(f"💰 가격표(DB) 로드: {len(self.price_map)}종")
+            else:
+                self.log("ℹ️ 가격표(DB) 데이터 없음 → 매출 계산 생략")
+        except Exception as e:
+            self.log(f"ℹ️ 가격표(DB) 로드 실패: {e}")
+            self.price_map = {}
 
     def load_price_table(self, file_input):
         """[뼈대] 가격표(Sheet2) 로드 → self.price_map"""
         self.price_map = {}
         try:
             if isinstance(file_input, (str, os.PathLike)):
-                df = pd.read_excel(str(file_input), sheet_name="가격표").fillna(0)
+                xls = pd.ExcelFile(str(file_input))
             else:
                 if hasattr(file_input, 'seek'):
                     file_input.seek(0)
                 data = file_input.read()
                 buf = io.BytesIO(data) if isinstance(data, bytes) else io.BytesIO(data.encode('utf-8'))
-                df = pd.read_excel(buf, sheet_name="가격표").fillna(0)
+                xls = pd.ExcelFile(buf)
+            # 시트명 NFC 정규화 매칭
+            sheet_map = {_norm(sn): sn for sn in xls.sheet_names}
+            price_sheet = sheet_map.get(_norm("가격표"))
+            if not price_sheet:
+                self.log("ℹ️ 가격표 시트 없음 → 매출 계산 생략")
+                return
+            df = pd.read_excel(xls, sheet_name=price_sheet).fillna(0)
 
+            # 컬럼명 NFC 정규화
+            df.columns = [_norm(c) for c in df.columns]
             for _, row in df.iterrows():
-                nm = str(row.get('품목명', '')).strip()
+                nm = _norm(row.get(_norm('품목명'), ''))
                 if not nm:
                     continue
                 self.price_map[nm] = {
                     'SKU': str(row.get('SKU', '')),
-                    '네이버판매가': float(row.get('네이버판매가', 0)),
-                    '쿠팡판매가': float(row.get('쿠팡판매가', 0)),
-                    '로켓판매가': float(row.get('로켓판매가', 0))
+                    '네이버판매가': float(row.get(_norm('네이버판매가'), 0)),
+                    '쿠팡판매가': float(row.get(_norm('쿠팡판매가'), 0)),
+                    '로켓판매가': float(row.get(_norm('로켓판매가'), 0))
                 }
             self.log(f"💰 가격표 로드: {len(self.price_map)}종")
         except Exception:
             self.log("ℹ️ 가격표(Sheet2) 없음 → 매출 계산 생략")
 
     def run(self, order_files, option_file, bom_file, output_dir,
-            original_names=None):
+            original_names=None, db=None):
         """
         order_files: list of file-like objects or paths (집계표들)
         option_file: file-like object or path (옵션리스트, optional)
@@ -248,6 +314,10 @@ class Aggregator:
             else:
                 self.opt_map = {}
                 self.log("ℹ️ 옵션리스트 미선택 → 입력순서 유지 모드")
+
+            # 파일에서 가격표 로드 못 했으면 DB fallback
+            if not self.price_map and db is not None:
+                self.load_price_from_db(db)
 
             self.log(f"✅ BOM 로드: 모든채널 {len(self.bom_map['모든채널'])}종, 쿠팡전용 {len(self.bom_map['쿠팡전용'])}종")
 
@@ -315,7 +385,7 @@ class Aggregator:
 
                 set_count = 0
                 for _, row in df.iterrows():
-                    name = str(row[prod_col]).strip()
+                    name = _norm(row[prod_col])
                     qty = int(pd.to_numeric(row[qty_col], errors='coerce') or 0)
                     if not name or qty == 0:
                         continue
@@ -347,10 +417,17 @@ class Aggregator:
                         data[key][cat] += qty
                     else:
                         current_bom = self.bom_map[bom_key]
-                        if name in current_bom:
+                        fallback_bom = self.bom_map["모든채널"] if bom_key == "쿠팡전용" else None
+                        n_name = _norm(name)
+
+                        if n_name in current_bom:
                             set_count += 1
                             self.log(f"  🔄 세트 분해: {name} x{qty}")
-                        decomp = self.decompose(name, qty, current_bom)
+                        elif fallback_bom and n_name in fallback_bom:
+                            set_count += 1
+                            self.log(f"  🔄 세트 분해 (모든채널 fallback): {name} x{qty}")
+
+                        decomp = self.decompose(name, qty, current_bom, fallback_bom)
 
                         for k, v in decomp.items():
                             # 분해된 품목의 warehouse 개별 결정
@@ -373,6 +450,16 @@ class Aggregator:
             # warehouse 미확정 경고
             if wh_warn:
                 self.log(f"⚠️ 출고지 미확정 {len(wh_warn)}건 (기본 '넥스원' 적용): {', '.join(wh_warn[:5])}{'...' if len(wh_warn) > 5 else ''}")
+
+            # BOM 세트가 미분해 상태로 남아있는지 검사
+            all_bom_sets = set()
+            for bm in self.bom_map.values():
+                all_bom_sets.update(bm.keys())
+            undecomposed = [nm for (nm, wh) in ordered if _norm(nm) in all_bom_sets]
+            if undecomposed:
+                unique_undec = list(dict.fromkeys(undecomposed))
+                self.log(f"⚠️ 세트 미분해 경고: {', '.join(unique_undec)}")
+                self.log(f"   → BOM 매칭 실패 가능성. BOM 파일 세트명 확인 필요!")
 
             # 옵션리스트 있으면 출력순서 정렬
             if self.opt_map:
@@ -454,7 +541,7 @@ class Aggregator:
                         if q == 0:
                             continue
                         has_revenue_qty = True
-                        unit_price = self.price_map.get(nm, {}).get(price_col, 0)
+                        unit_price = self.price_map.get(_norm(nm), {}).get(price_col, 0)
                         rev = q * unit_price
                         row[f'{c}_수량'] = q
                         row[f'{c}_단가'] = int(unit_price)
