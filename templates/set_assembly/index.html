@@ -81,6 +81,22 @@
                     </div>
                 </form>
 
+                <!-- 이력 삭제 -->
+                {% if history is defined and history %}
+                <form method="POST" action="{{ url_for('set_assembly.delete') }}" class="row g-2 align-items-end mb-3"
+                      onsubmit="return confirm('해당 날짜의 세트작업 이력을 모두 삭제하시겠습니까?\\n(단품 차감 + 세트 산출 모두 삭제되어 재고가 복원됩니다)');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-md-5">
+                        <input type="date" name="delete_date" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i> 해당일 삭제
+                        </button>
+                    </div>
+                </form>
+                {% endif %}
+
                 <!-- 이력 테이블 -->
                 <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                     <table class="table table-hover table-sm mb-0">

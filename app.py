@@ -114,6 +114,8 @@ def create_app(config_class=None):
 
         if r in ('admin', 'manager', 'logistics', 'production'):
             menus.append({'name': '생산/입고', 'icon': 'bi-gear', 'url': '/production'})
+
+        if r in ('admin', 'manager', 'logistics', 'production', 'general'):
             menus.append({'name': '세트작업', 'icon': 'bi-boxes', 'url': '/set-assembly'})
 
         if r in ('admin', 'manager', 'logistics', 'general'):
@@ -121,6 +123,9 @@ def create_app(config_class=None):
 
         if r in ('admin', 'manager', 'production'):
             menus.append({'name': '소분 관리', 'icon': 'bi-scissors', 'url': '/repack'})
+
+        if r in ('admin', 'manager', 'sales', 'logistics', 'production', 'general'):
+            menus.append({'name': '기타출고', 'icon': 'bi-box-arrow-right', 'url': '/etc-outbound'})
 
         if r in ('admin', 'manager', 'logistics', 'production', 'general'):
             menus.append({'name': '수불장', 'icon': 'bi-journal-text', 'url': '/ledger'})
@@ -153,6 +158,7 @@ def create_app(config_class=None):
     from blueprints.ledger import ledger_bp
     from blueprints.repack import repack_bp
     from blueprints.set_assembly import set_assembly_bp
+    from blueprints.etc_outbound import etc_outbound_bp
     from blueprints.trade import trade_bp
     from blueprints.orders import orders_bp
     from blueprints.aggregation import aggregation_bp
@@ -160,8 +166,9 @@ def create_app(config_class=None):
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
-               master_bp, ledger_bp, repack_bp, set_assembly_bp, trade_bp,
-               orders_bp, aggregation_bp, mobile_bp]:
+               master_bp, ledger_bp, repack_bp, set_assembly_bp,
+               etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
+               mobile_bp]:
         app.register_blueprint(bp)
 
     # 폴더 생성

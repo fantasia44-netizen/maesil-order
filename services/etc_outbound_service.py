@@ -1,0 +1,145 @@
+"""
+etc_outbound_service.py — 기타출고 비즈니스 로직.
+무상출고, 실험사용, 샘플, 폐기 등 FIFO 재고 차감 처리.
+"""
+from datetime import datetime
+
+try:
+    from excel_io import build_stock_snapshot, snapshot_lookup
+except ImportError:
+    from services.excel_io import build_stock_snapshot, snapshot_lookup
+
+
+def _validate_date(date_str):
+    """날짜 형식 검증."""
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
+
+
+def _load_stock_snapshot(db, location):
+    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환."""
+    try:
+        all_data = db.query_stock_by_location(location)
+        return build_stock_snapshot(all_data)
+    except Exception as e:
+        print(f"재고 스냅샷 조회 에러: {e}")
+        return {}
+
+
+def process_etc_outbound(db, date_str, location, items):
+    """기타출고 처리 메인 함수.
+
+    Args:
+        db: SupabaseDB 인스턴스
+        date_str: 출고일 (YYYY-MM-DD)
+        location: 창고위치
+        items: 출고 품목 리스트
+            [{'product_name': str, 'qty': int, 'reason': str, 'memo': str}, ...]
+
+    Returns:
+        dict: {success, out_count, warnings, shortage}
+    """
+    _validate_date(date_str)
+
+    if not items:
+        return {'success': False, 'warnings': ['출고할 품목이 없습니다.'],
+                'shortage': [], 'out_count': 0}
+
+    # 재고 스냅샷 로드
+    snapshot = _load_stock_snapshot(db, location)
+
+    # 부족 체크
+    shortage = []
+    for item in items:
+        name = item.get('product_name', '').strip()
+        qty = item.get('qty', 0)
+        if not name or qty <= 0:
+            continue
+        snap_data = snapshot_lookup(snapshot, name)
+        available = snap_data.get('total', 0)
+        if available < qty:
+            shortage.append(
+                f"{name}: 필요 {qty}, 현재고 {available} (부족 {qty - available})"
+            )
+
+    if shortage:
+        return {'success': False,
+                'warnings': ['재고 부족으로 기타출고를 진행할 수 없습니다.'],
+                'shortage': shortage, 'out_count': 0}
+
+    # FIFO 차감 payload 생성
+    payload = []
+    out_count = 0
+
+    for item in items:
+        name = item.get('product_name', '').strip()
+        qty = item.get('qty', 0)
+        reason = item.get('reason', '기타')
+        memo = item.get('memo', '').strip()
+
+        if not name or qty <= 0:
+            continue
+
+        memo_str = f"[{reason}] {memo}" if memo else f"[{reason}]"
+
+        snap_data = snapshot_lookup(snapshot, name)
+        groups = snap_data.get('groups', [])
+        remain = qty
+
+        if not groups:
+            # 그룹 정보 없이 전체 차감
+            payload.append({
+                "transaction_date": date_str,
+                "type": "ETC_OUT",
+                "product_name": name,
+                "qty": -remain,
+                "location": location,
+                "unit": snap_data.get('unit', '개'),
+                "memo": memo_str,
+            })
+            out_count += 1
+        else:
+            for g in groups:
+                if remain <= 0:
+                    break
+                deduct = min(remain, g['qty'])
+                if deduct <= 0:
+                    continue
+                payload.append({
+                    "transaction_date": date_str,
+                    "type": "ETC_OUT",
+                    "product_name": name,
+                    "qty": -deduct,
+                    "location": location,
+                    "category": g.get('category', ''),
+                    "expiry_date": g.get('expiry_date', ''),
+                    "storage_method": g.get('storage_method', ''),
+                    "unit": g.get('unit', '개'),
+                    "origin": g.get('origin', ''),
+                    "manufacture_date": g.get('manufacture_date', ''),
+                    "memo": memo_str,
+                })
+                g['qty'] -= deduct
+                remain -= deduct
+                out_count += 1
+
+    # DB 삽입
+    if not payload:
+        return {'success': False, 'warnings': ['처리할 출고 항목이 없습니다.'],
+                'shortage': [], 'out_count': 0}
+
+    try:
+        db.insert_stock_ledger(payload)
+    except Exception as e:
+        return {'success': False, 'warnings': [f'DB 저장 중 오류: {e}'],
+                'shortage': [], 'out_count': 0}
+
+    return {
+        'success': True,
+        'out_count': out_count,
+        'item_count': len(items),
+        'warnings': [],
+        'shortage': [],
+    }

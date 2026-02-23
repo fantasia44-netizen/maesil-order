@@ -20,7 +20,7 @@ set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly'
 
 
 @set_assembly_bp.route('/')
-@role_required('admin', 'manager', 'logistics', 'production')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def index():
     """세트작업 폼 + 이력 조회"""
     db = current_app.db
@@ -73,7 +73,7 @@ def index():
 
 
 @set_assembly_bp.route('/process', methods=['POST'])
-@role_required('admin', 'manager', 'logistics', 'production')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def process():
     """세트작업 처리"""
     date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
@@ -120,8 +120,33 @@ def process():
     return redirect(url_for('set_assembly.index'))
 
 
+@set_assembly_bp.route('/delete', methods=['POST'])
+@role_required('admin', 'manager')
+def delete():
+    """세트작업 이력 삭제 (해당일 SET_OUT + SET_IN 전부 삭제)"""
+    db = current_app.db
+    date_str = request.form.get('delete_date', '').strip()
+
+    if not date_str:
+        flash('삭제할 날짜를 선택해주세요.', 'danger')
+        return redirect(url_for('set_assembly.index'))
+
+    try:
+        cnt1 = db.delete_stock_ledger_by(date_str, 'SET_OUT')
+        cnt2 = db.delete_stock_ledger_by(date_str, 'SET_IN')
+        total = (cnt1 or 0) + (cnt2 or 0)
+        if total > 0:
+            flash(f'{date_str} 세트작업 이력 {total}건 삭제 완료', 'success')
+        else:
+            flash(f'{date_str} 에 삭제할 세트작업 이력이 없습니다.', 'warning')
+    except Exception as e:
+        flash(f'세트작업 이력 삭제 중 오류: {e}', 'danger')
+
+    return redirect(url_for('set_assembly.index'))
+
+
 @set_assembly_bp.route('/export')
-@role_required('admin', 'manager', 'logistics', 'production')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
 def export():
     """세트작업 이력 엑셀 다운로드"""
     db = current_app.db

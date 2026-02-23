@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}기타출고 - 배마마 통합시스템{% endblock %}
+{% block page_title %}기타출고{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 기타출고 입력폼 -->
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-box-arrow-right"></i> 기타출고 등록
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('etc_outbound.process') }}" id="etcOutForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">출고일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">창고위치</label>
+                        <select name="location" class="form-select" required>
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-semibold mb-0">출고 품목</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addRow()">
+                            <i class="bi bi-plus-lg"></i> 행 추가
+                        </button>
+                    </div>
+
+                    <div id="itemRows">
+                        <!-- 기본 1행 -->
+                        <div class="item-row border rounded p-2 mb-2">
+                            <div class="row g-2">
+                                <div class="col-12">
+                                    <input type="text" name="product_name[]" class="form-control form-control-sm"
+                                           placeholder="품목명" required>
+                                </div>
+                                <div class="col-4">
+                                    <input type="number" name="qty[]" class="form-control form-control-sm"
+                                           placeholder="수량" min="1" required>
+                                </div>
+                                <div class="col-5">
+                                    <select name="reason[]" class="form-select form-select-sm">
+                                        {% for r in reasons %}
+                                        <option value="{{ r }}">{{ r }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-3 text-end">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)" title="삭제">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                <div class="col-12">
+                                    <input type="text" name="memo[]" class="form-control form-control-sm"
+                                           placeholder="비고 (선택)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-warning w-100 mt-2"
+                            onclick="return confirm('기타출고를 실행하시겠습니까?\n재고가 차감됩니다.');">
+                        <i class="bi bi-box-arrow-right"></i> 기타출고 실행
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 기타출고 이력 -->
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 기타출고 이력 조회
+            </div>
+            <div class="card-body">
+                <!-- 이력 조회 폼 -->
+                <form method="GET" action="{{ url_for('etc_outbound.index') }}" class="row g-2 align-items-end mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold small">시작일</label>
+                        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from|default('') }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold small">종료일</label>
+                        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to|default('') }}">
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                        {% if history is defined and history %}
+                        <a href="{{ url_for('etc_outbound.export', date_from=date_from|default(''), date_to=date_to|default('')) }}"
+                           class="btn btn-sm btn-outline-success">
+                            <i class="bi bi-download"></i> 엑셀
+                        </a>
+                        {% endif %}
+                    </div>
+                </form>
+
+                <!-- 이력 테이블 -->
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>날짜</th>
+                                <th>품목명</th>
+                                <th class="text-end">수량</th>
+                                <th>창고</th>
+                                <th>사유/비고</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in history|default([]) %}
+                            <tr>
+                                <td>{{ row.transaction_date|default('-') }}</td>
+                                <td>{{ row.product_name }}</td>
+                                <td class="text-end text-danger">{{ '{:,.0f}'.format(row.qty) }}</td>
+                                <td>{{ row.location|default('-') }}</td>
+                                <td class="text-muted small">{{ row.memo|default('-') }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    {% if date_from or date_to %}
+                                    해당 기간의 기타출고 이력이 없습니다.
+                                    {% else %}
+                                    날짜를 입력하고 조회하세요.
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function addRow() {
+    const container = document.getElementById('itemRows');
+    const reasons = {{ reasons|tojson }};
+    let options = '';
+    reasons.forEach(r => { options += `<option value="${r}">${r}</option>`; });
+
+    const html = `
+    <div class="item-row border rounded p-2 mb-2">
+        <div class="row g-2">
+            <div class="col-12">
+                <input type="text" name="product_name[]" class="form-control form-control-sm"
+                       placeholder="품목명" required>
+            </div>
+            <div class="col-4">
+                <input type="number" name="qty[]" class="form-control form-control-sm"
+                       placeholder="수량" min="1" required>
+            </div>
+            <div class="col-5">
+                <select name="reason[]" class="form-select form-select-sm">
+                    ${options}
+                </select>
+            </div>
+            <div class="col-3 text-end">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRow(this)" title="삭제">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            <div class="col-12">
+                <input type="text" name="memo[]" class="form-control form-control-sm"
+                       placeholder="비고 (선택)">
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+}
+
+function removeRow(btn) {
+    const rows = document.querySelectorAll('.item-row');
+    if (rows.length <= 1) {
+        alert('최소 1개 품목은 필요합니다.');
+        return;
+    }
+    btn.closest('.item-row').remove();
+}
+</script>
+{% endblock %}

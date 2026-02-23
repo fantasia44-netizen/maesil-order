@@ -76,7 +76,7 @@ def index():
                         inbound += q
                     elif t in ('PRODUCTION', 'REPACK_IN', 'SET_IN'):
                         production += q
-                    elif t in ('SALES_OUT', 'PROD_OUT', 'REPACK_OUT', 'SET_OUT'):
+                    elif t in ('SALES_OUT', 'PROD_OUT', 'REPACK_OUT', 'SET_OUT', 'ETC_OUT'):
                         outbound += abs(q)
                     elif t in ('MOVE_IN', 'MOVE_OUT'):
                         transfer += q
