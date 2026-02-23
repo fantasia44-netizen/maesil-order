@@ -164,11 +164,13 @@ def sync_option():
             orig = str(row.iloc[0]).strip()
             if not orig:
                 continue
+            sort_val = pd.to_numeric(row.iloc[4], errors='coerce')
+            sort_order = int(sort_val) if pd.notna(sort_val) else 999
             payload.append({
                 'original_name': orig,
                 'product_name': str(row.iloc[1]).strip(),
                 'line_code': str(row.iloc[2]).strip(),
-                'sort_order': int(pd.to_numeric(row.iloc[4], errors='coerce') or 999),
+                'sort_order': sort_order,
                 'barcode': str(row.iloc[5]).strip() if len(row) > 5 else '',
             })
 
