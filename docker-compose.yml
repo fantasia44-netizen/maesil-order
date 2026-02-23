@@ -6,7 +6,7 @@ services:
     container_name: autotool-web
     restart: unless-stopped
     ports:
-      - "5001:5000"
+      - "8080:5000"
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=haeser-nas-autotool-secret-2026
