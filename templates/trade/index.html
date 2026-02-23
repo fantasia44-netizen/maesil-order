@@ -5,7 +5,7 @@
 {% block content %}
 <div class="row g-4">
     <!-- 거래처 목록 -->
-    <div class="col-lg-7">
+    <div class="col-lg-12">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-building"></i> 거래처 목록 ({{ partners|default([])|length }}건)</span>
@@ -49,8 +49,10 @@
                         <thead class="table-light">
                             <tr>
                                 <th>거래처명</th>
+                                <th>사업자번호</th>
                                 <th>담당자</th>
                                 <th>연락처</th>
+                                <th>주소</th>
                                 <th>유형</th>
                                 <th style="width:100px">관리</th>
                             </tr>
@@ -59,8 +61,10 @@
                             {% for p in partners|default([]) %}
                             <tr>
                                 <td><strong>{{ p.partner_name }}</strong></td>
+                                <td>{{ p.business_number|default('-') }}</td>
                                 <td>{{ p.representative|default('-') }}</td>
                                 <td>{{ p.phone|default('-') }}</td>
+                                <td><small>{{ p.address|default('-') }}</small></td>
                                 <td>
                                     {% if p.type == '매입' %}
                                         <span class="badge bg-primary">매입</span>
@@ -71,9 +75,6 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <span class="btn btn-sm btn-outline-secondary disabled" title="수정 (준비중)">
-                                        <i class="bi bi-pencil"></i>
-                                    </span>
                                     <form method="POST" action="{{ url_for('trade.delete_partner', partner_id=p.id) }}" class="d-inline"
                                           onsubmit="return confirm('{{ p.partner_name }} 거래처를 삭제하시겠습니까?')">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -85,7 +86,7 @@
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-4">등록된 거래처가 없습니다.</td>
+                                <td colspan="7" class="text-center text-muted py-4">등록된 거래처가 없습니다.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -94,161 +95,12 @@
             </div>
         </div>
     </div>
-
-    <!-- 거래 등록 -->
-    <div class="col-lg-5">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-receipt"></i> 거래 등록
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('trade.add_trade') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">거래처</label>
-                        <select name="partner_id" class="form-select" required>
-                            <option value="">선택</option>
-                            {% for p in partners|default([]) %}
-                            <option value="{{ p.id }}">{{ p.partner_name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">거래일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">품목명</label>
-                        <div class="position-relative">
-                            <input type="text" name="product_name" id="tradeProductInput"
-                                   class="form-control" placeholder="품목명 입력 (자동완성)" required autocomplete="off">
-                            <div id="tradeProductList" class="autocomplete-list list-group position-absolute w-100"
-                                 style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
-                        </div>
-                        <small class="text-muted" id="tradeProductStock"></small>
-                    </div>
-                    <div class="row mb-3">
-                        <div class="col-6">
-                            <label class="form-label fw-semibold">수량</label>
-                            <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label fw-semibold">단가</label>
-                            <input type="number" name="unit_price" class="form-control" step="1" min="0">
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">비고</label>
-                        <input type="text" name="memo" class="form-control" placeholder="비고 입력">
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-plus-lg"></i> 거래 등록
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
 </div>
 
-<!-- 거래 내역 조회 -->
-<div class="card mt-4">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-list-ul"></i> 거래 내역 조회</span>
-    </div>
-    <div class="card-body">
-        <!-- 필터 -->
-        <form method="GET" action="{{ url_for('trade.index') }}" class="row g-2 align-items-end mb-3">
-            <div class="col-md-3">
-                <label class="form-label fw-semibold small">시작일</label>
-                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from|default('') }}">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label fw-semibold small">종료일</label>
-                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to|default('') }}">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label fw-semibold small">거래처</label>
-                <select name="partner_name" class="form-select form-select-sm">
-                    <option value="전체">전체</option>
-                    {% for p in partners|default([]) %}
-                    <option value="{{ p.partner_name }}" {{ 'selected' if partner_name == p.partner_name else '' }}>
-                        {{ p.partner_name }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-md-3">
-                <button type="submit" class="btn btn-sm btn-primary">
-                    <i class="bi bi-search"></i> 조회
-                </button>
-            </div>
-        </form>
-
-        <!-- 거래 테이블 -->
-        <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
-            <table class="table table-hover table-sm mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>거래일</th>
-                        <th>거래처</th>
-                        <th>품목명</th>
-                        <th class="text-end">수량</th>
-                        <th class="text-end">단가</th>
-                        <th class="text-end">금액</th>
-                        <th>비고</th>
-                        <th style="width:120px">관리</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for t in trades|default([]) %}
-                    <tr>
-                        <td>{{ t.trade_date|default(t.date|default('-')) }}</td>
-                        <td>{{ t.partner_name|default('-') }}</td>
-                        <td>{{ t.product_name }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(t.qty) }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(t.unit_price|default(0)) }}</td>
-                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(t.amount|default(0)) }}</td>
-                        <td><small class="text-muted">{{ t.memo|default('') }}</small></td>
-                        <td>
-                            <a href="{{ url_for('trade.invoice', trade_id=t.id) }}"
-                               class="btn btn-sm btn-outline-primary" title="거래명세서">
-                                <i class="bi bi-file-earmark-pdf"></i>
-                            </a>
-                            <form method="POST" action="{{ url_for('trade.delete_trade', trade_id=t.id) }}" class="d-inline"
-                                  onsubmit="return confirm('이 거래를 삭제하시겠습니까?\n{{ t.partner_name }} / {{ t.product_name }} / {{ '{:,.0f}'.format(t.amount|default(0)) }}원')">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="8" class="text-center text-muted py-4">
-                            {% if date_from or date_to or (partner_name and partner_name != '전체') %}
-                            해당 조건의 거래 내역이 없습니다.
-                            {% else %}
-                            거래 내역이 없습니다. 위에서 거래를 등록하세요.
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-                {% if trades|default([])|length > 0 %}
-                <tfoot class="table-light">
-                    <tr>
-                        <td colspan="5" class="text-end fw-bold">합계</td>
-                        <td class="text-end fw-bold text-primary">
-                            {{ '{:,.0f}'.format(trades|map(attribute='amount')|select('number')|sum) }}
-                        </td>
-                        <td colspan="2"></td>
-                    </tr>
-                </tfoot>
-                {% endif %}
-            </table>
-        </div>
-    </div>
+<div class="alert alert-info mt-3">
+    <i class="bi bi-info-circle"></i>
+    거래 내역 조회/삭제/거래명세서 출력은
+    <a href="{{ url_for('outbound.index') }}" class="alert-link">거래처주문처리</a> 페이지에서 가능합니다.
 </div>
 
 <!-- 본사 사업장 관리 -->
@@ -429,55 +281,4 @@
         </div>
     </div>
 </div>
-
-<script>
-// ── 품목 자동완성 ──
-let tradeProductCache = [];
-
-// 페이지 로드 시 품목 목록 가져오기
-fetch('{{ url_for("trade.api_products") }}')
-    .then(r => r.json())
-    .then(data => {
-        if (Array.isArray(data)) tradeProductCache = data;
-    })
-    .catch(err => console.error('품목 로드 실패:', err));
-
-const productInput = document.getElementById('tradeProductInput');
-const productList = document.getElementById('tradeProductList');
-const productStock = document.getElementById('tradeProductStock');
-
-if (productInput) {
-    productInput.addEventListener('input', function() {
-        const q = this.value.trim().toLowerCase();
-        productList.innerHTML = '';
-        if (!q || tradeProductCache.length === 0) { productList.style.display = 'none'; return; }
-
-        const matches = tradeProductCache.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
-        if (matches.length === 0) { productList.style.display = 'none'; return; }
-
-        matches.forEach(p => {
-            const item = document.createElement('a');
-            item.href = '#';
-            item.className = 'list-group-item list-group-item-action py-1 px-2 small';
-            item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
-            item.addEventListener('mousedown', function(e) {
-                e.preventDefault();
-                productInput.value = p.name;
-                productStock.textContent = `현재고: ${p.qty} ${p.unit}`;
-                productList.style.display = 'none';
-            });
-            productList.appendChild(item);
-        });
-        productList.style.display = 'block';
-    });
-
-    productInput.addEventListener('blur', function() {
-        setTimeout(() => { productList.style.display = 'none'; }, 200);
-    });
-
-    productInput.addEventListener('focus', function() {
-        if (this.value.trim()) this.dispatchEvent(new Event('input'));
-    });
-}
-</script>
 {% endblock %}

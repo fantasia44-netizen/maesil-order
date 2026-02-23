@@ -1,6 +1,7 @@
 """
 outbound.py — 거래처주문처리 Blueprint.
 단건 출고 (폼 기반), 일괄(batch) 출고 (엑셀), 거래명세서 PDF.
+거래 이력 조회, 삭제, 거래명세서 출력.
 """
 import json
 import os
@@ -9,12 +10,12 @@ from datetime import datetime
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for, jsonify, session, send_file,
+    flash, redirect, url_for, jsonify, session, send_file, abort,
 )
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from auth import role_required
+from auth import role_required, _log_action
 
 outbound_bp = Blueprint('outbound', __name__, url_prefix='/outbound')
 
@@ -28,11 +29,18 @@ def _allowed(filename):
 @outbound_bp.route('/')
 @role_required('admin', 'manager', 'sales', 'general')
 def index():
-    """거래처주문처리 폼"""
+    """거래처주문처리 폼 + 거래 이력 조회"""
     db = current_app.db
     locations = []
     partners = []
     my_businesses = []
+    trade_list = []
+
+    # 필터 파라미터
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    partner_filter = request.args.get('partner_filter', '전체')
+
     try:
         locations, _ = db.query_filter_options()
     except Exception:
@@ -45,9 +53,24 @@ def index():
         my_businesses = db.query_my_business()
     except Exception:
         pass
+
+    # 거래 이력 조회
+    if date_from or date_to or (partner_filter and partner_filter != '전체'):
+        try:
+            trade_list = db.query_manual_trades(
+                date_from=date_from or None,
+                date_to=date_to or None,
+                partner_name=partner_filter if partner_filter != '전체' else None,
+            )
+        except Exception as e:
+            flash(f'거래 이력 조회 중 오류: {e}', 'danger')
+
     return render_template('outbound/index.html',
                            locations=locations, partners=partners,
-                           my_businesses=my_businesses)
+                           my_businesses=my_businesses,
+                           trades=trade_list,
+                           date_from=date_from, date_to=date_to,
+                           partner_filter=partner_filter)
 
 
 @outbound_bp.route('/api/products')
@@ -336,3 +359,116 @@ def batch():
 
     flash(f"일괄 출고 완료: 총 {total_count}건 처리", 'success')
     return redirect(url_for('outbound.index'))
+
+
+# ── 거래 이력 관리 ──
+
+@outbound_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
+@role_required('admin', 'manager', 'sales', 'general')
+def delete_trade(trade_id):
+    """거래 삭제"""
+    try:
+        current_app.db.delete_manual_trade(trade_id)
+        _log_action('delete_trade', target=str(trade_id))
+        flash('거래 삭제 완료', 'success')
+    except Exception as e:
+        flash(f'거래 삭제 중 오류: {e}', 'danger')
+
+    return redirect(url_for('outbound.index'))
+
+
+@outbound_bp.route('/invoice-trade/<int:trade_id>')
+@role_required('admin', 'manager', 'sales', 'general')
+def invoice_trade(trade_id):
+    """거래명세서 PDF 생성 (단일 거래 기준)"""
+    db = current_app.db
+
+    try:
+        trades = db.query_manual_trades()
+        trade = next((t for t in trades if t.get('id') == trade_id), None)
+        if not trade:
+            abort(404)
+
+        partners = db.query_partners()
+        partner = next(
+            (p for p in partners if p.get('partner_name') == trade.get('partner_name')),
+            None
+        )
+
+        my_biz_list = db.query_my_business()
+        my_biz = next(
+            (b for b in my_biz_list if b.get('is_default')),
+            my_biz_list[0] if my_biz_list else {}
+        )
+
+        from reports.invoice_report import generate_invoice_pdf
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+
+        fname = f"거래명세서_{trade.get('partner_name', '')}_{trade.get('trade_date', '')}.pdf"
+        pdf_path = os.path.join(output_dir, fname)
+
+        generate_invoice_pdf(pdf_path, my_biz, partner or {}, [trade],
+                             trade_date=trade.get('trade_date', ''))
+
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'거래명세서 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('outbound.index'))
+
+
+@outbound_bp.route('/invoice-batch-trade')
+@role_required('admin', 'manager', 'sales', 'general')
+def invoice_batch_trade():
+    """거래명세서 PDF — 같은 거래처+날짜 묶어서 생성"""
+    db = current_app.db
+    p_name = request.args.get('partner_name', '')
+    t_date = request.args.get('trade_date', '')
+
+    if not p_name or not t_date:
+        flash('거래처명과 거래일을 지정하세요.', 'danger')
+        return redirect(url_for('outbound.index'))
+
+    try:
+        trade_list = db.query_manual_trades(
+            date_from=t_date, date_to=t_date, partner_name=p_name
+        )
+        if not trade_list:
+            flash('해당 거래내역이 없습니다.', 'warning')
+            return redirect(url_for('outbound.index'))
+
+        partners = db.query_partners()
+        partner = next(
+            (p for p in partners if p.get('partner_name') == p_name), None
+        )
+
+        my_biz_list = db.query_my_business()
+        my_biz = next(
+            (b for b in my_biz_list if b.get('is_default')),
+            my_biz_list[0] if my_biz_list else {}
+        )
+
+        from reports.invoice_report import generate_invoice_pdf
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+
+        fname = f"거래명세서_{p_name}_{t_date}.pdf"
+        pdf_path = os.path.join(output_dir, fname)
+
+        generate_invoice_pdf(pdf_path, my_biz, partner or {}, trade_list,
+                             trade_date=t_date)
+
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'거래명세서 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('outbound.index'))

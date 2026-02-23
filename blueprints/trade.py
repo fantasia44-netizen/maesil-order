@@ -23,29 +23,14 @@ trade_bp = Blueprint('trade', __name__, url_prefix='/trade')
 @trade_bp.route('/')
 @role_required('admin', 'manager', 'sales', 'general')
 def index():
-    """거래처 목록 + 거래 이력 조회"""
+    """거래처 목록 + 본사 사업장 관리"""
     db = current_app.db
     partners = []
-    trade_list = []
-
-    # 필터 파라미터
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    partner_name = request.args.get('partner_name', '전체')
 
     try:
         partners = db.query_partners()
     except Exception as e:
         flash(f'거래처 조회 중 오류: {e}', 'danger')
-
-    try:
-        trade_list = db.query_manual_trades(
-            date_from=date_from or None,
-            date_to=date_to or None,
-            partner_name=partner_name if partner_name != '전체' else None,
-        )
-    except Exception as e:
-        flash(f'거래 조회 중 오류: {e}', 'danger')
 
     my_biz_list = []
     try:
@@ -54,10 +39,8 @@ def index():
         flash(f'사업장 조회 중 오류: {e}', 'danger')
 
     return render_template('trade/index.html',
-                           partners=partners, trades=trade_list,
-                           my_businesses=my_biz_list,
-                           date_from=date_from, date_to=date_to,
-                           partner_name=partner_name)
+                           partners=partners,
+                           my_businesses=my_biz_list)
 
 
 # ── 본사 사업장 관리 ──
@@ -343,7 +326,7 @@ def add_trade():
 @trade_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
 @role_required('admin', 'manager', 'sales', 'general')
 def delete_trade(trade_id):
-    """거래 삭제"""
+    """거래 삭제 (거래처주문처리에서 호출)"""
     try:
         current_app.db.delete_manual_trade(trade_id)
         _log_action('delete_trade', target=str(trade_id))
@@ -351,7 +334,7 @@ def delete_trade(trade_id):
     except Exception as e:
         flash(f'거래 삭제 중 오류: {e}', 'danger')
 
-    return redirect(url_for('trade.index'))
+    return redirect(url_for('outbound.index'))
 
 
 @trade_bp.route('/api/products')
