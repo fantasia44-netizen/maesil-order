@@ -142,6 +142,45 @@ class SupabaseDB(DBBase):
     def delete_stock_ledger_by_id(self, row_id):
         self.client.table("stock_ledger").delete().eq("id", row_id).execute()
 
+    def delete_stock_ledger_sales_out(self, date_str, product_name, location, qty):
+        """특정 SALES_OUT 레코드 삭제 (거래 삭제 시 재고 복원용).
+
+        FIFO 차감으로 생성된 여러 레코드 중, 합계가 qty와 일치하는 것들을 삭제.
+        삭제되면 stock_ledger 기반 잔고가 자동 복원됨.
+        """
+        q = (self.client.table("stock_ledger").select("id,qty")
+             .eq("transaction_date", date_str)
+             .eq("type", "SALES_OUT")
+             .eq("product_name", product_name)
+             .eq("location", location))
+        res = q.execute()
+
+        if not res.data:
+            return 0
+
+        # qty 합산이 일치하는 레코드들 삭제 (SALES_OUT qty는 음수)
+        target_qty = -abs(qty)
+        candidates = sorted(res.data, key=lambda r: r['id'], reverse=True)
+
+        # 최신 레코드부터 합산하여 목표 수량에 맞는 그룹 찾기
+        to_delete = []
+        running = 0
+        for rec in candidates:
+            to_delete.append(rec['id'])
+            running += rec['qty']
+            if running == target_qty:
+                break
+
+        if running != target_qty:
+            # 정확히 일치하지 않으면 안전을 위해 삭제하지 않음
+            return 0
+
+        deleted = 0
+        for rid in to_delete:
+            self.client.table("stock_ledger").delete().eq("id", rid).execute()
+            deleted += 1
+        return deleted
+
     # --- daily_revenue ---
 
     def upsert_revenue(self, payload_list):

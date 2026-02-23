@@ -326,17 +326,39 @@ def add_trade():
 @trade_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
 @role_required('admin', 'manager', 'sales', 'general')
 def delete_trade(trade_id):
-    """거래 삭제 (manual_trades + daily_revenue 연동 삭제)"""
+    """거래 삭제 (manual_trades + daily_revenue + stock_ledger 연동 삭제)"""
     db = current_app.db
     try:
-        # 삭제 전 거래 정보 조회 (daily_revenue 연동 삭제용)
+        # 삭제 전 거래 정보 조회
         trade = db.query_manual_trade_by_id(trade_id)
 
         # manual_trades 삭제
         db.delete_manual_trade(trade_id)
 
-        # daily_revenue 연동 삭제
         if trade:
+            # ── 재고 복원 (stock_ledger SALES_OUT 삭제) ──
+            try:
+                memo = trade.get('memo', '')
+                location = ''
+                if '(' in memo and ')' in memo:
+                    location = memo.split('(')[1].split(')')[0].strip()
+
+                if location and trade.get('product_name') and trade.get('qty'):
+                    restored = db.delete_stock_ledger_sales_out(
+                        date_str=trade.get('trade_date', ''),
+                        product_name=trade.get('product_name', ''),
+                        location=location,
+                        qty=int(trade.get('qty', 0)),
+                    )
+                    if restored > 0:
+                        current_app.logger.info(
+                            f'재고 복원: {trade["product_name"]} x{trade["qty"]} '
+                            f'({location}) — {restored}건 SALES_OUT 삭제'
+                        )
+            except Exception as stock_err:
+                current_app.logger.warning(f'재고 복원 실패: {stock_err}')
+
+            # ── daily_revenue 연동 삭제 ──
             try:
                 db.delete_revenue_specific(
                     revenue_date=trade.get('trade_date', ''),
@@ -347,7 +369,7 @@ def delete_trade(trade_id):
                 current_app.logger.warning(f'매출 연동 삭제 실패: {rev_err}')
 
         _log_action('delete_trade', target=str(trade_id))
-        flash('거래 삭제 완료 (매출 데이터도 함께 삭제됨)', 'success')
+        flash('거래 삭제 완료 (재고 복원 + 매출 데이터 함께 삭제됨)', 'success')
     except Exception as e:
         flash(f'거래 삭제 중 오류: {e}', 'danger')
 
