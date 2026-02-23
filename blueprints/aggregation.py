@@ -140,12 +140,17 @@ def process():
             os.remove(option_path)
 
 
-@aggregation_bp.route('/download/<filename>')
+@aggregation_bp.route('/download/<path:filename>')
 @role_required('admin', 'manager', 'sales')
 def download(filename):
-    """집계 결과 파일 다운로드"""
-    output_dir = current_app.config['OUTPUT_FOLDER']
-    filepath = os.path.join(output_dir, secure_filename(filename))
+    """집계 결과 파일 다운로드 (한글 파일명 지원)"""
+    output_dir = os.path.abspath(current_app.config['OUTPUT_FOLDER'])
+    safe_name = os.path.basename(filename)
+    filepath = os.path.join(output_dir, safe_name)
+
+    if not os.path.abspath(filepath).startswith(output_dir):
+        from flask import abort
+        abort(403)
 
     if not os.path.exists(filepath):
         flash('파일을 찾을 수 없습니다.', 'danger')
@@ -155,5 +160,5 @@ def download(filename):
         filepath,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name=filename,
+        download_name=safe_name,
     )
