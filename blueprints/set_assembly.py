@@ -1,6 +1,6 @@
 """
 set_assembly.py — 세트작업 관리 Blueprint.
-BOM 기반 세트 조립: 단품 FIFO 차감 → 세트 산출, 이력 조회, 엑셀 다운로드.
+BOM 기반 세트 조립: 단품 FIFO 차감 → 세트 산출, 부재료 차감, 이력 조회, 엑셀 다운로드.
 """
 import io
 import json
@@ -9,7 +9,7 @@ from datetime import datetime
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for, send_file,
+    flash, redirect, url_for, send_file, jsonify,
 )
 from flask_login import login_required, current_user
 
@@ -72,6 +72,31 @@ def index():
                            type_labels=INV_TYPE_LABELS)
 
 
+@set_assembly_bp.route('/api/products')
+@role_required('admin', 'manager', 'logistics', 'production', 'general')
+def api_products():
+    """창고별 재고 품목 목록 JSON 반환 (부재료 자동완성용)"""
+    location = request.args.get('location', '')
+    if not location:
+        return jsonify([])
+    try:
+        from services.excel_io import build_stock_snapshot
+        all_data = current_app.db.query_stock_by_location(location)
+        snapshot = build_stock_snapshot(all_data)
+        products = []
+        for name, info in snapshot.items():
+            if info['total'] > 0:
+                products.append({
+                    'name': name,
+                    'qty': info['total'],
+                    'unit': info.get('unit', '개'),
+                })
+        products.sort(key=lambda x: x['name'])
+        return jsonify(products)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @set_assembly_bp.route('/process', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def process():
@@ -92,10 +117,24 @@ def process():
         flash('수량은 숫자로 입력해주세요.', 'danger')
         return redirect(url_for('set_assembly.index'))
 
+    # 부재료 파싱
+    sub_names = request.form.getlist('sub_material_name[]')
+    sub_qtys = request.form.getlist('sub_material_qty[]')
+    sub_materials = []
+    for i in range(len(sub_names)):
+        s_name = sub_names[i].strip() if i < len(sub_names) else ''
+        try:
+            s_qty = int(sub_qtys[i]) if i < len(sub_qtys) else 0
+        except (ValueError, IndexError):
+            s_qty = 0
+        if s_name and s_qty > 0:
+            sub_materials.append({'name': s_name, 'qty': s_qty})
+
     try:
         from services.set_assembly_service import process_set_assembly
         result = process_set_assembly(
-            current_app.db, date_str, set_name, channel, location, qty
+            current_app.db, date_str, set_name, channel, location, qty,
+            sub_materials=sub_materials
         )
 
         if result.get('warnings'):
@@ -107,13 +146,13 @@ def process():
                 flash(f'⚠️ {s}', 'danger')
 
         if result.get('success'):
-            flash(
-                f"세트작업 완료: {set_name} x{qty} ({channel}) — "
-                f"단품 차감 {result.get('set_out_count', 0)}건, "
-                f"세트 산출 {result.get('set_in_count', 0)}건, "
-                f"구성품 {result.get('component_count', 0)}종 총 {result.get('total_deducted', 0)}개 차감",
-                'success'
-            )
+            msg = (f"세트작업 완료: {set_name} x{qty} ({channel}) — "
+                   f"단품 차감 {result.get('set_out_count', 0)}건, "
+                   f"세트 산출 {result.get('set_in_count', 0)}건, "
+                   f"구성품 {result.get('component_count', 0)}종 총 {result.get('total_deducted', 0)}개 차감")
+            if result.get('sub_out_count', 0) > 0:
+                msg += f", 부재료 {result.get('sub_out_count', 0)}건 차감"
+            flash(msg, 'success')
     except Exception as e:
         flash(f'세트작업 처리 중 오류: {e}', 'danger')
 

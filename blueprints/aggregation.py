@@ -58,14 +58,21 @@ def process():
     os.makedirs(upload_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
 
-    # 집계 파일 저장
+    # 집계 파일 저장 (원본 한글 파일명 보존)
     agg_paths = []
+    agg_original_names = {}  # {저장경로: 원본파일명}
     for f in agg_files:
         if f and f.filename and _allowed(f.filename):
+            original_name = f.filename           # 원본 한글 파일명 보존
             fname = secure_filename(f.filename)
+            if not fname or fname == '.xlsx' or fname == '.xls' or fname == '.csv':
+                # secure_filename이 한글을 모두 제거한 경우 → 타임스탬프 대체
+                ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'xlsx'
+                fname = f"agg_{datetime.now().strftime('%H%M%S%f')}.{ext}"
             fpath = os.path.join(upload_dir, fname)
             f.save(fpath)
             agg_paths.append(fpath)
+            agg_original_names[fpath] = original_name
 
     if not agg_paths:
         flash('유효한 엑셀 파일이 없습니다.', 'danger')
@@ -97,7 +104,8 @@ def process():
         from services.aggregator import Aggregator
 
         aggregator = Aggregator()
-        result = aggregator.run(agg_paths, option_path, bom_path, output_dir)
+        result = aggregator.run(agg_paths, option_path, bom_path, output_dir,
+                                original_names=agg_original_names)
 
         if result.get('error'):
             flash(result['error'], 'danger')

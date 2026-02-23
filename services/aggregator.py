@@ -199,12 +199,14 @@ class Aggregator:
         except Exception:
             self.log("ℹ️ 가격표(Sheet2) 없음 → 매출 계산 생략")
 
-    def run(self, order_files, option_file, bom_file, output_dir):
+    def run(self, order_files, option_file, bom_file, output_dir,
+            original_names=None):
         """
         order_files: list of file-like objects or paths (집계표들)
         option_file: file-like object or path (옵션리스트, optional)
         bom_file: file-like object or path (세트옵션 BOM)
         output_dir: directory for output files
+        original_names: dict {saved_path: original_korean_filename} (optional)
 
         returns: {
             'success': bool,
@@ -214,6 +216,8 @@ class Aggregator:
             'summary': {total_items, total_qty, categories}
         }
         """
+        if original_names is None:
+            original_names = {}
         self.logs = []
         result = {
             'success': False,
@@ -257,7 +261,9 @@ class Aggregator:
             rev_ordered = []
 
             for file_input in order_files:
-                f_nm = os.path.basename(self._get_filename(file_input))
+                saved_path = self._get_filename(file_input)
+                # 원본 한글 파일명으로 분류 (secure_filename이 한글 제거하므로)
+                f_nm = os.path.basename(original_names.get(saved_path, saved_path))
                 cat = classify_file(f_nm)
                 bom_key = "쿠팡전용" if cat in ("쿠팡매출", "로켓") else "모든채널"
                 self.log(f"📂 {f_nm} → 유형: {cat} / BOM: {bom_key}")
@@ -274,12 +280,27 @@ class Aggregator:
 
                 cols = [str(c).strip() for c in df.columns]
 
-                prod_col = next((c for c in cols if c in ['품목명', '상품명']), None)
-                qty_col = next((c for c in cols if c in ['합산', 'qty', '수량']), None)
-                wh_col = next((c for c in cols if c in ['warehouse', '출고지']), None)
+                # 유연한 컬럼 탐색 (다양한 엑셀 양식 대응)
+                PROD_NAMES = ['품목명', '상품명', '제품명', '옵션명', '품명', '상품', '제품']
+                QTY_NAMES = ['합산', 'qty', '수량', '합계', '출고수량', '주문수량', '구매수량',
+                             '출고량', '판매수량', 'Qty', 'QTY', '총수량']
+                WH_NAMES = ['warehouse', '출고지', '창고', '창고위치', '출고창고']
+
+                prod_col = next((c for c in cols if c in PROD_NAMES), None)
+                qty_col = next((c for c in cols if c in QTY_NAMES), None)
+                wh_col = next((c for c in cols if c in WH_NAMES), None)
+
+                # 부분매칭 시도 (정확 매칭 실패 시)
+                if not prod_col:
+                    prod_col = next((c for c in cols if any(k in c for k in ['품목', '상품', '제품', '품명'])), None)
+                if not qty_col:
+                    qty_col = next((c for c in cols if any(k in c for k in ['수량', '합산', '합계', 'qty'])), None)
+
                 if not prod_col or not qty_col:
-                    self.log(f"⚠️ {f_nm}: 품목명/qty 컬럼을 찾을 수 없어 스킵 (컬럼: {cols})")
+                    self.log(f"⚠️ {f_nm}: 품목명/수량 컬럼을 찾을 수 없어 스킵 (컬럼: {cols})")
                     continue
+
+                self.log(f"  📋 컬럼 매핑: 품목={prod_col}, 수량={qty_col}{f', 출고지={wh_col}' if wh_col else ''}")
 
                 set_count = 0
                 for _, row in df.iterrows():

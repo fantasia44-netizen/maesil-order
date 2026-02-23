@@ -103,7 +103,8 @@ def explode_bom(bom_lookup, set_name, channel, multiplier=1, _visited=None):
     return dict(result)
 
 
-def process_set_assembly(db, date_str, set_name, channel, location, qty):
+def process_set_assembly(db, date_str, set_name, channel, location, qty,
+                         sub_materials=None):
     """세트작업 처리 메인 함수.
 
     Args:
@@ -113,10 +114,13 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty):
         channel: 판매처/채널 (모든채널 / 쿠팡전용)
         location: 창고위치
         qty: 세트 수량
+        sub_materials: 부재료 목록 [{'name': str, 'qty': int}, ...]
 
     Returns:
-        dict: {success, set_out_count, set_in_count, warnings, shortage}
+        dict: {success, set_out_count, set_in_count, sub_out_count, warnings, shortage}
     """
+    if sub_materials is None:
+        sub_materials = []
     _validate_date(date_str)
 
     if qty <= 0:
@@ -149,7 +153,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty):
     # 3. 재고 스냅샷 로드
     snapshot = _load_stock_snapshot(db, location)
 
-    # 4. 부족 체크
+    # 4. 부족 체크 (구성품 + 부재료)
     shortage = []
     for item_name, needed_qty in sorted(final_items.items()):
         snap_data = snapshot_lookup(snapshot, item_name)
@@ -159,11 +163,22 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty):
                 f"{item_name}: 필요 {needed_qty}, 현재고 {available} (부족 {needed_qty - available})"
             )
 
+    # 부재료 부족 체크 (세트 수량 곱산)
+    for sm in sub_materials:
+        sm_name = sm['name']
+        sm_needed = sm['qty'] * qty  # 세트 1개당 부재료 수량 × 세트 수량
+        snap_data = snapshot_lookup(snapshot, sm_name)
+        available = snap_data.get('total', 0)
+        if available < sm_needed:
+            shortage.append(
+                f"[부재료] {sm_name}: 필요 {sm_needed}, 현재고 {available} (부족 {sm_needed - available})"
+            )
+
     if shortage:
         return {'success': False,
                 'warnings': ['재고 부족으로 세트작업을 진행할 수 없습니다.'],
                 'shortage': shortage,
-                'set_out_count': 0, 'set_in_count': 0}
+                'set_out_count': 0, 'set_in_count': 0, 'sub_out_count': 0}
 
     # 5. FIFO 차감 (SET_OUT) + 세트 산출 (SET_IN) payload 생성
     payload = []
@@ -212,7 +227,55 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty):
                 remain -= deduct
                 set_out_count += 1
 
-    # 6. 세트 산출 (SET_IN)
+    # 6. 부재료 FIFO 차감 (SET_OUT)
+    sub_out_count = 0
+    for sm in sub_materials:
+        sm_name = sm['name']
+        sm_needed = sm['qty'] * qty  # 세트 1개당 × 세트 수량
+        snap_data = snapshot_lookup(snapshot, sm_name)
+        groups = snap_data.get('groups', [])
+        remain = sm_needed
+
+        if not groups:
+            payload.append({
+                "transaction_date": date_str,
+                "type": "SET_OUT",
+                "product_name": sm_name,
+                "qty": -remain,
+                "location": location,
+                "unit": snap_data.get('unit', '개'),
+                "memo": f"세트작업 부재료: {set_name} ({channel})",
+            })
+            sub_out_count += 1
+        else:
+            for g in groups:
+                if remain <= 0:
+                    break
+                deduct = min(remain, g['qty'])
+                if deduct <= 0:
+                    continue
+                payload.append({
+                    "transaction_date": date_str,
+                    "type": "SET_OUT",
+                    "product_name": sm_name,
+                    "qty": -deduct,
+                    "location": location,
+                    "category": g.get('category', ''),
+                    "expiry_date": g.get('expiry_date', ''),
+                    "storage_method": g.get('storage_method', ''),
+                    "unit": g.get('unit', '개'),
+                    "origin": g.get('origin', ''),
+                    "manufacture_date": g.get('manufacture_date', ''),
+                    "memo": f"세트작업 부재료: {set_name} ({channel})",
+                })
+                g['qty'] -= deduct
+                remain -= deduct
+                sub_out_count += 1
+
+    # 7. 세트 산출 (SET_IN)
+    sub_memo = ""
+    if sub_materials:
+        sub_memo = f", 부재료 {len(sub_materials)}종"
     payload.append({
         "transaction_date": date_str,
         "type": "SET_IN",
@@ -221,21 +284,22 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty):
         "location": location,
         "category": "완제품",
         "unit": "세트",
-        "memo": f"세트작업 ({channel}), 구성품 {len(final_items)}종",
+        "memo": f"세트작업 ({channel}), 구성품 {len(final_items)}종{sub_memo}",
     })
     set_in_count = 1
 
-    # 7. DB 삽입
+    # 8. DB 삽입
     try:
         db.insert_stock_ledger(payload)
     except Exception as e:
         return {'success': False, 'warnings': [f'DB 저장 중 오류: {e}'],
-                'shortage': [], 'set_out_count': 0, 'set_in_count': 0}
+                'shortage': [], 'set_out_count': 0, 'set_in_count': 0, 'sub_out_count': 0}
 
     return {
         'success': True,
         'set_out_count': set_out_count,
         'set_in_count': set_in_count,
+        'sub_out_count': sub_out_count,
         'warnings': warnings,
         'shortage': [],
         'component_count': len(final_items),

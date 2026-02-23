@@ -11,7 +11,7 @@
                 <i class="bi bi-boxes"></i> 세트작업 실행
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('set_assembly.process') }}">
+                <form method="POST" action="{{ url_for('set_assembly.process') }}" id="setForm">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">기준일</label>
@@ -35,14 +35,33 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">창고위치</label>
-                        <select name="location" class="form-select" required>
+                        <select name="location" id="locationSelect" class="form-select" required>
                             <option value="">선택</option>
                             {% for loc in locations|default([]) %}
                             <option value="{{ loc }}">{{ loc }}</option>
                             {% endfor %}
                         </select>
                     </div>
-                    <button type="submit" class="btn btn-primary w-100"
+
+                    <!-- 부재료 입력 -->
+                    <hr>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-semibold mb-0">
+                            <i class="bi bi-box-seam"></i> 부재료 (선택)
+                        </label>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addSubMaterialRow()">
+                            <i class="bi bi-plus-lg"></i> 부재료 추가
+                        </button>
+                    </div>
+                    <div class="alert alert-info small py-1 px-2 mb-2">
+                        <i class="bi bi-info-circle"></i>
+                        세트 포장 시 사용되는 부재료 (박스, 아이스팩 등)를 입력하면 재고에서 자동 차감됩니다.
+                    </div>
+                    <div id="subMaterialRows">
+                        <!-- JS로 동적 추가 -->
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 mt-2"
                             onclick="return confirm('세트작업을 실행하시겠습니까?\n단품 재고가 차감되고 세트가 생성됩니다.');">
                         <i class="bi bi-play-fill"></i> 세트작업 실행
                     </button>
@@ -84,7 +103,7 @@
                 <!-- 이력 삭제 -->
                 {% if history is defined and history %}
                 <form method="POST" action="{{ url_for('set_assembly.delete') }}" class="row g-2 align-items-end mb-3"
-                      onsubmit="return confirm('해당 날짜의 세트작업 이력을 모두 삭제하시겠습니까?\\n(단품 차감 + 세트 산출 모두 삭제되어 재고가 복원됩니다)');">
+                      onsubmit="return confirm('해당 날짜의 세트작업 이력을 모두 삭제하시겠습니까?\n(단품 차감 + 세트 산출 모두 삭제되어 재고가 복원됩니다)');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-md-5">
                         <input type="date" name="delete_date" class="form-control form-control-sm" required>
@@ -152,8 +171,12 @@
 // BOM 데이터 (서버에서 전달)
 const bomData = {{ bom_data_json|safe }};
 
+// 품목 캐시 (부재료 자동완성용)
+let productCache = [];
+
 const channelSelect = document.getElementById('channelSelect');
 const setNameSelect = document.getElementById('setNameSelect');
+const locationSelect = document.getElementById('locationSelect');
 
 // 채널 옵션 동적 생성
 const channels = Object.keys(bomData);
@@ -178,5 +201,91 @@ channelSelect.addEventListener('change', function() {
         });
     }
 });
+
+// 창고 변경 시 품목 캐시 로드 (부재료 자동완성용)
+locationSelect.addEventListener('change', function() {
+    const loc = this.value;
+    productCache = [];
+    if (!loc) return;
+
+    fetch(`{{ url_for('set_assembly.api_products') }}?location=${encodeURIComponent(loc)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (Array.isArray(data)) productCache = data;
+        })
+        .catch(err => console.error('품목 로드 실패:', err));
+});
+
+// 부재료 자동완성 바인딩
+function bindSubAutocomplete(input) {
+    const listEl = input.nextElementSibling;
+    const stockEl = input.closest('.col-8').querySelector('.sub-stock');
+
+    input.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        listEl.innerHTML = '';
+        if (!q || productCache.length === 0) { listEl.style.display = 'none'; return; }
+
+        const matches = productCache.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
+        if (matches.length === 0) { listEl.style.display = 'none'; return; }
+
+        matches.forEach(p => {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
+            item.addEventListener('mousedown', function(e) {
+                e.preventDefault();
+                input.value = p.name;
+                if (stockEl) stockEl.textContent = `현재고: ${p.qty} ${p.unit}`;
+                listEl.style.display = 'none';
+            });
+            listEl.appendChild(item);
+        });
+        listEl.style.display = 'block';
+    });
+
+    input.addEventListener('blur', function() {
+        setTimeout(() => { listEl.style.display = 'none'; }, 200);
+    });
+
+    input.addEventListener('focus', function() {
+        if (this.value.trim()) this.dispatchEvent(new Event('input'));
+    });
+}
+
+function addSubMaterialRow() {
+    const container = document.getElementById('subMaterialRows');
+    const html = `
+    <div class="sub-material-row border rounded p-2 mb-2">
+        <div class="row g-2">
+            <div class="col-8">
+                <div class="position-relative">
+                    <input type="text" name="sub_material_name[]" class="form-control form-control-sm sub-input"
+                           placeholder="부재료명 (입력하면 자동완성)" autocomplete="off">
+                    <div class="autocomplete-list list-group position-absolute w-100" style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                </div>
+                <small class="text-muted sub-stock"></small>
+            </div>
+            <div class="col-3">
+                <input type="number" name="sub_material_qty[]" class="form-control form-control-sm"
+                       placeholder="수량" min="1">
+            </div>
+            <div class="col-1 text-end">
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeSubRow(this)" title="삭제">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+        </div>
+    </div>`;
+    container.insertAdjacentHTML('beforeend', html);
+
+    const newInput = container.lastElementChild.querySelector('.sub-input');
+    bindSubAutocomplete(newInput);
+}
+
+function removeSubRow(btn) {
+    btn.closest('.sub-material-row').remove();
+}
 </script>
 {% endblock %}

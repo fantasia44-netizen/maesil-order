@@ -422,6 +422,64 @@ def invoice_trade(trade_id):
         return redirect(url_for('outbound.index'))
 
 
+@outbound_bp.route('/invoice-selected', methods=['POST'])
+@role_required('admin', 'manager', 'sales', 'general')
+def invoice_selected():
+    """선택한 거래 항목들을 합산한 거래명세서 PDF 생성"""
+    db = current_app.db
+    selected_ids = request.form.getlist('selected_trades')
+
+    if not selected_ids:
+        flash('거래명세서로 출력할 항목을 선택하세요.', 'danger')
+        return redirect(url_for('outbound.index'))
+
+    try:
+        # 전체 거래 조회 후 선택된 ID 필터
+        all_trades = db.query_manual_trades()
+        selected_trades = [
+            t for t in all_trades if str(t.get('id')) in selected_ids
+        ]
+
+        if not selected_trades:
+            flash('선택된 거래내역을 찾을 수 없습니다.', 'warning')
+            return redirect(url_for('outbound.index'))
+
+        # 거래처 정보 (첫 번째 항목 기준)
+        p_name = selected_trades[0].get('partner_name', '')
+        t_date = selected_trades[0].get('trade_date', '')
+
+        partners = db.query_partners()
+        partner = next(
+            (p for p in partners if p.get('partner_name') == p_name), None
+        )
+
+        my_biz_list = db.query_my_business()
+        my_biz = next(
+            (b for b in my_biz_list if b.get('is_default')),
+            my_biz_list[0] if my_biz_list else {}
+        )
+
+        from reports.invoice_report import generate_invoice_pdf
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+
+        fname = f"거래명세서_{p_name}_{t_date}_합산.pdf"
+        pdf_path = os.path.join(output_dir, fname)
+
+        generate_invoice_pdf(pdf_path, my_biz, partner or {}, selected_trades,
+                             trade_date=t_date)
+
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'거래명세서 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('outbound.index'))
+
+
 @outbound_bp.route('/invoice-batch-trade')
 @role_required('admin', 'manager', 'sales', 'general')
 def invoice_batch_trade():
