@@ -195,14 +195,16 @@ def query_history_view(db, date_str, mode='전체이력', location=None,
         list of dict
     """
     type_map = {
-        "OUT(출고)": ["OUT", "SALES_OUT", "PROD_OUT"],
+        "OUT(출고)": ["SALES_OUT", "PROD_OUT", "REPACK_OUT", "SET_OUT", "ETC_OUT"],
         "SALES_OUT(매출출고)": ["SALES_OUT"],
         "PROD_OUT(생산출고)": ["PROD_OUT"],
-        "IN(생산/입고)": ["IN", "PRODUCTION", "INBOUND"],
+        "ETC_OUT(기타출고)": ["ETC_OUT"],
+        "IN(생산/입고)": ["PRODUCTION", "INBOUND", "REPACK_IN", "SET_IN"],
         "PRODUCTION(생산)": ["PRODUCTION"],
         "INBOUND(입고)": ["INBOUND"],
         "MOVE(창고이동)": ["MOVE_IN", "MOVE_OUT"],
         "REPACK(소분)": ["REPACK_OUT", "REPACK_IN"],
+        "SET(세트)": ["SET_OUT", "SET_IN"],
         "INIT(기초)": ["INIT"],
         "전체이력": None,
     }
