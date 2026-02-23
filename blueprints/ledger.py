@@ -232,6 +232,24 @@ def pdf():
             result['period_groups'] = {k: v for k, v in result['period_groups'].items()
                                         if k in filtered_set}
 
+        # 종료일재고 0이고 기간 거래도 없는 항목 제외 (웹 조회와 동일 필터)
+        prev_dict = result['prev_dict']
+        period_groups = result['period_groups']
+        filtered_keys = []
+        for key in result['sorted_keys']:
+            opening = prev_dict.get(key, 0)
+            txns = period_groups.get(key, [])
+            period_total = sum(tx.get('qty', 0) for tx in txns)
+            closing = opening + period_total
+            if closing == 0 and not txns:
+                continue
+            filtered_keys.append(key)
+        result['sorted_keys'] = filtered_keys
+        # prev_dict, period_groups도 정리
+        filtered_set = set(filtered_keys)
+        result['prev_dict'] = {k: v for k, v in prev_dict.items() if k in filtered_set}
+        result['period_groups'] = {k: v for k, v in period_groups.items() if k in filtered_set}
+
         if not result['sorted_keys']:
             flash('PDF로 출력할 수불장 데이터가 없습니다.', 'warning')
             return redirect(url_for('ledger.index', date_from=date_from,
