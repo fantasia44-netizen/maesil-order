@@ -268,15 +268,26 @@ class Aggregator:
                 bom_key = "쿠팡전용" if cat in ("쿠팡매출", "로켓") else "모든채널"
                 self.log(f"📂 {f_nm} → 유형: {cat} / BOM: {bom_key}")
 
-                # 각 집계표 읽기
-                if isinstance(file_input, (str, os.PathLike)):
-                    df = pd.read_excel(str(file_input)).fillna('')
-                else:
-                    if hasattr(file_input, 'seek'):
-                        file_input.seek(0)
-                    file_data = file_input.read()
-                    buf = io.BytesIO(file_data) if isinstance(file_data, bytes) else io.BytesIO(file_data.encode('utf-8'))
-                    df = pd.read_excel(buf).fillna('')
+                # 각 집계표 읽기 (Excel / CSV 모두 지원)
+                try:
+                    if isinstance(file_input, (str, os.PathLike)):
+                        path_str = str(file_input)
+                        if path_str.lower().endswith('.csv'):
+                            try:
+                                df = pd.read_csv(path_str, encoding='utf-8-sig').fillna('')
+                            except Exception:
+                                df = pd.read_csv(path_str, encoding='cp949').fillna('')
+                        else:
+                            df = pd.read_excel(path_str).fillna('')
+                    else:
+                        if hasattr(file_input, 'seek'):
+                            file_input.seek(0)
+                        file_data = file_input.read()
+                        buf = io.BytesIO(file_data) if isinstance(file_data, bytes) else io.BytesIO(file_data.encode('utf-8'))
+                        df = pd.read_excel(buf).fillna('')
+                except Exception as read_err:
+                    self.log(f"⚠️ {f_nm}: 파일 읽기 실패 — {read_err}")
+                    continue
 
                 cols = [str(c).strip() for c in df.columns]
 

@@ -59,16 +59,16 @@ def process():
     os.makedirs(output_dir, exist_ok=True)
 
     # 집계 파일 저장 (원본 한글 파일명 보존)
+    # ⚠️ secure_filename은 한글을 모두 제거하므로,
+    # 순수 한글 파일명들이 "xlsx"로 동일해져 덮어쓰기 발생.
+    # 항상 고유한 인덱스 기반 파일명 사용.
     agg_paths = []
     agg_original_names = {}  # {저장경로: 원본파일명}
-    for f in agg_files:
+    for idx, f in enumerate(agg_files):
         if f and f.filename and _allowed(f.filename):
             original_name = f.filename           # 원본 한글 파일명 보존
-            fname = secure_filename(f.filename)
-            if not fname or fname == '.xlsx' or fname == '.xls' or fname == '.csv':
-                # secure_filename이 한글을 모두 제거한 경우 → 타임스탬프 대체
-                ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'xlsx'
-                fname = f"agg_{datetime.now().strftime('%H%M%S%f')}.{ext}"
+            ext = f.filename.rsplit('.', 1)[1].lower() if '.' in f.filename else 'xlsx'
+            fname = f"agg_{idx}_{datetime.now().strftime('%H%M%S%f')}.{ext}"
             fpath = os.path.join(upload_dir, fname)
             f.save(fpath)
             agg_paths.append(fpath)
@@ -78,10 +78,11 @@ def process():
         flash('유효한 엑셀 파일이 없습니다.', 'danger')
         return redirect(url_for('aggregation.index'))
 
-    # BOM 파일 저장 (필수)
+    # BOM 파일 저장 (필수) — 한글 파일명 안전 처리
     bom_path = None
     if bom_file and bom_file.filename and _allowed(bom_file.filename):
-        bom_fname = secure_filename(bom_file.filename)
+        bom_ext = bom_file.filename.rsplit('.', 1)[1].lower() if '.' in bom_file.filename else 'xlsx'
+        bom_fname = f"bom_{datetime.now().strftime('%H%M%S%f')}.{bom_ext}"
         bom_path = os.path.join(upload_dir, bom_fname)
         bom_file.save(bom_path)
 
@@ -93,10 +94,11 @@ def process():
                 os.remove(p)
         return redirect(url_for('aggregation.index'))
 
-    # 옵션리스트 파일 저장 (선택)
+    # 옵션리스트 파일 저장 (선택) — 한글 파일명 안전 처리
     option_path = None
     if option_file and option_file.filename and _allowed(option_file.filename):
-        opt_fname = secure_filename(option_file.filename)
+        opt_ext = option_file.filename.rsplit('.', 1)[1].lower() if '.' in option_file.filename else 'xlsx'
+        opt_fname = f"opt_{datetime.now().strftime('%H%M%S%f')}.{opt_ext}"
         option_path = os.path.join(upload_dir, opt_fname)
         option_file.save(option_path)
 
