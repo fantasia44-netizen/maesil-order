@@ -164,11 +164,7 @@
                     </select>
                     <select id="materialTypeFilter" class="form-select form-select-sm" style="width:120px;">
                         <option value="all">전체 종류</option>
-                        <option value="원료">원료</option>
-                        <option value="부재료">부재료</option>
-                        <option value="반제품">반제품</option>
-                        <option value="완제품">완제품</option>
-                        <option value="포장재">포장재</option>
+                        <!-- 동적 생성: populateMaterialTypeFilter() -->
                     </select>
                     <input type="text" id="costSearch" class="form-control form-control-sm"
                            placeholder="품목명 검색..." style="width:200px;">
@@ -335,6 +331,7 @@
     let modifiedCosts = {};
     let bomComponents = []; // BOM 구성품만 (필터용)
     let allSuggestions = []; // autocomplete용 전체 품목
+    let categoryMap = {};   // stock_ledger 기반 product_name→category 매핑
     let costEditMode = false;
     let channelEditMode = false;
 
@@ -353,6 +350,7 @@
             bomComponents = json.bom_components || [];
             missingCosts = json.missing_costs || [];
             channelCosts = json.channel_costs || {};
+            categoryMap = json.category_map || {};
 
             // autocomplete 목록
             allSuggestions = [...allProducts].sort();
@@ -363,6 +361,7 @@
             renderCostTable();
             renderChannelTable();
             populateChannelFilter();
+            populateMaterialTypeFilter();
         } catch(e) {
             alert('데이터 로드 오류: ' + e.message);
         }
@@ -416,6 +415,48 @@
             opt.textContent = ch;
             sel.appendChild(opt);
         });
+    }
+
+    // ====== 종류(material_type) 필터 동적 생성 ======
+    function populateMaterialTypeFilter() {
+        const sel = document.getElementById('materialTypeFilter');
+        const prevVal = sel.value;
+        // 기존 옵션 제거 (첫 번째 "전체 종류" 유지)
+        while (sel.options.length > 1) sel.remove(1);
+
+        // costData + categoryMap 에서 실제 존재하는 종류 수집
+        const types = new Set();
+        costData.forEach(c => {
+            const mt = getMaterialType(c.product_name, c.material_type);
+            if (mt) types.add(mt);
+        });
+        // allProducts 중 costData에 없는 품목의 종류도 수집
+        allProducts.forEach(name => {
+            const mt = categoryMap[name] || categoryMap[name.replace(/\s/g, '')];
+            if (mt) types.add(mt);
+        });
+
+        // 정렬 후 옵션 추가
+        [...types].sort().forEach(mt => {
+            const opt = document.createElement('option');
+            opt.value = mt;
+            opt.textContent = mt;
+            sel.appendChild(opt);
+        });
+
+        // 이전 선택값 복원
+        if (prevVal && [...sel.options].some(o => o.value === prevVal)) {
+            sel.value = prevVal;
+        }
+    }
+
+    // ====== 품목의 종류(material_type) 조회 헬퍼 ======
+    function getMaterialType(productName, fallback) {
+        // 우선순위: categoryMap(stock_ledger.category) > fallback(costData) > '원료'
+        // 공백 포함/미포함 이름 모두 시도 (stock_ledger↔product_costs 이름 차이 대응)
+        return categoryMap[productName]
+            || categoryMap[productName.replace(/\s/g, '')]
+            || fallback || '원료';
     }
 
     // ====== BOM 테이블 렌더링 ======
@@ -538,6 +579,8 @@
         let items = [];
 
         function _buildItem(name, existing) {
+            // categoryMap(stock_ledger.category) 우선 → costData → 기본값
+            const mt = getMaterialType(name, existing ? existing.material_type : null);
             return {
                 product_name: name,
                 cost_price: existing ? existing.cost_price : 0,
@@ -545,7 +588,7 @@
                 unit: existing ? existing.unit : '',
                 memo: existing ? existing.memo : '',
                 cost_type: existing ? (existing.cost_type || '매입') : '매입',
-                material_type: existing ? (existing.material_type || '원료') : '원료',
+                material_type: mt,
                 is_bom: bomSet.has(name),
             };
         }
@@ -561,7 +604,7 @@
         } else if (filterMode === 'entered') {
             costData.forEach(c => items.push({ ...c, weight: c.weight || 0,
                 cost_type: c.cost_type || '매입',
-                material_type: c.material_type || '원료',
+                material_type: getMaterialType(c.product_name, c.material_type),
                 is_bom: bomSet.has(c.product_name) }));
         } else {
             const seen = new Set();
@@ -569,7 +612,7 @@
             costData.forEach(c => {
                 if (!seen.has(c.product_name))
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
-                        material_type: c.material_type || '원료',
+                        material_type: getMaterialType(c.product_name, c.material_type),
                         is_bom: bomSet.has(c.product_name) });
             });
         }

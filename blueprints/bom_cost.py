@@ -31,12 +31,18 @@ def api_data():
         from services.bom_cost_service import calculate_bom_costs
         result = calculate_bom_costs(db)
 
-        # cost_details → 직렬화 가능하게 변환
-        # stock_ledger category를 종류(material_type)로 사용
+        # stock_ledger.category → 정규 종류(material_type) 매핑
+        # 이 값이 product_costs.material_type보다 정확함
         category_map = db.query_product_categories()
+
+        # cost_details → 직렬화 가능하게 변환
         cost_list = []
         for name, detail in result.get('cost_details', {}).items():
-            mt = category_map.get(name) or detail.get('material_type', '원료') or '원료'
+            # 우선순위: stock_ledger.category > product_costs.material_type > '원료'
+            # product_costs 이름에 공백이 있을 수 있으므로 정규화 버전도 시도
+            mt = (category_map.get(name)
+                  or category_map.get(name.replace(' ', ''))
+                  or detail.get('material_type', '원료') or '원료')
             cost_list.append({
                 'product_name': name,
                 'cost_price': float(detail.get('cost_price', 0)),
@@ -58,6 +64,7 @@ def api_data():
             'channel_costs': result.get('channel_costs', {}),
             'all_set_names': result.get('all_set_names', []),
             'all_price_products': result.get('all_price_products', []),
+            'category_map': category_map,  # 프론트 종류필터용
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -88,8 +95,11 @@ def api_save_cost():
         cost_map_raw = db.query_product_costs()
         old_data = cost_map_raw.get(product_name)
         old_value = None
-        # material_type: 프론트에서 안 보내면 기존값 유지 (자동 관리)
-        material_type = old_data.get('material_type', '원료') if old_data else '원료'
+        # material_type: stock_ledger.category 우선, 없으면 기존 DB값 유지
+        category_map = db.query_product_categories()
+        material_type = (category_map.get(product_name)
+                         or category_map.get(product_name.replace(' ', ''))
+                         or (old_data.get('material_type', '원료') if old_data else '원료'))
         if old_data:
             old_value = {
                 'cost_price': float(old_data.get('cost_price', 0)),
@@ -127,15 +137,17 @@ def api_save_cost_batch():
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
     items = data['items']
-    # 기존 material_type 보존을 위해 현재 DB 조회
+    # stock_ledger.category 우선, 없으면 기존 product_costs.material_type 유지
     cost_map_raw = db.query_product_costs()
+    category_map = db.query_product_categories()
     valid_items = []
     for item in items:
         pn = (item.get('product_name') or '').strip()
         if pn:
-            # material_type: 기존 DB 값 유지 (UI에서 관리 안 함)
             existing = cost_map_raw.get(pn)
-            mt = existing.get('material_type', '원료') if existing else '원료'
+            mt = (category_map.get(pn)
+                  or category_map.get(pn.replace(' ', ''))
+                  or (existing.get('material_type', '원료') if existing else '원료'))
             valid_items.append({
                 'product_name': pn,
                 'cost_price': float(item.get('cost_price', 0)),

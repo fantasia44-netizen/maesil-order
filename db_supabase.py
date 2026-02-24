@@ -128,18 +128,32 @@ class SupabaseDB(DBBase):
 
     def query_product_categories(self):
         """stock_ledger에서 product_name → category 매핑 조회.
-        가장 최근 레코드의 category를 사용."""
+        가장 최근 레코드의 category를 사용.
+        공백 포함/미포함 이름 모두 매핑하여 product_costs와의 호환성 보장.
+        Returns: {product_name: category} dict.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
         try:
             rows = self._paginate_query("stock_ledger",
                 lambda t: self.client.table(t).select("product_name,category").order("id", desc=True))
             cat_map = {}
             for r in rows:
-                name = r.get('product_name', '')
-                cat = r.get('category', '')
-                if name and cat and name not in cat_map:
+                name = (r.get('product_name') or '').strip()
+                cat = (r.get('category') or '').strip()
+                if not name or not cat:
+                    continue
+                # stock_ledger 원본 이름 (공백 제거된 상태)
+                if name not in cat_map:
                     cat_map[name] = cat
+                # 공백 제거 정규화 버전도 추가 (이미 동일할 수 있음)
+                norm = name.replace(' ', '')
+                if norm not in cat_map:
+                    cat_map[norm] = cat
+            logger.info(f"query_product_categories: {len(cat_map)} entries from {len(rows)} rows")
             return cat_map
-        except Exception:
+        except Exception as e:
+            logger.error(f"query_product_categories failed: {e}")
             return {}
 
     def query_unique_product_names(self):
