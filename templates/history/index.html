@@ -91,7 +91,7 @@
                         <td>{{ rec.category|default('-') }}</td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-primary" title="수정"
-                                    onclick="openEditModal({{ rec|tojson }})">
+                                    onclick='openEditModal({{ rec|tojson }})'>
                                 <i class="bi bi-pencil"></i>
                             </button>
                             <form method="POST" action="{{ url_for('history.delete', row_id=rec.id) }}" class="d-inline"
@@ -167,17 +167,24 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
 <script>
 function openEditModal(rec) {
-    document.getElementById('editForm').action = '/history/edit/' + rec.id;
-    document.getElementById('edit_transaction_date').value = rec.transaction_date || rec.date || '';
-    document.getElementById('edit_type').value = rec.type || '';
-    document.getElementById('edit_product_name').value = rec.product_name || '';
-    document.getElementById('edit_qty').value = rec.qty || '';
-    document.getElementById('edit_unit').value = rec.unit || '';
-    document.getElementById('edit_location').value = rec.location || '';
-    document.getElementById('edit_category').value = rec.category || '';
-    new bootstrap.Modal(document.getElementById('editModal')).show();
+    try {
+        document.getElementById('editForm').action = '/history/edit/' + rec.id;
+        document.getElementById('edit_transaction_date').value = rec.transaction_date || rec.date || '';
+        document.getElementById('edit_type').value = rec.type || '';
+        document.getElementById('edit_product_name').value = rec.product_name || '';
+        document.getElementById('edit_qty').value = rec.qty || '';
+        document.getElementById('edit_unit').value = rec.unit || '';
+        document.getElementById('edit_location').value = rec.location || '';
+        document.getElementById('edit_category').value = rec.category || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
+    } catch(err) {
+        alert('수정 모달 오류: ' + err.message);
+    }
 }
 </script>
 {% endblock %}
