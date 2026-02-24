@@ -70,7 +70,7 @@ def _import_option_file_to_db(filepath):
                 'original_name': orig,
                 'product_name': str(row.iloc[1]).strip(),
                 'line_code': str(row.iloc[2]).strip(),
-                'sort_order': int(pd.to_numeric(row.iloc[4], errors='coerce') or 999),
+                'sort_order': int(v) if not pd.isna(v := pd.to_numeric(row.iloc[4], errors='coerce')) else 999,
                 'barcode': str(row.iloc[5]).strip() if len(row) > 5 else '',
             })
 

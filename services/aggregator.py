@@ -413,7 +413,7 @@ class Aggregator:
                 set_count = 0
                 for _, row in df.iterrows():
                     name = _norm(row[prod_col])
-                    qty = int(pd.to_numeric(row[qty_col], errors='coerce') or 0)
+                    qty = int(v) if not pd.isna(v := pd.to_numeric(row[qty_col], errors='coerce')) else 0
                     if not name or qty == 0:
                         continue
 
@@ -592,7 +592,7 @@ class Aggregator:
                     rev_df = rev_df[existing]
                     for col in rev_df.columns:
                         if col != '품목명':
-                            rev_df[col] = rev_df[col].astype(int)
+                            rev_df[col] = pd.to_numeric(rev_df[col], errors='coerce').fillna(0).astype(int)
 
                     # 합산 행 추가 (수량/매출만 합산, 단가는 빈값)
                     sum_row = {'품목명': '합계'}
