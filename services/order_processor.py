@@ -293,10 +293,10 @@ class OrderProcessor:
                             'addr': full_addr,
                             'clean_addr': clean_addr,
                             'p1': re.sub(r'[^0-9]', '', self.get_safe_val(r, m['p1'])),
-                            'qty': int(pd.to_numeric(self.get_safe_val(r, m['qty']), errors='coerce') or 1),
+                            'qty': int(v) if not pd.isna(v := pd.to_numeric(self.get_safe_val(r, m['qty']), errors='coerce')) else 1,
                             'display_nm': match['품목명'],
                             'barcode': match['바코드'],
-                            'code': int(pd.to_numeric(match['라인코드'], errors='coerce') or 0),
+                            'code': int(v) if not pd.isna(v := pd.to_numeric(match['라인코드'], errors='coerce')) else 0,
                             'msg': self.get_safe_val(r, m['msg']),
                             'p2': self.get_safe_val(r, m.get('p2', m['p1'])),
                             'sort': match['출력순서'],
@@ -347,7 +347,7 @@ class OrderProcessor:
                 qty_rep = pd.merge(master_list, sums_by_line, left_on='출력순서', right_on='sort', how='left')
                 qty_rep['qty'] = pd.to_numeric(qty_rep['qty'], errors='coerce').fillna(0).astype(int)
                 qty_rep['warehouse'] = qty_rep['라인코드'].apply(
-                    lambda c: "해서" if int(pd.to_numeric(c, errors='coerce') or 0) == 5 else "넥스원"
+                    lambda c: "해서" if (not pd.isna(v := pd.to_numeric(c, errors='coerce')) and int(v) == 5) else "넥스원"
                 )
                 summary_path = os.path.join(output_dir, f"{safe_nm}_집계표_{ts}.xlsx")
                 qty_rep.sort_values('출력순서')[['품목명', 'qty', 'warehouse']].to_excel(summary_path, index=False)
