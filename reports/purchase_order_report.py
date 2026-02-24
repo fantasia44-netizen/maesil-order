@@ -10,18 +10,24 @@ from reports.pdf_common import register_font, page_footer
 
 
 def generate_purchase_order_pdf(path, my_biz, supplier, items,
-                                order_date="", delivery_note="",
-                                caution_text=""):
+                                order_date="", request_date="",
+                                delivery_note="", caution_text="",
+                                order_manager="", invoice_manager="",
+                                manager_contact=""):
     """물품 발주서 PDF 생성.
 
     my_biz   : dict -- business_name, business_number, representative,
                        address, contact, fax, email  (발주처 = 본사)
     supplier : dict -- partner_name, business_number, representative,
                        address, phone, fax, email     (공급업체)
-    items    : list[dict] -- product_name, unit, qty, request_date, note
-    order_date    : str  -- 발주일자
-    delivery_note : str  -- 입고기한 등 비고
-    caution_text  : str  -- 주의사항
+    items    : list[dict] -- product_name, unit, qty, note
+    order_date      : str -- 발주일자
+    request_date    : str -- 입고요청일
+    delivery_note   : str -- 입고기한 비고
+    caution_text    : str -- 주의사항
+    order_manager   : str -- 발주담당자
+    invoice_manager : str -- 계산서담당자
+    manager_contact : str -- 담당자 연락처
     """
     if not HAS_REPORTLAB:
         raise RuntimeError("reportlab 패키지가 필요합니다.")
@@ -46,9 +52,6 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
     value_style = ParagraphStyle('Value', fontName=font_name, fontSize=9)
     section_style = ParagraphStyle('Section', fontName=font_name, fontSize=10,
                                     spaceAfter=2 * mm, spaceBefore=4 * mm)
-    note_style = ParagraphStyle('Note', fontName=font_name, fontSize=8,
-                                 textColor=colors.Color(0.3, 0.3, 0.3),
-                                 leading=12)
     caution_style = ParagraphStyle('Caution', fontName=font_name, fontSize=8,
                                     textColor=colors.Color(0.2, 0.2, 0.2),
                                     leading=13, leftIndent=5 * mm)
@@ -101,8 +104,19 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
         ("팩스", my_biz.get('fax', '')),
         ("E-Mail", my_biz.get('email', '')),
     ]
+    # 입고요청일 / 입고기한
+    if request_date:
+        orderer_info.insert(2, ("입고요청일", request_date))
     if delivery_note:
-        orderer_info.insert(2, ("입고기한", delivery_note))
+        idx = 3 if request_date else 2
+        orderer_info.insert(idx, ("입고기한", delivery_note))
+    # 담당자 정보
+    if order_manager:
+        orderer_info.append(("발주담당자", order_manager))
+    if invoice_manager:
+        orderer_info.append(("계산서담당자", invoice_manager))
+    if manager_contact:
+        orderer_info.append(("담당자연락처", manager_contact))
 
     elements.append(_info_table("발 주 처", orderer_info, usable_w))
     elements.append(Spacer(1, 4 * mm))
@@ -111,9 +125,9 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
     elements.append(Paragraph(
         "<b><font color='#334477'>발 주 내 역</font></b>", section_style))
 
-    headers = ["No", "물품명", "단위", "수량", "입고요청일", "비고"]
-    cw = [usable_w * 0.06, usable_w * 0.30, usable_w * 0.10,
-          usable_w * 0.10, usable_w * 0.18, usable_w * 0.26]
+    headers = ["No", "물품명", "단위", "수량", "비고"]
+    cw = [usable_w * 0.06, usable_w * 0.36, usable_w * 0.12,
+          usable_w * 0.12, usable_w * 0.34]
 
     table_data = [headers]
     for i, item in enumerate(items, 1):
@@ -122,23 +136,21 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
             item.get('product_name', ''),
             item.get('unit', ''),
             str(item.get('qty', '')),
-            item.get('request_date', ''),
             item.get('note', ''),
         ])
 
     # 빈 행 채우기 (최소 5행)
     while len(table_data) < 6:
-        table_data.append(["", "", "", "", "", ""])
+        table_data.append(["", "", "", "", ""])
 
     tbl = Table(table_data, colWidths=cw, repeatRows=1)
-    last_r = len(table_data) - 1
     tbl.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), font_name),
         ('FONTSIZE', (0, 0), (-1, 0), 9),
         ('FONTSIZE', (0, 1), (-1, -1), 8),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-        ('ALIGN', (5, 1), (5, -1), 'LEFT'),
+        ('ALIGN', (4, 1), (4, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('GRID', (0, 0), (-1, -1), 0.4, colors.Color(0.5, 0.5, 0.5)),
         ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.2, 0.3, 0.5)),
@@ -155,7 +167,6 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
         elements.append(Spacer(1, 4 * mm))
         elements.append(Paragraph(
             "<b><font color='#334477'>주 의 사 항</font></b>", section_style))
-        # 줄바꿈 처리
         caution_lines = caution_text.replace('\r\n', '\n').split('\n')
         for line in caution_lines:
             elements.append(Paragraph(line, caution_style))
@@ -179,8 +190,7 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
                                  alignment=2, spaceBefore=5 * mm)
     biz_name = my_biz.get('business_name', '')
     rep_name = my_biz.get('representative', '')
-    elements.append(Paragraph(
-        f"{order_date}", sign_style))
+    elements.append(Paragraph(f"{order_date}", sign_style))
     elements.append(Paragraph(
         f"발주처: {biz_name}   대표 {rep_name}  (인)", sign_style))
 

@@ -34,9 +34,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div id="bizPreview" class="small text-muted">
-                        <!-- JS로 채움 -->
-                    </div>
+                    <div id="bizPreview" class="small text-muted"></div>
                 </div>
             </div>
         </div>
@@ -50,8 +48,10 @@
                 <div class="card-body">
                     {% if partners|default([])|length > 0 %}
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">거래처 선택</label>
-                        <select name="partner_id" id="partnerSelect" class="form-select form-select-sm">
+                        <label class="form-label fw-semibold">거래처 검색/선택</label>
+                        <input type="text" id="partnerSearch" class="form-control form-control-sm mb-1"
+                               placeholder="거래처명 입력하여 검색..." autocomplete="off">
+                        <select name="partner_id" id="partnerSelect" class="form-select form-select-sm" size="4">
                             <option value="">-- 선택하세요 --</option>
                             {% for p in partners|default([]) %}
                             <option value="{{ p.id }}"
@@ -82,20 +82,42 @@
 
     <!-- ─── 발주 정보 ─── -->
     <div class="card mt-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-calendar-event"></i> 발주 정보</span>
+        <div class="card-header">
+            <i class="bi bi-calendar-event"></i> 발주 정보
         </div>
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <label class="form-label fw-semibold">발주일</label>
                     <input type="date" name="order_date" class="form-control form-control-sm"
                            value="{{ today|default('') }}" id="orderDate">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">입고요청일</label>
+                    <input type="date" name="request_date" class="form-control form-control-sm"
+                           id="requestDate">
+                </div>
+                <div class="col-md-3">
                     <label class="form-label fw-semibold">입고기한</label>
                     <input type="text" name="delivery_note" class="form-control form-control-sm"
-                           placeholder="예: 2026-03-01까지">
+                           placeholder="예: 발주일 기준 3일 이내">
+                </div>
+            </div>
+            <div class="row g-3 mt-1">
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">발주담당자</label>
+                    <input type="text" name="order_manager" class="form-control form-control-sm"
+                           placeholder="발주담당자명">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">계산서담당자</label>
+                    <input type="text" name="invoice_manager" class="form-control form-control-sm"
+                           placeholder="계산서담당자명">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-semibold">연락처</label>
+                    <input type="text" name="manager_contact" class="form-control form-control-sm"
+                           placeholder="담당자 연락처">
                 </div>
             </div>
         </div>
@@ -118,13 +140,11 @@
                             <th>물품명</th>
                             <th style="width:100px">단위</th>
                             <th style="width:100px">수량</th>
-                            <th style="width:150px">입고요청일</th>
                             <th>비고</th>
                             <th style="width:50px"></th>
                         </tr>
                     </thead>
                     <tbody id="itemBody">
-                        <!-- JS로 동적 추가 -->
                     </tbody>
                 </table>
             </div>
@@ -179,11 +199,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!opt) { bizPreview.innerHTML = ''; return; }
         bizPreview.innerHTML = `
             <div><strong>${opt.dataset.name || ''}</strong></div>
-            <div>사업자번호: ${opt.dataset.bnum || '-'}</div>
-            <div>대표자: ${opt.dataset.rep || '-'}</div>
+            <div>사업자번호: ${opt.dataset.bnum || '-'} &nbsp;|&nbsp; 대표자: ${opt.dataset.rep || '-'}</div>
             <div>주소: ${opt.dataset.addr || '-'}</div>
             <div>TEL: ${opt.dataset.tel || '-'} / FAX: ${opt.dataset.fax || '-'}</div>
-            <div>E-Mail: ${opt.dataset.email || '-'}</div>
         `;
     }
     if (myBizSel) {
@@ -191,20 +209,57 @@ document.addEventListener('DOMContentLoaded', function() {
         updateBizPreview();
     }
 
-    // ── 공급업체 미리보기 ──
+    // ── 거래처 검색 필터 ──
+    const partnerSearch = document.getElementById('partnerSearch');
     const partnerSel = document.getElementById('partnerSelect');
     const partnerPreview = document.getElementById('partnerPreview');
+
+    // 전체 옵션 저장 (검색 필터용)
+    let allPartnerOptions = [];
+    if (partnerSel) {
+        partnerSel.querySelectorAll('option').forEach(opt => {
+            allPartnerOptions.push({
+                value: opt.value,
+                text: opt.textContent.trim(),
+                html: opt.outerHTML
+            });
+        });
+    }
+
+    if (partnerSearch && partnerSel) {
+        partnerSearch.addEventListener('input', function() {
+            const keyword = this.value.trim().toLowerCase();
+            // 현재 선택 옵션 초기화
+            partnerSel.innerHTML = '';
+            allPartnerOptions.forEach(o => {
+                if (!keyword || o.text.toLowerCase().includes(keyword) || o.value === '') {
+                    const opt = document.createElement('option');
+                    opt.value = o.value;
+                    opt.innerHTML = o.text;
+                    // data 속성 복원
+                    const origOpt = new DOMParser().parseFromString(o.html, 'text/html').querySelector('option');
+                    if (origOpt) {
+                        for (const attr of origOpt.attributes) {
+                            if (attr.name.startsWith('data-')) {
+                                opt.setAttribute(attr.name, attr.value);
+                            }
+                        }
+                    }
+                    partnerSel.appendChild(opt);
+                }
+            });
+        });
+    }
+
     function updatePartnerPreview() {
         if (!partnerSel || !partnerPreview) return;
         const opt = partnerSel.selectedOptions[0];
         if (!opt || !opt.value) { partnerPreview.innerHTML = ''; return; }
         partnerPreview.innerHTML = `
             <div><strong>${opt.dataset.name || ''}</strong></div>
-            <div>사업자번호: ${opt.dataset.bnum || '-'}</div>
-            <div>대표자: ${opt.dataset.rep || '-'}</div>
+            <div>사업자번호: ${opt.dataset.bnum || '-'} &nbsp;|&nbsp; 대표자: ${opt.dataset.rep || '-'}</div>
             <div>주소: ${opt.dataset.addr || '-'}</div>
             <div>TEL: ${opt.dataset.tel || '-'} / FAX: ${opt.dataset.fax || '-'}</div>
-            <div>E-Mail: ${opt.dataset.email || '-'}</div>
         `;
     }
     if (partnerSel) {
@@ -220,7 +275,6 @@ document.addEventListener('DOMContentLoaded', function() {
             <td><input type="text" class="form-control form-control-sm item-name" placeholder="물품명" required></td>
             <td><input type="text" class="form-control form-control-sm item-unit" value="EA" placeholder="단위"></td>
             <td><input type="number" class="form-control form-control-sm item-qty" min="0" value="1" placeholder="수량"></td>
-            <td><input type="date" class="form-control form-control-sm item-date"></td>
             <td><input type="text" class="form-control form-control-sm item-note" placeholder="비고"></td>
             <td>
                 <button type="button" class="btn btn-sm btn-outline-danger btn-remove-item" title="삭제">
@@ -265,12 +319,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 product_name: tr.querySelector('.item-name').value.trim(),
                 unit:         tr.querySelector('.item-unit').value.trim(),
                 qty:          tr.querySelector('.item-qty').value.trim(),
-                request_date: tr.querySelector('.item-date').value.trim(),
                 note:         tr.querySelector('.item-note').value.trim(),
             });
         });
 
-        // 빈 물품명 체크
         const empty = items.filter(i => !i.product_name);
         if (empty.length > 0) {
             e.preventDefault();

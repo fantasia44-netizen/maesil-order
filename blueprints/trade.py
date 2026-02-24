@@ -592,10 +592,14 @@ def generate_purchase_order():
             flash('발주내역을 입력하세요.', 'danger')
             return redirect(url_for('trade.purchase_order'))
 
-        # 입고기한 + 주의사항
+        # 발주 정보
         delivery_note = request.form.get('delivery_note', '').strip()
         caution_text = request.form.get('caution_text', '').strip()
         order_date = request.form.get('order_date', datetime.now().strftime('%Y-%m-%d'))
+        request_date = request.form.get('request_date', '').strip()
+        order_manager = request.form.get('order_manager', '').strip()
+        invoice_manager = request.form.get('invoice_manager', '').strip()
+        manager_contact = request.form.get('manager_contact', '').strip()
 
         # PDF 생성
         from reports.purchase_order_report import generate_purchase_order_pdf
@@ -612,8 +616,12 @@ def generate_purchase_order():
             supplier=partner,
             items=items,
             order_date=order_date,
+            request_date=request_date,
             delivery_note=delivery_note,
             caution_text=caution_text,
+            order_manager=order_manager,
+            invoice_manager=invoice_manager,
+            manager_contact=manager_contact,
         )
 
         _log_action('generate_purchase_order',
