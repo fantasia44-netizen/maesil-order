@@ -257,7 +257,8 @@
             submitBtn.disabled = false; clearAllBtn.style.display = '';
         }
         document.getElementById('itemCountBadge').textContent = `${pendingItems.length}건`;
-        document.getElementById('submitCount').textContent = `${pendingItems.length}건`;
+        const sc = document.getElementById('submitCount');
+        if (sc) sc.textContent = `${pendingItems.length}건`;
     }
 
     window._removeItem = function(idx) { pendingItems.splice(idx, 1); renderTable(); };

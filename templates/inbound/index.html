@@ -82,7 +82,7 @@
                     </div>
                     <div class="col-sm-2">
                         <label class="form-label small mb-1">보관방법</label>
-                        <input type="text" id="storageInput" class="form-control form-control-sm" placeholder="냉동/냉장/상온">
+                        <input type="text" id="storageInput" class="form-control form-control-sm" placeholder="냉동/냉장/실온">
                     </div>
                     <div class="col-sm-2">
                         <label class="form-label small mb-1">제조일</label>
@@ -345,7 +345,7 @@
             submitBtn.disabled = false; clearAllBtn.style.display = '';
         }
         itemCountBadge.textContent = `${pendingItems.length}건`;
-        submitCount.textContent = `${pendingItems.length}건`;
+        if (submitCount) submitCount.textContent = `${pendingItems.length}건`;
     }
 
     window._removeItem = function(idx) { pendingItems.splice(idx, 1); renderTable(); };

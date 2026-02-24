@@ -57,17 +57,36 @@
                         </div>
                         <div class="col-sm-2">
                             <label class="form-label small mb-1">종류</label>
-                            <input type="text" id="prodCatInput" class="form-control form-control-sm" placeholder="제품">
+                            <select id="prodCatInput" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="완제품">완제품</option>
+                                <option value="반제품" selected>반제품</option>
+                                <option value="원료">원료</option>
+                                <option value="부자재">부자재</option>
+                            </select>
                         </div>
                         <div class="col-sm-2">
                             <label class="form-label small mb-1">단위</label>
-                            <input type="text" id="prodUnitInput" class="form-control form-control-sm" value="개">
+                            <select id="prodUnitInput" class="form-select form-select-sm">
+                                <option value="EA" selected>EA</option>
+                                <option value="개">개</option>
+                                <option value="kg">kg</option>
+                                <option value="g">g</option>
+                                <option value="팩">팩</option>
+                                <option value="봉">봉</option>
+                                <option value="box">box</option>
+                            </select>
                         </div>
                     </div>
                     <div class="row g-2 mt-1">
                         <div class="col-sm-2">
                             <label class="form-label small mb-1">보관방법</label>
-                            <input type="text" id="prodStorageInput" class="form-control form-control-sm" placeholder="냉동">
+                            <select id="prodStorageInput" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="냉동">냉동</option>
+                                <option value="냉장">냉장</option>
+                                <option value="실온">실온</option>
+                            </select>
                         </div>
                         <div class="col-sm-3">
                             <label class="form-label small mb-1">제조일</label>
@@ -400,7 +419,8 @@
 
         // 초기화
         prodNameInput.value = ''; prodQtyInput.value = '';
-        prodCatInput.value = ''; prodStorageInput.value = '';
+        prodCatInput.value = '반제품'; prodStorageInput.value = '';
+        prodUnitInput.value = 'EA';
         prodMfgInput.value = ''; prodExpInput.value = '';
         currentMaterials = []; renderMaterialRows();
         prodNameInput.focus();
@@ -442,7 +462,8 @@
             submitBtn.disabled = false; clearAllBtn.style.display = '';
         }
         document.getElementById('itemCountBadge').textContent = `${pendingItems.length}건`;
-        document.getElementById('submitCount').textContent = `${pendingItems.length}건`;
+        const sc = document.getElementById('submitCount');
+        if (sc) sc.textContent = `${pendingItems.length}건`;
     }
 
     window._removeProd = function(idx) { pendingItems.splice(idx, 1); renderTable(); };
