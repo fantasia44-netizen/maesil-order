@@ -104,6 +104,9 @@ def api_history():
                 'location': r.get('location', ''),
                 'category': r.get('category', ''),
                 'unit': r.get('unit', '개'),
+                'manufacture_date': r.get('manufacture_date', '') or '',
+                'expiry_date': r.get('expiry_date', '') or '',
+                'storage_method': r.get('storage_method', '') or '',
             })
         rows.sort(key=lambda x: (x['date'], x['type'], x['product_name']))
         return jsonify(rows)

@@ -113,8 +113,8 @@ class SupabaseDB(DBBase):
 
     def query_stock_by_location(self, location, select_fields=None):
         base_fields = ["product_name", "qty", "category", "expiry_date",
-                        "storage_method", "unit", "lot_number", "grade"]
-        opt_fields = ["origin", "manufacture_date"]
+                        "storage_method", "unit"]
+        opt_fields = ["origin", "manufacture_date", "lot_number", "grade"]
         if select_fields is None:
             sel = base_fields + [f for f in opt_fields if not self._db_cols or f in self._db_cols]
         else:

@@ -166,11 +166,11 @@
                 <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
-                            <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th><th>제조일</th><th>소비기한</th>
+                            <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th><th>보관</th><th>제조일</th><th>소비기한</th>
                                 {% if current_user.role == 'admin' %}<th style="width:70px;">관리</th>{% endif %}</tr>
                         </thead>
                         <tbody id="historyBody">
-                            <tr><td colspan="8" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -268,11 +268,20 @@
                         <label class="form-label small mb-1">단위</label>
                         <input type="text" id="editUnit" class="form-control form-control-sm">
                     </div>
-                    <div class="col-6 mb-2">
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">보관방법</label>
+                        <select id="editStorage" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            <option value="냉동">냉동</option>
+                            <option value="냉장">냉장</option>
+                            <option value="실온">실온</option>
+                        </select>
+                    </div>
+                    <div class="col-4 mb-2">
                         <label class="form-label small mb-1">제조일자</label>
                         <input type="date" id="editMfgDate" class="form-control form-control-sm">
                     </div>
-                    <div class="col-6 mb-2">
+                    <div class="col-4 mb-2">
                         <label class="form-label small mb-1">소비기한</label>
                         <input type="date" id="editExpDate" class="form-control form-control-sm">
                     </div>
@@ -345,8 +354,10 @@
         if (!this.value) return;
         try {
             const res = await fetch(`${STOCK_URL}?location=${encodeURIComponent(this.value)}`);
-            stockProducts = await res.json();
-        } catch (e) { console.error(e); }
+            const data = await res.json();
+            stockProducts = Array.isArray(data) ? data : [];
+            if (!res.ok) { console.error('재고 로드 실패:', data); stockProducts = []; }
+        } catch (e) { console.error('재고 API 오류:', e); stockProducts = []; }
     });
 
     // 생산품 자동완성
@@ -584,12 +595,12 @@
         const to = document.getElementById('histDateTo').value;
         if (!from || !to) { alert('기간을 선택하세요.'); return; }
         const tbody = document.getElementById('historyBody');
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center small py-2">조회 중...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center small py-2">조회 중...</td></tr>';
         try {
             const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
             const rows = await res.json();
             historyData = rows;
-            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const isProd = r.type === 'PRODUCTION';
@@ -600,6 +611,7 @@
                     <td class="small ${isProd?'fw-bold':''}">${isProd?'':'ㄴ '}${escapeHtml(r.product_name)}</td>
                     <td class="text-end small ${isProd?'text-success':'text-danger'}">${r.qty>0?'+':''}${r.qty}</td>
                     <td class="small">${escapeHtml(r.location)}</td>
+                    <td class="small">${r.storage_method || '-'}</td>
                     <td class="small">${r.manufacture_date || '-'}</td>
                     <td class="small">${r.expiry_date || '-'}</td>`;
                 if(isAdmin){
@@ -623,7 +635,7 @@
                 }
                 tbody.appendChild(tr);
             });
-        } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger small">${e.message}</td></tr>`; }
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger small">${e.message}</td></tr>`; }
     });
 
     // 개별 수정 (admin) — onclick 직접 바인딩
@@ -637,6 +649,7 @@
             document.getElementById('editLocation').value = row.location || '';
             document.getElementById('editCategory').value = row.category || '';
             document.getElementById('editUnit').value = row.unit || '';
+            document.getElementById('editStorage').value = row.storage_method || '';
             document.getElementById('editMfgDate').value = row.manufacture_date || '';
             document.getElementById('editExpDate').value = row.expiry_date || '';
             const modalEl = document.getElementById('editModal');
@@ -663,6 +676,7 @@
                 location: document.getElementById('editLocation').value.trim(),
                 category: document.getElementById('editCategory').value.trim(),
                 unit: document.getElementById('editUnit').value.trim(),
+                storage_method: document.getElementById('editStorage').value || '',
                 manufacture_date: document.getElementById('editMfgDate').value || '',
                 expiry_date: document.getElementById('editExpDate').value || '',
             };
