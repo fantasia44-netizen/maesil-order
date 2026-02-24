@@ -189,7 +189,7 @@
                                 <th>유형</th>
                                 <th class="text-end">수량</th>
                                 <th>위치</th>
-                                {% if current_user.role == 'admin' %}<th style="width:50px"></th>{% endif %}
+                                {% if current_user.role == 'admin' %}<th style="width:70px">관리</th>{% endif %}
                             </tr>
                         </thead>
                         <tbody id="histBody">
@@ -201,6 +201,54 @@
         </div>
     </div>
 </div>
+
+{% if current_user.role == 'admin' %}
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-pencil-square"></i> 소분 이력 수정</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="row g-2">
+                    <div class="col-8 mb-2">
+                        <label class="form-label small mb-1">품목명</label>
+                        <input type="text" id="editProductName" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">수량</label>
+                        <input type="number" id="editQty" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">위치</label>
+                        <input type="text" id="editLocation" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">종류</label>
+                        <input type="text" id="editCategory" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">단위</label>
+                        <input type="text" id="editUnit" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="form-text text-muted small mt-1">
+                    <i class="bi bi-info-circle"></i> 유형(산출/투입)은 변경할 수 없습니다.
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary btn-sm" id="editSaveBtn">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -481,6 +529,7 @@
     });
 
     // ── 이력 조회 ──
+    let historyData = [];
     document.getElementById('histSearchBtn').addEventListener('click', function(){
         const from = document.getElementById('histFrom').value;
         const to = document.getElementById('histTo').value;
@@ -492,12 +541,13 @@
         fetch(`/repack/api/history?date_from=${from}&date_to=${to}`)
             .then(r=>r.json())
             .then(data=>{
-                if(!Array.isArray(data) || !data.length){
+                historyData = Array.isArray(data) ? data : [];
+                if(!historyData.length){
                     tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">해당 기간의 소분 이력이 없습니다.</td></tr>';
                     return;
                 }
                 tbody.innerHTML = '';
-                data.forEach(r=>{
+                historyData.forEach(r=>{
                     const isIn = r.type === 'REPACK_IN';
                     const badge = isIn
                         ? '<span class="badge bg-success">산출</span>'
@@ -505,9 +555,11 @@
                     const qtyClass = isIn ? 'text-success' : 'text-danger';
                     const qtyDisplay = isIn ? '+'+Math.abs(r.qty).toLocaleString() : '-'+Math.abs(r.qty).toLocaleString();
 
-                    let delCol = '';
+                    let adminCol = '';
                     if(isAdmin){
-                        delCol = `<td><button class="btn btn-outline-danger btn-sm py-0 px-1 hist-del" data-id="${r.id}"><i class="bi bi-trash3"></i></button></td>`;
+                        adminCol = `<td class="text-nowrap">
+                            <button class="btn btn-outline-primary btn-sm py-0 px-1 hist-edit" data-id="${r.id}" title="수정"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-outline-danger btn-sm py-0 px-1 hist-del" data-id="${r.id}" title="삭제"><i class="bi bi-trash3"></i></button></td>`;
                     }
 
                     const tr = document.createElement('tr');
@@ -518,7 +570,7 @@
                         <td>${badge}</td>
                         <td class="text-end ${qtyClass}">${qtyDisplay}</td>
                         <td>${escapeHtml(r.location)}</td>
-                        ${delCol}`;
+                        ${adminCol}`;
                     tbody.appendChild(tr);
                 });
             })
@@ -527,26 +579,65 @@
             });
     });
 
-    // 개별 삭제 (admin)
+    // 개별 수정/삭제 (admin)
     document.getElementById('histBody').addEventListener('click', function(e){
-        const btn = e.target.closest('.hist-del');
-        if(!btn) return;
-        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
-        const id = btn.dataset.id;
-        fetch(`/repack/api/delete/${id}`, {
-            method: 'POST',
-            headers: {'X-CSRFToken': csrf}
-        })
-        .then(r=>r.json())
-        .then(data=>{
-            if(data.success){
-                btn.closest('tr').remove();
-            } else {
-                alert('삭제 실패: '+(data.error||''));
-            }
-        })
-        .catch(e=>alert('통신 오류: '+e));
+        const editBtn = e.target.closest('.hist-edit');
+        const delBtn = e.target.closest('.hist-del');
+        if(editBtn) {
+            const id = parseInt(editBtn.dataset.id);
+            const row = historyData.find(r => r.id === id);
+            if(!row) return;
+            document.getElementById('editId').value = id;
+            document.getElementById('editProductName').value = row.product_name || '';
+            document.getElementById('editQty').value = row.qty || '';
+            document.getElementById('editLocation').value = row.location || '';
+            document.getElementById('editCategory').value = row.category || '';
+            document.getElementById('editUnit').value = row.unit || '';
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        }
+        if(delBtn) {
+            if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+            const id = delBtn.dataset.id;
+            fetch(`/repack/api/delete/${id}`, {
+                method: 'POST',
+                headers: {'X-CSRFToken': csrf}
+            })
+            .then(r=>r.json())
+            .then(data=>{
+                if(data.success) delBtn.closest('tr').remove();
+                else alert('삭제 실패: '+(data.error||''));
+            })
+            .catch(e=>alert('통신 오류: '+e));
+        }
     });
+
+    // 수정 저장
+    if(isAdmin){
+        document.getElementById('editSaveBtn').addEventListener('click', async function(){
+            const id = document.getElementById('editId').value;
+            const payload = {
+                product_name: document.getElementById('editProductName').value.trim(),
+                qty: parseInt(document.getElementById('editQty').value) || 0,
+                location: document.getElementById('editLocation').value.trim(),
+                category: document.getElementById('editCategory').value.trim(),
+                unit: document.getElementById('editUnit').value.trim(),
+            };
+            if(!payload.product_name){ alert('품목명을 입력하세요.'); return; }
+            this.disabled = true;
+            try {
+                const res = await fetch(`/repack/api/update/${id}`, {
+                    method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if(data.success){
+                    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                    document.getElementById('histSearchBtn').click();
+                } else { alert('수정 실패: '+(data.error||'')); }
+            } catch(e){ alert('통신 오류: '+e); }
+            finally { this.disabled = false; }
+        });
+    }
 
 })();
 </script>

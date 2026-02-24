@@ -94,6 +94,34 @@ def api_delete(record_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ── API: 개별 수정 (admin 전용) ──
+
+@inbound_bp.route('/api/update/<int:record_id>', methods=['POST'])
+@role_required('admin')
+def api_update(record_id):
+    """개별 입고 이력 수정 (admin 전용)"""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': '수정 데이터가 없습니다.'}), 400
+    allowed = {'product_name', 'qty', 'location', 'category', 'unit',
+               'expiry_date', 'storage_method', 'manufacture_date', 'origin', 'lot_number'}
+    update_data = {k: v for k, v in data.items() if k in allowed}
+    if 'qty' in update_data:
+        try:
+            update_data['qty'] = int(float(update_data['qty']))
+            if update_data['qty'] <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({'error': '수량이 올바르지 않습니다.'}), 400
+    if not update_data:
+        return jsonify({'error': '수정할 항목이 없습니다.'}), 400
+    try:
+        current_app.db.update_stock_ledger(record_id, update_data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @inbound_bp.route('/batch', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production')
 def batch():

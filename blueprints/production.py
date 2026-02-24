@@ -126,6 +126,34 @@ def api_delete(record_id):
 
 # ── 시스템 입력 배치 생산 ──
 
+# ── API: 개별 수정 (admin 전용) ──
+
+@production_bp.route('/api/update/<int:record_id>', methods=['POST'])
+@role_required('admin')
+def api_update(record_id):
+    """개별 생산 이력 수정 (admin 전용)"""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': '수정 데이터가 없습니다.'}), 400
+    allowed = {'product_name', 'qty', 'location', 'category', 'unit',
+               'expiry_date', 'storage_method', 'manufacture_date'}
+    update_data = {k: v for k, v in data.items() if k in allowed}
+    if 'qty' in update_data:
+        try:
+            update_data['qty'] = int(float(update_data['qty']))
+        except (ValueError, TypeError):
+            return jsonify({'error': '수량이 올바르지 않습니다.'}), 400
+    if not update_data:
+        return jsonify({'error': '수정할 항목이 없습니다.'}), 400
+    try:
+        current_app.db.update_stock_ledger(record_id, update_data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── 시스템 입력 배치 생산 ──
+
 @production_bp.route('/batch', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production')
 def batch():
