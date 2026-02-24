@@ -217,11 +217,7 @@
                     <div class="col-auto">
                         <label class="form-label small fw-semibold">종류</label>
                         <select id="newMaterialType" class="form-select form-select-sm" style="width:75px;">
-                            <option value="원료">원료</option>
-                            <option value="부재료">부재료</option>
-                            <option value="반제품">반제품</option>
-                            <option value="완제품">완제품</option>
-                            <option value="포장재">포장재</option>
+                            <!-- 동적 생성: populateMaterialTypeFilter() -->
                         </select>
                     </div>
                     <div class="col-auto">
@@ -443,26 +439,26 @@
         });
     }
 
+    // ====== stock_ledger 기반 실제 종류 목록 ======
+    function getAvailableMaterialTypes() {
+        // categoryMap(stock_ledger.category)의 실제 값에서 수집 — 하드코딩 없음
+        const types = new Set();
+        Object.values(categoryMap).forEach(cat => { if (cat) types.add(cat); });
+        // costData에 있는 material_type도 포함
+        costData.forEach(c => { if (c.material_type) types.add(c.material_type); });
+        return [...types].sort();
+    }
+
     // ====== 종류(material_type) 필터 동적 생성 ======
     function populateMaterialTypeFilter() {
         const sel = document.getElementById('materialTypeFilter');
         const prevVal = sel.value;
-        // 기존 옵션 제거 (첫 번째 "전체 종류" 유지)
         while (sel.options.length > 1) sel.remove(1);
 
-        // 5가지 표준 종류는 항상 표시 + 데이터에서 추가 종류 수집
-        const types = new Set(['원료', '부재료', '반제품', '완제품', '포장재']);
-        costData.forEach(c => {
-            const mt = getMaterialType(c.product_name, c.material_type);
-            if (mt) types.add(mt);
-        });
-        allProducts.forEach(name => {
-            const mt = categoryMap[name] || categoryMap[name.replace(/\s/g, '')];
-            if (mt) types.add(mt);
-        });
+        const types = getAvailableMaterialTypes();
 
-        // 정렬 후 옵션 추가
-        [...types].sort().forEach(mt => {
+        // 옵션 추가
+        types.forEach(mt => {
             const opt = document.createElement('option');
             opt.value = mt;
             opt.textContent = mt;
@@ -473,6 +469,23 @@
         if (prevVal && [...sel.options].some(o => o.value === prevVal)) {
             sel.value = prevVal;
         }
+
+        // 신규 추가 폼의 종류 셀렉트도 동적 갱신
+        _populateSelect('newMaterialType', types);
+    }
+
+    // select 동적 옵션 갱신 헬퍼
+    function _populateSelect(selectId, options) {
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+        const prevVal = sel.value;
+        sel.innerHTML = '';
+        options.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v; opt.textContent = v;
+            sel.appendChild(opt);
+        });
+        if (prevVal && [...sel.options].some(o => o.value === prevVal)) sel.value = prevVal;
     }
 
     // ====== 품목의 종류(material_type) 조회 헬퍼 ======
@@ -688,11 +701,11 @@
 
             if (costEditMode) {
                 // ── 수정 모드 ──
-                // 종류 (material_type 드롭다운)
+                // 종류 (material_type 드롭다운 — stock_ledger 실제 카테고리 기반)
                 html += '<td><select class="form-select form-select-sm mt-select" '
                      + 'data-field="material_type" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)">';
-                ['원료','부재료','반제품','완제품','포장재'].forEach(t => {
+                getAvailableMaterialTypes().forEach(t => {
                     html += '<option value="' + t + '"' + (mt === t ? ' selected' : '') + '>' + t + '</option>';
                 });
                 html += '</select></td>';
@@ -833,7 +846,7 @@
 
     // ====== 종류별 배지 생성 헬퍼 ======
     function _mtBadge(mt) {
-        const colors = {'원료':'#3498db','부재료':'#27ae60','반제품':'#e67e22','완제품':'#9b59b6','포장재':'#95a5a6'};
+        const colors = {'원료':'#3498db','부자재':'#27ae60','반제품':'#e67e22','완제품':'#9b59b6'};
         const bg = colors[mt] || '#6c757d';
         return '<span class="badge" style="background:' + bg + ';font-size:0.7rem;">' + escapeHtml(mt) + '</span>';
     }
