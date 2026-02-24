@@ -79,13 +79,14 @@ def api_save_cost():
     weight = float(data.get('weight', 0) or 0)
     weight_unit = (data.get('weight_unit') or 'g').strip()
     cost_type = (data.get('cost_type') or '매입').strip()
-    material_type = (data.get('material_type') or '원료').strip()
 
     try:
-        # 수정 전 데이터 조회 (롤백용)
+        # 수정 전 데이터 조회 (롤백용 + material_type 보존)
         cost_map_raw = db.query_product_costs()
         old_data = cost_map_raw.get(product_name)
         old_value = None
+        # material_type: 프론트에서 안 보내면 기존값 유지 (자동 관리)
+        material_type = old_data.get('material_type', '원료') if old_data else '원료'
         if old_data:
             old_value = {
                 'cost_price': float(old_data.get('cost_price', 0)),
@@ -94,20 +95,19 @@ def api_save_cost():
                 'weight': float(old_data.get('weight', 0) or 0),
                 'weight_unit': old_data.get('weight_unit', 'g'),
                 'cost_type': old_data.get('cost_type', '매입'),
-                'material_type': old_data.get('material_type', '원료'),
             }
 
         new_value = {
             'cost_price': cost_price, 'unit': unit, 'memo': memo,
             'weight': weight, 'weight_unit': weight_unit,
-            'cost_type': cost_type, 'material_type': material_type,
+            'cost_type': cost_type,
         }
 
         db.upsert_product_cost(product_name, cost_price, unit, memo,
                                weight=weight, weight_unit=weight_unit,
                                cost_type=cost_type, material_type=material_type)
         _log_action('update_product_cost', target=product_name,
-                     detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 중량={weight}{weight_unit}',
+                     detail=f'유형={cost_type}, 단가={cost_price}, 중량={weight}{weight_unit}',
                      old_value=old_value, new_value=new_value)
         return jsonify({'success': True})
     except Exception as e:
@@ -124,10 +124,15 @@ def api_save_cost_batch():
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
     items = data['items']
+    # 기존 material_type 보존을 위해 현재 DB 조회
+    cost_map_raw = db.query_product_costs()
     valid_items = []
     for item in items:
         pn = (item.get('product_name') or '').strip()
         if pn:
+            # material_type: 기존 DB 값 유지 (UI에서 관리 안 함)
+            existing = cost_map_raw.get(pn)
+            mt = existing.get('material_type', '원료') if existing else '원료'
             valid_items.append({
                 'product_name': pn,
                 'cost_price': float(item.get('cost_price', 0)),
@@ -136,7 +141,7 @@ def api_save_cost_batch():
                 'weight': float(item.get('weight', 0) or 0),
                 'weight_unit': (item.get('weight_unit') or 'g').strip(),
                 'cost_type': (item.get('cost_type') or '매입').strip(),
-                'material_type': (item.get('material_type') or '원료').strip(),
+                'material_type': mt,
             })
 
     if not valid_items:
