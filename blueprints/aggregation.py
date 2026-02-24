@@ -264,7 +264,7 @@ def apply_results():
     try:
         from services.outbound_service import process_batch_outbound
 
-        # 수정입력 + 매출: 해당일 매출 데이터도 삭제
+        # 수정입력 + 매출: 해당일 집계 매출만 삭제 (거래처매출은 보존)
         if mode == '수정입력':
             revenue_files_exist = any(
                 os.path.basename(p).startswith('일일매출') for p in file_paths
@@ -272,9 +272,10 @@ def apply_results():
             if revenue_files_exist:
                 db = current_app.db
                 rev_deleted = db.delete_revenue_by_date(
-                    date_from=date_str, date_to=date_str)
+                    date_from=date_str, date_to=date_str,
+                    exclude_categories=['거래처매출'])
                 if rev_deleted:
-                    flash(f'기존 매출 {rev_deleted}건 삭제 후 재입력합니다.', 'info')
+                    flash(f'기존 집계매출 {rev_deleted}건 삭제 후 재입력합니다. (거래처매출 보존)', 'info')
 
         result = process_batch_outbound(
             current_app.db, file_paths, date_str,

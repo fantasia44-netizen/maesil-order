@@ -387,6 +387,7 @@ class Aggregator:
                     continue
 
                 cols = [str(c).strip() for c in df.columns]
+                cols_nfc = [_norm(c) for c in cols]  # NFC 정규화 매칭용
 
                 # 유연한 컬럼 탐색 (다양한 엑셀 양식 대응)
                 PROD_NAMES = ['품목명', '상품명', '제품명', '옵션명', '품명', '상품', '제품']
@@ -394,15 +395,16 @@ class Aggregator:
                              '출고량', '판매수량', 'Qty', 'QTY', '총수량']
                 WH_NAMES = ['warehouse', '출고지', '창고', '창고위치', '출고창고']
 
-                prod_col = next((c for c in cols if c in PROD_NAMES), None)
-                qty_col = next((c for c in cols if c in QTY_NAMES), None)
-                wh_col = next((c for c in cols if c in WH_NAMES), None)
+                # NFC 정규화 후 매칭 (한글 인코딩 차이 방지)
+                prod_col = next((cols[i] for i, c in enumerate(cols_nfc) if c in PROD_NAMES), None)
+                qty_col = next((cols[i] for i, c in enumerate(cols_nfc) if c in QTY_NAMES), None)
+                wh_col = next((cols[i] for i, c in enumerate(cols_nfc) if c in WH_NAMES), None)
 
                 # 부분매칭 시도 (정확 매칭 실패 시)
                 if not prod_col:
-                    prod_col = next((c for c in cols if any(k in c for k in ['품목', '상품', '제품', '품명'])), None)
+                    prod_col = next((cols[i] for i, c in enumerate(cols_nfc) if any(k in c for k in ['품목', '상품', '제품', '품명'])), None)
                 if not qty_col:
-                    qty_col = next((c for c in cols if any(k in c for k in ['수량', '합산', '합계', 'qty'])), None)
+                    qty_col = next((cols[i] for i, c in enumerate(cols_nfc) if any(k in c for k in ['수량', '합산', '합계', 'qty'])), None)
 
                 if not prod_col or not qty_col:
                     self.log(f"⚠️ {f_nm}: 품목명/수량 컬럼을 찾을 수 없어 스킵 (컬럼: {cols})")

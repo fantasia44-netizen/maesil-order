@@ -215,12 +215,15 @@ class SupabaseDB(DBBase):
         res = self.client.table("daily_revenue").delete().neq("id", 0).execute()
         return len(res.data) if res.data else 0
 
-    def delete_revenue_by_date(self, date_from=None, date_to=None):
+    def delete_revenue_by_date(self, date_from=None, date_to=None, exclude_categories=None):
         query = self.client.table("daily_revenue").delete()
         if date_from:
             query = query.gte("revenue_date", date_from)
         if date_to:
             query = query.lte("revenue_date", date_to)
+        if exclude_categories:
+            for cat in exclude_categories:
+                query = query.neq("category", cat)
         res = query.execute()
         return len(res.data) if res.data else 0
 
