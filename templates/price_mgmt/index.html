@@ -75,9 +75,14 @@
                 <option value="rocket">로켓만</option>
                 <option value="empty">미등록 있음</option>
             </select>
-            <button class="btn btn-sm btn-success" onclick="saveAllPrices()" id="btnSaveAll">
+            {% if current_user.role in ('admin', 'manager', 'sales') %}
+            <button class="btn btn-sm btn-outline-primary" onclick="toggleEditMode()" id="btnEditToggle">
+                <i class="bi bi-pencil"></i> 수정 모드
+            </button>
+            <button class="btn btn-sm btn-success d-none" onclick="saveAllPrices()" id="btnSaveAll">
                 <i class="bi bi-save"></i> 변경 일괄 저장
             </button>
+            {% endif %}
         </div>
     </div>
     <div class="card-body p-0">
@@ -108,7 +113,7 @@
     </div>
     <div class="card-footer d-flex justify-content-between align-items-center">
         <small class="text-muted" id="filterInfo">전체 0건</small>
-        <small class="text-muted">가격표를 수정하려면 값을 변경 후 <strong>저장</strong> 버튼을 클릭하세요</small>
+        <small class="text-muted" id="footerHint">수정하려면 <strong>수정 모드</strong> 버튼을 클릭하세요</small>
     </div>
 </div>
 
@@ -121,6 +126,7 @@
     const canEdit = {{ 'true' if current_user.role in ('admin', 'manager', 'sales') else 'false' }};
     let priceData = [];
     let modifiedPrices = {};
+    let editMode = false;
 
     // ====== 데이터 로드 ======
     async function loadData() {
@@ -187,7 +193,8 @@
             html += '<td>' + escapeHtml(item.product_name) + '</td>';
             html += '<td><span class="text-muted small">' + escapeHtml(item.sku || '-') + '</span></td>';
 
-            if (canEdit) {
+            if (canEdit && editMode) {
+                // ── 수정 모드 ──
                 html += '<td class="text-end"><input type="number" class="form-control form-control-sm price-input" '
                      + 'value="' + item.naver_price + '" min="0" '
                      + 'data-id="' + item.id + '" data-field="naver_price" '
@@ -204,6 +211,7 @@
                      + 'onclick="window._saveSingle(' + item.id + ')" title="저장">'
                      + '<i class="bi bi-check-lg"></i></button></td>';
             } else {
+                // ── 보기 모드 ──
                 html += '<td class="text-end ' + (item.naver_price > 0 ? 'price-active' : 'price-zero') + '">'
                      + formatPrice(item.naver_price) + '</td>';
                 html += '<td class="text-end ' + (item.coupang_price > 0 ? 'price-active' : 'price-zero') + '">'
@@ -303,6 +311,8 @@
             const json = await res.json();
             if (json.success) {
                 modifiedPrices = {};
+                editMode = false;
+                _updateEditUI();
                 alert(json.count + '건 저장 완료');
                 loadData();
             } else alert('일괄 저장 실패: ' + (json.error || ''));
@@ -323,6 +333,30 @@
         if (!n || n === 0) return '-';
         return Number(n).toLocaleString('ko-KR');
     }
+
+    // ====== 보기/수정 모드 토글 ======
+    function _updateEditUI() {
+        const btn = document.getElementById('btnEditToggle');
+        const saveBtn = document.getElementById('btnSaveAll');
+        const hint = document.getElementById('footerHint');
+        if (!btn) return; // canEdit가 아닌 경우
+        if (editMode) {
+            btn.className = 'btn btn-sm btn-warning';
+            btn.innerHTML = '<i class="bi bi-eye"></i> 보기 모드';
+            if (saveBtn) saveBtn.classList.remove('d-none');
+            if (hint) hint.innerHTML = '값을 변경 후 <strong>일괄 저장</strong> 또는 행별 <strong>✓</strong> 버튼을 클릭하세요';
+        } else {
+            btn.className = 'btn btn-sm btn-outline-primary';
+            btn.innerHTML = '<i class="bi bi-pencil"></i> 수정 모드';
+            if (saveBtn) saveBtn.classList.add('d-none');
+            if (hint) hint.innerHTML = '수정하려면 <strong>수정 모드</strong> 버튼을 클릭하세요';
+        }
+    }
+    window.toggleEditMode = function() {
+        editMode = !editMode;
+        _updateEditUI();
+        renderTable();
+    };
 
     // ====== 이벤트 바인딩 ======
     document.getElementById('searchInput').addEventListener('input', renderTable);
