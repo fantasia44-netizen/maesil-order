@@ -477,15 +477,30 @@
             if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
             rows.forEach(r => {
-                let adminCol = '';
-                if(isAdmin){ adminCol = `<td class="text-nowrap">
-                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="window._editHist('${r.id}')" title="수정"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="window._deleteHist('${r.id}')" title="삭제"><i class="bi bi-trash3"></i></button></td>`; }
                 const tr = document.createElement('tr');
                 tr.innerHTML = `<td class="small">${r.date}</td><td class="small">${escapeHtml(r.product_name)}</td>
                     <td class="text-end small">${r.qty}</td><td class="small">${escapeHtml(r.location)}</td>
                     <td class="small">${escapeHtml(r.category)}</td><td class="small">${r.unit}</td>
-                    <td class="small">${r.expiry_date || ''}</td>${adminCol}`;
+                    <td class="small">${r.expiry_date || ''}</td>`;
+                if(isAdmin){
+                    const td = document.createElement('td');
+                    td.className = 'text-nowrap';
+                    const eBtn = document.createElement('button');
+                    eBtn.type = 'button';
+                    eBtn.className = 'btn btn-outline-primary btn-sm py-0 px-1';
+                    eBtn.title = '수정';
+                    eBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+                    eBtn.addEventListener('click', function(e) { e.stopPropagation(); window._editHist(String(r.id)); });
+                    const dBtn = document.createElement('button');
+                    dBtn.type = 'button';
+                    dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
+                    dBtn.title = '삭제';
+                    dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+                    dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
+                    td.appendChild(eBtn);
+                    td.appendChild(dBtn);
+                    tr.appendChild(td);
+                }
                 tbody.appendChild(tr);
             });
         } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger small">${e.message}</td></tr>`; }

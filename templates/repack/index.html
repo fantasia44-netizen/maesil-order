@@ -555,13 +555,6 @@
                     const qtyClass = isIn ? 'text-success' : 'text-danger';
                     const qtyDisplay = isIn ? '+'+Math.abs(r.qty).toLocaleString() : '-'+Math.abs(r.qty).toLocaleString();
 
-                    let adminCol = '';
-                    if(isAdmin){
-                        adminCol = `<td class="text-nowrap">
-                            <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="window._editHist('${r.id}')" title="수정"><i class="bi bi-pencil"></i></button>
-                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="window._deleteHist('${r.id}')" title="삭제"><i class="bi bi-trash3"></i></button></td>`;
-                    }
-
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
                         <td>${escapeHtml(r.date)}</td>
@@ -569,8 +562,26 @@
                         <td>${escapeHtml(r.product_name)}</td>
                         <td>${badge}</td>
                         <td class="text-end ${qtyClass}">${qtyDisplay}</td>
-                        <td>${escapeHtml(r.location)}</td>
-                        ${adminCol}`;
+                        <td>${escapeHtml(r.location)}</td>`;
+                    if(isAdmin){
+                        const td = document.createElement('td');
+                        td.className = 'text-nowrap';
+                        const eBtn = document.createElement('button');
+                        eBtn.type = 'button';
+                        eBtn.className = 'btn btn-outline-primary btn-sm py-0 px-1';
+                        eBtn.title = '수정';
+                        eBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+                        eBtn.addEventListener('click', function(e) { e.stopPropagation(); window._editHist(String(r.id)); });
+                        const dBtn = document.createElement('button');
+                        dBtn.type = 'button';
+                        dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
+                        dBtn.title = '삭제';
+                        dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+                        dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
+                        td.appendChild(eBtn);
+                        td.appendChild(dBtn);
+                        tr.appendChild(td);
+                    }
                     tbody.appendChild(tr);
                 });
             })
