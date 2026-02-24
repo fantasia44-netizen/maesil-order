@@ -37,18 +37,26 @@ def process_adjustment_batch(db, date_str, items):
         location = normalize_location(item.get('location', ''))
         qty = int(float(item.get('qty', 0)))
         memo = str(item.get('memo', '')).strip()
+        storage_method = str(item.get('storage_method', '')).strip()
+        unit = str(item.get('unit', '')).strip()
 
         if not name or qty == 0 or not location or not memo:
             continue
 
-        payload.append({
+        row = {
             "transaction_date": date_str,
             "type": "ADJUST",
             "product_name": name,
             "qty": qty,
             "location": location,
             "memo": memo,
-        })
+        }
+        if storage_method:
+            row["storage_method"] = storage_method
+        if unit:
+            row["unit"] = unit
+
+        payload.append(row)
 
         if qty > 0:
             increase_count += 1

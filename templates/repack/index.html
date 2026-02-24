@@ -593,7 +593,7 @@
             document.getElementById('editLocation').value = row.location || '';
             document.getElementById('editCategory').value = row.category || '';
             document.getElementById('editUnit').value = row.unit || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
         }
         if(delBtn) {
             if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;

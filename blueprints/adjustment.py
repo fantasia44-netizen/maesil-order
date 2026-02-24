@@ -72,6 +72,8 @@ def api_history():
                 'product_name': r.get('product_name', ''),
                 'qty': r.get('qty', 0),
                 'location': r.get('location', ''),
+                'storage_method': r.get('storage_method', ''),
+                'unit': r.get('unit', ''),
                 'memo': r.get('memo', ''),
             })
         rows.sort(key=lambda x: (x['date'], x['product_name']))
@@ -102,7 +104,7 @@ def api_update(record_id):
     data = request.get_json(silent=True)
     if not data:
         return jsonify({'error': '수정 데이터가 없습니다.'}), 400
-    allowed = {'product_name', 'qty', 'location', 'memo'}
+    allowed = {'product_name', 'qty', 'location', 'memo', 'storage_method', 'unit'}
     update_data = {k: v for k, v in data.items() if k in allowed}
     if 'qty' in update_data:
         try:

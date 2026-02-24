@@ -183,54 +183,6 @@
         </div>
     </div>
 
-{% if current_user.role == 'admin' %}
-<!-- 수정 모달 -->
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h6 class="modal-title"><i class="bi bi-pencil-square"></i> 생산 이력 수정</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="editId">
-                <div class="row g-2">
-                    <div class="col-8 mb-2">
-                        <label class="form-label small mb-1">품목명</label>
-                        <input type="text" id="editProductName" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">수량</label>
-                        <input type="number" id="editQty" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">위치</label>
-                        <input type="text" id="editLocation" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">종류</label>
-                        <input type="text" id="editCategory" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">단위</label>
-                        <input type="text" id="editUnit" class="form-control form-control-sm">
-                    </div>
-                </div>
-                <div class="form-text text-muted small mt-1">
-                    <i class="bi bi-info-circle"></i> 유형(생산/투입)은 변경할 수 없습니다.
-                </div>
-            </div>
-            <div class="modal-footer py-2">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
-                <button type="button" class="btn btn-primary btn-sm" id="editSaveBtn">
-                    <i class="bi bi-check-lg"></i> 저장
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
-
     <!-- 엑셀 + PDF -->
     <div class="col-lg-4">
         <div class="card">
@@ -288,6 +240,54 @@
         </div>
     </div>
 </div>
+
+{% if current_user.role == 'admin' %}
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-pencil-square"></i> 생산 이력 수정</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="row g-2">
+                    <div class="col-8 mb-2">
+                        <label class="form-label small mb-1">품목명</label>
+                        <input type="text" id="editProductName" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">수량</label>
+                        <input type="number" id="editQty" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">위치</label>
+                        <input type="text" id="editLocation" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">종류</label>
+                        <input type="text" id="editCategory" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">단위</label>
+                        <input type="text" id="editUnit" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="form-text text-muted small mt-1">
+                    <i class="bi bi-info-circle"></i> 유형(생산/투입)은 변경할 수 없습니다.
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary btn-sm" id="editSaveBtn">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -608,7 +608,7 @@
             document.getElementById('editLocation').value = row.location || '';
             document.getElementById('editCategory').value = row.category || '';
             document.getElementById('editUnit').value = row.unit || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
         }
         if(delBtn) {
             if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;

@@ -19,7 +19,7 @@
 
                 <hr class="my-2">
 
-                <div class="row g-2 align-items-end mb-2">
+                <div class="row g-2 align-items-end mb-1">
                     <div class="col-sm-3">
                         <label class="form-label small mb-1">창고위치</label>
                         <select id="locationSelect" class="form-select form-select-sm">
@@ -53,6 +53,21 @@
                         </button>
                     </div>
                 </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">보관방법</label>
+                        <select id="storageInput" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            <option value="냉동">냉동</option>
+                            <option value="냉장">냉장</option>
+                            <option value="실온">실온</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small mb-1">단위</label>
+                        <input type="text" id="unitInput" class="form-control form-control-sm" value="개" placeholder="개">
+                    </div>
+                </div>
 
                 <!-- 대기 목록 -->
                 <div class="table-responsive mt-2" style="max-height:300px; overflow-y:auto;">
@@ -63,12 +78,14 @@
                                 <th>품목명</th>
                                 <th style="width:70px;">위치</th>
                                 <th style="width:80px;">수량</th>
+                                <th style="width:50px;">보관</th>
+                                <th style="width:40px;">단위</th>
                                 <th>사유</th>
                                 <th style="width:35px;"></th>
                             </tr>
                         </thead>
                         <tbody id="pendingBody">
-                            <tr><td colspan="6" class="text-center text-muted py-3">
+                            <tr><td colspan="8" class="text-center text-muted py-3">
                                 <i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>
                         </tbody>
                     </table>
@@ -108,58 +125,17 @@
                 <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
-                            <tr><th>일자</th><th>품목명</th><th>위치</th><th>수량</th><th>사유</th>
+                            <tr><th>일자</th><th>품목명</th><th>위치</th><th>수량</th><th>보관</th><th>단위</th><th>사유</th>
                                 {% if current_user.role == 'admin' %}<th style="width:70px;">관리</th>{% endif %}</tr>
                         </thead>
                         <tbody id="historyBody">
-                            <tr><td colspan="6" class="text-center text-muted small py-2">기간을 선택하고 조회하세요</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted small py-2">기간을 선택하고 조회하세요</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
-
-{% if current_user.role == 'admin' %}
-<!-- 수정 모달 -->
-<div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h6 class="modal-title"><i class="bi bi-pencil-square"></i> 조정 이력 수정</h6>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="editId">
-                <div class="row g-2">
-                    <div class="col-8 mb-2">
-                        <label class="form-label small mb-1">품목명</label>
-                        <input type="text" id="editProductName" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">수량 (+/-)</label>
-                        <input type="number" id="editQty" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-4 mb-2">
-                        <label class="form-label small mb-1">위치</label>
-                        <input type="text" id="editLocation" class="form-control form-control-sm">
-                    </div>
-                    <div class="col-8 mb-2">
-                        <label class="form-label small mb-1">사유</label>
-                        <input type="text" id="editMemo" class="form-control form-control-sm">
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer py-2">
-                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
-                <button type="button" class="btn btn-primary btn-sm" id="editSaveBtn">
-                    <i class="bi bi-check-lg"></i> 저장
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 
     <!-- 안내 -->
     <div class="col-lg-5">
@@ -186,6 +162,55 @@
         </div>
     </div>
 </div>
+
+{% if current_user.role == 'admin' %}
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-pencil-square"></i> 조정 이력 수정</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="row g-2">
+                    <div class="col-8 mb-2">
+                        <label class="form-label small mb-1">품목명</label>
+                        <input type="text" id="editProductName" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">수량 (+/-)</label>
+                        <input type="number" id="editQty" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">위치</label>
+                        <input type="text" id="editLocation" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">보관방법</label>
+                        <input type="text" id="editStorage" class="form-control form-control-sm" placeholder="냉동/냉장/실온">
+                    </div>
+                    <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">단위</label>
+                        <input type="text" id="editUnit" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12 mb-2">
+                        <label class="form-label small mb-1">사유</label>
+                        <input type="text" id="editMemo" class="form-control form-control-sm">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary btn-sm" id="editSaveBtn">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -201,6 +226,8 @@
     const productInput = document.getElementById('productInput');
     const qtyInput = document.getElementById('qtyInput');
     const memoInput = document.getElementById('memoInput');
+    const storageInput = document.getElementById('storageInput');
+    const unitInput = document.getElementById('unitInput');
     const acList = document.getElementById('acList');
     const stockInfo = document.getElementById('stockInfo');
     const addBtn = document.getElementById('addItemBtn');
@@ -268,8 +295,13 @@
         if (!qty || qty === 0) { alert('수량을 입력하세요 (양수 또는 음수).'); return; }
         if (!memo) { alert('사유를 입력하세요.'); memoInput.focus(); return; }
 
-        pendingItems.push({ product_name: name, location: loc, qty: qty, memo: memo });
+        pendingItems.push({
+            product_name: name, location: loc, qty: qty, memo: memo,
+            storage_method: storageInput.value.trim(),
+            unit: unitInput.value.trim() || '개',
+        });
         productInput.value = ''; qtyInput.value = ''; memoInput.value = '';
+        storageInput.value = '';
         stockInfo.textContent = ''; selectedProduct = null;
         productInput.focus();
         renderTable();
@@ -278,7 +310,7 @@
     function renderTable() {
         pendingBody.innerHTML = '';
         if (!pendingItems.length) {
-            pendingBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>';
+            pendingBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>';
             submitBtn.disabled = true; clearAllBtn.style.display = 'none';
         } else {
             pendingItems.forEach((item, idx) => {
@@ -290,6 +322,8 @@
                     <td class="small">${escapeHtml(item.location)}</td>
                     <td class="text-end small fw-bold ${isPlus ? 'text-success' : 'text-danger'}">
                         ${isPlus ? '+' : ''}${item.qty.toLocaleString()}</td>
+                    <td class="small">${escapeHtml(item.storage_method || '')}</td>
+                    <td class="small">${escapeHtml(item.unit || '')}</td>
                     <td class="small">${escapeHtml(item.memo)}</td>
                     <td class="text-center"><button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"
                         onclick="window._removeItem(${idx})"><i class="bi bi-x"></i></button></td>`;
@@ -342,12 +376,12 @@
         const to = document.getElementById('histDateTo').value;
         if (!from || !to) { alert('기간을 선택하세요.'); return; }
         const tbody = document.getElementById('historyBody');
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center small py-2">조회 중...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center small py-2">조회 중...</td></tr>';
         try {
             const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
             const rows = await res.json();
             historyData = rows;
-            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const isPlus = r.qty > 0;
@@ -359,10 +393,12 @@
                 tr.innerHTML = `<td class="small">${r.date}</td><td class="small">${escapeHtml(r.product_name)}</td>
                     <td class="small">${escapeHtml(r.location)}</td>
                     <td class="text-end small fw-bold ${isPlus?'text-success':'text-danger'}">${isPlus?'+':''}${r.qty}</td>
+                    <td class="small">${escapeHtml(r.storage_method || '')}</td>
+                    <td class="small">${escapeHtml(r.unit || '')}</td>
                     <td class="small">${escapeHtml(r.memo)}</td>${adminCol}`;
                 tbody.appendChild(tr);
             });
-        } catch (e) { tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger small">${e.message}</td></tr>`; }
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger small">${e.message}</td></tr>`; }
     });
 
     // 개별 수정/삭제 (admin)
@@ -377,8 +413,10 @@
             document.getElementById('editProductName').value = row.product_name || '';
             document.getElementById('editQty').value = row.qty || '';
             document.getElementById('editLocation').value = row.location || '';
+            document.getElementById('editStorage').value = row.storage_method || '';
+            document.getElementById('editUnit').value = row.unit || '';
             document.getElementById('editMemo').value = row.memo || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
         }
         if(delBtn) {
             if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
@@ -398,6 +436,8 @@
                 product_name: document.getElementById('editProductName').value.trim(),
                 qty: parseInt(document.getElementById('editQty').value) || 0,
                 location: document.getElementById('editLocation').value.trim(),
+                storage_method: document.getElementById('editStorage').value.trim(),
+                unit: document.getElementById('editUnit').value.trim(),
                 memo: document.getElementById('editMemo').value.trim(),
             };
             if(!payload.product_name){ alert('품목명을 입력하세요.'); return; }
