@@ -97,7 +97,9 @@
                 <!-- 재료 입력 -->
                 <div class="border rounded p-2 mb-2" style="overflow:visible;">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="mb-0"><i class="bi bi-layers"></i> 투입 재료</h6>
+                        <h6 class="mb-0"><i class="bi bi-layers"></i> 투입 재료
+                            <small id="stockStatus" class="text-muted ms-2" style="font-weight:normal;"></small>
+                        </h6>
                         <div>
                             <button type="button" class="btn btn-outline-info btn-sm" id="addMaterialBtn">
                                 <i class="bi bi-plus"></i> 재료 추가
@@ -349,15 +351,27 @@
     loadProducts();
 
     // 위치 변경 → 재고 품목 로드 (재료 자동완성)
+    const stockStatus = document.getElementById('stockStatus');
     locSelect.addEventListener('change', async function() {
         stockProducts = [];
-        if (!this.value) return;
+        if (!this.value) { stockStatus.innerHTML = '<span class="text-warning">⚠ 위치를 선택하세요</span>'; return; }
+        stockStatus.innerHTML = '<span class="text-info">로딩...</span>';
         try {
             const res = await fetch(`${STOCK_URL}?location=${encodeURIComponent(this.value)}`);
             const data = await res.json();
+            if (!res.ok) {
+                stockStatus.innerHTML = `<span class="text-danger">오류: ${data.error || res.status}</span>`;
+                stockProducts = []; return;
+            }
             stockProducts = Array.isArray(data) ? data : [];
-            if (!res.ok) { console.error('재고 로드 실패:', data); stockProducts = []; }
-        } catch (e) { console.error('재고 API 오류:', e); stockProducts = []; }
+            stockStatus.innerHTML = stockProducts.length
+                ? `<span class="text-success">✔ ${this.value} 재고 ${stockProducts.length}건</span>`
+                : `<span class="text-warning">⚠ ${this.value} 재고 0건</span>`;
+        } catch (e) {
+            console.error('재고 API 오류:', e);
+            stockStatus.innerHTML = `<span class="text-danger">API 오류: ${e.message}</span>`;
+            stockProducts = [];
+        }
     });
 
     // 생산품 자동완성
@@ -394,14 +408,14 @@
         currentMaterials.forEach((mat, idx) => {
             const div = document.createElement('div');
             div.className = 'row g-1 align-items-center mb-1';
-            div.style.position = 'relative';
+            div.style.cssText = 'position:relative; overflow:visible;';
             div.innerHTML = `
-                <div class="col-sm-4">
-                    <div class="position-relative">
+                <div class="col-sm-4" style="overflow:visible;">
+                    <div style="position:relative; overflow:visible;">
                         <input type="text" class="form-control form-control-sm mat-name" data-idx="${idx}"
                                value="${escapeHtml(mat.product_name)}" placeholder="원료명 검색" autocomplete="off">
-                        <div class="mat-ac-list list-group position-absolute"
-                             style="z-index:1050; max-height:180px; overflow-y:auto; display:none; width:300px; left:0;"></div>
+                        <div class="mat-ac-list list-group"
+                             style="position:absolute; z-index:9999; top:100%; left:0; max-height:200px; overflow-y:auto; display:none; width:320px; background:#fff; border:1px solid #ccc; box-shadow:0 4px 8px rgba(0,0,0,.15);"></div>
                     </div>
                 </div>
                 <div class="col-sm-2">

@@ -58,6 +58,9 @@
                         <th>단위</th>
                         <th>위치</th>
                         <th>카테고리</th>
+                        <th>보관</th>
+                        <th>제조일</th>
+                        <th>소비기한</th>
                         <th style="width:120px">관리</th>
                     </tr>
                 </thead>
@@ -89,6 +92,9 @@
                         <td>{{ rec.unit|default('-') }}</td>
                         <td>{{ rec.location|default('-') }}</td>
                         <td>{{ rec.category|default('-') }}</td>
+                        <td>{{ rec.storage_method|default('-') }}</td>
+                        <td>{{ rec.manufacture_date|default('-') }}</td>
+                        <td>{{ rec.expiry_date|default('-') }}</td>
                         <td>
                             <button type="button" class="btn btn-sm btn-outline-primary" title="수정"
                                     onclick='openEditModal({{ rec|tojson }})'>
@@ -105,7 +111,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="9" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
+                        <td colspan="12" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -157,6 +163,23 @@
                         <label class="form-label fw-semibold">카테고리</label>
                         <input type="text" name="category" id="edit_category" class="form-control">
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">보관방법</label>
+                        <select name="storage_method" id="edit_storage_method" class="form-select">
+                            <option value="">선택</option>
+                            <option value="냉동">냉동</option>
+                            <option value="냉장">냉장</option>
+                            <option value="실온">실온</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">제조일자</label>
+                        <input type="date" name="manufacture_date" id="edit_manufacture_date" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">소비기한</label>
+                        <input type="date" name="expiry_date" id="edit_expiry_date" class="form-control">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
@@ -181,6 +204,9 @@ function openEditModal(rec) {
         document.getElementById('edit_unit').value = rec.unit || '';
         document.getElementById('edit_location').value = rec.location || '';
         document.getElementById('edit_category').value = rec.category || '';
+        document.getElementById('edit_storage_method').value = rec.storage_method || '';
+        document.getElementById('edit_manufacture_date').value = rec.manufacture_date || '';
+        document.getElementById('edit_expiry_date').value = rec.expiry_date || '';
         bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
     } catch(err) {
         alert('수정 모달 오류: ' + err.message);
