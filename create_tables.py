@@ -124,6 +124,27 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS deleted_by TEXT;
+
+-- 12) purchase_orders (발주서 이력)
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id               BIGSERIAL PRIMARY KEY,
+    order_date       DATE NOT NULL,
+    partner_id       INTEGER,
+    partner_name     TEXT NOT NULL,
+    my_biz_name      TEXT,
+    request_date     DATE,
+    delivery_note    TEXT,
+    order_manager    TEXT,
+    invoice_manager  TEXT,
+    manager_contact  TEXT,
+    caution_text     TEXT,
+    items            JSONB NOT NULL DEFAULT '[]',
+    item_count       INTEGER DEFAULT 0,
+    registered_by    TEXT,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_date ON purchase_orders(order_date);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_partner ON purchase_orders(partner_name);
 """
 
 print("=" * 60)

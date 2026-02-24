@@ -481,6 +481,34 @@ class SupabaseDB(DBBase):
                .execute())
         return len(res.data) if res.data else 0
 
+    # --- 발주서 이력 ---
+
+    def insert_purchase_order(self, payload):
+        """발주서 1건 저장."""
+        self.client.table("purchase_orders").insert(payload).execute()
+
+    def query_purchase_orders(self, date_from=None, date_to=None, partner_name=None):
+        """발주서 이력 조회 (날짜/거래처 필터)."""
+        def builder(table):
+            q = self.client.table(table).select("*").order("order_date", desc=True)
+            if date_from:
+                q = q.gte("order_date", date_from)
+            if date_to:
+                q = q.lte("order_date", date_to)
+            if partner_name and partner_name != "전체":
+                q = q.eq("partner_name", partner_name)
+            return q
+        return self._paginate_query("purchase_orders", builder)
+
+    def query_purchase_order_by_id(self, po_id):
+        """발주서 1건 조회 (ID 기준)."""
+        res = self.client.table("purchase_orders").select("*").eq("id", po_id).execute()
+        return res.data[0] if res.data else None
+
+    def delete_purchase_order(self, po_id):
+        """발주서 1건 삭제."""
+        self.client.table("purchase_orders").delete().eq("id", po_id).execute()
+
     # --- 품목명 공백 정리 ---
 
     def fix_product_name_spaces(self):

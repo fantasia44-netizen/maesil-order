@@ -538,10 +538,16 @@ def invoice_batch():
 @trade_bp.route('/purchase-order')
 @role_required('admin', 'manager', 'sales', 'general')
 def purchase_order():
-    """발주서 작성 페이지"""
+    """발주서 작성 + 이력 조회 페이지"""
     db = current_app.db
     partners = []
     my_biz_list = []
+    po_list = []
+
+    # 검색 파라미터
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    partner_filter = request.args.get('partner_filter', '전체')
 
     try:
         partners = db.query_partners()
@@ -553,9 +559,23 @@ def purchase_order():
     except Exception as e:
         flash(f'사업장 조회 중 오류: {e}', 'danger')
 
+    # 발주서 이력 조회
+    try:
+        po_list = db.query_purchase_orders(
+            date_from=date_from or None,
+            date_to=date_to or None,
+            partner_name=partner_filter if partner_filter != '전체' else None,
+        )
+    except Exception as e:
+        flash(f'발주서 이력 조회 중 오류: {e}', 'danger')
+
     return render_template('trade/purchase_order.html',
                            partners=partners,
-                           my_businesses=my_biz_list)
+                           my_businesses=my_biz_list,
+                           po_list=po_list,
+                           date_from=date_from,
+                           date_to=date_to,
+                           partner_filter=partner_filter)
 
 
 @trade_bp.route('/purchase-order/generate', methods=['POST'])
@@ -624,6 +644,27 @@ def generate_purchase_order():
             manager_contact=manager_contact,
         )
 
+        # DB에 발주서 이력 저장
+        try:
+            po_payload = {
+                'order_date': order_date,
+                'partner_id': int(partner_id) if partner_id else None,
+                'partner_name': partner.get('partner_name', ''),
+                'my_biz_name': my_biz.get('business_name', ''),
+                'request_date': request_date or None,
+                'delivery_note': delivery_note or None,
+                'order_manager': order_manager or None,
+                'invoice_manager': invoice_manager or None,
+                'manager_contact': manager_contact or None,
+                'caution_text': caution_text or None,
+                'items': items,
+                'item_count': len(items),
+                'registered_by': current_user.username,
+            }
+            db.insert_purchase_order(po_payload)
+        except Exception as save_err:
+            current_app.logger.warning(f'발주서 이력 저장 실패: {save_err}')
+
         _log_action('generate_purchase_order',
                      target=supplier_name,
                      detail=f'{len(items)}건 품목, 발주일={order_date}')
@@ -636,4 +677,93 @@ def generate_purchase_order():
         )
     except Exception as e:
         flash(f'발주서 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('trade.purchase_order'))
+
+
+@trade_bp.route('/purchase-order/delete/<int:po_id>', methods=['POST'])
+@role_required('admin', 'manager', 'sales', 'general')
+def delete_purchase_order(po_id):
+    """발주서 이력 삭제"""
+    try:
+        current_app.db.delete_purchase_order(po_id)
+        _log_action('delete_purchase_order', target=str(po_id))
+        flash('발주서 이력이 삭제되었습니다.', 'success')
+    except Exception as e:
+        flash(f'발주서 삭제 중 오류: {e}', 'danger')
+    return redirect(url_for('trade.purchase_order'))
+
+
+@trade_bp.route('/purchase-order/redownload/<int:po_id>')
+@role_required('admin', 'manager', 'sales', 'general')
+def redownload_purchase_order(po_id):
+    """발주서 PDF 재다운로드 (저장된 이력으로 PDF 재생성)"""
+    db = current_app.db
+
+    try:
+        po = db.query_purchase_order_by_id(po_id)
+        if not po:
+            flash('해당 발주서를 찾을 수 없습니다.', 'warning')
+            return redirect(url_for('trade.purchase_order'))
+
+        # 거래처 정보 조회
+        partner = {}
+        if po.get('partner_id'):
+            partners = db.query_partners()
+            partner = next(
+                (p for p in partners if p.get('id') == po['partner_id']), {}
+            )
+        if not partner and po.get('partner_name'):
+            partners = db.query_partners()
+            partner = next(
+                (p for p in partners if p.get('partner_name') == po['partner_name']), {}
+            )
+
+        # 본사 사업장 조회
+        my_biz_list = db.query_my_business()
+        my_biz = {}
+        if po.get('my_biz_name'):
+            my_biz = next(
+                (b for b in my_biz_list if b.get('business_name') == po['my_biz_name']), {}
+            )
+        if not my_biz:
+            my_biz = next((b for b in my_biz_list if b.get('is_default')),
+                          my_biz_list[0] if my_biz_list else {})
+
+        # items 파싱
+        items = po.get('items', [])
+        if isinstance(items, str):
+            import json as json_mod
+            items = json_mod.loads(items)
+
+        from reports.purchase_order_report import generate_purchase_order_pdf
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+
+        supplier_name = po.get('partner_name', '공급업체')
+        order_date = po.get('order_date', '')
+        fname = f"발주서_{supplier_name}_{order_date}.pdf"
+        pdf_path = os.path.join(output_dir, fname)
+
+        generate_purchase_order_pdf(
+            path=pdf_path,
+            my_biz=my_biz,
+            supplier=partner,
+            items=items,
+            order_date=order_date,
+            request_date=po.get('request_date', ''),
+            delivery_note=po.get('delivery_note', ''),
+            caution_text=po.get('caution_text', ''),
+            order_manager=po.get('order_manager', ''),
+            invoice_manager=po.get('invoice_manager', ''),
+            manager_contact=po.get('manager_contact', ''),
+        )
+
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'발주서 재다운로드 중 오류: {e}', 'danger')
         return redirect(url_for('trade.purchase_order'))

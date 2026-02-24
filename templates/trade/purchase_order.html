@@ -3,6 +3,109 @@
 {% block page_title %}발주서 관리{% endblock %}
 
 {% block content %}
+<!-- ─── 발주서 이력 조회 ─── -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-search"></i> 발주서 이력 조회
+    </div>
+    <div class="card-body">
+        <!-- 검색 필터 -->
+        <form method="GET" action="{{ url_for('trade.purchase_order') }}" class="row g-2 align-items-end mb-3">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold small">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold small">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold small">공급업체</label>
+                <select name="partner_filter" class="form-select form-select-sm">
+                    <option value="전체">전체</option>
+                    {% for p in partners|default([]) %}
+                    <option value="{{ p.partner_name }}" {{ 'selected' if partner_filter == p.partner_name else '' }}>
+                        {{ p.partner_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-sm btn-primary">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+                <a href="{{ url_for('trade.purchase_order') }}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-arrow-counterclockwise"></i> 초기화
+                </a>
+            </div>
+        </form>
+
+        <!-- 발주서 이력 테이블 -->
+        <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>발주일</th>
+                        <th>공급업체</th>
+                        <th>발주처</th>
+                        <th class="text-center">품목수</th>
+                        <th>발주담당</th>
+                        <th>등록자</th>
+                        <th style="width:120px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for po in po_list|default([]) %}
+                    <tr>
+                        <td>{{ po.order_date|default('-') }}</td>
+                        <td><strong>{{ po.partner_name|default('-') }}</strong></td>
+                        <td>{{ po.my_biz_name|default('-') }}</td>
+                        <td class="text-center">
+                            <span class="badge bg-primary">{{ po.item_count|default(0) }}건</span>
+                        </td>
+                        <td>{{ po.order_manager|default('-') }}</td>
+                        <td><small class="text-muted">{{ po.registered_by|default('-') }}</small></td>
+                        <td>
+                            <a href="{{ url_for('trade.redownload_purchase_order', po_id=po.id) }}"
+                               class="btn btn-sm btn-outline-primary py-0 px-1" title="PDF 다운로드">
+                                <i class="bi bi-file-earmark-pdf"></i>
+                            </a>
+                            <form method="POST" action="{{ url_for('trade.delete_purchase_order', po_id=po.id) }}" class="d-inline"
+                                  onsubmit="return confirm('이 발주서 이력을 삭제하시겠습니까?\n{{ po.partner_name }} / {{ po.order_date }}')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="삭제">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-4">
+                            {% if date_from or date_to or (partner_filter and partner_filter != '전체') %}
+                            해당 조건의 발주서 이력이 없습니다.
+                            {% else %}
+                            발주서를 생성하면 이력이 자동으로 저장됩니다.
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                {% if po_list|default([])|length > 0 %}
+                <tfoot class="table-light">
+                    <tr>
+                        <td colspan="3" class="text-end fw-bold">합계</td>
+                        <td class="text-center fw-bold text-primary">{{ po_list|map(attribute='item_count')|sum }}건</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ─── 발주서 작성 ─── -->
 <form id="poForm" method="POST" action="{{ url_for('trade.generate_purchase_order') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="items" id="itemsJson" value="[]">
