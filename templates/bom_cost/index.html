@@ -450,13 +450,12 @@
         // 기존 옵션 제거 (첫 번째 "전체 종류" 유지)
         while (sel.options.length > 1) sel.remove(1);
 
-        // costData + categoryMap 에서 실제 존재하는 종류 수집
-        const types = new Set();
+        // 5가지 표준 종류는 항상 표시 + 데이터에서 추가 종류 수집
+        const types = new Set(['원료', '부재료', '반제품', '완제품', '포장재']);
         costData.forEach(c => {
             const mt = getMaterialType(c.product_name, c.material_type);
             if (mt) types.add(mt);
         });
-        // allProducts 중 costData에 없는 품목의 종류도 수집
         allProducts.forEach(name => {
             const mt = categoryMap[name] || categoryMap[name.replace(/\s/g, '')];
             if (mt) types.add(mt);
