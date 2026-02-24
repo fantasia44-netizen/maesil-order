@@ -290,18 +290,36 @@ def calculate_daily_yield(db, date_from, date_to, product_name=None, location=No
 
 
 def _load_bom_cost_map(db):
-    """BOM 이론원가 맵 생성. {제품명: 이론단위원가}"""
+    """BOM 이론원가 맵 생성. {제품명: 이론단위원가}
+
+    1순위: BOM 세트 구성품 계산 원가 (master_bom에서 산출)
+    2순위: product_costs에서 cost_type='생산' 항목의 cost_price
+    3순위: product_costs에서 일반 cost_price
+    """
     try:
         from services.bom_cost_service import calculate_bom_costs
         result = calculate_bom_costs(db)
         bom_map = {}
+
+        # 1) BOM 분석 결과 (세트 + 개별 완제품)
         for item in result.get('bom_items', []):
             sn = item.get('set_name', '')
             tc = item.get('total_cost', 0)
             if sn and tc > 0:
-                # 같은 세트명이 여러 채널에 있으면 첫 번째 사용
                 if sn not in bom_map:
                     bom_map[sn] = tc
+
+        # 2) product_costs에서 '생산' 유형 항목 보충
+        #    (BOM에 없지만 생산단가가 입력된 경우)
+        cost_details = result.get('cost_details', {})
+        for pname, detail in cost_details.items():
+            if pname in bom_map:
+                continue  # 이미 BOM에서 계산됨
+            ct = detail.get('cost_type', '매입')
+            cp = float(detail.get('cost_price', 0))
+            if ct == '생산' and cp > 0:
+                bom_map[pname] = cp
+
         return bom_map
     except Exception:
         return {}

@@ -92,9 +92,11 @@ CREATE TABLE IF NOT EXISTS channel_costs (
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7) product_costs 확장: 중량 컬럼 추가
+-- 7) product_costs 확장: 중량 + 유형 컬럼 추가
 ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
 ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight_unit TEXT DEFAULT 'g';
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS cost_type TEXT DEFAULT '매입';
+-- cost_type: '매입' = 원재료(구매품), '생산' = 완제품(생산품)
 """
 
 print("=" * 60)

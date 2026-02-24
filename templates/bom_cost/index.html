@@ -96,7 +96,7 @@
     </li>
     <li class="nav-item">
         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabCosts" type="button">
-            <i class="bi bi-currency-won"></i> 매입단가 관리
+            <i class="bi bi-currency-won"></i> 단가 관리
         </button>
     </li>
     <li class="nav-item">
@@ -151,15 +151,20 @@
         </div>
     </div>
 
-    <!-- 탭2: 매입단가 관리 -->
+    <!-- 탭2: 단가 관리 (매입/생산 구분) -->
     <div class="tab-pane fade" id="tabCosts">
         <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-currency-won"></i> 매입단가 관리</span>
+                <span><i class="bi bi-currency-won"></i> 단가 관리</span>
                 <div class="d-flex gap-2">
+                    <select id="costTypeFilter" class="form-select form-select-sm" style="width:120px;">
+                        <option value="all">전체</option>
+                        <option value="매입">매입(원재료)</option>
+                        <option value="생산">생산(완제품)</option>
+                    </select>
                     <input type="text" id="costSearch" class="form-control form-control-sm"
                            placeholder="품목명 검색..." style="width:200px;">
-                    <select id="costFilter" class="form-select form-select-sm" style="width:150px;">
+                    <select id="costFilter" class="form-select form-select-sm" style="width:130px;">
                         <option value="all">전체</option>
                         <option value="bom">BOM 구성품만</option>
                         <option value="missing">미입력만</option>
@@ -175,17 +180,18 @@
                     <table class="table table-sm table-hover mb-0" id="costTable">
                         <thead class="table-light" style="position:sticky; top:0; z-index:1;">
                             <tr>
+                                <th style="width:70px;">유형</th>
                                 <th>품목명</th>
-                                <th class="text-end" style="width:120px;">매입단가 (원)</th>
+                                <th class="text-end" style="width:120px;">단가 (원)</th>
                                 <th class="text-end" style="width:100px;">중량 (g)</th>
                                 <th style="width:70px;">단위</th>
                                 <th style="width:150px;">메모</th>
-                                <th style="width:80px;">상태</th>
+                                <th style="width:70px;">상태</th>
                                 <th style="width:50px;"></th>
                             </tr>
                         </thead>
                         <tbody id="costBody">
-                            <tr><td colspan="7" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -193,13 +199,20 @@
             <!-- 신규 단가 추가 -->
             <div class="card-footer">
                 <div class="row g-2 align-items-end">
+                    <div class="col-md-1">
+                        <label class="form-label small fw-semibold">유형</label>
+                        <select id="newCostType" class="form-select form-select-sm">
+                            <option value="매입">매입</option>
+                            <option value="생산">생산</option>
+                        </select>
+                    </div>
                     <div class="col-md-3">
                         <label class="form-label small fw-semibold">품목명</label>
                         <input type="text" id="newCostName" class="form-control form-control-sm"
                                placeholder="품목명 검색/선택" list="productSuggestions" autocomplete="off">
                     </div>
                     <div class="col-md-2">
-                        <label class="form-label small fw-semibold">매입단가</label>
+                        <label class="form-label small fw-semibold">단가</label>
                         <input type="number" id="newCostPrice" class="form-control form-control-sm" placeholder="0" min="0">
                     </div>
                     <div class="col-md-1">
@@ -214,7 +227,7 @@
                         <label class="form-label small fw-semibold">메모</label>
                         <input type="text" id="newCostMemo" class="form-control form-control-sm" placeholder="메모">
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <button class="btn btn-sm btn-primary" onclick="addNewCost()">
                             <i class="bi bi-plus-lg"></i> 단가 추가
                         </button>
@@ -229,20 +242,28 @@
         <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-shop"></i> 채널비용 관리</span>
-                <small class="text-muted">수수료/배송비/포장비/기타비용을 입력하면 BOM 분석에 순마진이 반영됩니다</small>
+                <div class="d-flex gap-2 align-items-center">
+                    <small class="text-muted">수정 후 체크박스 선택 → 일괄적용</small>
+                    <button class="btn btn-sm btn-success" onclick="saveSelectedChannels()" id="btnSaveChannels">
+                        <i class="bi bi-save"></i> 선택 일괄적용
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-sm table-bordered" id="channelTable">
                         <thead class="table-light">
                             <tr>
+                                <th style="width:40px;" class="text-center">
+                                    <input type="checkbox" id="chSelectAll" onchange="toggleAllChannels(this)">
+                                </th>
                                 <th style="width:120px;">채널명</th>
                                 <th class="text-end" style="width:120px;">수수료율 (%)</th>
                                 <th class="text-end" style="width:120px;">배송비 (원)</th>
                                 <th class="text-end" style="width:120px;">포장비 (원)</th>
                                 <th class="text-end" style="width:120px;">기타비용 (원)</th>
                                 <th style="width:180px;">메모</th>
-                                <th style="width:100px;"></th>
+                                <th style="width:60px;"></th>
                             </tr>
                         </thead>
                         <tbody id="channelBody"></tbody>
@@ -487,11 +508,12 @@
         renderBomTable();
     };
 
-    // ====== 매입단가 테이블 렌더링 (중량 컬럼 추가) ======
+    // ====== 단가 테이블 렌더링 (매입/생산 구분) ======
     function renderCostTable() {
         const tbody = document.getElementById('costBody');
         const searchTerm = document.getElementById('costSearch').value.replace(/\s/g, '').toLowerCase();
         const filterMode = document.getElementById('costFilter').value;
+        const costTypeMode = document.getElementById('costTypeFilter').value;
 
         const costMap = {};
         costData.forEach(c => { costMap[c.product_name] = c; });
@@ -507,13 +529,15 @@
                     weight: existing ? (existing.weight || 0) : 0,
                     unit: existing ? existing.unit : '',
                     memo: existing ? existing.memo : '',
+                    cost_type: existing ? (existing.cost_type || '매입') : '매입',
                     is_bom: true,
                 });
             });
             if (filterMode === 'missing') items = items.filter(i => i.cost_price === 0);
         } else if (filterMode === 'entered') {
             costData.forEach(c => {
-                items.push({ ...c, weight: c.weight || 0, is_bom: allProducts.includes(c.product_name) });
+                items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
+                    is_bom: allProducts.includes(c.product_name) });
             });
         } else {
             const seen = new Set();
@@ -525,23 +549,28 @@
                     weight: existing ? (existing.weight || 0) : 0,
                     unit: existing ? existing.unit : '',
                     memo: existing ? existing.memo : '',
+                    cost_type: existing ? (existing.cost_type || '매입') : '매입',
                     is_bom: true,
                 });
                 seen.add(name);
             });
             costData.forEach(c => {
                 if (!seen.has(c.product_name)) {
-                    items.push({ ...c, weight: c.weight || 0, is_bom: false });
+                    items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입', is_bom: false });
                 }
             });
         }
 
+        // 유형 필터
+        if (costTypeMode && costTypeMode !== 'all') {
+            items = items.filter(i => i.cost_type === costTypeMode);
+        }
         if (searchTerm) {
             items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
         }
 
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
             return;
         }
 
@@ -550,21 +579,33 @@
             const isMissing = item.is_bom && item.cost_price === 0;
             const modKey = item.product_name;
             const isModified = modifiedCosts[modKey] !== undefined;
+            const ct = item.cost_type || '매입';
+            const ctBadge = ct === '생산'
+                ? '<span class="badge bg-success">생산</span>'
+                : '<span class="badge bg-secondary">매입</span>';
 
             html += '<tr class="' + (isMissing ? 'missing-cost' : '') + '" id="cost-row-' + escapeAttr(modKey) + '">';
+            // 유형 (select)
+            html += '<td><select class="form-select form-select-sm" style="width:65px;font-size:0.78rem;padding:1px 4px;" '
+                 + 'data-field="cost_type" data-name="' + escapeAttr(item.product_name) + '" '
+                 + 'onchange="window._costChanged(this)">'
+                 + '<option value="매입"' + (ct === '매입' ? ' selected' : '') + '>매입</option>'
+                 + '<option value="생산"' + (ct === '생산' ? ' selected' : '') + '>생산</option></select></td>';
+            // 품목명
             html += '<td>' + escapeHtml(item.product_name);
             if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
             html += '</td>';
-            // 매입단가
+            // 단가
             html += '<td class="text-end"><input type="number" class="form-control form-control-sm cost-input" '
                  + 'value="' + item.cost_price + '" min="0" '
                  + 'data-name="' + escapeAttr(item.product_name) + '" '
                  + 'onchange="window._costChanged(this)"></td>';
-            // 중량
+            // 중량 (생산만 의미 있지만 둘다 표시)
             html += '<td class="text-end"><input type="number" class="form-control form-control-sm weight-input" '
                  + 'value="' + (item.weight || 0) + '" min="0" step="0.1" '
                  + 'data-field="weight" data-name="' + escapeAttr(item.product_name) + '" '
-                 + 'onchange="window._costChanged(this)"></td>';
+                 + 'onchange="window._costChanged(this)"'
+                 + (ct === '매입' ? ' placeholder="-"' : '') + '></td>';
             // 단위
             html += '<td><input type="text" class="form-control form-control-sm" '
                  + 'value="' + escapeAttr(item.unit) + '" style="width:60px;" '
@@ -591,7 +632,7 @@
         tbody.innerHTML = html;
     }
 
-    // ====== 채널비용 테이블 렌더링 ======
+    // ====== 채널비용 테이블 렌더링 (체크박스 + 일괄적용) ======
     function renderChannelTable() {
         const tbody = document.getElementById('channelBody');
         const defaultChannels = ['네이버', '쿠팡', '로켓', '11번가'];
@@ -601,6 +642,7 @@
         allChannels.forEach(ch => {
             const c = channelCosts[ch] || {};
             html += '<tr id="ch-row-' + escapeAttr(ch) + '">';
+            html += '<td class="text-center"><input type="checkbox" class="ch-check" data-ch="' + escapeAttr(ch) + '"></td>';
             html += '<td><strong>' + escapeHtml(ch) + '</strong></td>';
             html += '<td><input type="number" class="form-control form-control-sm ch-cost-input" '
                  + 'value="' + (c.fee_rate || 0) + '" step="0.1" min="0" data-ch="' + escapeAttr(ch) + '" data-field="fee_rate"></td>';
@@ -612,9 +654,7 @@
                  + 'value="' + (c.other_cost || 0) + '" min="0" data-ch="' + escapeAttr(ch) + '" data-field="other_cost"></td>';
             html += '<td><input type="text" class="form-control form-control-sm" '
                  + 'value="' + escapeAttr(c.memo || '') + '" data-ch="' + escapeAttr(ch) + '" data-field="memo"></td>';
-            html += '<td class="d-flex gap-1">';
-            html += '<button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="saveChannel(\'' + escapeAttr(ch) + '\')" title="저장">'
-                 + '<i class="bi bi-check-lg"></i></button>';
+            html += '<td>';
             if (!defaultChannels.includes(ch)) {
                 html += '<button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteChannel(\'' + escapeAttr(ch) + '\')" title="삭제">'
                      + '<i class="bi bi-trash"></i></button>';
@@ -623,6 +663,9 @@
         });
 
         tbody.innerHTML = html;
+        // 전체선택 해제
+        const selAll = document.getElementById('chSelectAll');
+        if (selAll) selAll.checked = false;
     }
 
     // ====== 단가 변경 추적 ======
@@ -634,16 +677,23 @@
         else modifiedCosts[name].cost_price = parseFloat(el.value) || 0;
         const row = el.closest('tr');
         if (row) {
-            const badge = row.querySelector('td:nth-child(6) .badge');
+            const badge = row.querySelector('td:nth-child(7) .badge');
             if (badge) { badge.className = 'badge bg-info'; badge.textContent = '변경됨'; }
         }
     };
+
+    // ====== 행에서 cost_type 읽기 헬퍼 ======
+    function _readRowCostType(row) {
+        const sel = row.querySelector('select[data-field="cost_type"]');
+        return sel ? sel.value : '매입';
+    }
 
     // ====== 단건 저장 ======
     window._saveSingleCost = async function(productName) {
         const row = document.getElementById('cost-row-' + CSS.escape(productName));
         if (!row) return;
         const inputs = row.querySelectorAll('input');
+        const costType = _readRowCostType(row);
         const costPrice = parseFloat(inputs[0].value) || 0;
         const weight = parseFloat(inputs[1].value) || 0;
         const unit = inputs[2].value.trim();
@@ -653,19 +703,25 @@
             const res = await fetch('/bom-cost/api/cost', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-                body: JSON.stringify({product_name: productName, cost_price: costPrice, weight, unit, memo}),
+                body: JSON.stringify({product_name: productName, cost_price: costPrice,
+                    weight, unit, memo, cost_type: costType}),
             });
             const json = await res.json();
             if (json.success) {
                 delete modifiedCosts[productName];
                 row.classList.add('cost-saved');
                 setTimeout(() => row.classList.remove('cost-saved'), 600);
-                const badge = row.querySelector('td:nth-child(6) .badge');
+                const badge = row.querySelector('td:nth-child(7) .badge');
                 if (badge) { badge.className = 'badge bg-success'; badge.textContent = '완료'; }
                 row.classList.remove('missing-cost');
                 const existing = costData.find(c => c.product_name === productName);
-                if (existing) { existing.cost_price = costPrice; existing.weight = weight; existing.unit = unit; existing.memo = memo; }
-                else costData.push({product_name: productName, cost_price: costPrice, weight, unit, memo});
+                if (existing) {
+                    existing.cost_price = costPrice; existing.weight = weight;
+                    existing.unit = unit; existing.memo = memo; existing.cost_type = costType;
+                } else {
+                    costData.push({product_name: productName, cost_price: costPrice,
+                        weight, unit, memo, cost_type: costType});
+                }
             } else alert('저장 실패: ' + (json.error || ''));
         } catch(e) { alert('저장 오류: ' + e.message); }
     };
@@ -679,6 +735,7 @@
             if (inputs.length < 4) return;
             const name = inputs[0].getAttribute('data-name');
             if (!name) return;
+            const costType = _readRowCostType(row);
             const costPrice = parseFloat(inputs[0].value) || 0;
             const weight = parseFloat(inputs[1].value) || 0;
             if (costPrice <= 0 && weight <= 0) return;
@@ -688,6 +745,7 @@
                 weight: weight,
                 unit: inputs[2].value.trim(),
                 memo: inputs[3].value.trim(),
+                cost_type: costType,
             });
         });
 
@@ -717,13 +775,15 @@
         const weight = parseFloat(document.getElementById('newCostWeight').value) || 0;
         const unit = document.getElementById('newCostUnit').value.trim();
         const memo = document.getElementById('newCostMemo').value.trim();
+        const costType = document.getElementById('newCostType').value;
         if (!name) { alert('품목명을 입력하세요.'); return; }
 
         try {
             const res = await fetch('/bom-cost/api/cost', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-                body: JSON.stringify({product_name: name, cost_price: price, weight, unit, memo}),
+                body: JSON.stringify({product_name: name, cost_price: price, weight, unit, memo,
+                    cost_type: costType}),
             });
             const json = await res.json();
             if (json.success) {
@@ -733,33 +793,58 @@
         } catch(e) { alert('추가 오류: ' + e.message); }
     };
 
-    // ====== 채널비용 저장 ======
-    window.saveChannel = async function(channel) {
-        const row = document.getElementById('ch-row-' + CSS.escape(channel));
-        if (!row) return;
-        const inputs = row.querySelectorAll('input');
-        const data = {
-            channel: channel,
-            fee_rate: parseFloat(inputs[0].value) || 0,
-            shipping: parseFloat(inputs[1].value) || 0,
-            packaging: parseFloat(inputs[2].value) || 0,
-            other_cost: parseFloat(inputs[3].value) || 0,
-            memo: inputs[4].value.trim(),
-        };
+    // ====== 채널 전체선택 ======
+    window.toggleAllChannels = function(el) {
+        document.querySelectorAll('.ch-check').forEach(cb => { cb.checked = el.checked; });
+    };
 
-        try {
-            const res = await fetch('/bom-cost/api/channel', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-                body: JSON.stringify(data),
-            });
-            const json = await res.json();
-            if (json.success) {
-                row.classList.add('cost-saved');
-                setTimeout(() => row.classList.remove('cost-saved'), 600);
-                loadData();
-            } else alert('저장 실패: ' + (json.error || ''));
-        } catch(e) { alert('저장 오류: ' + e.message); }
+    // ====== 채널비용 선택 일괄적용 ======
+    window.saveSelectedChannels = async function() {
+        const checked = document.querySelectorAll('.ch-check:checked');
+        if (checked.length === 0) { alert('저장할 채널을 선택하세요.'); return; }
+
+        const btn = document.getElementById('btnSaveChannels');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 적용 중...';
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const cb of checked) {
+            const channel = cb.getAttribute('data-ch');
+            const row = document.getElementById('ch-row-' + CSS.escape(channel));
+            if (!row) continue;
+            const inputs = row.querySelectorAll('input:not(.ch-check)');
+            const data = {
+                channel: channel,
+                fee_rate: parseFloat(inputs[0].value) || 0,
+                shipping: parseFloat(inputs[1].value) || 0,
+                packaging: parseFloat(inputs[2].value) || 0,
+                other_cost: parseFloat(inputs[3].value) || 0,
+                memo: inputs[4].value.trim(),
+            };
+
+            try {
+                const res = await fetch('/bom-cost/api/channel', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                    body: JSON.stringify(data),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    successCount++;
+                    row.classList.add('cost-saved');
+                    setTimeout(() => row.classList.remove('cost-saved'), 600);
+                } else failCount++;
+            } catch(e) { failCount++; }
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save"></i> 선택 일괄적용';
+
+        if (failCount > 0) alert(successCount + '건 성공, ' + failCount + '건 실패');
+        else alert(successCount + '건 채널비용 적용 완료');
+        loadData();
     };
 
     // ====== 채널 추가 ======
@@ -833,6 +918,7 @@
     document.getElementById('typeFilter').addEventListener('change', renderBomTable);
     document.getElementById('channelFilter').addEventListener('change', renderBomTable);
     document.getElementById('bomSearch').addEventListener('input', renderBomTable);
+    document.getElementById('costTypeFilter').addEventListener('change', renderCostTable);
     document.getElementById('costSearch').addEventListener('input', renderCostTable);
     document.getElementById('costFilter').addEventListener('change', renderCostTable);
 

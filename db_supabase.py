@@ -281,10 +281,10 @@ class SupabaseDB(DBBase):
             }
         return price_map
 
-    # --- product_costs (품목별 매입단가) ---
+    # --- product_costs (품목별 단가: 매입/생산 구분) ---
 
     def query_product_costs(self):
-        """product_costs 전체 조회 → {product_name: {cost_price, unit, memo}} dict."""
+        """product_costs 전체 조회 → {product_name: {cost_price, unit, memo, cost_type, weight, weight_unit}} dict."""
         try:
             rows = self._paginate_query("product_costs",
                 lambda t: self.client.table(t).select("*").order("product_name"))
@@ -293,8 +293,10 @@ class SupabaseDB(DBBase):
             return {}
 
     def upsert_product_cost(self, product_name, cost_price, unit='', memo='',
-                            weight=0, weight_unit='g'):
-        """품목 매입단가 1건 등록/수정 (upsert)."""
+                            weight=0, weight_unit='g', cost_type='매입'):
+        """품목 단가 1건 등록/수정 (upsert).
+        cost_type: '매입' = 원재료 매입단가, '생산' = 완제품 생산단가
+        """
         from datetime import datetime, timezone
         payload = {
             'product_name': product_name,
@@ -303,6 +305,7 @@ class SupabaseDB(DBBase):
             'memo': memo,
             'weight': float(weight or 0),
             'weight_unit': weight_unit or 'g',
+            'cost_type': cost_type or '매입',
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("product_costs").upsert(
@@ -310,8 +313,8 @@ class SupabaseDB(DBBase):
         ).execute()
 
     def upsert_product_costs_batch(self, items):
-        """품목 매입단가 일괄 등록/수정.
-        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?}]
+        """품목 단가 일괄 등록/수정.
+        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?, cost_type?}]
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -324,6 +327,7 @@ class SupabaseDB(DBBase):
                 'memo': item.get('memo', ''),
                 'weight': float(item.get('weight', 0) or 0),
                 'weight_unit': item.get('weight_unit', 'g') or 'g',
+                'cost_type': item.get('cost_type', '매입') or '매입',
                 'updated_at': now,
             })
         if not payload:
