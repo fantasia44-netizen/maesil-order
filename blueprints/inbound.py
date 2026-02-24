@@ -3,12 +3,14 @@ inbound.py — 입고 관리 Blueprint.
 시스템 입력(다건 배치) + 엑셀 업로드 + 입고 이력 조회.
 """
 import os
+import io
+import tempfile
 from datetime import datetime
 
 import pandas as pd
 from flask import (
     Blueprint, render_template, request, current_app,
-    flash, redirect, url_for, jsonify,
+    flash, redirect, url_for, jsonify, send_file,
 )
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -175,3 +177,61 @@ def excel():
             os.remove(filepath)
 
     return redirect(url_for('inbound.index'))
+
+
+# ── 입고일지 PDF ──
+
+@inbound_bp.route('/log_pdf')
+@role_required('admin', 'manager', 'logistics', 'production')
+def log_pdf():
+    """입고일지 PDF 다운로드"""
+    date_str = request.args.get('date', '')
+
+    if not date_str:
+        flash('입고일자를 입력하세요.', 'warning')
+        return redirect(url_for('inbound.index'))
+
+    db = current_app.db
+
+    try:
+        from services.stock_service import query_all_stock_data
+        from models import APPROVAL_LABELS
+        from reports.inbound_daily import generate_inbound_log_pdf
+
+        df = query_all_stock_data(db, date_str)
+        if df.empty:
+            flash('해당 일자의 입고 데이터가 없습니다.', 'warning')
+            return redirect(url_for('inbound.index'))
+
+        df = df[df['transaction_date'] == date_str]
+        df_inbound = df[df['type'] == 'INBOUND'].copy()
+
+        if df_inbound.empty:
+            flash('해당 일자의 입고 데이터가 없습니다.', 'warning')
+            return redirect(url_for('inbound.index'))
+
+        config = {
+            'target_date': date_str,
+            'approvals': {label: '' for label in APPROVAL_LABELS},
+            'title': '입고일지',
+            'include_warnings': False,
+        }
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+
+        try:
+            generate_inbound_log_pdf(tmp_path, config, df_inbound)
+            with open(tmp_path, 'rb') as f:
+                pdf_bytes = io.BytesIO(f.read())
+            fname = f"입고일지_{date_str}.pdf"
+            return send_file(pdf_bytes, mimetype='application/pdf',
+                             as_attachment=True, download_name=fname)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    except Exception as e:
+        flash(f'입고일지 PDF 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('inbound.index'))
