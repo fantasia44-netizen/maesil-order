@@ -4,71 +4,116 @@
 
 {% block content %}
 <div class="row g-4">
-    <!-- 수동 이동 -->
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-arrow-left-right"></i> 수동 이동
+    <!-- 다건 이동 등록 -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-arrow-left-right"></i> 창고 이동 등록</span>
+                <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('transfer.manual') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
+                <!-- 기준일 + 입력모드 -->
+                <div class="row mb-3">
+                    <div class="col-sm-6">
                         <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
+                        <input type="date" id="transferDate" class="form-control" required>
                     </div>
-                    <div class="mb-3">
+                    <div class="col-sm-6">
                         <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
+                        <select id="transferMode" class="form-select">
                             <option value="신규입력">신규입력</option>
                             <option value="수정입력">수정입력 (해당일 이동 삭제 후 재입력)</option>
                         </select>
                     </div>
-                    <div class="row mb-3">
-                        <div class="col-6">
-                            <label class="form-label fw-semibold">출발 위치</label>
-                            <select name="from_location" id="fromLocation" class="form-select" required>
-                                <option value="">선택</option>
-                                {% for loc in locations|default([]) %}
-                                <option value="{{ loc }}">{{ loc }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label fw-semibold">도착 위치</label>
-                            <select name="to_location" class="form-select" required>
-                                <option value="">선택</option>
-                                {% for loc in locations|default([]) %}
-                                <option value="{{ loc }}">{{ loc }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
+                </div>
+
+                <hr class="my-3">
+
+                <!-- 항목 추가 폼 -->
+                <div class="row g-2 align-items-end mb-2">
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">출발 위치</label>
+                        <select id="fromLocation" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">품목명</label>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">도착 위치</label>
+                        <select id="toLocation" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">품목명</label>
                         <div class="position-relative">
-                            <input type="text" name="product_name" id="productInput" class="form-control"
-                                   placeholder="출발 위치를 선택하면 자동완성" required autocomplete="off" disabled>
+                            <input type="text" id="productInput" class="form-control form-control-sm"
+                                   placeholder="출발 위치 선택" autocomplete="off" disabled>
                             <div id="acList" class="autocomplete-list list-group position-absolute w-100"
                                  style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
                         </div>
                         <small class="text-muted" id="stockInfo"></small>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">수량</label>
-                        <input type="number" name="qty" class="form-control" step="0.01" min="0" required>
+                    <div class="col-sm-2">
+                        <label class="form-label small mb-1">수량</label>
+                        <input type="number" id="qtyInput" class="form-control form-control-sm"
+                               step="1" min="1" placeholder="수량">
                     </div>
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-arrow-left-right"></i> 이동 처리
+                    <div class="col-sm-1">
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100" id="addItemBtn"
+                                title="항목 추가">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 등록 대기 목록 테이블 -->
+                <div class="table-responsive mt-3" style="max-height:350px; overflow-y:auto;">
+                    <table class="table table-sm table-hover table-bordered mb-0" id="pendingTable">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th style="width:30px;">#</th>
+                                <th>품목명</th>
+                                <th style="width:100px;">출발</th>
+                                <th style="width:100px;">도착</th>
+                                <th style="width:70px;">수량</th>
+                                <th style="width:50px;">재고</th>
+                                <th style="width:40px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingBody">
+                            <tr id="emptyRow">
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <i class="bi bi-inbox"></i> 이동할 항목을 추가하세요
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 하단 버튼 -->
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearAllBtn"
+                            style="display:none;">
+                        <i class="bi bi-trash3"></i> 전체 삭제
                     </button>
-                </form>
+                    <button type="button" class="btn btn-primary" id="submitBatchBtn" disabled>
+                        <i class="bi bi-arrow-left-right"></i> 일괄 이동 처리
+                        <span class="badge bg-light text-primary ms-1" id="submitCount">0건</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <!-- 엑셀 일괄 이동 -->
-    <div class="col-lg-6">
-        <div class="card h-100">
+    <div class="col-lg-5">
+        <div class="card">
             <div class="card-header">
                 <i class="bi bi-file-earmark-excel"></i> 엑셀 일괄 이동
             </div>
@@ -89,18 +134,28 @@
                     <div class="mb-3">
                         <label class="form-label fw-semibold">엑셀 파일</label>
                         <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">이동 내역 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
+                        <div class="form-text">
+                            필수 컬럼: 품목명, 현재창고위치, 이동창고위치, 수량입력
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-warning w-100">
-                        <i class="bi bi-upload"></i> 일괄 이동 처리
+                        <i class="bi bi-upload"></i> 엑셀 일괄 이동 처리
                     </button>
                 </form>
             </div>
         </div>
+
+        <!-- 결과 영역 -->
+        <div class="card mt-3" id="resultCard" style="display:none;">
+            <div class="card-header">
+                <i class="bi bi-check-circle"></i> 처리 결과
+            </div>
+            <div class="card-body" id="resultBody"></div>
+        </div>
     </div>
 </div>
 
-<!-- 결과 영역 -->
+<!-- 서버사이드 플래시 결과 (엑셀 전용) -->
 {% if result is defined and result %}
 <div class="card mt-4">
     <div class="card-header">
@@ -125,31 +180,58 @@
 {% block extra_js %}
 <script>
 (function() {
-    let products = [];
+    const csrf_token = '{{ csrf_token() }}';
+    const BATCH_URL = '{{ url_for("transfer.batch") }}';
+    const API_PRODUCTS_URL = '{{ url_for("transfer.api_products") }}';
+
+    // DOM refs
     const fromSelect = document.getElementById('fromLocation');
+    const toSelect = document.getElementById('toLocation');
     const productInput = document.getElementById('productInput');
+    const qtyInput = document.getElementById('qtyInput');
     const acList = document.getElementById('acList');
     const stockInfo = document.getElementById('stockInfo');
-    if (!fromSelect || !productInput) return;
+    const addBtn = document.getElementById('addItemBtn');
+    const pendingBody = document.getElementById('pendingBody');
+    const emptyRow = document.getElementById('emptyRow');
+    const submitBtn = document.getElementById('submitBatchBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const itemCountBadge = document.getElementById('itemCountBadge');
+    const submitCount = document.getElementById('submitCount');
+    const dateInput = document.getElementById('transferDate');
+    const modeSelect = document.getElementById('transferMode');
+    const resultCard = document.getElementById('resultCard');
+    const resultBody = document.getElementById('resultBody');
 
-    // 출발 위치 변경 시 품목 로드
+    let products = [];          // 현재 출발 창고 기준 품목 목록
+    let pendingItems = [];      // 대기 항목 [{product_name, qty, from_location, to_location, stock_qty, unit}]
+    let selectedProduct = null; // 자동완성에서 선택된 품목
+
+    // 오늘 날짜 기본값
+    dateInput.value = new Date().toISOString().slice(0, 10);
+
+    // ===== 출발 위치 변경 → 품목 로드 =====
     fromSelect.addEventListener('change', async function() {
         const loc = this.value;
         productInput.value = '';
         stockInfo.textContent = '';
         products = [];
+        selectedProduct = null;
 
         if (!loc) {
             productInput.disabled = true;
-            productInput.placeholder = '출발 위치를 선택하면 자동완성';
+            productInput.placeholder = '출발 위치 선택';
             return;
         }
 
+        productInput.disabled = true;
+        productInput.placeholder = '품목 로딩 중...';
+
         try {
-            const res = await fetch(`{{ url_for('transfer.api_products') }}?location=${encodeURIComponent(loc)}`);
+            const res = await fetch(`${API_PRODUCTS_URL}?location=${encodeURIComponent(loc)}`);
             products = await res.json();
             productInput.disabled = false;
-            productInput.placeholder = `품목명 입력 (${products.length}개 품목)`;
+            productInput.placeholder = `품목명 입력 (${products.length}개)`;
             productInput.focus();
         } catch (e) {
             console.error(e);
@@ -158,10 +240,13 @@
         }
     });
 
-    // 자동완성
+    // ===== 자동완성 =====
     productInput.addEventListener('input', function() {
         const q = this.value.trim().toLowerCase();
         acList.innerHTML = '';
+        selectedProduct = null;
+        stockInfo.textContent = '';
+
         if (!q || products.length === 0) { acList.style.display = 'none'; return; }
 
         const matches = products.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
@@ -171,24 +256,212 @@
             const item = document.createElement('a');
             item.href = '#';
             item.className = 'list-group-item list-group-item-action py-1 px-2 small';
-            item.innerHTML = `<strong>${p.name}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
+            item.innerHTML = `<strong>${escapeHtml(p.name)}</strong> <span class="text-muted">(재고: ${p.qty} ${p.unit})</span>`;
             item.addEventListener('mousedown', function(e) {
                 e.preventDefault();
                 productInput.value = p.name;
+                selectedProduct = p;
                 stockInfo.textContent = `현재 재고: ${p.qty} ${p.unit}`;
                 acList.style.display = 'none';
+                qtyInput.focus();
             });
             acList.appendChild(item);
         });
         acList.style.display = 'block';
     });
 
-    productInput.addEventListener('blur', function() {
+    productInput.addEventListener('blur', () => {
         setTimeout(() => { acList.style.display = 'none'; }, 200);
     });
     productInput.addEventListener('focus', function() {
         if (this.value.trim()) this.dispatchEvent(new Event('input'));
     });
+
+    // Enter 키로 추가
+    qtyInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); addItem(); }
+    });
+    productInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); qtyInput.focus(); }
+    });
+
+    // ===== 항목 추가 =====
+    addBtn.addEventListener('click', addItem);
+
+    function addItem() {
+        const fromLoc = fromSelect.value;
+        const toLoc = toSelect.value;
+        const name = productInput.value.trim();
+        const qty = parseInt(qtyInput.value);
+
+        if (!fromLoc) { alert('출발 위치를 선택하세요.'); fromSelect.focus(); return; }
+        if (!toLoc) { alert('도착 위치를 선택하세요.'); toSelect.focus(); return; }
+        if (fromLoc === toLoc) { alert('출발/도착 위치가 같습니다.'); return; }
+        if (!name) { alert('품목명을 입력하세요.'); productInput.focus(); return; }
+        if (!qty || qty <= 0) { alert('수량을 입력하세요.'); qtyInput.focus(); return; }
+
+        // 재고 정보
+        let stockQty = '?';
+        let unit = '개';
+        if (selectedProduct && selectedProduct.name === name) {
+            stockQty = selectedProduct.qty;
+            unit = selectedProduct.unit || '개';
+        } else {
+            const found = products.find(p => p.name === name);
+            if (found) { stockQty = found.qty; unit = found.unit || '개'; }
+        }
+
+        pendingItems.push({
+            product_name: name,
+            qty: qty,
+            from_location: fromLoc,
+            to_location: toLoc,
+            stock_qty: stockQty,
+            unit: unit,
+        });
+
+        // 입력 필드 초기화 (위치는 유지)
+        productInput.value = '';
+        qtyInput.value = '';
+        stockInfo.textContent = '';
+        selectedProduct = null;
+        productInput.focus();
+
+        renderTable();
+    }
+
+    // ===== 테이블 렌더링 =====
+    function renderTable() {
+        pendingBody.innerHTML = '';
+
+        if (pendingItems.length === 0) {
+            pendingBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">
+                <i class="bi bi-inbox"></i> 이동할 항목을 추가하세요</td></tr>`;
+            submitBtn.disabled = true;
+            clearAllBtn.style.display = 'none';
+        } else {
+            pendingItems.forEach((item, idx) => {
+                const isShort = (typeof item.stock_qty === 'number' && item.qty > item.stock_qty);
+                const tr = document.createElement('tr');
+                if (isShort) tr.className = 'table-warning';
+                tr.innerHTML = `
+                    <td class="text-muted small">${idx + 1}</td>
+                    <td class="small" title="${escapeHtml(item.product_name)}">${escapeHtml(item.product_name)}</td>
+                    <td class="small">${escapeHtml(item.from_location)}</td>
+                    <td class="small">${escapeHtml(item.to_location)}</td>
+                    <td class="text-end small fw-semibold">${item.qty.toLocaleString()}</td>
+                    <td class="text-end small ${isShort ? 'text-danger fw-bold' : 'text-muted'}">${item.stock_qty}</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" title="삭제"
+                                onclick="window._removeItem(${idx})">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </td>`;
+                pendingBody.appendChild(tr);
+            });
+            submitBtn.disabled = false;
+            clearAllBtn.style.display = '';
+        }
+
+        const count = pendingItems.length;
+        itemCountBadge.textContent = `${count}건`;
+        submitCount.textContent = `${count}건`;
+    }
+
+    // ===== 항목 삭제 =====
+    window._removeItem = function(idx) {
+        pendingItems.splice(idx, 1);
+        renderTable();
+    };
+
+    clearAllBtn.addEventListener('click', function() {
+        if (!confirm(`등록 대기 ${pendingItems.length}건을 모두 삭제하시겠습니까?`)) return;
+        pendingItems = [];
+        renderTable();
+    });
+
+    // ===== 일괄 이동 처리 =====
+    submitBtn.addEventListener('click', async function() {
+        const dateVal = dateInput.value;
+        const modeVal = modeSelect.value;
+
+        if (!dateVal) { alert('기준일을 입력하세요.'); dateInput.focus(); return; }
+        if (pendingItems.length === 0) { alert('이동할 항목이 없습니다.'); return; }
+
+        const msg = modeVal === '수정입력'
+            ? `${dateVal} 해당일 기존 이동을 삭제 후 ${pendingItems.length}건 재입력합니다. 계속하시겠습니까?`
+            : `${pendingItems.length}건 창고 이동을 처리하시겠습니까?`;
+        if (!confirm(msg)) return;
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
+
+        try {
+            const payload = {
+                date: dateVal,
+                mode: modeVal,
+                items: pendingItems.map(item => ({
+                    product_name: item.product_name,
+                    qty: item.qty,
+                    from_location: item.from_location,
+                    to_location: item.to_location,
+                })),
+            };
+
+            const res = await fetch(BATCH_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf_token,
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok || data.error) {
+                showResult('danger', data.error || '처리 실패');
+            } else {
+                let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i>
+                    이동 처리 완료: <strong>${data.count}건</strong></p>`;
+                if (data.deleted_count) {
+                    html += `<p class="mb-1 text-info small">기존 ${data.deleted_count}건 삭제 후 재입력</p>`;
+                }
+                if (data.warnings && data.warnings.length > 0) {
+                    html += '<hr class="my-2"><h6 class="text-warning small"><i class="bi bi-exclamation-triangle"></i> 경고</h6><ul class="mb-0 small">';
+                    data.warnings.forEach(w => { html += `<li class="text-warning">${escapeHtml(w)}</li>`; });
+                    html += '</ul>';
+                }
+                showResult('success', html, true);
+
+                // 성공 → 대기 목록 초기화
+                pendingItems = [];
+                renderTable();
+            }
+        } catch (e) {
+            showResult('danger', `오류: ${e.message}`);
+        } finally {
+            submitBtn.disabled = pendingItems.length === 0;
+            submitBtn.innerHTML = `<i class="bi bi-arrow-left-right"></i> 일괄 이동 처리 <span class="badge bg-light text-primary ms-1" id="submitCount">${pendingItems.length}건</span>`;
+        }
+    });
+
+    function showResult(type, message, isHtml) {
+        resultCard.style.display = '';
+        if (isHtml) {
+            resultBody.innerHTML = message;
+        } else {
+            resultBody.innerHTML = `<p class="mb-0 text-${type}">${escapeHtml(message)}</p>`;
+        }
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // 초기 렌더
+    renderTable();
 })();
 </script>
 {% endblock %}

@@ -65,7 +65,7 @@ def api_products():
 @transfer_bp.route('/manual', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'general')
 def manual():
-    """수동 창고 이동"""
+    """수동 창고 이동 (단건 — 하위 호환)"""
     product_name = request.form.get('product_name', '').strip()
     qty = request.form.get('qty', 0, type=int)
     from_location = request.form.get('from_location', '').strip()
@@ -101,6 +101,65 @@ def manual():
         flash(f'창고 이동 중 오류: {e}', 'danger')
 
     return redirect(url_for('transfer.index'))
+
+
+@transfer_bp.route('/batch', methods=['POST'])
+@role_required('admin', 'manager', 'logistics', 'general')
+def batch():
+    """다건 일괄 창고 이동 (JSON)"""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': '요청 데이터가 없습니다.'}), 400
+
+    items = data.get('items', [])
+    date_str = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    mode = data.get('mode', '신규입력')
+
+    if not items:
+        return jsonify({'error': '이동 항목이 없습니다.'}), 400
+
+    # 유효성 검증
+    for i, item in enumerate(items):
+        name = str(item.get('product_name', '')).strip()
+        qty = item.get('qty', 0)
+        from_loc = str(item.get('from_location', '')).strip()
+        to_loc = str(item.get('to_location', '')).strip()
+        if not name or not from_loc or not to_loc:
+            return jsonify({'error': f'{i+1}번째 항목: 품목명/출발/도착 창고를 모두 입력하세요.'}), 400
+        try:
+            qty_val = float(qty)
+            if qty_val <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({'error': f'{i+1}번째 항목 ({name}): 수량이 올바르지 않습니다.'}), 400
+        if from_loc == to_loc:
+            return jsonify({'error': f'{i+1}번째 항목 ({name}): 출발/도착 창고가 같습니다.'}), 400
+
+    # DataFrame 으로 변환하여 기존 process_transfer_excel 재활용
+    rows = []
+    for item in items:
+        rows.append({
+            '품목명': str(item['product_name']).strip(),
+            '현재창고위치': str(item['from_location']).strip(),
+            '이동창고위치': str(item['to_location']).strip(),
+            '수량입력': int(float(item['qty'])),
+        })
+    df = pd.DataFrame(rows)
+
+    try:
+        from services.transfer_service import process_transfer_excel
+        result = process_transfer_excel(current_app.db, df, date_str, mode)
+
+        return jsonify({
+            'success': True,
+            'count': result.get('count', 0),
+            'warnings': result.get('warnings', []),
+            'deleted_count': result.get('deleted_count', 0),
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'창고 이동 중 오류: {e}'}), 500
 
 
 @transfer_bp.route('/excel', methods=['POST'])
