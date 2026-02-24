@@ -56,11 +56,11 @@
                 <form method="GET" action="{{ url_for('revenue.index') }}" class="row g-3 align-items-end">
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">시작일</label>
-                        <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}">
+                        <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}" id="filterDateFrom">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">종료일</label>
-                        <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}">
+                        <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}" id="filterDateTo">
                     </div>
                     <div class="col-md-3">
                         <label class="form-label fw-semibold">카테고리</label>
@@ -81,6 +81,42 @@
         </div>
     </div>
 </div>
+
+<!-- 단가 재적용 (관리자/책임자) -->
+{% if current_user.role in ['admin', 'manager'] %}
+<div class="card mt-3">
+    <div class="card-header bg-warning bg-opacity-10">
+        <i class="bi bi-arrow-repeat"></i> 단가 재적용
+        <small class="text-muted ms-2">— 가격표(판매관리)에서 수정한 단가를 기존 매출에 일괄 반영</small>
+    </div>
+    <div class="card-body py-2">
+        <form method="POST" action="{{ url_for('revenue.reapply_prices') }}" class="row g-2 align-items-end"
+              onsubmit="return confirm('선택한 기간의 매출 단가를 현재 가격표 기준으로 재적용합니다.\n\n대상: 일반매출, 쿠팡매출, 로켓, N배송(용인)\n제외: 거래처매출 (수동 입력 단가)\n\n계속하시겠습니까?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-auto">
+                <label class="form-label mb-0 small">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" id="reapplyFrom"
+                       value="{{ date_from|default('') }}" required>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" id="reapplyTo"
+                       value="{{ date_to|default('') }}" required>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-warning">
+                    <i class="bi bi-arrow-repeat"></i> 단가 재적용
+                </button>
+            </div>
+            <div class="col-auto">
+                <small class="text-muted">
+                    가격표의 현재 단가로 매출액(=수량&times;단가)을 재계산합니다.
+                </small>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 <!-- 매출 테이블 -->
 {% if revenues is defined and revenues %}
@@ -150,5 +186,19 @@
 <div class="alert alert-info mt-4">
     <i class="bi bi-info-circle"></i> 해당 조건의 매출 데이터가 없습니다.
 </div>
+{% endif %}
+
+{% if current_user.role in ['admin', 'manager'] %}
+<script>
+// 조회 필터 날짜 변경 시 단가 재적용 날짜도 동기화
+document.getElementById('filterDateFrom')?.addEventListener('change', function() {
+    const el = document.getElementById('reapplyFrom');
+    if (el) el.value = this.value;
+});
+document.getElementById('filterDateTo')?.addEventListener('change', function() {
+    const el = document.getElementById('reapplyTo');
+    if (el) el.value = this.value;
+});
+</script>
 {% endif %}
 {% endblock %}
