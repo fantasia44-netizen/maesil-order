@@ -406,9 +406,9 @@
         const editBtn = e.target.closest('.hist-edit');
         const delBtn = e.target.closest('.hist-del');
         if(editBtn) {
-            const id = parseInt(editBtn.dataset.id);
-            const row = historyData.find(r => r.id === id);
-            if(!row) return;
+            const id = editBtn.dataset.id;
+            const row = historyData.find(r => String(r.id) === String(id));
+            if(!row){ console.warn('editModal: row not found for id', id, historyData); return; }
             document.getElementById('editId').value = id;
             document.getElementById('editProductName').value = row.product_name || '';
             document.getElementById('editQty').value = row.qty || '';
