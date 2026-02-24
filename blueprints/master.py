@@ -348,3 +348,110 @@ def search():
                            master_type=table_key,
                            table_key=table_key,
                            tables=MASTER_TABLES)
+
+
+# ================================================================
+# 옵션마스터 CRUD API (AJAX)
+# ================================================================
+
+@master_bp.route('/api/options')
+@role_required('admin')
+def api_options():
+    """옵션마스터 목록 API (검색 + 페이지네이션)"""
+    keyword = request.args.get('q', '').strip()
+    page = max(int(request.args.get('page', 1)), 1)
+    per_page = min(int(request.args.get('per_page', 50)), 200)
+
+    db = current_app.db
+    if keyword:
+        all_data = db.search_option_master(keyword)
+    else:
+        all_data = db.query_option_master()
+
+    total = len(all_data)
+    start = (page - 1) * per_page
+    page_data = all_data[start:start + per_page]
+
+    return jsonify({
+        'data': page_data,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': max((total + per_page - 1) // per_page, 1),
+    })
+
+
+@master_bp.route('/api/options', methods=['POST'])
+@role_required('admin')
+def api_option_create():
+    """옵션마스터 등록 API"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    original_name = (data.get('original_name') or '').strip()
+    product_name = (data.get('product_name') or '').strip()
+    if not original_name or not product_name:
+        return jsonify({'error': '원문명과 품목명은 필수입니다.'}), 400
+
+    try:
+        sort_val = int(data.get('sort_order', 999))
+    except (ValueError, TypeError):
+        sort_val = 999
+
+    payload = {
+        'original_name': original_name,
+        'product_name': product_name,
+        'line_code': (data.get('line_code') or '0').strip(),
+        'sort_order': sort_val,
+        'barcode': (data.get('barcode') or '').strip(),
+    }
+
+    try:
+        current_app.db.insert_option_master(payload)
+        _log_action('insert_option_master', target=original_name,
+                     detail=f'{original_name} → {product_name}')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@master_bp.route('/api/options/<int:option_id>', methods=['PUT'])
+@role_required('admin')
+def api_option_update(option_id):
+    """옵션마스터 수정 API"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    allowed_fields = {'original_name', 'product_name', 'line_code', 'sort_order', 'barcode'}
+    update_data = {k: v for k, v in data.items() if k in allowed_fields}
+
+    if 'sort_order' in update_data:
+        try:
+            update_data['sort_order'] = int(update_data['sort_order'])
+        except (ValueError, TypeError):
+            update_data['sort_order'] = 999
+
+    if not update_data:
+        return jsonify({'error': '수정할 필드가 없습니다.'}), 400
+
+    try:
+        current_app.db.update_option_master(option_id, update_data)
+        _log_action('update_option_master', target=str(option_id),
+                     detail=str(update_data))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@master_bp.route('/api/options/<int:option_id>', methods=['DELETE'])
+@role_required('admin')
+def api_option_delete(option_id):
+    """옵션마스터 삭제 API"""
+    try:
+        current_app.db.delete_option_master(option_id)
+        _log_action('delete_option_master', target=str(option_id))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

@@ -154,6 +154,105 @@
     </div>
 </div>
 
+<!-- 옵션마스터 관리 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-ul"></i> 옵션마스터 관리 (<span id="optTotalCount">0</span>건)</span>
+        <button class="btn btn-sm btn-primary" onclick="openAddOptionModal()">
+            <i class="bi bi-plus-circle"></i> 신규 등록
+        </button>
+    </div>
+    <div class="card-body">
+        <!-- 검색 -->
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" id="optSearchInput" class="form-control"
+                           placeholder="원문명 또는 품목명 검색...">
+                </div>
+            </div>
+            <div class="col-md-6 text-end">
+                <select id="optPerPage" class="form-select d-inline-block w-auto">
+                    <option value="30">30건</option>
+                    <option value="50" selected>50건</option>
+                    <option value="100">100건</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 테이블 -->
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>원문명</th>
+                        <th>품목명</th>
+                        <th style="width:80px">라인코드</th>
+                        <th style="width:80px">출력순서</th>
+                        <th>바코드</th>
+                        <th style="width:100px">마지막 매칭</th>
+                        <th style="width:100px">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="optTableBody">
+                    <tr><td colspan="7" class="text-center text-muted py-4">로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 페이지네이션 -->
+        <nav class="mt-3 d-flex justify-content-between align-items-center">
+            <small class="text-muted" id="optPageInfo"></small>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" id="optPrevBtn" disabled>&laquo; 이전</button>
+                <button class="btn btn-outline-secondary" id="optNextBtn" disabled>다음 &raquo;</button>
+            </div>
+        </nav>
+    </div>
+</div>
+
+<!-- 옵션 수정/등록 모달 -->
+<div class="modal fade" id="optionEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="optionEditTitle">옵션 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="optEditId">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">원문명 <span class="text-danger">*</span></label>
+                    <input type="text" id="optEditOriginalName" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">품목명 <span class="text-danger">*</span></label>
+                    <input type="text" id="optEditProductName" class="form-control">
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">라인코드</label>
+                        <input type="text" id="optEditLineCode" class="form-control" value="0">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">출력순서</label>
+                        <input type="number" id="optEditSortOrder" class="form-control" value="999">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">바코드</label>
+                        <input type="text" id="optEditBarcode" class="form-control">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="optEditSaveBtn">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 품목명 공백 정리 -->
 <div class="card mb-4">
     <div class="card-body d-flex justify-content-between align-items-center">
@@ -228,4 +327,181 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const csrfToken = '{{ csrf_token() }}';
+    let currentPage = 1;
+    let currentKeyword = '';
+    let perPage = 50;
+
+    loadOptions();
+
+    // 검색 디바운스
+    let searchTimer;
+    document.getElementById('optSearchInput').addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() {
+            currentKeyword = document.getElementById('optSearchInput').value.trim();
+            currentPage = 1;
+            loadOptions();
+        }, 300);
+    });
+
+    document.getElementById('optPerPage').addEventListener('change', function() {
+        perPage = parseInt(this.value);
+        currentPage = 1;
+        loadOptions();
+    });
+
+    document.getElementById('optPrevBtn').addEventListener('click', function() {
+        if (currentPage > 1) { currentPage--; loadOptions(); }
+    });
+    document.getElementById('optNextBtn').addEventListener('click', function() {
+        currentPage++;
+        loadOptions();
+    });
+
+    function loadOptions() {
+        let url = '/master/api/options?page=' + currentPage + '&per_page=' + perPage;
+        if (currentKeyword) url += '&q=' + encodeURIComponent(currentKeyword);
+
+        fetch(url)
+            .then(r => r.json())
+            .then(resp => {
+                renderTable(resp.data);
+                updatePagination(resp);
+            })
+            .catch(e => console.error('옵션 로드 실패:', e));
+    }
+
+    function renderTable(rows) {
+        const tbody = document.getElementById('optTableBody');
+        if (!rows || !rows.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(r => {
+            const lm = r.last_matched_at ? r.last_matched_at.substring(0, 10) : '<span class="text-muted">없음</span>';
+            const rJson = JSON.stringify(r).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return '<tr>' +
+                '<td class="text-truncate" style="max-width:200px" title="' + escapeHtml(r.original_name || '') + '">' + escapeHtml(r.original_name || '') + '</td>' +
+                '<td>' + escapeHtml(r.product_name || '') + '</td>' +
+                '<td>' + escapeHtml(String(r.line_code || '0')) + '</td>' +
+                '<td>' + (r.sort_order != null ? r.sort_order : 999) + '</td>' +
+                '<td>' + escapeHtml(r.barcode || '') + '</td>' +
+                '<td>' + lm + '</td>' +
+                '<td>' +
+                    '<button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal(' + r.id + ')" title="수정"><i class="bi bi-pencil"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="deleteOption(' + r.id + ')" title="삭제"><i class="bi bi-trash"></i></button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+
+        // 행 데이터 저장
+        window._optRows = {};
+        rows.forEach(r => { window._optRows[r.id] = r; });
+    }
+
+    function updatePagination(resp) {
+        document.getElementById('optTotalCount').textContent = resp.total;
+        const start = (resp.page - 1) * resp.per_page + 1;
+        const end = Math.min(resp.page * resp.per_page, resp.total);
+        document.getElementById('optPageInfo').textContent = resp.total > 0
+            ? resp.total + '건 중 ' + start + '~' + end
+            : '0건';
+        document.getElementById('optPrevBtn').disabled = resp.page <= 1;
+        document.getElementById('optNextBtn').disabled = resp.page >= resp.total_pages;
+    }
+
+    // 수정 모달
+    window.openEditModal = function(id) {
+        const opt = window._optRows[id];
+        if (!opt) return;
+        document.getElementById('optionEditTitle').textContent = '옵션 수정';
+        document.getElementById('optEditId').value = opt.id;
+        document.getElementById('optEditOriginalName').value = opt.original_name || '';
+        document.getElementById('optEditProductName').value = opt.product_name || '';
+        document.getElementById('optEditLineCode').value = opt.line_code || '0';
+        document.getElementById('optEditSortOrder').value = opt.sort_order != null ? opt.sort_order : 999;
+        document.getElementById('optEditBarcode').value = opt.barcode || '';
+        new bootstrap.Modal(document.getElementById('optionEditModal')).show();
+    };
+
+    // 신규 등록 모달
+    window.openAddOptionModal = function() {
+        document.getElementById('optionEditTitle').textContent = '옵션 신규 등록';
+        document.getElementById('optEditId').value = '';
+        document.getElementById('optEditOriginalName').value = '';
+        document.getElementById('optEditProductName').value = '';
+        document.getElementById('optEditLineCode').value = '0';
+        document.getElementById('optEditSortOrder').value = '999';
+        document.getElementById('optEditBarcode').value = '';
+        new bootstrap.Modal(document.getElementById('optionEditModal')).show();
+    };
+
+    // 저장 (등록/수정 공용)
+    document.getElementById('optEditSaveBtn').addEventListener('click', function() {
+        const id = document.getElementById('optEditId').value;
+        const payload = {
+            original_name: document.getElementById('optEditOriginalName').value.trim(),
+            product_name: document.getElementById('optEditProductName').value.trim(),
+            line_code: document.getElementById('optEditLineCode').value.trim(),
+            sort_order: parseInt(document.getElementById('optEditSortOrder').value) || 999,
+            barcode: document.getElementById('optEditBarcode').value.trim(),
+        };
+
+        if (!payload.original_name || !payload.product_name) {
+            alert('원문명과 품목명은 필수입니다.');
+            return;
+        }
+
+        const url = id ? '/master/api/options/' + id : '/master/api/options';
+        const method = id ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('optionEditModal')).hide();
+                loadOptions();
+            } else {
+                alert('저장 실패: ' + (data.error || ''));
+            }
+        })
+        .catch(e => alert('저장 중 오류: ' + e.message));
+    });
+
+    // 삭제
+    window.deleteOption = function(id) {
+        if (!confirm('이 옵션을 삭제하시겠습니까?')) return;
+
+        fetch('/master/api/options/' + id, {
+            method: 'DELETE',
+            headers: { 'X-CSRFToken': csrfToken },
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                loadOptions();
+            } else {
+                alert('삭제 실패: ' + (data.error || ''));
+            }
+        })
+        .catch(e => alert('삭제 중 오류: ' + e.message));
+    };
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+})();
+</script>
 {% endblock %}
