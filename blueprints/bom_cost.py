@@ -103,15 +103,11 @@ def api_save_cost():
         cost_map_raw = db.query_product_costs()
         old_data = cost_map_raw.get(product_name)
         old_value = None
-        # material_type: 클라이언트 값 우선 → stock_ledger.category → 기존 DB값
-        client_mt = (data.get('material_type') or '').strip()
-        if client_mt:
-            material_type = client_mt
-        else:
-            category_map = db.query_product_categories()
-            material_type = (category_map.get(product_name)
-                             or category_map.get(product_name.replace(' ', ''))
-                             or (old_data.get('material_type', '원료') if old_data else '원료'))
+        # material_type: stock_ledger.category만 사용. 없으면 빈값
+        category_map = db.query_product_categories()
+        material_type = (category_map.get(product_name)
+                         or category_map.get(product_name.replace(' ', ''))
+                         or '')
         if old_data:
             old_value = {
                 'cost_price': float(old_data.get('cost_price', 0)),
@@ -159,21 +155,15 @@ def api_save_cost_batch():
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
     items = data['items']
-    # material_type: 클라이언트 값 우선 → stock_ledger.category → 기존 DB값
-    cost_map_raw = db.query_product_costs()
+    # material_type: stock_ledger.category만 사용. 없으면 빈값
     category_map = db.query_product_categories()
     valid_items = []
     for item in items:
         pn = (item.get('product_name') or '').strip()
         if pn:
-            existing = cost_map_raw.get(pn)
-            client_mt = (item.get('material_type') or '').strip()
-            if client_mt:
-                mt = client_mt
-            else:
-                mt = (category_map.get(pn)
-                      or category_map.get(pn.replace(' ', ''))
-                      or (existing.get('material_type', '원료') if existing else '원료'))
+            mt = (category_map.get(pn)
+                  or category_map.get(pn.replace(' ', ''))
+                  or '')
             valid_items.append({
                 'product_name': pn,
                 'cost_price': float(item.get('cost_price', 0)),
