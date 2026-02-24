@@ -42,6 +42,7 @@ def api_data():
                 'weight': float(detail.get('weight', 0) or 0),
                 'weight_unit': detail.get('weight_unit', 'g') or 'g',
                 'cost_type': detail.get('cost_type', '매입') or '매입',
+                'material_type': detail.get('material_type', '원료') or '원료',
             })
 
         return jsonify({
@@ -78,13 +79,14 @@ def api_save_cost():
     weight = float(data.get('weight', 0) or 0)
     weight_unit = (data.get('weight_unit') or 'g').strip()
     cost_type = (data.get('cost_type') or '매입').strip()
+    material_type = (data.get('material_type') or '원료').strip()
 
     try:
         db.upsert_product_cost(product_name, cost_price, unit, memo,
                                weight=weight, weight_unit=weight_unit,
-                               cost_type=cost_type)
+                               cost_type=cost_type, material_type=material_type)
         _log_action('update_product_cost', target=product_name,
-                     detail=f'유형={cost_type}, 단가={cost_price}, 중량={weight}{weight_unit}')
+                     detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 중량={weight}{weight_unit}')
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -112,6 +114,7 @@ def api_save_cost_batch():
                 'weight': float(item.get('weight', 0) or 0),
                 'weight_unit': (item.get('weight_unit') or 'g').strip(),
                 'cost_type': (item.get('cost_type') or '매입').strip(),
+                'material_type': (item.get('material_type') or '원료').strip(),
             })
 
     if not valid_items:

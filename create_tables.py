@@ -97,6 +97,13 @@ ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
 ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight_unit TEXT DEFAULT 'g';
 ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS cost_type TEXT DEFAULT '매입';
 -- cost_type: '매입' = 원재료(구매품), '생산' = 완제품(생산품)
+
+-- 8) product_costs 확장: 종류(material_type) 컬럼 추가
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS material_type TEXT DEFAULT '원료';
+-- material_type: '원료', '부재료', '반제품', '완제품', '포장재'
+
+-- 마이그레이션: 기존 생산 유형은 완제품으로 전환
+UPDATE product_costs SET material_type = '완제품' WHERE cost_type = '생산' AND material_type = '원료';
 """
 
 print("=" * 60)

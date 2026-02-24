@@ -293,9 +293,11 @@ class SupabaseDB(DBBase):
             return {}
 
     def upsert_product_cost(self, product_name, cost_price, unit='', memo='',
-                            weight=0, weight_unit='g', cost_type='매입'):
+                            weight=0, weight_unit='g', cost_type='매입',
+                            material_type='원료'):
         """품목 단가 1건 등록/수정 (upsert).
         cost_type: '매입' = 원재료 매입단가, '생산' = 완제품 생산단가
+        material_type: '원료', '부재료', '반제품', '완제품', '포장재'
         """
         from datetime import datetime, timezone
         payload = {
@@ -306,6 +308,7 @@ class SupabaseDB(DBBase):
             'weight': float(weight or 0),
             'weight_unit': weight_unit or 'g',
             'cost_type': cost_type or '매입',
+            'material_type': material_type or '원료',
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("product_costs").upsert(
@@ -314,7 +317,7 @@ class SupabaseDB(DBBase):
 
     def upsert_product_costs_batch(self, items):
         """품목 단가 일괄 등록/수정.
-        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?, cost_type?}]
+        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?, cost_type?, material_type?}]
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -328,6 +331,7 @@ class SupabaseDB(DBBase):
                 'weight': float(item.get('weight', 0) or 0),
                 'weight_unit': item.get('weight_unit', 'g') or 'g',
                 'cost_type': item.get('cost_type', '매입') or '매입',
+                'material_type': item.get('material_type', '원료') or '원료',
                 'updated_at': now,
             })
         if not payload:

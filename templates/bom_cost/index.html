@@ -158,9 +158,17 @@
                 <span><i class="bi bi-currency-won"></i> 단가 관리</span>
                 <div class="d-flex gap-2">
                     <select id="costTypeFilter" class="form-select form-select-sm" style="width:120px;">
-                        <option value="all">전체</option>
+                        <option value="all">전체 유형</option>
                         <option value="매입">매입(원재료)</option>
                         <option value="생산">생산(완제품)</option>
+                    </select>
+                    <select id="materialTypeFilter" class="form-select form-select-sm" style="width:120px;">
+                        <option value="all">전체 종류</option>
+                        <option value="원료">원료</option>
+                        <option value="부재료">부재료</option>
+                        <option value="반제품">반제품</option>
+                        <option value="완제품">완제품</option>
+                        <option value="포장재">포장재</option>
                     </select>
                     <input type="text" id="costSearch" class="form-control form-control-sm"
                            placeholder="품목명 검색..." style="width:200px;">
@@ -183,7 +191,8 @@
                     <table class="table table-sm table-hover mb-0" id="costTable">
                         <thead class="table-light" style="position:sticky; top:0; z-index:1;">
                             <tr>
-                                <th style="width:70px;">유형</th>
+                                <th style="width:65px;">유형</th>
+                                <th style="width:65px;">종류</th>
                                 <th>품목명</th>
                                 <th class="text-end" style="width:120px;">단가 (원)</th>
                                 <th class="text-end" style="width:100px;">중량 (g)</th>
@@ -194,7 +203,7 @@
                             </tr>
                         </thead>
                         <tbody id="costBody">
-                            <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -202,11 +211,21 @@
             <!-- 신규 단가 추가 -->
             <div class="card-footer d-none" id="costAddForm">
                 <div class="row g-2 align-items-end">
-                    <div class="col-md-1">
+                    <div class="col-auto">
                         <label class="form-label small fw-semibold">유형</label>
-                        <select id="newCostType" class="form-select form-select-sm">
+                        <select id="newCostType" class="form-select form-select-sm" style="width:70px;">
                             <option value="매입">매입</option>
                             <option value="생산">생산</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">종류</label>
+                        <select id="newMaterialType" class="form-select form-select-sm" style="width:80px;">
+                            <option value="원료">원료</option>
+                            <option value="부재료">부재료</option>
+                            <option value="반제품">반제품</option>
+                            <option value="완제품">완제품</option>
+                            <option value="포장재">포장재</option>
                         </select>
                     </div>
                     <div class="col-md-3">
@@ -218,21 +237,21 @@
                         <label class="form-label small fw-semibold">단가</label>
                         <input type="number" id="newCostPrice" class="form-control form-control-sm" placeholder="0" min="0">
                     </div>
-                    <div class="col-md-1">
+                    <div class="col-auto">
                         <label class="form-label small fw-semibold">중량(g)</label>
-                        <input type="number" id="newCostWeight" class="form-control form-control-sm" placeholder="0" min="0">
+                        <input type="number" id="newCostWeight" class="form-control form-control-sm" placeholder="0" min="0" style="width:80px;">
                     </div>
-                    <div class="col-md-1">
+                    <div class="col-auto">
                         <label class="form-label small fw-semibold">단위</label>
-                        <input type="text" id="newCostUnit" class="form-control form-control-sm" placeholder="개">
+                        <input type="text" id="newCostUnit" class="form-control form-control-sm" placeholder="개" style="width:60px;">
                     </div>
-                    <div class="col-md-2">
+                    <div class="col">
                         <label class="form-label small fw-semibold">메모</label>
                         <input type="text" id="newCostMemo" class="form-control form-control-sm" placeholder="메모">
                     </div>
-                    <div class="col-md-2">
+                    <div class="col-auto">
                         <button class="btn btn-sm btn-primary" onclick="addNewCost()">
-                            <i class="bi bi-plus-lg"></i> 단가 추가
+                            <i class="bi bi-plus-lg"></i> 추가
                         </button>
                     </div>
                 </div>
@@ -515,12 +534,20 @@
         renderBomTable();
     };
 
-    // ====== 단가 테이블 렌더링 (매입/생산 구분) ======
+    // ====== 종류(material_type) 배지 색상 헬퍼 ======
+    function mtBadge(mt) {
+        const colors = {'원료':'primary','부재료':'info','반제품':'warning text-dark','완제품':'success','포장재':'secondary'};
+        const cls = colors[mt] || 'secondary';
+        return '<span class="badge bg-' + cls + '" style="font-size:0.72rem;">' + escapeHtml(mt) + '</span>';
+    }
+
+    // ====== 단가 테이블 렌더링 (매입/생산 구분 + 종류) ======
     function renderCostTable() {
         const tbody = document.getElementById('costBody');
         const searchTerm = document.getElementById('costSearch').value.replace(/\s/g, '').toLowerCase();
         const filterMode = document.getElementById('costFilter').value;
         const costTypeMode = document.getElementById('costTypeFilter').value;
+        const matTypeMode = document.getElementById('materialTypeFilter').value;
 
         const costMap = {};
         costData.forEach(c => { costMap[c.product_name] = c; });
@@ -528,77 +555,49 @@
         const bomSet = new Set(bomComponents);  // BOM 구성품 빠른 조회용
         let items = [];
 
+        function _buildItem(name, existing) {
+            return {
+                product_name: name,
+                cost_price: existing ? existing.cost_price : 0,
+                weight: existing ? (existing.weight || 0) : 0,
+                unit: existing ? existing.unit : '',
+                memo: existing ? existing.memo : '',
+                cost_type: existing ? (existing.cost_type || '매입') : '매입',
+                material_type: existing ? (existing.material_type || '원료') : '원료',
+                is_bom: bomSet.has(name),
+            };
+        }
+
         if (filterMode === 'bom') {
-            // BOM 구성품만
-            bomComponents.forEach(name => {
-                const existing = costMap[name];
-                items.push({
-                    product_name: name,
-                    cost_price: existing ? existing.cost_price : 0,
-                    weight: existing ? (existing.weight || 0) : 0,
-                    unit: existing ? existing.unit : '',
-                    memo: existing ? existing.memo : '',
-                    cost_type: existing ? (existing.cost_type || '매입') : '매입',
-                    is_bom: true,
-                });
-            });
+            bomComponents.forEach(name => items.push(_buildItem(name, costMap[name])));
         } else if (filterMode === 'missing') {
-            // 미입력만 (전체 품목 중 cost_price 없는 것)
             allProducts.forEach(name => {
                 const existing = costMap[name];
-                const cp = existing ? existing.cost_price : 0;
-                if (cp === 0) {
-                    items.push({
-                        product_name: name,
-                        cost_price: 0,
-                        weight: existing ? (existing.weight || 0) : 0,
-                        unit: existing ? existing.unit : '',
-                        memo: existing ? existing.memo : '',
-                        cost_type: existing ? (existing.cost_type || '매입') : '매입',
-                        is_bom: bomSet.has(name),
-                    });
-                }
+                if ((existing ? existing.cost_price : 0) === 0)
+                    items.push(_buildItem(name, existing));
             });
         } else if (filterMode === 'entered') {
-            // 입력완료만
-            costData.forEach(c => {
-                items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
-                    is_bom: bomSet.has(c.product_name) });
-            });
+            costData.forEach(c => items.push({ ...c, weight: c.weight || 0,
+                cost_type: c.cost_type || '매입', material_type: c.material_type || '원료',
+                is_bom: bomSet.has(c.product_name) }));
         } else {
-            // 전체: allProducts (전 품목) + costData에만 있는 추가 항목
             const seen = new Set();
-            allProducts.forEach(name => {
-                const existing = costMap[name];
-                items.push({
-                    product_name: name,
-                    cost_price: existing ? existing.cost_price : 0,
-                    weight: existing ? (existing.weight || 0) : 0,
-                    unit: existing ? existing.unit : '',
-                    memo: existing ? existing.memo : '',
-                    cost_type: existing ? (existing.cost_type || '매입') : '매입',
-                    is_bom: bomSet.has(name),
-                });
-                seen.add(name);
-            });
+            allProducts.forEach(name => { items.push(_buildItem(name, costMap[name])); seen.add(name); });
             costData.forEach(c => {
-                if (!seen.has(c.product_name)) {
+                if (!seen.has(c.product_name))
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
-                        is_bom: bomSet.has(c.product_name) });
-                }
+                        material_type: c.material_type || '원료', is_bom: bomSet.has(c.product_name) });
             });
         }
 
         // 유형 필터
-        if (costTypeMode && costTypeMode !== 'all') {
-            items = items.filter(i => i.cost_type === costTypeMode);
-        }
-        if (searchTerm) {
-            items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
-        }
+        if (costTypeMode && costTypeMode !== 'all') items = items.filter(i => i.cost_type === costTypeMode);
+        // 종류 필터
+        if (matTypeMode && matTypeMode !== 'all') items = items.filter(i => i.material_type === matTypeMode);
+        if (searchTerm) items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
 
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
             return;
         }
 
@@ -608,6 +607,7 @@
             const modKey = item.product_name;
             const isModified = modifiedCosts[modKey] !== undefined;
             const ct = item.cost_type || '매입';
+            const mt = item.material_type || '원료';
             const ctBadge = ct === '생산'
                 ? '<span class="badge bg-success">생산</span>'
                 : '<span class="badge bg-secondary">매입</span>';
@@ -616,11 +616,17 @@
 
             if (costEditMode) {
                 // ── 수정 모드 ──
-                html += '<td><select class="form-select form-select-sm" style="width:65px;font-size:0.78rem;padding:1px 4px;" '
+                html += '<td><select class="form-select form-select-sm" style="width:60px;font-size:0.75rem;padding:1px 2px;" '
                      + 'data-field="cost_type" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)">'
                      + '<option value="매입"' + (ct === '매입' ? ' selected' : '') + '>매입</option>'
                      + '<option value="생산"' + (ct === '생산' ? ' selected' : '') + '>생산</option></select></td>';
+                html += '<td><select class="form-select form-select-sm" style="width:65px;font-size:0.75rem;padding:1px 2px;" '
+                     + 'data-field="material_type" data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this)">'
+                     + ['원료','부재료','반제품','완제품','포장재'].map(v =>
+                         '<option value="' + v + '"' + (mt === v ? ' selected' : '') + '>' + v + '</option>').join('')
+                     + '</select></td>';
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
                 html += '</td>';
@@ -631,8 +637,7 @@
                 html += '<td class="text-end"><input type="number" class="form-control form-control-sm weight-input" '
                      + 'value="' + (item.weight || 0) + '" min="0" step="0.1" '
                      + 'data-field="weight" data-name="' + escapeAttr(item.product_name) + '" '
-                     + 'onchange="window._costChanged(this)"'
-                     + (ct === '매입' ? ' placeholder="-"' : '') + '></td>';
+                     + 'onchange="window._costChanged(this)"></td>';
                 html += '<td><input type="text" class="form-control form-control-sm" '
                      + 'value="' + escapeAttr(item.unit) + '" style="width:60px;" '
                      + 'data-field="unit" data-name="' + escapeAttr(item.product_name) + '" '
@@ -652,6 +657,7 @@
             } else {
                 // ── 보기 모드 ──
                 html += '<td>' + ctBadge + '</td>';
+                html += '<td>' + mtBadge(mt) + '</td>';
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
                 html += '</td>';
@@ -736,15 +742,19 @@
         else modifiedCosts[name].cost_price = parseFloat(el.value) || 0;
         const row = el.closest('tr');
         if (row) {
-            const badge = row.querySelector('td:nth-child(7) .badge');
+            const badge = row.querySelector('td:nth-child(8) .badge');
             if (badge) { badge.className = 'badge bg-info'; badge.textContent = '변경됨'; }
         }
     };
 
-    // ====== 행에서 cost_type 읽기 헬퍼 ======
+    // ====== 행에서 cost_type / material_type 읽기 헬퍼 ======
     function _readRowCostType(row) {
         const sel = row.querySelector('select[data-field="cost_type"]');
         return sel ? sel.value : '매입';
+    }
+    function _readRowMaterialType(row) {
+        const sel = row.querySelector('select[data-field="material_type"]');
+        return sel ? sel.value : '원료';
     }
 
     // ====== 단건 저장 ======
@@ -753,6 +763,7 @@
         if (!row) return;
         const inputs = row.querySelectorAll('input');
         const costType = _readRowCostType(row);
+        const materialType = _readRowMaterialType(row);
         const costPrice = parseFloat(inputs[0].value) || 0;
         const weight = parseFloat(inputs[1].value) || 0;
         const unit = inputs[2].value.trim();
@@ -763,23 +774,24 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
                 body: JSON.stringify({product_name: productName, cost_price: costPrice,
-                    weight, unit, memo, cost_type: costType}),
+                    weight, unit, memo, cost_type: costType, material_type: materialType}),
             });
             const json = await res.json();
             if (json.success) {
                 delete modifiedCosts[productName];
                 row.classList.add('cost-saved');
                 setTimeout(() => row.classList.remove('cost-saved'), 600);
-                const badge = row.querySelector('td:nth-child(7) .badge');
+                const badge = row.querySelector('td:nth-child(8) .badge');
                 if (badge) { badge.className = 'badge bg-success'; badge.textContent = '완료'; }
                 row.classList.remove('missing-cost');
                 const existing = costData.find(c => c.product_name === productName);
                 if (existing) {
                     existing.cost_price = costPrice; existing.weight = weight;
                     existing.unit = unit; existing.memo = memo; existing.cost_type = costType;
+                    existing.material_type = materialType;
                 } else {
                     costData.push({product_name: productName, cost_price: costPrice,
-                        weight, unit, memo, cost_type: costType});
+                        weight, unit, memo, cost_type: costType, material_type: materialType});
                 }
             } else alert('저장 실패: ' + (json.error || ''));
         } catch(e) { alert('저장 오류: ' + e.message); }
@@ -795,6 +807,7 @@
             const name = inputs[0].getAttribute('data-name');
             if (!name) return;
             const costType = _readRowCostType(row);
+            const materialType = _readRowMaterialType(row);
             const costPrice = parseFloat(inputs[0].value) || 0;
             const weight = parseFloat(inputs[1].value) || 0;
             if (costPrice <= 0 && weight <= 0) return;
@@ -805,6 +818,7 @@
                 unit: inputs[2].value.trim(),
                 memo: inputs[3].value.trim(),
                 cost_type: costType,
+                material_type: materialType,
             });
         });
 
@@ -835,6 +849,7 @@
         const unit = document.getElementById('newCostUnit').value.trim();
         const memo = document.getElementById('newCostMemo').value.trim();
         const costType = document.getElementById('newCostType').value;
+        const materialType = document.getElementById('newMaterialType').value;
         if (!name) { alert('품목명을 입력하세요.'); return; }
 
         try {
@@ -842,7 +857,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
                 body: JSON.stringify({product_name: name, cost_price: price, weight, unit, memo,
-                    cost_type: costType}),
+                    cost_type: costType, material_type: materialType}),
             });
             const json = await res.json();
             if (json.success) {
@@ -1025,6 +1040,7 @@
     document.getElementById('channelFilter').addEventListener('change', renderBomTable);
     document.getElementById('bomSearch').addEventListener('input', renderBomTable);
     document.getElementById('costTypeFilter').addEventListener('change', renderCostTable);
+    document.getElementById('materialTypeFilter').addEventListener('change', renderCostTable);
     document.getElementById('costSearch').addEventListener('input', renderCostTable);
     document.getElementById('costFilter').addEventListener('change', renderCostTable);
 

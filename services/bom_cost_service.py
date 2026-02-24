@@ -113,13 +113,14 @@ def calculate_bom_costs(db):
     cost_map_raw = db.query_product_costs()
     cost_map = {k: float(v.get('cost_price', 0)) for k, v in cost_map_raw.items()}
 
-    # 2-1. 중량 맵 (weight)
+    # 2-1. 중량 맵 (weight + material_type)
     weight_map = {}
     for k, v in cost_map_raw.items():
         w = float(v.get('weight', 0) or 0)
         wu = v.get('weight_unit', 'g') or 'g'
-        if w > 0:
-            weight_map[k] = {'weight': w, 'weight_unit': wu}
+        mt = v.get('material_type', '원료') or '원료'
+        # material_type은 항상 포함, weight=0이어도 기록
+        weight_map[k] = {'weight': w, 'weight_unit': wu, 'material_type': mt}
 
     # 3. 판매가 로드
     price_map = db.query_price_table()

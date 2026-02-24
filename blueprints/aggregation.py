@@ -25,19 +25,24 @@ def _allowed(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
 
+def _list_result_files(output_dir, limit=30):
+    """최근 처리 결과 파일 목록 — 파일 수정시간(날짜) 내림차순 정렬."""
+    if not os.path.exists(output_dir):
+        return []
+    files = [f for f in os.listdir(output_dir)
+             if f.endswith(('.xlsx', '.xls', '.csv'))]
+    # 파일 수정시간 기준 최신순 정렬
+    files.sort(key=lambda f: os.path.getmtime(os.path.join(output_dir, f)),
+               reverse=True)
+    return files[:limit]
+
+
 @aggregation_bp.route('/')
 @role_required('admin', 'manager', 'sales')
 def index():
     """집계 업로드 폼"""
     output_dir = current_app.config['OUTPUT_FOLDER']
-    result_files = []
-    if os.path.exists(output_dir):
-        result_files = sorted(
-            [f for f in os.listdir(output_dir)
-             if f.endswith(('.xlsx', '.xls', '.csv'))],
-            reverse=True,
-        )[:30]
-
+    result_files = _list_result_files(output_dir)
     return render_template('aggregation/index.html', result_files=result_files)
 
 
@@ -127,12 +132,8 @@ def process():
                 'url': url_for('aggregation.download', filename=fname),
             })
 
-        # 최근 처리 결과 파일 목록
-        result_files = sorted(
-            [f for f in os.listdir(output_dir)
-             if f.endswith(('.xlsx', '.xls', '.csv'))],
-            reverse=True,
-        )[:30]
+        # 최근 처리 결과 파일 목록 (날짜순)
+        result_files = _list_result_files(output_dir)
 
         return render_template('aggregation/index.html',
                                result={'logs': result.get('logs', []),
