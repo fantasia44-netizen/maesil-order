@@ -145,59 +145,25 @@ def calculate_bom_costs(db):
             bom_lookup[(ch, sn)] = comp
             all_set_names.add(sn)
 
-    # 6. 모든 BOM 항목 분석
-    bom_items = []
-    all_component_names = set()
-
-    for (channel, set_name), comp_str in sorted(bom_lookup.items()):
-        # 직접 구성품 파싱 (1단계)
-        direct_components = parse_components(comp_str)
-        # 재귀 전개 (최종 단품)
-        final_items = explode_bom_recursive(bom_lookup, set_name, channel)
-
-        # 구성품별 원가 계산
-        comp_details = []
-        total_cost = 0
-        total_weight = 0
-        for comp_name, comp_qty in sorted(final_items.items()):
-            unit_cost = cost_map.get(comp_name, 0)
-            subtotal = unit_cost * comp_qty
-            total_cost += subtotal
-
-            # 중량 계산
-            w_info = weight_map.get(comp_name, {})
-            comp_weight = w_info.get('weight', 0) * comp_qty
-            total_weight += comp_weight
-
-            comp_details.append({
-                'name': comp_name,
-                'qty': comp_qty,
-                'cost_price': unit_cost,
-                'subtotal': subtotal,
-                'weight': w_info.get('weight', 0),
-                'weight_unit': w_info.get('weight_unit', 'g'),
-            })
-            all_component_names.add(comp_name)
-
-        # 판매가 + 마진 계산
+    # 6. 마진 계산 헬퍼 ─────────────────────────────
+    def _calc_margins(product_name, total_cost, total_weight):
+        """판매가 × 채널비용 → 마진 계산. 여러 BOM 항목에서 공통 사용."""
         prices = {}
         margins = {}
         net_margins = {}
         net_profits = {}
         cost_breakdown = {}
-        p = price_map.get(set_name, {})
+        p = price_map.get(product_name, {})
 
         for label, key in [('네이버', '네이버판매가'), ('쿠팡', '쿠팡판매가'), ('로켓', '로켓판매가')]:
             sell = float(p.get(key, 0))
             prices[label] = sell
 
-            # 기존 원가마진
             if sell > 0 and total_cost > 0:
                 margins[label] = round((sell - total_cost) / sell * 100, 1)
             else:
                 margins[label] = None
 
-            # 채널비용 반영 순마진
             ch_cost = channel_costs.get(label, {})
             fee = sell * (ch_cost.get('fee_rate', 0) / 100)
             ship = ch_cost.get('shipping', 0)
@@ -220,9 +186,46 @@ def calculate_bom_costs(db):
                 net_profits[label] = None
                 net_margins[label] = None
 
+        return prices, margins, net_margins, net_profits, cost_breakdown
+
+    # 7. 모든 BOM 항목 분석 (세트) ─────────────────
+    bom_items = []
+    all_component_names = set()
+    processed_products = set()          # 세트로 이미 처리된 품목 추적
+
+    for (channel, set_name), comp_str in sorted(bom_lookup.items()):
+        direct_components = parse_components(comp_str)
+        final_items = explode_bom_recursive(bom_lookup, set_name, channel)
+
+        comp_details = []
+        total_cost = 0
+        total_weight = 0
+        for comp_name, comp_qty in sorted(final_items.items()):
+            unit_cost = cost_map.get(comp_name, 0)
+            subtotal = unit_cost * comp_qty
+            total_cost += subtotal
+
+            w_info = weight_map.get(comp_name, {})
+            comp_weight = w_info.get('weight', 0) * comp_qty
+            total_weight += comp_weight
+
+            comp_details.append({
+                'name': comp_name,
+                'qty': comp_qty,
+                'cost_price': unit_cost,
+                'subtotal': subtotal,
+                'weight': w_info.get('weight', 0),
+                'weight_unit': w_info.get('weight_unit', 'g'),
+            })
+            all_component_names.add(comp_name)
+
+        prices, margins, net_margins, net_profits, cost_breakdown = \
+            _calc_margins(set_name, total_cost, total_weight)
+
         bom_items.append({
             'channel': channel,
             'set_name': set_name,
+            'is_set': True,
             'components_str': comp_str,
             'components': comp_details,
             'total_cost': total_cost,
@@ -233,9 +236,54 @@ def calculate_bom_costs(db):
             'net_profits': net_profits,
             'cost_breakdown': cost_breakdown,
         })
+        processed_products.add(set_name)
+
+    # 8. 개별 완제품 추가 (세트가 아닌 master_prices 품목) ──
+    for product_name in sorted(price_map.keys()):
+        if product_name in processed_products:
+            continue  # 이미 세트로 처리됨
+
+        unit_cost = cost_map.get(product_name, 0)
+        w_info = weight_map.get(product_name, {})
+        item_weight = w_info.get('weight', 0)
+
+        comp_details = []
+        if unit_cost > 0 or item_weight > 0:
+            comp_details.append({
+                'name': product_name,
+                'qty': 1,
+                'cost_price': unit_cost,
+                'subtotal': unit_cost,
+                'weight': item_weight,
+                'weight_unit': w_info.get('weight_unit', 'g'),
+            })
+
+        prices, margins, net_margins, net_profits, cost_breakdown = \
+            _calc_margins(product_name, unit_cost, item_weight)
+
+        bom_items.append({
+            'channel': '전체',
+            'set_name': product_name,
+            'is_set': False,
+            'components_str': '',
+            'components': comp_details,
+            'total_cost': unit_cost,
+            'total_weight': round(item_weight, 1),
+            'prices': prices,
+            'margins': margins,
+            'net_margins': net_margins,
+            'net_profits': net_profits,
+            'cost_breakdown': cost_breakdown,
+        })
 
     # 원가 미입력 품목
     missing_costs = sorted([n for n in all_component_names if cost_map.get(n, 0) == 0])
+    # 개별 완제품 중 원가 미입력도 추가
+    for item in bom_items:
+        if not item['is_set'] and item['total_cost'] == 0:
+            if item['set_name'] not in missing_costs:
+                missing_costs.append(item['set_name'])
+    missing_costs = sorted(missing_costs)
 
     # 판매가 등록 품목 목록 (autocomplete용)
     all_price_products = sorted(price_map.keys())

@@ -37,8 +37,16 @@
     <div class="col">
         <div class="card summary-card total">
             <div class="card-body py-2 px-3">
-                <small class="text-muted">BOM 세트 수</small>
+                <small class="text-muted">완제품 수</small>
                 <h4 class="mb-0" id="totalBom">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card summary-card total" style="border-color:#e67e22;">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">세트 수</small>
+                <h4 class="mb-0" id="totalSets" style="color:#e67e22;">-</h4>
             </div>
         </div>
     </div>
@@ -105,11 +113,16 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-graph-up"></i> BOM 원가 분석</span>
                 <div class="d-flex gap-2">
+                    <select id="typeFilter" class="form-select form-select-sm" style="width:130px;">
+                        <option value="">전체</option>
+                        <option value="set">세트만</option>
+                        <option value="single">개별품목만</option>
+                    </select>
                     <select id="channelFilter" class="form-select form-select-sm" style="width:150px;">
                         <option value="">전체 채널</option>
                     </select>
                     <input type="text" id="bomSearch" class="form-control form-control-sm"
-                           placeholder="세트명 검색..." style="width:200px;">
+                           placeholder="품목명 검색..." style="width:200px;">
                 </div>
             </div>
             <div class="card-body p-0">
@@ -118,8 +131,8 @@
                         <thead class="table-light">
                             <tr>
                                 <th style="width:25px;"></th>
-                                <th>채널</th>
-                                <th>세트명</th>
+                                <th>구분</th>
+                                <th>품목명</th>
                                 <th class="text-end">원가</th>
                                 <th class="text-end">네이버</th>
                                 <th class="text-end">쿠팡</th>
@@ -333,6 +346,8 @@
     // ====== 요약 카드 ======
     function updateSummary() {
         document.getElementById('totalBom').textContent = bomData.length + '건';
+        const setCount = bomData.filter(b => b.is_set).length;
+        document.getElementById('totalSets').textContent = setCount + '건';
         document.getElementById('totalCosts').textContent = costData.length + '건';
         document.getElementById('missingCosts').textContent = missingCosts.length + '건';
 
@@ -370,10 +385,13 @@
     // ====== BOM 테이블 렌더링 ======
     function renderBomTable() {
         const tbody = document.getElementById('bomBody');
+        const typeFilter = document.getElementById('typeFilter').value;
         const channelFilter = document.getElementById('channelFilter').value;
         const searchTerm = document.getElementById('bomSearch').value.replace(/\s/g, '').toLowerCase();
 
         let filtered = bomData;
+        if (typeFilter === 'set') filtered = filtered.filter(b => b.is_set);
+        else if (typeFilter === 'single') filtered = filtered.filter(b => !b.is_set);
         if (channelFilter) filtered = filtered.filter(b => b.channel === channelFilter);
         if (searchTerm) filtered = filtered.filter(b =>
             b.set_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
@@ -387,7 +405,9 @@
         filtered.forEach(bom => {
             const key = bom.channel + '|' + bom.set_name;
             const isExpanded = expandedSets.has(key);
-            const hasMissing = bom.components.some(c => c.cost_price === 0);
+            const hasMissing = bom.is_set
+                ? bom.components.some(c => c.cost_price === 0)
+                : (bom.total_cost === 0);
 
             // 대표 채널 마진 (네이버 우선)
             let repMargin = null, repNetProfit = null, repNetMargin = null;
@@ -397,9 +417,14 @@
                 if (repNetMargin === null && bom.net_margins && bom.net_margins[ch] != null) repNetMargin = bom.net_margins[ch];
             }
 
+            // 구분 배지
+            const typeBadge = bom.is_set
+                ? '<span class="badge bg-warning text-dark">세트</span>'
+                : '<span class="badge bg-primary">개별</span>';
+
             html += '<tr class="bom-row' + (hasMissing ? ' missing-cost' : '') + '" onclick="window._toggleBom(\'' + escapeHtml(key) + '\')">';
             html += '<td><i class="bi bi-caret-' + (isExpanded ? 'down' : 'right') + '-fill text-muted"></i></td>';
-            html += '<td><span class="badge bg-secondary">' + escapeHtml(bom.channel) + '</span></td>';
+            html += '<td>' + typeBadge + '</td>';
             html += '<td>' + escapeHtml(bom.set_name);
             if (bom.total_weight > 0) html += ' <small class="text-muted">(' + bom.total_weight + 'g)</small>';
             html += '</td>';
@@ -433,21 +458,23 @@
                     html += '</tr>';
                 });
 
-                // 구성품 상세
-                bom.components.forEach(comp => {
-                    html += '<tr class="comp-row">';
-                    html += '<td></td>';
-                    html += '<td colspan="2"><i class="bi bi-arrow-return-right text-muted me-1"></i>' + escapeHtml(comp.name);
-                    if (comp.weight > 0) html += ' <small class="text-muted">(' + comp.weight + comp.weight_unit + ')</small>';
-                    html += '</td>';
-                    html += '<td class="text-end">' + formatNum(comp.subtotal) + '</td>';
-                    html += '<td class="text-end text-muted">x' + comp.qty + '</td>';
-                    html += '<td class="text-end' + (comp.cost_price === 0 ? ' text-danger' : '') + '">'
-                         + (comp.cost_price === 0 ? '<i class="bi bi-exclamation-triangle"></i> 미입력' : formatNum(comp.cost_price))
-                         + '</td>';
-                    html += '<td colspan="4"></td>';
-                    html += '</tr>';
-                });
+                // 구성품 상세 (세트일 때만 다수 구성품 표시)
+                if (bom.is_set) {
+                    bom.components.forEach(comp => {
+                        html += '<tr class="comp-row">';
+                        html += '<td></td>';
+                        html += '<td colspan="2"><i class="bi bi-arrow-return-right text-muted me-1"></i>' + escapeHtml(comp.name);
+                        if (comp.weight > 0) html += ' <small class="text-muted">(' + comp.weight + comp.weight_unit + ')</small>';
+                        html += '</td>';
+                        html += '<td class="text-end">' + formatNum(comp.subtotal) + '</td>';
+                        html += '<td class="text-end text-muted">x' + comp.qty + '</td>';
+                        html += '<td class="text-end' + (comp.cost_price === 0 ? ' text-danger' : '') + '">'
+                             + (comp.cost_price === 0 ? '<i class="bi bi-exclamation-triangle"></i> 미입력' : formatNum(comp.cost_price))
+                             + '</td>';
+                        html += '<td colspan="4"></td>';
+                        html += '</tr>';
+                    });
+                }
             }
         });
 
@@ -803,6 +830,7 @@
     }
 
     // ====== 이벤트 바인딩 ======
+    document.getElementById('typeFilter').addEventListener('change', renderBomTable);
     document.getElementById('channelFilter').addEventListener('change', renderBomTable);
     document.getElementById('bomSearch').addEventListener('input', renderBomTable);
     document.getElementById('costSearch').addEventListener('input', renderCostTable);
