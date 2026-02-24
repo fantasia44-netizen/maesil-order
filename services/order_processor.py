@@ -122,7 +122,7 @@ class OrderProcessor:
     def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir,
             db=None, option_source='file'):
         """
-        mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'
+        mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'|'11번가'
         order_file: file-like object or path
         option_file: file-like object or path (optional if option_source='db')
         invoice_file: file-like object or path (optional, for 리얼패킹/외부일괄)
@@ -256,6 +256,11 @@ class OrderProcessor:
             elif mode == "오아시스":
                 df = self.load_generic(order_file, header=0)
                 m = {'n': 31, 'a': 36, 'p1': 32, 'msg': 37, 'opt': 10, 'prod': 10, 'qty': 14, 'p2': 32, 'date': 1, 'no': 2}
+                target = df.copy()
+
+            elif mode == "11번가":
+                df = self.load_generic(order_file, header=2)
+                m = {'n': 12, 'a': 31, 'p1': 28, 'msg': 32, 'opt': 6, 'prod': 6, 'qty': 10, 'p2': 29, 'date': 4, 'no': 2}
                 target = df.copy()
 
             # [3] 매칭 프로세스
