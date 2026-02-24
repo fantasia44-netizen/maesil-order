@@ -1,0 +1,624 @@
+{% extends "base.html" %}
+{% block title %}BOM 원가 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}BOM 원가 관리{% endblock %}
+
+{% block extra_css %}
+<style>
+    .cost-input { width: 100px; text-align: right; }
+    .margin-positive { color: #27ae60; font-weight: 600; }
+    .margin-negative { color: #e74c3c; font-weight: 600; }
+    .margin-na { color: #999; }
+    .comp-row { background: #f8f9fa; }
+    .comp-row td { font-size: 0.85rem; padding-left: 2rem !important; }
+    .bom-row { cursor: pointer; }
+    .bom-row:hover { background: #eef3f8; }
+    .bom-row td { font-weight: 600; }
+    .missing-cost { background: #fff3cd !important; }
+    .tab-content { min-height: 400px; }
+    .search-highlight { background: #ffeaa7; }
+    .cost-saved { animation: savedFlash 0.5s; }
+    @keyframes savedFlash {
+        0% { background: #d4edda; }
+        100% { background: transparent; }
+    }
+    .summary-card { border-left: 4px solid; }
+    .summary-card.total { border-color: #3498db; }
+    .summary-card.missing { border-color: #e74c3c; }
+    .summary-card.avg-margin { border-color: #27ae60; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4" id="summaryCards">
+    <div class="col-md-3">
+        <div class="card summary-card total">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">BOM 세트 수</small>
+                <h4 class="mb-0" id="totalBom">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card total">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">단가 등록 품목</small>
+                <h4 class="mb-0" id="totalCosts">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card missing">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">단가 미입력</small>
+                <h4 class="mb-0 text-danger" id="missingCosts">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card avg-margin">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">평균 마진율</small>
+                <h4 class="mb-0 text-success" id="avgMargin">-</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-0" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabAnalysis" type="button">
+            <i class="bi bi-graph-up"></i> BOM 원가 분석
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabCosts" type="button">
+            <i class="bi bi-currency-won"></i> 매입단가 관리
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- 탭1: BOM 원가 분석 -->
+    <div class="tab-pane fade show active" id="tabAnalysis">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-graph-up"></i> BOM 원가 분석</span>
+                <div class="d-flex gap-2">
+                    <select id="channelFilter" class="form-select form-select-sm" style="width:150px;">
+                        <option value="">전체 채널</option>
+                    </select>
+                    <input type="text" id="bomSearch" class="form-control form-control-sm"
+                           placeholder="세트명 검색..." style="width:200px;">
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" id="bomTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th>채널</th>
+                                <th>세트명</th>
+                                <th class="text-end">원가합계</th>
+                                <th class="text-end">네이버</th>
+                                <th class="text-end">쿠팡</th>
+                                <th class="text-end">로켓</th>
+                                <th class="text-end">네이버 마진</th>
+                                <th class="text-end">쿠팡 마진</th>
+                                <th class="text-end">로켓 마진</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bomBody">
+                            <tr><td colspan="10" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭2: 매입단가 관리 -->
+    <div class="tab-pane fade" id="tabCosts">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-currency-won"></i> 매입단가 관리</span>
+                <div class="d-flex gap-2">
+                    <input type="text" id="costSearch" class="form-control form-control-sm"
+                           placeholder="품목명 검색..." style="width:200px;">
+                    <select id="costFilter" class="form-select form-select-sm" style="width:150px;">
+                        <option value="all">전체</option>
+                        <option value="bom">BOM 구성품만</option>
+                        <option value="missing">미입력만</option>
+                        <option value="entered">입력완료만</option>
+                    </select>
+                    <button class="btn btn-sm btn-success" onclick="saveAllCosts()" id="btnSaveAll">
+                        <i class="bi bi-save"></i> 일괄 저장
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+                    <table class="table table-sm table-hover mb-0" id="costTable">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th>품목명</th>
+                                <th class="text-end" style="width:130px;">매입단가 (원)</th>
+                                <th style="width:80px;">단위</th>
+                                <th style="width:150px;">메모</th>
+                                <th style="width:80px;">상태</th>
+                                <th style="width:50px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="costBody">
+                            <tr><td colspan="6" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <!-- 신규 단가 추가 -->
+            <div class="card-footer">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">품목명</label>
+                        <input type="text" id="newCostName" class="form-control form-control-sm" placeholder="품목명">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-semibold">매입단가</label>
+                        <input type="number" id="newCostPrice" class="form-control form-control-sm" placeholder="0" min="0">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label small fw-semibold">단위</label>
+                        <input type="text" id="newCostUnit" class="form-control form-control-sm" placeholder="개">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">메모</label>
+                        <input type="text" id="newCostMemo" class="form-control form-control-sm" placeholder="메모">
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-sm btn-primary" onclick="addNewCost()">
+                            <i class="bi bi-plus-lg"></i> 단가 추가
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function(){
+    const CSRF = '{{ csrf_token() }}';
+    let bomData = [];
+    let costData = [];
+    let allProducts = [];
+    let missingCosts = [];
+    let expandedSets = new Set();
+    let modifiedCosts = {};  // 변경 추적
+
+    // ====== 데이터 로드 ======
+    async function loadData() {
+        try {
+            const res = await fetch('/bom-cost/api/data');
+            const json = await res.json();
+            if (!json.success) {
+                alert('데이터 로드 실패: ' + (json.error || ''));
+                return;
+            }
+            bomData = json.bom_items || [];
+            costData = json.cost_list || [];
+            allProducts = json.all_products || [];
+            missingCosts = json.missing_costs || [];
+
+            updateSummary();
+            renderBomTable();
+            renderCostTable();
+            populateChannelFilter();
+        } catch(e) {
+            alert('데이터 로드 오류: ' + e.message);
+        }
+    }
+
+    // ====== 요약 카드 ======
+    function updateSummary() {
+        document.getElementById('totalBom').textContent = bomData.length + '건';
+        document.getElementById('totalCosts').textContent = costData.length + '건';
+        document.getElementById('missingCosts').textContent = missingCosts.length + '건';
+
+        // 평균 마진 계산 (네이버 기준)
+        let marginSum = 0, marginCount = 0;
+        bomData.forEach(b => {
+            if (b.margins && b.margins['네이버'] !== null && b.margins['네이버'] !== undefined) {
+                marginSum += b.margins['네이버'];
+                marginCount++;
+            }
+        });
+        document.getElementById('avgMargin').textContent =
+            marginCount > 0 ? (marginSum / marginCount).toFixed(1) + '%' : '-';
+    }
+
+    // ====== 채널 필터 ======
+    function populateChannelFilter() {
+        const sel = document.getElementById('channelFilter');
+        const channels = [...new Set(bomData.map(b => b.channel))].sort();
+        channels.forEach(ch => {
+            const opt = document.createElement('option');
+            opt.value = ch;
+            opt.textContent = ch;
+            sel.appendChild(opt);
+        });
+    }
+
+    // ====== BOM 테이블 렌더링 ======
+    function renderBomTable() {
+        const tbody = document.getElementById('bomBody');
+        const channelFilter = document.getElementById('channelFilter').value;
+        const searchTerm = document.getElementById('bomSearch').value.replace(/\s/g, '').toLowerCase();
+
+        let filtered = bomData;
+        if (channelFilter) {
+            filtered = filtered.filter(b => b.channel === channelFilter);
+        }
+        if (searchTerm) {
+            filtered = filtered.filter(b =>
+                b.set_name.replace(/\s/g, '').toLowerCase().includes(searchTerm)
+            );
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        filtered.forEach((bom, idx) => {
+            const key = bom.channel + '|' + bom.set_name;
+            const isExpanded = expandedSets.has(key);
+            const hasMissing = bom.components.some(c => c.cost_price === 0);
+
+            html += '<tr class="bom-row' + (hasMissing ? ' missing-cost' : '') + '" onclick="window._toggleBom(\'' + escapeHtml(key) + '\')">';
+            html += '<td><i class="bi bi-caret-' + (isExpanded ? 'down' : 'right') + '-fill text-muted"></i></td>';
+            html += '<td><span class="badge bg-secondary">' + escapeHtml(bom.channel) + '</span></td>';
+            html += '<td>' + escapeHtml(bom.set_name) + '</td>';
+            html += '<td class="text-end">' + formatNum(bom.total_cost) + '</td>';
+            html += '<td class="text-end">' + formatPrice(bom.prices['네이버']) + '</td>';
+            html += '<td class="text-end">' + formatPrice(bom.prices['쿠팡']) + '</td>';
+            html += '<td class="text-end">' + formatPrice(bom.prices['로켓']) + '</td>';
+            html += '<td class="text-end">' + formatMargin(bom.margins['네이버']) + '</td>';
+            html += '<td class="text-end">' + formatMargin(bom.margins['쿠팡']) + '</td>';
+            html += '<td class="text-end">' + formatMargin(bom.margins['로켓']) + '</td>';
+            html += '</tr>';
+
+            // 구성품 상세 행
+            if (isExpanded) {
+                bom.components.forEach(comp => {
+                    html += '<tr class="comp-row">';
+                    html += '<td></td>';
+                    html += '<td colspan="2"><i class="bi bi-arrow-return-right text-muted me-1"></i>' + escapeHtml(comp.name) + '</td>';
+                    html += '<td class="text-end">' + formatNum(comp.subtotal) + '</td>';
+                    html += '<td class="text-end text-muted">x' + comp.qty + '</td>';
+                    html += '<td class="text-end' + (comp.cost_price === 0 ? ' text-danger' : '') + '">'
+                         + (comp.cost_price === 0 ? '<i class="bi bi-exclamation-triangle"></i> 미입력' : formatNum(comp.cost_price))
+                         + '</td>';
+                    html += '<td colspan="4"></td>';
+                    html += '</tr>';
+                });
+            }
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    window._toggleBom = function(key) {
+        if (expandedSets.has(key)) {
+            expandedSets.delete(key);
+        } else {
+            expandedSets.add(key);
+        }
+        renderBomTable();
+    };
+
+    // ====== 매입단가 테이블 렌더링 ======
+    function renderCostTable() {
+        const tbody = document.getElementById('costBody');
+        const searchTerm = document.getElementById('costSearch').value.replace(/\s/g, '').toLowerCase();
+        const filterMode = document.getElementById('costFilter').value;
+
+        // 모든 품목 (BOM 구성품 + 이미 입력된 것) 합치기
+        const costMap = {};
+        costData.forEach(c => { costMap[c.product_name] = c; });
+
+        let items = [];
+
+        if (filterMode === 'bom' || filterMode === 'missing') {
+            // BOM 구성품 기준
+            allProducts.forEach(name => {
+                const existing = costMap[name];
+                items.push({
+                    product_name: name,
+                    cost_price: existing ? existing.cost_price : 0,
+                    unit: existing ? existing.unit : '',
+                    memo: existing ? existing.memo : '',
+                    is_bom: true,
+                });
+            });
+            if (filterMode === 'missing') {
+                items = items.filter(i => i.cost_price === 0);
+            }
+        } else if (filterMode === 'entered') {
+            costData.forEach(c => {
+                items.push({
+                    product_name: c.product_name,
+                    cost_price: c.cost_price,
+                    unit: c.unit,
+                    memo: c.memo,
+                    is_bom: allProducts.includes(c.product_name),
+                });
+            });
+        } else {
+            // 전체: BOM 구성품 + 기존 입력된 것
+            const seen = new Set();
+            allProducts.forEach(name => {
+                const existing = costMap[name];
+                items.push({
+                    product_name: name,
+                    cost_price: existing ? existing.cost_price : 0,
+                    unit: existing ? existing.unit : '',
+                    memo: existing ? existing.memo : '',
+                    is_bom: true,
+                });
+                seen.add(name);
+            });
+            costData.forEach(c => {
+                if (!seen.has(c.product_name)) {
+                    items.push({
+                        product_name: c.product_name,
+                        cost_price: c.cost_price,
+                        unit: c.unit,
+                        memo: c.memo,
+                        is_bom: false,
+                    });
+                }
+            });
+        }
+
+        // 검색 필터
+        if (searchTerm) {
+            items = items.filter(i =>
+                i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm)
+            );
+        }
+
+        if (items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        items.forEach(item => {
+            const isMissing = item.is_bom && item.cost_price === 0;
+            const modKey = item.product_name;
+            const isModified = modifiedCosts[modKey] !== undefined;
+
+            html += '<tr class="' + (isMissing ? 'missing-cost' : '') + '" id="cost-row-' + escapeAttr(modKey) + '">';
+            html += '<td>' + escapeHtml(item.product_name);
+            if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
+            html += '</td>';
+            html += '<td class="text-end"><input type="number" class="form-control form-control-sm cost-input" '
+                 + 'value="' + item.cost_price + '" min="0" '
+                 + 'data-name="' + escapeAttr(item.product_name) + '" '
+                 + 'onchange="window._costChanged(this)"></td>';
+            html += '<td><input type="text" class="form-control form-control-sm" '
+                 + 'value="' + escapeAttr(item.unit) + '" style="width:70px;" '
+                 + 'data-field="unit" data-name="' + escapeAttr(item.product_name) + '" '
+                 + 'onchange="window._costChanged(this)"></td>';
+            html += '<td><input type="text" class="form-control form-control-sm" '
+                 + 'value="' + escapeAttr(item.memo) + '" '
+                 + 'data-field="memo" data-name="' + escapeAttr(item.product_name) + '" '
+                 + 'onchange="window._costChanged(this)"></td>';
+            html += '<td>';
+            if (isMissing) {
+                html += '<span class="badge bg-warning text-dark">미입력</span>';
+            } else if (isModified) {
+                html += '<span class="badge bg-info">변경됨</span>';
+            } else {
+                html += '<span class="badge bg-success">완료</span>';
+            }
+            html += '</td>';
+            html += '<td><button class="btn btn-sm btn-outline-primary py-0 px-1" '
+                 + 'onclick="window._saveSingleCost(\'' + escapeAttr(item.product_name) + '\')" title="저장">'
+                 + '<i class="bi bi-check-lg"></i></button></td>';
+            html += '</tr>';
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    // ====== 단가 변경 추적 ======
+    window._costChanged = function(el) {
+        const name = el.getAttribute('data-name');
+        if (!modifiedCosts[name]) modifiedCosts[name] = {};
+        const field = el.getAttribute('data-field');
+        if (field) {
+            modifiedCosts[name][field] = el.value;
+        } else {
+            modifiedCosts[name].cost_price = parseFloat(el.value) || 0;
+        }
+        // 상태 배지 업데이트
+        const row = el.closest('tr');
+        if (row) {
+            const badges = row.querySelectorAll('.badge');
+            badges.forEach(b => {
+                if (b.closest('td:nth-child(5)')) {
+                    b.className = 'badge bg-info';
+                    b.textContent = '변경됨';
+                }
+            });
+        }
+    };
+
+    // ====== 단건 저장 ======
+    window._saveSingleCost = async function(productName) {
+        const row = document.getElementById('cost-row-' + CSS.escape(productName));
+        if (!row) return;
+
+        const inputs = row.querySelectorAll('input');
+        const costPrice = parseFloat(inputs[0].value) || 0;
+        const unit = inputs[1].value.trim();
+        const memo = inputs[2].value.trim();
+
+        try {
+            const res = await fetch('/bom-cost/api/cost', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({product_name: productName, cost_price: costPrice, unit, memo}),
+            });
+            const json = await res.json();
+            if (json.success) {
+                delete modifiedCosts[productName];
+                row.classList.add('cost-saved');
+                setTimeout(() => row.classList.remove('cost-saved'), 600);
+                // 배지 업데이트
+                const badge = row.querySelector('td:nth-child(5) .badge');
+                if (badge) {
+                    badge.className = 'badge bg-success';
+                    badge.textContent = '완료';
+                }
+                // 해당 품목이 missing-cost였으면 제거
+                row.classList.remove('missing-cost');
+                // costData 업데이트
+                const existing = costData.find(c => c.product_name === productName);
+                if (existing) {
+                    existing.cost_price = costPrice;
+                    existing.unit = unit;
+                    existing.memo = memo;
+                } else {
+                    costData.push({product_name: productName, cost_price: costPrice, unit, memo});
+                }
+            } else {
+                alert('저장 실패: ' + (json.error || ''));
+            }
+        } catch(e) {
+            alert('저장 오류: ' + e.message);
+        }
+    };
+
+    // ====== 일괄 저장 ======
+    window.saveAllCosts = async function() {
+        // 모든 입력 필드에서 데이터 수집
+        const rows = document.querySelectorAll('#costBody tr');
+        const items = [];
+        rows.forEach(row => {
+            const inputs = row.querySelectorAll('input');
+            if (inputs.length < 3) return;
+            const name = inputs[0].getAttribute('data-name');
+            if (!name) return;
+            const costPrice = parseFloat(inputs[0].value) || 0;
+            if (costPrice <= 0) return; // 0인 것은 건너뛰기
+            items.push({
+                product_name: name,
+                cost_price: costPrice,
+                unit: inputs[1].value.trim(),
+                memo: inputs[2].value.trim(),
+            });
+        });
+
+        if (items.length === 0) {
+            alert('저장할 단가 데이터가 없습니다.');
+            return;
+        }
+
+        const btn = document.getElementById('btnSaveAll');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 저장 중...';
+
+        try {
+            const res = await fetch('/bom-cost/api/cost/batch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({items}),
+            });
+            const json = await res.json();
+            if (json.success) {
+                modifiedCosts = {};
+                alert(json.count + '건 저장 완료');
+                loadData(); // 새로고침
+            } else {
+                alert('일괄 저장 실패: ' + (json.error || ''));
+            }
+        } catch(e) {
+            alert('일괄 저장 오류: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-save"></i> 일괄 저장';
+        }
+    };
+
+    // ====== 신규 단가 추가 ======
+    window.addNewCost = async function() {
+        const name = document.getElementById('newCostName').value.trim();
+        const price = parseFloat(document.getElementById('newCostPrice').value) || 0;
+        const unit = document.getElementById('newCostUnit').value.trim();
+        const memo = document.getElementById('newCostMemo').value.trim();
+
+        if (!name) { alert('품목명을 입력하세요.'); return; }
+
+        try {
+            const res = await fetch('/bom-cost/api/cost', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({product_name: name, cost_price: price, unit, memo}),
+            });
+            const json = await res.json();
+            if (json.success) {
+                document.getElementById('newCostName').value = '';
+                document.getElementById('newCostPrice').value = '';
+                document.getElementById('newCostUnit').value = '';
+                document.getElementById('newCostMemo').value = '';
+                loadData();
+            } else {
+                alert('추가 실패: ' + (json.error || ''));
+            }
+        } catch(e) {
+            alert('추가 오류: ' + e.message);
+        }
+    };
+
+    // ====== 유틸 ======
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    function escapeAttr(str) {
+        return escapeHtml(str);
+    }
+    function formatNum(n) {
+        if (n === 0 || n === null || n === undefined) return '-';
+        return Number(n).toLocaleString('ko-KR') + '원';
+    }
+    function formatPrice(n) {
+        if (!n || n === 0) return '<span class="text-muted">-</span>';
+        return Number(n).toLocaleString('ko-KR');
+    }
+    function formatMargin(m) {
+        if (m === null || m === undefined) return '<span class="margin-na">-</span>';
+        if (m >= 0) return '<span class="margin-positive">' + m.toFixed(1) + '%</span>';
+        return '<span class="margin-negative">' + m.toFixed(1) + '%</span>';
+    }
+
+    // ====== 이벤트 바인딩 ======
+    document.getElementById('channelFilter').addEventListener('change', renderBomTable);
+    document.getElementById('bomSearch').addEventListener('input', renderBomTable);
+    document.getElementById('costSearch').addEventListener('input', renderCostTable);
+    document.getElementById('costFilter').addEventListener('change', renderCostTable);
+
+    // ====== 초기 로드 ======
+    loadData();
+})();
+</script>
+{% endblock %}

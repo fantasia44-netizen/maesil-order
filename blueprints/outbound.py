@@ -358,6 +358,82 @@ def invoice():
         return redirect(url_for('outbound.result'))
 
 
+@outbound_bp.route('/shipping-label')
+@role_required('admin', 'manager', 'sales', 'general')
+def shipping_label():
+    """출고 결과 기반 운송장 Excel 생성 (온라인주문처리와 동일한 형식)"""
+    result_data = session.get('outbound_result')
+    if not result_data:
+        flash('출고 결과가 없습니다.', 'danger')
+        return redirect(url_for('outbound.index'))
+
+    db = current_app.db
+
+    try:
+        # 거래처 정보 조회
+        partners = db.query_partners()
+        partner = next(
+            (p for p in partners
+             if p.get('partner_name') == result_data['partner_name']),
+            {}
+        )
+
+        partner_name = result_data.get('partner_name', '')
+        partner_addr = partner.get('address', '')
+        partner_phone1 = partner.get('contact1', '') or partner.get('phone', '')
+        partner_phone2 = partner.get('contact2', '') or ''
+        trade_date = result_data.get('date', '')
+
+        # 품목 문자열 생성 (온라인주문처리 송장 형식)
+        items = result_data.get('items', [])
+        item_parts = []
+        total_qty = 0
+        for item in items:
+            pname = item.get('product_name', '')
+            qty = abs(int(item.get('qty', 0)))
+            total_qty += qty
+            item_parts.append(f"{pname}x{qty}")
+        item_str = ', '.join(item_parts) + f' 총{total_qty}개'
+
+        # 운송장 데이터 (온라인주문처리 동일 컬럼)
+        row = [
+            partner_name,   # 수하인명
+            '',             # B1
+            partner_addr,   # 수하인주소
+            partner_phone1, # 연락처1
+            partner_phone2, # 연락처2
+            '1',            # 박스
+            '3000',         # 운임
+            '',             # B2
+            item_str,       # 품목명
+            '',             # B3
+            '',             # 배송메세지
+        ]
+
+        columns = [
+            '수하인명', 'B1', '수하인주소', '연락처1', '연락처2',
+            '박스', '운임', 'B2', '품목명', 'B3', '배송메세지',
+        ]
+
+        df = pd.DataFrame([row], columns=columns)
+
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+        fname = f"운송장_{partner_name}_{trade_date}.xlsx"
+        xlsx_path = os.path.join(output_dir, fname)
+        df.to_excel(xlsx_path, index=False)
+
+        return send_file(
+            xlsx_path,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'운송장 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('outbound.result'))
+
+
 @outbound_bp.route('/batch', methods=['POST'])
 @role_required('admin', 'manager', 'sales', 'general')
 def batch():

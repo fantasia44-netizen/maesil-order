@@ -281,6 +281,59 @@ class SupabaseDB(DBBase):
             }
         return price_map
 
+    # --- product_costs (품목별 매입단가) ---
+
+    def query_product_costs(self):
+        """product_costs 전체 조회 → {product_name: {cost_price, unit, memo}} dict."""
+        try:
+            rows = self._paginate_query("product_costs",
+                lambda t: self.client.table(t).select("*").order("product_name"))
+            return {r['product_name']: r for r in rows}
+        except Exception:
+            return {}
+
+    def upsert_product_cost(self, product_name, cost_price, unit='', memo=''):
+        """품목 매입단가 1건 등록/수정 (upsert)."""
+        from datetime import datetime, timezone
+        payload = {
+            'product_name': product_name,
+            'cost_price': float(cost_price),
+            'unit': unit,
+            'memo': memo,
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        self.client.table("product_costs").upsert(
+            payload, on_conflict="product_name"
+        ).execute()
+
+    def upsert_product_costs_batch(self, items):
+        """품목 매입단가 일괄 등록/수정.
+        items: [{product_name, cost_price, unit?, memo?}]
+        """
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        payload = []
+        for item in items:
+            payload.append({
+                'product_name': item['product_name'],
+                'cost_price': float(item.get('cost_price', 0)),
+                'unit': item.get('unit', ''),
+                'memo': item.get('memo', ''),
+                'updated_at': now,
+            })
+        if not payload:
+            return
+        for i in range(0, len(payload), 500):
+            self.client.table("product_costs").upsert(
+                payload[i:i + 500], on_conflict="product_name"
+            ).execute()
+
+    def delete_product_cost(self, product_name):
+        """품목 매입단가 1건 삭제."""
+        self.client.table("product_costs").delete().eq(
+            "product_name", product_name
+        ).execute()
+
     # --- business_partners ---
 
     def query_partners(self):
