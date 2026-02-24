@@ -443,18 +443,24 @@
             nameEl.addEventListener('input', function() {
                 const q = this.value.trim().toLowerCase();
                 acEl.innerHTML = '';
-                if (!q || !stockProducts.length) { acEl.style.display = 'none'; return; }
-                const mm = stockProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
+                if (!q) { acEl.style.display = 'none'; return; }
+                // 위치 선택 시 해당 위치 재고, 미선택 시 전체 품목으로 검색
+                const useStock = stockProducts.length > 0;
+                const source = useStock ? stockProducts : allProducts;
+                if (!source.length) { acEl.style.display = 'none'; return; }
+                const mm = source.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
                 if (!mm.length) { acEl.style.display = 'none'; return; }
                 mm.forEach(p => {
                     const a = document.createElement('a');
                     a.href = '#'; a.className = 'list-group-item list-group-item-action py-0 px-2 small';
-                    a.innerHTML = `${escapeHtml(p.name)} <span class="text-muted">(${p.qty}${p.unit})</span>`;
+                    a.innerHTML = useStock
+                        ? `${escapeHtml(p.name)} <span class="text-muted">(${p.qty}${p.unit})</span>`
+                        : escapeHtml(p.name);
                     a.addEventListener('mousedown', e => {
                         e.preventDefault();
                         currentMaterials[idx].product_name = p.name;
                         nameEl.value = p.name;
-                        stockEl.textContent = `재고:${p.qty}`;
+                        if (useStock) stockEl.textContent = `재고:${p.qty}`;
                         acEl.style.display = 'none';
                         div.querySelector('.mat-qty').focus();
                     });
