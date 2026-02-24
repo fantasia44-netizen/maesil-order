@@ -49,6 +49,7 @@ def api_data():
             'bom_items': result['bom_items'],
             'cost_list': sorted(cost_list, key=lambda x: x['product_name']),
             'all_products': result['all_products'],
+            'bom_components': result.get('bom_components', []),
             'missing_costs': result['missing_costs'],
             'channel_costs': result.get('channel_costs', {}),
             'all_set_names': result.get('all_set_names', []),

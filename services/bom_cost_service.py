@@ -288,11 +288,15 @@ def calculate_bom_costs(db):
     # 판매가 등록 품목 목록 (autocomplete용)
     all_price_products = sorted(price_map.keys())
 
+    # 전체 품목 = BOM 구성품 + 판매가 등록품목 + 세트명 + 단가등록품목 합집합
+    all_products_combined = all_component_names | set(price_map.keys()) | all_set_names | set(cost_map_raw.keys())
+
     return {
         'bom_items': bom_items,
         'cost_map': cost_map,
         'cost_details': cost_map_raw,
-        'all_products': sorted(all_component_names),
+        'all_products': sorted(all_products_combined),
+        'bom_components': sorted(all_component_names),   # BOM 구성품만 (필터용)
         'missing_costs': missing_costs,
         'price_map': price_map,
         'channel_costs': channel_costs,

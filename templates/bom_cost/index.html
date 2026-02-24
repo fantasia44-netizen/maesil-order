@@ -325,6 +325,7 @@
     let channelCosts = {};
     let expandedSets = new Set();
     let modifiedCosts = {};
+    let bomComponents = []; // BOM 구성품만 (필터용)
     let allSuggestions = []; // autocomplete용 전체 품목
     let costEditMode = false;
     let channelEditMode = false;
@@ -341,14 +342,12 @@
             bomData = json.bom_items || [];
             costData = json.cost_list || [];
             allProducts = json.all_products || [];
+            bomComponents = json.bom_components || [];
             missingCosts = json.missing_costs || [];
             channelCosts = json.channel_costs || {};
 
-            // autocomplete 목록: BOM 구성품 + 판매가 등록 품목 합집합
-            const setNames = json.all_set_names || [];
-            const priceProducts = json.all_price_products || [];
-            const merged = new Set([...allProducts, ...setNames, ...priceProducts]);
-            allSuggestions = [...merged].sort();
+            // autocomplete 목록
+            allSuggestions = [...allProducts].sort();
             buildSuggestions();
 
             updateSummary();
@@ -526,10 +525,12 @@
         const costMap = {};
         costData.forEach(c => { costMap[c.product_name] = c; });
 
+        const bomSet = new Set(bomComponents);  // BOM 구성품 빠른 조회용
         let items = [];
 
-        if (filterMode === 'bom' || filterMode === 'missing') {
-            allProducts.forEach(name => {
+        if (filterMode === 'bom') {
+            // BOM 구성품만
+            bomComponents.forEach(name => {
                 const existing = costMap[name];
                 items.push({
                     product_name: name,
@@ -541,13 +542,31 @@
                     is_bom: true,
                 });
             });
-            if (filterMode === 'missing') items = items.filter(i => i.cost_price === 0);
+        } else if (filterMode === 'missing') {
+            // 미입력만 (전체 품목 중 cost_price 없는 것)
+            allProducts.forEach(name => {
+                const existing = costMap[name];
+                const cp = existing ? existing.cost_price : 0;
+                if (cp === 0) {
+                    items.push({
+                        product_name: name,
+                        cost_price: 0,
+                        weight: existing ? (existing.weight || 0) : 0,
+                        unit: existing ? existing.unit : '',
+                        memo: existing ? existing.memo : '',
+                        cost_type: existing ? (existing.cost_type || '매입') : '매입',
+                        is_bom: bomSet.has(name),
+                    });
+                }
+            });
         } else if (filterMode === 'entered') {
+            // 입력완료만
             costData.forEach(c => {
                 items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
-                    is_bom: allProducts.includes(c.product_name) });
+                    is_bom: bomSet.has(c.product_name) });
             });
         } else {
+            // 전체: allProducts (전 품목) + costData에만 있는 추가 항목
             const seen = new Set();
             allProducts.forEach(name => {
                 const existing = costMap[name];
@@ -558,13 +577,14 @@
                     unit: existing ? existing.unit : '',
                     memo: existing ? existing.memo : '',
                     cost_type: existing ? (existing.cost_type || '매입') : '매입',
-                    is_bom: true,
+                    is_bom: bomSet.has(name),
                 });
                 seen.add(name);
             });
             costData.forEach(c => {
                 if (!seen.has(c.product_name)) {
-                    items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입', is_bom: false });
+                    items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
+                        is_bom: bomSet.has(c.product_name) });
                 }
             });
         }
