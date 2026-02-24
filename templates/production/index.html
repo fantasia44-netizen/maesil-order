@@ -68,13 +68,8 @@
                         <div class="col-sm-2">
                             <label class="form-label small mb-1">단위</label>
                             <select id="prodUnitInput" class="form-select form-select-sm">
-                                <option value="EA" selected>EA</option>
-                                <option value="개">개</option>
+                                <option value="개" selected>개</option>
                                 <option value="kg">kg</option>
-                                <option value="g">g</option>
-                                <option value="팩">팩</option>
-                                <option value="봉">봉</option>
-                                <option value="box">box</option>
                             </select>
                         </div>
                     </div>
@@ -111,7 +106,7 @@
                     </div>
                     <div id="materialRows"></div>
                     <div id="materialEmpty" class="text-center text-muted small py-2">
-                        <i class="bi bi-info-circle"></i> "재료 추가" 버튼으로 반제품/원료를 추가하세요 (선택)
+                        <i class="bi bi-info-circle"></i> "재료 추가" 버튼으로 원료를 추가하세요. 제조일 미입력 시 FIFO 자동 처리
                     </div>
                 </div>
 
@@ -370,7 +365,7 @@
     // 재료 추가
     document.getElementById('addMaterialBtn').addEventListener('click', function() {
         const id = matIdCounter++;
-        currentMaterials.push({ id: id, product_name: '', qty: 0 });
+        currentMaterials.push({ id: id, product_name: '', qty: 0, manufacture_date: '' });
         renderMaterialRows();
     });
 
@@ -381,7 +376,7 @@
             const div = document.createElement('div');
             div.className = 'row g-1 align-items-center mb-1';
             div.innerHTML = `
-                <div class="col-sm-5">
+                <div class="col-sm-4">
                     <div class="position-relative">
                         <input type="text" class="form-control form-control-sm mat-name" data-idx="${idx}"
                                value="${escapeHtml(mat.product_name)}" placeholder="재료명 검색" autocomplete="off">
@@ -389,11 +384,15 @@
                              style="z-index:1010; max-height:150px; overflow-y:auto; display:none;"></div>
                     </div>
                 </div>
-                <div class="col-sm-3">
+                <div class="col-sm-2">
                     <input type="number" class="form-control form-control-sm mat-qty" data-idx="${idx}"
                            value="${mat.qty || ''}" min="1" placeholder="수량">
                 </div>
-                <div class="col-sm-2">
+                <div class="col-sm-3">
+                    <input type="date" class="form-control form-control-sm mat-mfg-date" data-idx="${idx}"
+                           value="${mat.manufacture_date || ''}" title="제조일 (미입력 시 FIFO)">
+                </div>
+                <div class="col-sm-1">
                     <small class="text-muted mat-stock" data-idx="${idx}"></small>
                 </div>
                 <div class="col-sm-2 text-end">
@@ -432,6 +431,7 @@
             nameEl.addEventListener('blur', () => setTimeout(() => acEl.style.display = 'none', 200));
             nameEl.addEventListener('change', function() { currentMaterials[idx].product_name = this.value.trim(); });
             div.querySelector('.mat-qty').addEventListener('change', function() { currentMaterials[idx].qty = parseInt(this.value) || 0; });
+            div.querySelector('.mat-mfg-date').addEventListener('change', function() { currentMaterials[idx].manufacture_date = this.value || ''; });
         });
     }
 
@@ -451,9 +451,12 @@
         materialRows.querySelectorAll('.mat-qty').forEach(el => {
             currentMaterials[el.dataset.idx].qty = parseInt(el.value) || 0;
         });
+        materialRows.querySelectorAll('.mat-mfg-date').forEach(el => {
+            currentMaterials[el.dataset.idx].manufacture_date = el.value || '';
+        });
 
         const validMats = currentMaterials.filter(m => m.product_name && m.qty > 0)
-            .map(m => ({ product_name: m.product_name, qty: m.qty }));
+            .map(m => ({ product_name: m.product_name, qty: m.qty, manufacture_date: m.manufacture_date || '' }));
 
         pendingItems.push({
             product_name: name, qty: qty,
@@ -468,7 +471,7 @@
         // 초기화
         prodNameInput.value = ''; prodQtyInput.value = '';
         prodCatInput.value = '반제품'; prodStorageInput.value = '';
-        prodUnitInput.value = 'EA';
+        prodUnitInput.value = '개';
         prodMfgInput.value = ''; prodExpInput.value = '';
         currentMaterials = []; renderMaterialRows();
         prodNameInput.focus();
@@ -498,9 +501,12 @@
                 item.materials.forEach(mat => {
                     const mtr = document.createElement('tr');
                     mtr.className = 'table-light';
+                    const mfgLabel = mat.manufacture_date
+                        ? `<span class="badge bg-info small ms-1">${mat.manufacture_date}</span>`
+                        : '<span class="badge bg-warning text-dark small ms-1">FIFO</span>';
                     mtr.innerHTML = `
                         <td></td>
-                        <td class="small text-muted ps-4">ㄴ ${escapeHtml(mat.product_name)}</td>
+                        <td class="small text-muted ps-4">ㄴ ${escapeHtml(mat.product_name)} ${mfgLabel}</td>
                         <td class="text-end small text-danger">-${mat.qty.toLocaleString()}</td>
                         <td><span class="badge bg-secondary small">투입</span></td>
                         <td></td>`;

@@ -432,10 +432,11 @@ def process_production_batch(db, date_str, mode, location, items):
         })
         prod_count += 1
 
-        # PROD_OUT 재료 차감 (FIFO)
+        # PROD_OUT 재료 차감 (제조일 지정 시 해당 배치, 미지정 시 FIFO)
         for mat in item.get('materials', []):
             mat_name = str(mat.get('product_name', '')).strip()
             mat_qty = safe_int(mat.get('qty', 0))
+            mat_mfg_date = str(mat.get('manufacture_date', '')).strip()
             if not mat_name or mat_qty <= 0:
                 continue
 
@@ -455,11 +456,42 @@ def process_production_batch(db, date_str, mode, location, items):
                     "unit": meta.get('unit', '개'),
                     "expiry_date": meta.get('expiry_date', ''),
                     "origin": meta.get('origin', ''),
-                    "manufacture_date": meta.get('manufacture_date', ''),
+                    "manufacture_date": mat_mfg_date or meta.get('manufacture_date', ''),
                     "batch_id": batch_id,
                 })
                 raw_count += 1
+            elif mat_mfg_date:
+                # 제조일 지정 → 해당 제조일 배치에서 우선 차감
+                # 제조일 일치하는 그룹 먼저, 그 다음 나머지 FIFO
+                matched = [g for g in groups if str(g.get('manufacture_date', '')).strip() == mat_mfg_date]
+                others = [g for g in groups if str(g.get('manufacture_date', '')).strip() != mat_mfg_date]
+                ordered = matched + others
+                for g in ordered:
+                    if remain <= 0:
+                        break
+                    deduct = min(remain, g['qty'])
+                    if deduct <= 0:
+                        continue
+                    payload.append({
+                        "transaction_date": date_str,
+                        "type": "PROD_OUT",
+                        "product_name": mat_name,
+                        "qty": -deduct,
+                        "location": loc,
+                        "category": g['category'],
+                        "expiry_date": g['expiry_date'],
+                        "storage_method": g['storage_method'],
+                        "unit": g.get('unit', '개'),
+                        "manufacture_date": g.get('manufacture_date', ''),
+                        "batch_id": batch_id,
+                    })
+                    g['qty'] -= deduct
+                    remain -= deduct
+                    raw_count += 1
+                if remain > 0:
+                    warnings.append(f"[{loc}] {mat_name}: 제조일 {mat_mfg_date} 재고 부족, {remain} 미차감")
             else:
+                # FIFO 기본 처리
                 for g in groups:
                     if remain <= 0:
                         break
