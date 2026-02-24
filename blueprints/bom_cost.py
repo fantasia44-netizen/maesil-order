@@ -32,8 +32,11 @@ def api_data():
         result = calculate_bom_costs(db)
 
         # cost_details → 직렬화 가능하게 변환
+        # stock_ledger category를 종류(material_type)로 사용
+        category_map = db.query_product_categories()
         cost_list = []
         for name, detail in result.get('cost_details', {}).items():
+            mt = category_map.get(name) or detail.get('material_type', '원료') or '원료'
             cost_list.append({
                 'product_name': name,
                 'cost_price': float(detail.get('cost_price', 0)),
@@ -42,7 +45,7 @@ def api_data():
                 'weight': float(detail.get('weight', 0) or 0),
                 'weight_unit': detail.get('weight_unit', 'g') or 'g',
                 'cost_type': detail.get('cost_type', '매입') or '매입',
-                'material_type': detail.get('material_type', '원료') or '원료',
+                'material_type': mt,
             })
 
         return jsonify({

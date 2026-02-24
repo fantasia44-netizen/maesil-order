@@ -203,17 +203,15 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
     if location:
         prod_data = [r for r in prod_data if r.get('location', '') == location]
 
-    # 2. 매입단가 + 중량/종류 맵 로드
+    # 2. 매입단가 + 중량 맵 로드
     cost_map_raw = db.query_product_costs()
 
-    # 중량맵 (g 단위 통일) + 종류맵
+    # 완제품 1개 중량맵 (g 단위 통일) — 개수수율 계산용
     weight_map = {}   # {name: weight_in_grams}
-    type_map = {}     # {name: material_type}
     for k, v in cost_map_raw.items():
         w = float(v.get('weight', 0) or 0)
         wu = (v.get('weight_unit', 'g') or 'g').lower()
         weight_map[k] = w * 1000 if wu == 'kg' else w
-        type_map[k] = v.get('material_type', '원료') or '원료'
 
     # 3. 배치 그룹핑 (batch_id 우선, ID순서 폴백)
     batches = _group_production_batches(prod_data)
@@ -225,7 +223,7 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
         'total_input_weight_g': 0,
         'production_count': 0,
         'materials': defaultdict(lambda: {'total_qty': 0, 'weight_g': 0,
-                                          'material_type': '원료'}),
+                                          'unit': ''}),
         'daily_data': [],
     })
 
@@ -236,18 +234,20 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
         if not productions:
             continue
 
-        # 이 배치의 투입중량 (주원료+반제품만)
+        # 이 배치의 투입중량 — 단위가 kg인 원료만 중량 계산
         batch_input_weight = 0
-        batch_materials = defaultdict(lambda: {'qty': 0, 'weight_g': 0})
+        batch_materials = defaultdict(lambda: {'qty': 0, 'weight_g': 0, 'unit': ''})
 
         for po in prod_outs:
             mat_name = po.get('product_name', '')
             mat_qty = abs(po.get('qty', 0))
+            mat_unit = (po.get('unit', '') or '').strip().lower()
             batch_materials[mat_name]['qty'] += mat_qty
+            batch_materials[mat_name]['unit'] = mat_unit
 
-            mat_type = type_map.get(mat_name, '원료')
-            if mat_type in ('원료', '반제품'):
-                w_g = weight_map.get(mat_name, 0) * mat_qty
+            # kg 단위 원료만 투입중량에 포함 (kg → g 변환)
+            if mat_unit == 'kg':
+                w_g = mat_qty * 1000
                 batch_input_weight += w_g
                 batch_materials[mat_name]['weight_g'] += w_g
 
@@ -280,7 +280,7 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
                 m = stats['materials'][mat_name]
                 m['total_qty'] += allocated_qty
                 m['weight_g'] += mat_info['weight_g'] * ratio
-                m['material_type'] = type_map.get(mat_name, '원료')
+                m['unit'] = mat_info.get('unit', '')
 
             stats['daily_data'].append({
                 'date': date,
@@ -321,7 +321,7 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
                 'name': mat_name,
                 'total_qty': round(mat_info['total_qty'], 1),
                 'weight_g': round(mat_info['weight_g'], 1),
-                'material_type': mat_info.get('material_type', '원료'),
+                'unit': mat_info.get('unit', ''),
             })
 
         products.append({
@@ -382,16 +382,14 @@ def calculate_daily_yield(db, date_from, date_to, product_name=None, location=No
     if location:
         prod_data = [r for r in prod_data if r.get('location', '') == location]
 
-    # 2. 중량/종류맵
+    # 2. 중량맵 (완제품 단위중량)
     cost_map_raw = db.query_product_costs()
 
     weight_map = {}
-    type_map = {}
     for k, v in cost_map_raw.items():
         w = float(v.get('weight', 0) or 0)
         wu = (v.get('weight_unit', 'g') or 'g').lower()
         weight_map[k] = w * 1000 if wu == 'kg' else w
-        type_map[k] = v.get('material_type', '원료') or '원료'
 
     # 3. 배치 그룹핑 (batch_id 우선, ID순서 폴백)
     batches = _group_production_batches(prod_data)
@@ -410,13 +408,13 @@ def calculate_daily_yield(db, date_from, date_to, product_name=None, location=No
         if not productions:
             continue
 
+        # kg 단위 원료만 투입중량 계산
         batch_input_weight = 0
         for po in prod_outs:
-            mat_name = po.get('product_name', '')
             mat_qty = abs(po.get('qty', 0))
-            mat_type = type_map.get(mat_name, '원료')
-            if mat_type in ('원료', '반제품'):
-                batch_input_weight += weight_map.get(mat_name, 0) * mat_qty
+            mat_unit = (po.get('unit', '') or '').strip().lower()
+            if mat_unit == 'kg':
+                batch_input_weight += mat_qty * 1000
 
         total_batch_output = sum(p.get('qty', 0) for p in productions)
 

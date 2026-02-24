@@ -126,6 +126,22 @@ class SupabaseDB(DBBase):
         cats = sorted(set(r['category'] for r in all_vals if r.get('category')))
         return locs, cats
 
+    def query_product_categories(self):
+        """stock_ledger에서 product_name → category 매핑 조회.
+        가장 최근 레코드의 category를 사용."""
+        try:
+            rows = self._paginate_query("stock_ledger",
+                lambda t: self.client.table(t).select("product_name,category").order("id", desc=True))
+            cat_map = {}
+            for r in rows:
+                name = r.get('product_name', '')
+                cat = r.get('category', '')
+                if name and cat and name not in cat_map:
+                    cat_map[name] = cat
+            return cat_map
+        except Exception:
+            return {}
+
     def query_unique_product_names(self):
         """stock_ledger에서 고유 품목명 목록 반환 (양수 재고 기준)."""
         def builder(table):
