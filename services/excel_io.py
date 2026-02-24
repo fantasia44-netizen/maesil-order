@@ -199,12 +199,14 @@ def build_stock_snapshot(all_data):
     if not all_data:
         return {}
     df = pd.DataFrame(all_data)
-    if 'origin' not in df.columns:
-        df['origin'] = ''
-    if 'manufacture_date' not in df.columns:
-        df['manufacture_date'] = ''
+    for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit']:
+        if col not in df.columns:
+            df[col] = ''
     df['origin'] = df['origin'].fillna('')
     df['manufacture_date'] = df['manufacture_date'].fillna('')
+    df['storage_method'] = df['storage_method'].fillna('')
+    df['category'] = df['category'].fillna('')
+    df['unit'] = df['unit'].fillna('개')
     group_cols = ['product_name', 'category', 'expiry_date',
                   'storage_method', 'unit', 'origin', 'manufacture_date']
     summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()

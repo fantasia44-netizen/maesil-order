@@ -112,14 +112,7 @@ class SupabaseDB(DBBase):
         return self._paginate_query("stock_ledger", builder)
 
     def query_stock_by_location(self, location, select_fields=None):
-        base_fields = ["product_name", "qty", "category", "expiry_date",
-                        "storage_method", "unit"]
-        opt_fields = ["origin", "manufacture_date", "lot_number", "grade"]
-        if select_fields is None:
-            sel = base_fields + [f for f in opt_fields if not self._db_cols or f in self._db_cols]
-        else:
-            sel = select_fields
-        sel_str = ",".join(sel)
+        sel_str = ",".join(select_fields) if select_fields else "*"
 
         def builder(table):
             return self.client.table(table).select(sel_str).eq("location", location)
