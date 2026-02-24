@@ -113,7 +113,11 @@ def create_app(config_class=None):
             menus.append({'name': '매출 관리', 'icon': 'bi-currency-won', 'url': '/revenue'})
 
         if r in ('admin', 'manager', 'logistics', 'production'):
-            menus.append({'name': '생산/입고', 'icon': 'bi-gear', 'url': '/production'})
+            menus.append({'name': '입고 관리', 'icon': 'bi-box-arrow-in-down', 'url': '/inbound'})
+            menus.append({'name': '생산 관리', 'icon': 'bi-gear', 'url': '/production'})
+
+        if r in ('admin', 'manager', 'production', 'logistics', 'general'):
+            menus.append({'name': '재고 조정', 'icon': 'bi-pencil-square', 'url': '/adjustment'})
 
         if r in ('admin', 'manager', 'logistics', 'production', 'general'):
             menus.append({'name': '세트작업', 'icon': 'bi-boxes', 'url': '/set-assembly'})
@@ -149,6 +153,8 @@ def create_app(config_class=None):
     from blueprints.dashboard import dashboard_bp
     from blueprints.stock import stock_bp
     from blueprints.production import production_bp
+    from blueprints.inbound import inbound_bp
+    from blueprints.adjustment import adjustment_bp
     from blueprints.outbound import outbound_bp
     from blueprints.transfer import transfer_bp
     from blueprints.base_data import base_data_bp
@@ -165,6 +171,7 @@ def create_app(config_class=None):
     from blueprints.mobile import mobile_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
+               inbound_bp, adjustment_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,

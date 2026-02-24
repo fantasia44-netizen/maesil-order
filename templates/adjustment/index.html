@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}재고 조정 - 배마마 통합시스템{% endblock %}
+{% block page_title %}재고 조정{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 조정 입력 -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-pencil-square"></i> 재고 조정 등록</span>
+                <span class="badge bg-primary" id="itemCountBadge">0건</span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">조정일</label>
+                    <input type="date" id="adjustDate" class="form-control" required>
+                </div>
+
+                <hr class="my-2">
+
+                <div class="row g-2 align-items-end mb-2">
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">창고위치</label>
+                        <select id="locationSelect" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">품목명</label>
+                        <div class="position-relative">
+                            <input type="text" id="productInput" class="form-control form-control-sm"
+                                   placeholder="위치 선택 후 검색" autocomplete="off" disabled>
+                            <div id="acList" class="autocomplete-list list-group position-absolute w-100"
+                                 style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                        </div>
+                        <small class="text-muted" id="stockInfo"></small>
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small mb-1">수량 (+/-)</label>
+                        <input type="number" id="qtyInput" class="form-control form-control-sm" placeholder="양수/음수">
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">사유 (필수)</label>
+                        <input type="text" id="memoInput" class="form-control form-control-sm" placeholder="조정 사유">
+                    </div>
+                    <div class="col-sm-1">
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100" id="addItemBtn" title="추가">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 대기 목록 -->
+                <div class="table-responsive mt-2" style="max-height:300px; overflow-y:auto;">
+                    <table class="table table-sm table-hover table-bordered mb-0">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th style="width:25px;">#</th>
+                                <th>품목명</th>
+                                <th style="width:70px;">위치</th>
+                                <th style="width:80px;">수량</th>
+                                <th>사유</th>
+                                <th style="width:35px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingBody">
+                            <tr><td colspan="6" class="text-center text-muted py-3">
+                                <i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearAllBtn" style="display:none;">
+                        <i class="bi bi-trash3"></i> 전체 삭제
+                    </button>
+                    <button type="button" class="btn btn-primary" id="submitBatchBtn" disabled>
+                        <i class="bi bi-pencil-square"></i> 일괄 조정 처리
+                        <span class="badge bg-light text-primary ms-1" id="submitCount">0건</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 조정 이력 조회 -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 조정 이력 조회
+            </div>
+            <div class="card-body">
+                <div class="row g-2 align-items-end mb-2">
+                    <div class="col-sm-4">
+                        <input type="date" id="histDateFrom" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-sm-4">
+                        <input type="date" id="histDateTo" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-sm-4">
+                        <button type="button" class="btn btn-outline-info btn-sm" id="searchHistoryBtn">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light" style="position:sticky; top:0;">
+                            <tr><th>일자</th><th>품목명</th><th>위치</th><th>수량</th><th>사유</th>
+                                {% if current_user.role == 'admin' %}<th style="width:40px;"></th>{% endif %}</tr>
+                        </thead>
+                        <tbody id="historyBody">
+                            <tr><td colspan="5" class="text-center text-muted small py-2">기간을 선택하고 조회하세요</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 안내 -->
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-info-circle"></i> 재고 조정 안내</div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3">
+                    <h6 class="mb-2"><i class="bi bi-plus-circle text-success"></i> 양수(+) 수량</h6>
+                    <p class="mb-2 small">재고가 실제보다 적을 때 → 양수 입력하여 증가</p>
+                    <h6 class="mb-2"><i class="bi bi-dash-circle text-danger"></i> 음수(-) 수량</h6>
+                    <p class="mb-0 small">재고가 실제보다 많을 때 → 음수 입력하여 감소</p>
+                </div>
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>사유 필수</strong> — 모든 조정에는 사유를 반드시 입력해야 합니다.
+                    <br><span class="small">(예: 실사차이, 파손, 오입력 정정, 증정 등)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3" id="resultCard" style="display:none;">
+            <div class="card-header"><i class="bi bi-check-circle"></i> 처리 결과</div>
+            <div class="card-body" id="resultBody"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const csrf_token = '{{ csrf_token() }}';
+    const BATCH_URL = '{{ url_for("adjustment.batch") }}';
+    const PRODUCTS_URL = '{{ url_for("adjustment.api_products") }}';
+    const HISTORY_URL = '{{ url_for("adjustment.api_history") }}';
+    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+
+    const locationSelect = document.getElementById('locationSelect');
+    const productInput = document.getElementById('productInput');
+    const qtyInput = document.getElementById('qtyInput');
+    const memoInput = document.getElementById('memoInput');
+    const acList = document.getElementById('acList');
+    const stockInfo = document.getElementById('stockInfo');
+    const addBtn = document.getElementById('addItemBtn');
+    const pendingBody = document.getElementById('pendingBody');
+    const submitBtn = document.getElementById('submitBatchBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const dateInput = document.getElementById('adjustDate');
+    const resultCard = document.getElementById('resultCard');
+    const resultBody = document.getElementById('resultBody');
+
+    let products = [];
+    let pendingItems = [];
+    let selectedProduct = null;
+
+    dateInput.value = new Date().toISOString().slice(0, 10);
+
+    // 위치 변경 → 품목 로드
+    locationSelect.addEventListener('change', async function() {
+        const loc = this.value;
+        productInput.value = ''; stockInfo.textContent = '';
+        products = []; selectedProduct = null;
+        if (!loc) { productInput.disabled = true; productInput.placeholder = '위치 선택 후 검색'; return; }
+        productInput.disabled = true; productInput.placeholder = '로딩 중...';
+        try {
+            const res = await fetch(`${PRODUCTS_URL}?location=${encodeURIComponent(loc)}`);
+            products = await res.json();
+            productInput.disabled = false;
+            productInput.placeholder = `품목명 입력 (${products.length}개)`;
+            productInput.focus();
+        } catch (e) { productInput.disabled = false; productInput.placeholder = '품목명 입력'; }
+    });
+
+    // 자동완성
+    productInput.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        acList.innerHTML = ''; selectedProduct = null; stockInfo.textContent = '';
+        if (!q || !products.length) { acList.style.display = 'none'; return; }
+        const matches = products.filter(p => p.name.toLowerCase().includes(q)).slice(0, 15);
+        if (!matches.length) { acList.style.display = 'none'; return; }
+        matches.forEach(p => {
+            const item = document.createElement('a');
+            item.href = '#'; item.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            item.innerHTML = `<strong>${escapeHtml(p.name)}</strong> <span class="text-muted">(${p.qty} ${p.unit})</span>`;
+            item.addEventListener('mousedown', function(e) {
+                e.preventDefault(); productInput.value = p.name;
+                selectedProduct = p; stockInfo.textContent = `현재 재고: ${p.qty} ${p.unit}`;
+                acList.style.display = 'none'; qtyInput.focus();
+            });
+            acList.appendChild(item);
+        });
+        acList.style.display = 'block';
+    });
+    productInput.addEventListener('blur', () => setTimeout(() => acList.style.display = 'none', 200));
+    qtyInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); memoInput.focus(); }});
+    memoInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addItem(); }});
+
+    addBtn.addEventListener('click', addItem);
+    function addItem() {
+        const loc = locationSelect.value;
+        const name = productInput.value.trim();
+        const qty = parseInt(qtyInput.value);
+        const memo = memoInput.value.trim();
+        if (!loc) { alert('창고위치를 선택하세요.'); return; }
+        if (!name) { alert('품목명을 입력하세요.'); return; }
+        if (!qty || qty === 0) { alert('수량을 입력하세요 (양수 또는 음수).'); return; }
+        if (!memo) { alert('사유를 입력하세요.'); memoInput.focus(); return; }
+
+        pendingItems.push({ product_name: name, location: loc, qty: qty, memo: memo });
+        productInput.value = ''; qtyInput.value = ''; memoInput.value = '';
+        stockInfo.textContent = ''; selectedProduct = null;
+        productInput.focus();
+        renderTable();
+    }
+
+    function renderTable() {
+        pendingBody.innerHTML = '';
+        if (!pendingItems.length) {
+            pendingBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>';
+            submitBtn.disabled = true; clearAllBtn.style.display = 'none';
+        } else {
+            pendingItems.forEach((item, idx) => {
+                const isPlus = item.qty > 0;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="text-muted small">${idx+1}</td>
+                    <td class="small">${escapeHtml(item.product_name)}</td>
+                    <td class="small">${escapeHtml(item.location)}</td>
+                    <td class="text-end small fw-bold ${isPlus ? 'text-success' : 'text-danger'}">
+                        ${isPlus ? '+' : ''}${item.qty.toLocaleString()}</td>
+                    <td class="small">${escapeHtml(item.memo)}</td>
+                    <td class="text-center"><button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"
+                        onclick="window._removeItem(${idx})"><i class="bi bi-x"></i></button></td>`;
+                pendingBody.appendChild(tr);
+            });
+            submitBtn.disabled = false; clearAllBtn.style.display = '';
+        }
+        document.getElementById('itemCountBadge').textContent = `${pendingItems.length}건`;
+        document.getElementById('submitCount').textContent = `${pendingItems.length}건`;
+    }
+
+    window._removeItem = function(idx) { pendingItems.splice(idx, 1); renderTable(); };
+    clearAllBtn.addEventListener('click', function() {
+        if (!confirm(`${pendingItems.length}건 전체 삭제?`)) return;
+        pendingItems = []; renderTable();
+    });
+
+    submitBtn.addEventListener('click', async function() {
+        const dateVal = dateInput.value;
+        if (!dateVal) { alert('조정일을 입력하세요.'); return; }
+        if (!pendingItems.length) return;
+        if (!confirm(`${pendingItems.length}건 재고 조정을 처리하시겠습니까?`)) return;
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
+        try {
+            const res = await fetch(BATCH_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
+                body: JSON.stringify({ date: dateVal, items: pendingItems }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) { showResult('danger', data.error); }
+            else {
+                showResult('success', `<p class="mb-0 text-success"><i class="bi bi-check-circle"></i> 조정 완료: 증가 ${data.increase_count}건, 감소 ${data.decrease_count}건</p>`, true);
+                pendingItems = []; renderTable();
+            }
+        } catch (e) { showResult('danger', e.message); }
+        finally {
+            submitBtn.disabled = !pendingItems.length;
+            submitBtn.innerHTML = `<i class="bi bi-pencil-square"></i> 일괄 조정 처리 <span class="badge bg-light text-primary ms-1">${pendingItems.length}건</span>`;
+        }
+    });
+
+    // 이력 조회
+    document.getElementById('searchHistoryBtn').addEventListener('click', async function() {
+        const from = document.getElementById('histDateFrom').value;
+        const to = document.getElementById('histDateTo').value;
+        if (!from || !to) { alert('기간을 선택하세요.'); return; }
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center small py-2">조회 중...</td></tr>';
+        try {
+            const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
+            const rows = await res.json();
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            tbody.innerHTML = '';
+            rows.forEach(r => {
+                const isPlus = r.qty > 0;
+                let delCol = '';
+                if(isAdmin){ delCol = `<td><button class="btn btn-outline-danger btn-sm py-0 px-1 hist-del" data-id="${r.id}"><i class="bi bi-trash3"></i></button></td>`; }
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td class="small">${r.date}</td><td class="small">${escapeHtml(r.product_name)}</td>
+                    <td class="small">${escapeHtml(r.location)}</td>
+                    <td class="text-end small fw-bold ${isPlus?'text-success':'text-danger'}">${isPlus?'+':''}${r.qty}</td>
+                    <td class="small">${escapeHtml(r.memo)}</td>${delCol}`;
+                tbody.appendChild(tr);
+            });
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger small">${e.message}</td></tr>`; }
+    });
+
+    // 개별 삭제 (admin)
+    document.getElementById('historyBody').addEventListener('click', function(e){
+        const btn = e.target.closest('.hist-del');
+        if(!btn) return;
+        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        const id = btn.dataset.id;
+        fetch(`/adjustment/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
+            .then(r=>r.json())
+            .then(data=>{ if(data.success) btn.closest('tr').remove(); else alert('삭제 실패: '+(data.error||'')); })
+            .catch(e=>alert('통신 오류: '+e));
+    });
+
+    function showResult(type, msg, isHtml) {
+        resultCard.style.display = '';
+        resultBody.innerHTML = isHtml ? msg : `<p class="mb-0 text-${type}">${escapeHtml(msg)}</p>`;
+    }
+    function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+    renderTable();
+})();
+</script>
+{% endblock %}

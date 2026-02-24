@@ -1,105 +1,544 @@
 {% extends "base.html" %}
-{% block title %}생산/입고 - 배마마 통합시스템{% endblock %}
-{% block page_title %}생산/입고 관리{% endblock %}
+{% block title %}생산 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}생산 관리{% endblock %}
 
 {% block content %}
 <div class="row g-4">
-    <!-- 입고 섹션 -->
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-box-arrow-in-down"></i> 입고
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('production.inbound') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (기존 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">입고 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">
-                        <i class="bi bi-upload"></i> 입고 업로드
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- 생산 섹션 -->
-    <div class="col-lg-6">
-        <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-gear"></i> 생산
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('production.production') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">위치</label>
-                        <input type="text" name="location" class="form-control" placeholder="생산 위치 입력">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (기존 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">생산 엑셀 파일(.xlsx/.xls)을 업로드하세요.</div>
-                    </div>
-                    <button type="submit" class="btn btn-success w-100">
-                        <i class="bi bi-upload"></i> 생산 업로드
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 생산일지 PDF 다운로드 -->
-<div class="row g-4 mt-2">
-    <div class="col-12">
+    <!-- 시스템 생산 등록 -->
+    <div class="col-lg-8">
         <div class="card">
-            <div class="card-header">
-                <i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF 다운로드
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-gear"></i> 생산 등록</span>
+                <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('production.log_pdf') }}" class="row g-3 align-items-end">
-                    <div class="col-md-3">
+                <!-- 기준일 + 모드 + 위치 -->
+                <div class="row mb-3">
+                    <div class="col-sm-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" id="prodDate" class="form-control" required>
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label fw-semibold">입력 모드</label>
+                        <select id="prodMode" class="form-select">
+                            <option value="신규입력">신규입력</option>
+                            <option value="수정입력">수정입력 (해당일 생산 삭제 후 재입력)</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label fw-semibold">생산 위치</label>
+                        <select id="prodLocation" class="form-select">
+                            <option value="">선택</option>
+                            {% for loc in locations|default([]) %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- 생산품 입력 -->
+                <div class="border rounded p-2 mb-2 bg-light">
+                    <h6 class="mb-2"><i class="bi bi-box-seam"></i> 생산품</h6>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-4">
+                            <label class="form-label small mb-1">품목명</label>
+                            <div class="position-relative">
+                                <input type="text" id="prodNameInput" class="form-control form-control-sm"
+                                       placeholder="생산 품목명" autocomplete="off">
+                                <div id="prodAcList" class="autocomplete-list list-group position-absolute w-100"
+                                     style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">생산수량</label>
+                            <input type="number" id="prodQtyInput" class="form-control form-control-sm" min="1">
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">종류</label>
+                            <input type="text" id="prodCatInput" class="form-control form-control-sm" placeholder="제품">
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">단위</label>
+                            <input type="text" id="prodUnitInput" class="form-control form-control-sm" value="개">
+                        </div>
+                    </div>
+                    <div class="row g-2 mt-1">
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">보관방법</label>
+                            <input type="text" id="prodStorageInput" class="form-control form-control-sm" placeholder="냉동">
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1">제조일</label>
+                            <input type="date" id="prodMfgInput" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1">소비기한</label>
+                            <input type="date" id="prodExpInput" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 재료 입력 -->
+                <div class="border rounded p-2 mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-layers"></i> 투입 재료</h6>
+                        <div>
+                            <button type="button" class="btn btn-outline-info btn-sm" id="addMaterialBtn">
+                                <i class="bi bi-plus"></i> 재료 추가
+                            </button>
+                        </div>
+                    </div>
+                    <div id="materialRows"></div>
+                    <div id="materialEmpty" class="text-center text-muted small py-2">
+                        <i class="bi bi-info-circle"></i> "재료 추가" 버튼으로 반제품/원료를 추가하세요 (선택)
+                    </div>
+                </div>
+
+                <!-- 생산항목 추가 버튼 -->
+                <button type="button" class="btn btn-success btn-sm w-100 mb-3" id="addProdItemBtn">
+                    <i class="bi bi-plus-circle"></i> 생산항목 추가 (대기 목록에 등록)
+                </button>
+
+                <!-- 대기 목록 -->
+                <div class="table-responsive" style="max-height:300px; overflow-y:auto;">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th style="width:25px;">#</th>
+                                <th>품목명</th>
+                                <th style="width:80px;">수량</th>
+                                <th style="width:70px;">유형</th>
+                                <th style="width:35px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="pendingBody">
+                            <tr><td colspan="5" class="text-center text-muted py-3">
+                                <i class="bi bi-inbox"></i> 생산 항목을 추가하세요</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="clearAllBtn" style="display:none;">
+                        <i class="bi bi-trash3"></i> 전체 삭제
+                    </button>
+                    <button type="button" class="btn btn-primary" id="submitBatchBtn" disabled>
+                        <i class="bi bi-gear"></i> 일괄 생산 처리
+                        <span class="badge bg-light text-primary ms-1" id="submitCount">0건</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 생산 이력 조회 -->
+        <div class="card mt-3">
+            <div class="card-header"><i class="bi bi-clock-history"></i> 생산 이력 조회</div>
+            <div class="card-body">
+                <div class="row g-2 align-items-end mb-2">
+                    <div class="col-sm-4">
+                        <input type="date" id="histDateFrom" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-sm-4">
+                        <input type="date" id="histDateTo" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-sm-4">
+                        <button type="button" class="btn btn-outline-info btn-sm" id="searchHistoryBtn">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light" style="position:sticky; top:0;">
+                            <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th>
+                                {% if current_user.role == 'admin' %}<th style="width:40px;"></th>{% endif %}</tr>
+                        </thead>
+                        <tbody id="historyBody">
+                            <tr><td colspan="5" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 엑셀 + PDF -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-file-earmark-excel"></i> 엑셀 생산 업로드</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('production.excel_upload') }}" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">기준일</label>
+                        <input type="date" name="date" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">입력 모드</label>
+                        <select name="mode" class="form-select">
+                            <option value="신규입력">신규입력</option>
+                            <option value="수정입력">수정입력 (기존 삭제 후 재입력)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <div class="form-text">필수: 품목명, 생산수량, 창고위치</div>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100">
+                        <i class="bi bi-upload"></i> 엑셀 생산 업로드
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 생산일지 PDF -->
+        <div class="card mt-3">
+            <div class="card-header"><i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF</div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('production.log_pdf') }}" class="row g-2 align-items-end">
+                    <div class="col-12 mb-2">
                         <label class="form-label fw-semibold">생산일자</label>
                         <input type="date" name="date" class="form-control" required>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-12 mb-2">
                         <label class="form-label fw-semibold">위치 (선택)</label>
-                        <input type="text" name="location" class="form-control" placeholder="전체 (미입력시)">
+                        <input type="text" name="location" class="form-control" placeholder="전체">
                     </div>
-                    <div class="col-md-3">
-                        <button type="submit" class="btn btn-outline-danger">
-                            <i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-danger w-100">
+                            <i class="bi bi-file-earmark-pdf"></i> PDF 다운로드
                         </button>
                     </div>
                 </form>
             </div>
         </div>
+
+        <div class="card mt-3" id="resultCard" style="display:none;">
+            <div class="card-header"><i class="bi bi-check-circle"></i> 처리 결과</div>
+            <div class="card-body" id="resultBody"></div>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const csrf_token = '{{ csrf_token() }}';
+    const BATCH_URL = '{{ url_for("production.batch") }}';
+    const PRODUCTS_URL = '{{ url_for("production.api_products") }}';
+    const STOCK_URL = '{{ url_for("production.api_stock") }}';
+    const HISTORY_URL = '{{ url_for("production.api_history") }}';
+    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+
+    const dateInput = document.getElementById('prodDate');
+    const modeSelect = document.getElementById('prodMode');
+    const locSelect = document.getElementById('prodLocation');
+    const prodNameInput = document.getElementById('prodNameInput');
+    const prodQtyInput = document.getElementById('prodQtyInput');
+    const prodCatInput = document.getElementById('prodCatInput');
+    const prodUnitInput = document.getElementById('prodUnitInput');
+    const prodStorageInput = document.getElementById('prodStorageInput');
+    const prodMfgInput = document.getElementById('prodMfgInput');
+    const prodExpInput = document.getElementById('prodExpInput');
+    const prodAcList = document.getElementById('prodAcList');
+    const materialRows = document.getElementById('materialRows');
+    const materialEmpty = document.getElementById('materialEmpty');
+    const pendingBody = document.getElementById('pendingBody');
+    const submitBtn = document.getElementById('submitBatchBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const resultCard = document.getElementById('resultCard');
+    const resultBody = document.getElementById('resultBody');
+
+    let allProducts = [];
+    let stockProducts = [];
+    let currentMaterials = [];
+    let pendingItems = [];
+    let matIdCounter = 0;
+
+    dateInput.value = new Date().toISOString().slice(0, 10);
+
+    // 전체 품목 로드 (생산품 자동완성)
+    async function loadProducts() {
+        try {
+            const res = await fetch(PRODUCTS_URL);
+            allProducts = await res.json();
+        } catch (e) { console.error(e); }
+    }
+    loadProducts();
+
+    // 위치 변경 → 재고 품목 로드 (재료 자동완성)
+    locSelect.addEventListener('change', async function() {
+        stockProducts = [];
+        if (!this.value) return;
+        try {
+            const res = await fetch(`${STOCK_URL}?location=${encodeURIComponent(this.value)}`);
+            stockProducts = await res.json();
+        } catch (e) { console.error(e); }
+    });
+
+    // 생산품 자동완성
+    prodNameInput.addEventListener('input', function() {
+        const q = this.value.trim().toLowerCase();
+        prodAcList.innerHTML = '';
+        if (!q || !allProducts.length) { prodAcList.style.display = 'none'; return; }
+        const m = allProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12);
+        if (!m.length) { prodAcList.style.display = 'none'; return; }
+        m.forEach(p => {
+            const a = document.createElement('a');
+            a.href = '#'; a.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            a.textContent = p.name;
+            a.addEventListener('mousedown', e => {
+                e.preventDefault(); prodNameInput.value = p.name;
+                prodAcList.style.display = 'none'; prodQtyInput.focus();
+            });
+            prodAcList.appendChild(a);
+        });
+        prodAcList.style.display = 'block';
+    });
+    prodNameInput.addEventListener('blur', () => setTimeout(() => prodAcList.style.display = 'none', 200));
+
+    // 재료 추가
+    document.getElementById('addMaterialBtn').addEventListener('click', function() {
+        const id = matIdCounter++;
+        currentMaterials.push({ id: id, product_name: '', qty: 0 });
+        renderMaterialRows();
+    });
+
+    function renderMaterialRows() {
+        materialRows.innerHTML = '';
+        materialEmpty.style.display = currentMaterials.length ? 'none' : '';
+        currentMaterials.forEach((mat, idx) => {
+            const div = document.createElement('div');
+            div.className = 'row g-1 align-items-center mb-1';
+            div.innerHTML = `
+                <div class="col-sm-5">
+                    <div class="position-relative">
+                        <input type="text" class="form-control form-control-sm mat-name" data-idx="${idx}"
+                               value="${escapeHtml(mat.product_name)}" placeholder="재료명 검색" autocomplete="off">
+                        <div class="mat-ac-list list-group position-absolute w-100"
+                             style="z-index:1010; max-height:150px; overflow-y:auto; display:none;"></div>
+                    </div>
+                </div>
+                <div class="col-sm-3">
+                    <input type="number" class="form-control form-control-sm mat-qty" data-idx="${idx}"
+                           value="${mat.qty || ''}" min="1" placeholder="수량">
+                </div>
+                <div class="col-sm-2">
+                    <small class="text-muted mat-stock" data-idx="${idx}"></small>
+                </div>
+                <div class="col-sm-2 text-end">
+                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="window._removeMat(${idx})">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>`;
+            materialRows.appendChild(div);
+
+            // 재료 자동완성
+            const nameEl = div.querySelector('.mat-name');
+            const acEl = div.querySelector('.mat-ac-list');
+            const stockEl = div.querySelector('.mat-stock');
+            nameEl.addEventListener('input', function() {
+                const q = this.value.trim().toLowerCase();
+                acEl.innerHTML = '';
+                if (!q || !stockProducts.length) { acEl.style.display = 'none'; return; }
+                const mm = stockProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
+                if (!mm.length) { acEl.style.display = 'none'; return; }
+                mm.forEach(p => {
+                    const a = document.createElement('a');
+                    a.href = '#'; a.className = 'list-group-item list-group-item-action py-0 px-2 small';
+                    a.innerHTML = `${escapeHtml(p.name)} <span class="text-muted">(${p.qty}${p.unit})</span>`;
+                    a.addEventListener('mousedown', e => {
+                        e.preventDefault();
+                        currentMaterials[idx].product_name = p.name;
+                        nameEl.value = p.name;
+                        stockEl.textContent = `재고:${p.qty}`;
+                        acEl.style.display = 'none';
+                        div.querySelector('.mat-qty').focus();
+                    });
+                    acEl.appendChild(a);
+                });
+                acEl.style.display = 'block';
+            });
+            nameEl.addEventListener('blur', () => setTimeout(() => acEl.style.display = 'none', 200));
+            nameEl.addEventListener('change', function() { currentMaterials[idx].product_name = this.value.trim(); });
+            div.querySelector('.mat-qty').addEventListener('change', function() { currentMaterials[idx].qty = parseInt(this.value) || 0; });
+        });
+    }
+
+    window._removeMat = function(idx) { currentMaterials.splice(idx, 1); renderMaterialRows(); };
+
+    // 생산항목 추가
+    document.getElementById('addProdItemBtn').addEventListener('click', function() {
+        const name = prodNameInput.value.trim();
+        const qty = parseInt(prodQtyInput.value);
+        if (!name) { alert('생산 품목명을 입력하세요.'); prodNameInput.focus(); return; }
+        if (!qty || qty <= 0) { alert('생산 수량을 입력하세요.'); prodQtyInput.focus(); return; }
+
+        // 재료 입력값 동기화
+        materialRows.querySelectorAll('.mat-name').forEach(el => {
+            currentMaterials[el.dataset.idx].product_name = el.value.trim();
+        });
+        materialRows.querySelectorAll('.mat-qty').forEach(el => {
+            currentMaterials[el.dataset.idx].qty = parseInt(el.value) || 0;
+        });
+
+        const validMats = currentMaterials.filter(m => m.product_name && m.qty > 0)
+            .map(m => ({ product_name: m.product_name, qty: m.qty }));
+
+        pendingItems.push({
+            product_name: name, qty: qty,
+            category: prodCatInput.value.trim(),
+            unit: prodUnitInput.value.trim() || '개',
+            storage_method: prodStorageInput.value.trim(),
+            manufacture_date: prodMfgInput.value || '',
+            expiry_date: prodExpInput.value || '',
+            materials: validMats,
+        });
+
+        // 초기화
+        prodNameInput.value = ''; prodQtyInput.value = '';
+        prodCatInput.value = ''; prodStorageInput.value = '';
+        prodMfgInput.value = ''; prodExpInput.value = '';
+        currentMaterials = []; renderMaterialRows();
+        prodNameInput.focus();
+        renderTable();
+    });
+
+    function renderTable() {
+        pendingBody.innerHTML = '';
+        if (!pendingItems.length) {
+            pendingBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 생산 항목을 추가하세요</td></tr>';
+            submitBtn.disabled = true; clearAllBtn.style.display = 'none';
+        } else {
+            let num = 0;
+            pendingItems.forEach((item, idx) => {
+                num++;
+                const tr = document.createElement('tr');
+                tr.className = 'table-success';
+                tr.innerHTML = `
+                    <td class="small fw-bold">${num}</td>
+                    <td class="small fw-bold">${escapeHtml(item.product_name)}</td>
+                    <td class="text-end small fw-bold text-success">+${item.qty.toLocaleString()}</td>
+                    <td><span class="badge bg-success">생산</span></td>
+                    <td class="text-center"><button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"
+                        onclick="window._removeProd(${idx})"><i class="bi bi-x"></i></button></td>`;
+                pendingBody.appendChild(tr);
+
+                item.materials.forEach(mat => {
+                    const mtr = document.createElement('tr');
+                    mtr.className = 'table-light';
+                    mtr.innerHTML = `
+                        <td></td>
+                        <td class="small text-muted ps-4">ㄴ ${escapeHtml(mat.product_name)}</td>
+                        <td class="text-end small text-danger">-${mat.qty.toLocaleString()}</td>
+                        <td><span class="badge bg-secondary small">투입</span></td>
+                        <td></td>`;
+                    pendingBody.appendChild(mtr);
+                });
+            });
+            submitBtn.disabled = false; clearAllBtn.style.display = '';
+        }
+        document.getElementById('itemCountBadge').textContent = `${pendingItems.length}건`;
+        document.getElementById('submitCount').textContent = `${pendingItems.length}건`;
+    }
+
+    window._removeProd = function(idx) { pendingItems.splice(idx, 1); renderTable(); };
+    clearAllBtn.addEventListener('click', function() {
+        if (!confirm(`${pendingItems.length}건 전체 삭제?`)) return;
+        pendingItems = []; renderTable();
+    });
+
+    // 일괄 생산 처리
+    submitBtn.addEventListener('click', async function() {
+        const dateVal = dateInput.value;
+        const modeVal = modeSelect.value;
+        const locVal = locSelect.value;
+        if (!dateVal) { alert('기준일을 입력하세요.'); return; }
+        if (!locVal) { alert('생산 위치를 선택하세요.'); return; }
+        if (!pendingItems.length) return;
+        const msg = modeVal === '수정입력'
+            ? `${dateVal} 기존 생산 삭제 후 ${pendingItems.length}건 재입력합니다.`
+            : `${pendingItems.length}건 생산 처리하시겠습니까?`;
+        if (!confirm(msg)) return;
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
+        try {
+            const res = await fetch(BATCH_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
+                body: JSON.stringify({ date: dateVal, mode: modeVal, location: locVal, items: pendingItems }),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) { showResult('danger', data.error); }
+            else {
+                let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i> 생산 완료:
+                    산출 <strong>${data.produced}건</strong>, 재료 차감 <strong>${data.materials_used}건</strong></p>`;
+                if (data.deleted_count) html += `<p class="mb-1 text-info small">기존 ${data.deleted_count}건 삭제 후 재입력</p>`;
+                if (data.warnings && data.warnings.length) {
+                    html += '<hr class="my-1"><ul class="mb-0 small">';
+                    data.warnings.forEach(w => html += `<li class="text-warning">${escapeHtml(w)}</li>`);
+                    html += '</ul>';
+                }
+                showResult('success', html, true);
+                pendingItems = []; renderTable();
+            }
+        } catch (e) { showResult('danger', e.message); }
+        finally {
+            submitBtn.disabled = !pendingItems.length;
+            submitBtn.innerHTML = `<i class="bi bi-gear"></i> 일괄 생산 처리 <span class="badge bg-light text-primary ms-1">${pendingItems.length}건</span>`;
+        }
+    });
+
+    // 이력 조회
+    document.getElementById('searchHistoryBtn').addEventListener('click', async function() {
+        const from = document.getElementById('histDateFrom').value;
+        const to = document.getElementById('histDateTo').value;
+        if (!from || !to) { alert('기간을 선택하세요.'); return; }
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center small py-2">조회 중...</td></tr>';
+        try {
+            const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
+            const rows = await res.json();
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            tbody.innerHTML = '';
+            rows.forEach(r => {
+                const isProd = r.type === 'PRODUCTION';
+                let delCol = '';
+                if(isAdmin){ delCol = `<td><button class="btn btn-outline-danger btn-sm py-0 px-1 hist-del" data-id="${r.id}"><i class="bi bi-trash3"></i></button></td>`; }
+                const tr = document.createElement('tr');
+                tr.className = isProd ? '' : 'table-light';
+                tr.innerHTML = `<td class="small">${r.date}</td>
+                    <td class="small"><span class="badge ${isProd?'bg-success':'bg-secondary'} small">${isProd?'생산':'투입'}</span></td>
+                    <td class="small ${isProd?'fw-bold':''}">${isProd?'':'ㄴ '}${escapeHtml(r.product_name)}</td>
+                    <td class="text-end small ${isProd?'text-success':'text-danger'}">${r.qty>0?'+':''}${r.qty}</td>
+                    <td class="small">${escapeHtml(r.location)}</td>${delCol}`;
+                tbody.appendChild(tr);
+            });
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger small">${e.message}</td></tr>`; }
+    });
+
+    // 개별 삭제 (admin)
+    document.getElementById('historyBody').addEventListener('click', function(e){
+        const btn = e.target.closest('.hist-del');
+        if(!btn) return;
+        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        const id = btn.dataset.id;
+        fetch(`/production/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
+            .then(r=>r.json())
+            .then(data=>{ if(data.success) btn.closest('tr').remove(); else alert('삭제 실패: '+(data.error||'')); })
+            .catch(e=>alert('통신 오류: '+e));
+    });
+
+    function showResult(type, msg, isHtml) {
+        resultCard.style.display = '';
+        resultBody.innerHTML = isHtml ? msg : `<p class="mb-0 text-${type}">${escapeHtml(msg)}</p>`;
+    }
+    function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+    renderTable();
+})();
+</script>
 {% endblock %}

@@ -378,6 +378,161 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     }
 
 
+def process_repack_batch(db, date_str, mode, location, items):
+    """시스템 입력 다건 소분 처리.
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 작업일자 (YYYY-MM-DD)
+        mode: "신규입력" or "수정입력"
+        location: 작업 위치/창고
+        items: [{
+            product_name: str (산출품),
+            qty: int (산출수량),
+            category, unit, storage_method, expiry_date, manufacture_date, lot_number,
+            materials: [{product_name, qty}]  (투입품)
+        }]
+
+    Returns:
+        dict: {repack_in_count, repack_out_count, warnings, deleted_count, doc_nos}
+    """
+    _validate_date(date_str)
+
+    warnings = []
+    if date_str < datetime.now().strftime('%Y-%m-%d'):
+        warnings.append(f"작업일자가 과거입니다: {date_str}")
+
+    loc = normalize_location(location)
+
+    # ── 사전 유효성 검증 (DB 변경 전) ──
+    input_demand = {}
+    for item in items:
+        for mat in item.get('materials', []):
+            mat_name = str(mat.get('product_name', '')).strip()
+            mat_qty = int(float(mat.get('qty', 0)))
+            if mat_name and mat_qty > 0:
+                key = (mat_name, loc)
+                input_demand[key] = input_demand.get(key, 0) + mat_qty
+
+    # 재고 스냅샷 & 부족 체크 (삭제 전에 먼저 검증)
+    snapshot = _load_stock_snapshot(db, loc) if loc else {}
+    shortage = []
+    for (name, _loc), need in input_demand.items():
+        snap = snapshot_lookup(snapshot, name)
+        total = snap.get('total', 0)
+        unit = snap.get('unit', '개')
+        if need > total:
+            shortage.append(f"[{_loc}] {name}: 필요 {need}{unit} / 재고 {total}{unit}")
+
+    if shortage:
+        raise ValueError("투입품 재고 부족:\n" + "\n".join(shortage))
+
+    # ── 수정입력: 기존 삭제 (검증 통과 후에만 실행) ──
+    deleted_count = 0
+    if mode == "수정입력":
+        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT")
+        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN")
+        deleted_count = del1 + del2
+        # 수정입력 후 스냅샷 재로드
+        snapshot = _load_stock_snapshot(db, loc) if loc else {}
+
+    # ── 문서번호 생성 ──
+    doc_no = generate_repack_doc_no(db, date_str)
+
+    # ── payload 생성 ──
+    payload = []
+    repack_in_count = 0
+    repack_out_count = 0
+
+    for item in items:
+        out_name = str(item.get('product_name', '')).strip()
+        out_qty = int(float(item.get('qty', 0)))
+
+        if not out_name or out_qty <= 0:
+            continue
+
+        # 산출품 (REPACK_IN)
+        payload.append({
+            "transaction_date": date_str,
+            "type": "REPACK_IN",
+            "product_name": out_name,
+            "qty": out_qty,
+            "location": loc,
+            "category": str(item.get('category', '')).strip() or None,
+            "storage_method": str(item.get('storage_method', '')).strip() or None,
+            "unit": str(item.get('unit', '개')).strip() or '개',
+            "expiry_date": safe_date(item.get('expiry_date', '')),
+            "manufacture_date": safe_date(item.get('manufacture_date', '')),
+            "lot_number": str(item.get('lot_number', '')).strip() or None,
+            "repack_doc_no": doc_no,
+        })
+        repack_in_count += 1
+
+        # 투입품 (REPACK_OUT, FIFO)
+        for mat in item.get('materials', []):
+            mat_name = str(mat.get('product_name', '')).strip()
+            mat_qty = int(float(mat.get('qty', 0)))
+
+            if not mat_name or mat_qty <= 0:
+                continue
+
+            groups = snapshot_lookup(snapshot, mat_name).get('groups', [])
+            remain = mat_qty
+
+            if not groups:
+                payload.append({
+                    "transaction_date": date_str,
+                    "type": "REPACK_OUT",
+                    "product_name": mat_name,
+                    "qty": -remain,
+                    "location": loc,
+                    "repack_doc_no": doc_no,
+                    "unit": '개',
+                })
+                repack_out_count += 1
+            else:
+                for g in groups:
+                    if remain <= 0:
+                        break
+                    deduct = min(remain, g['qty'])
+                    if deduct <= 0:
+                        continue
+                    payload.append({
+                        "transaction_date": date_str,
+                        "type": "REPACK_OUT",
+                        "product_name": mat_name,
+                        "qty": -deduct,
+                        "location": loc,
+                        "category": g.get('category', ''),
+                        "expiry_date": g.get('expiry_date', ''),
+                        "storage_method": g.get('storage_method', ''),
+                        "unit": g.get('unit', '개'),
+                        "repack_doc_no": doc_no,
+                    })
+                    g['qty'] -= deduct
+                    remain -= deduct
+                    repack_out_count += 1
+
+    if not payload:
+        raise ValueError("생성할 소분 거래가 없습니다.")
+
+    # ── DB 저장 ──
+    try:
+        db.insert_stock_ledger(payload)
+    except Exception as e:
+        if mode == "수정입력" and deleted_count > 0:
+            warnings.append(f"주의: 기존 {deleted_count}건이 삭제되었으나 새 데이터 저장에 실패했습니다. 수정입력으로 재시도하세요.")
+        raise
+
+    return {
+        "repack_in_count": repack_in_count,
+        "repack_out_count": repack_out_count,
+        "warnings": warnings,
+        "deleted_count": deleted_count,
+        "doc_nos": [doc_no],
+    }
+
+
 def get_repack_history(db, date_from=None, date_to=None):
     """소분 이력 조회.
 

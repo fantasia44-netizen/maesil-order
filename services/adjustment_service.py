@@ -1,0 +1,66 @@
+"""
+adjustment_service.py — 재고 조정 비즈니스 로직.
+양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
+"""
+from datetime import datetime
+from services.excel_io import normalize_location
+
+
+def _validate_date(date_str):
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
+
+
+def process_adjustment_batch(db, date_str, items):
+    """다건 재고 조정 처리.
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 조정일자 (YYYY-MM-DD)
+        items: list of dicts:
+            {product_name, location, qty(+/-), memo(사유)}
+
+    Returns:
+        dict: {count, increase_count, decrease_count, warnings}
+    """
+    _validate_date(date_str)
+
+    warnings = []
+    payload = []
+    increase_count = 0
+    decrease_count = 0
+
+    for item in items:
+        name = str(item.get('product_name', '')).strip()
+        location = normalize_location(item.get('location', ''))
+        qty = int(float(item.get('qty', 0)))
+        memo = str(item.get('memo', '')).strip()
+
+        if not name or qty == 0 or not location or not memo:
+            continue
+
+        payload.append({
+            "transaction_date": date_str,
+            "type": "ADJUST",
+            "product_name": name,
+            "qty": qty,
+            "location": location,
+            "memo": memo,
+        })
+
+        if qty > 0:
+            increase_count += 1
+        else:
+            decrease_count += 1
+
+    if payload:
+        db.insert_stock_ledger(payload)
+
+    return {
+        'count': len(payload),
+        'increase_count': increase_count,
+        'decrease_count': decrease_count,
+        'warnings': warnings,
+    }

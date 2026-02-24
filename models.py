@@ -19,6 +19,7 @@ INV_TYPE_LABELS = {
     "SET_OUT": "세트투입", "SET_IN": "세트산출",
     "ETC_OUT": "기타출고",
     "ETC_IN": "기타입고",
+    "ADJUST": "재고조정",
 }
 
 ETC_OUT_REASONS = ["무상출고", "실험사용", "샘플", "폐기", "클레임", "오배송", "기타"]

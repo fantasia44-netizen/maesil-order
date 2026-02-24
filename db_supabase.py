@@ -133,6 +133,18 @@ class SupabaseDB(DBBase):
         cats = sorted(set(r['category'] for r in all_vals if r.get('category')))
         return locs, cats
 
+    def query_unique_product_names(self):
+        """stock_ledger에서 고유 품목명 목록 반환 (양수 재고 기준)."""
+        def builder(table):
+            return self.client.table(table).select("product_name,qty")
+        all_data = self._paginate_query("stock_ledger", builder)
+        totals = {}
+        for r in all_data:
+            name = r.get('product_name', '')
+            if name:
+                totals[name] = totals.get(name, 0) + (r.get('qty', 0) or 0)
+        return sorted([n for n, q in totals.items() if q > 0])
+
     def query_unit_for_product(self, product_name):
         try:
             res = self.client.table("stock_ledger").select("unit") \

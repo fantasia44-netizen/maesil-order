@@ -280,3 +280,141 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
         'deleted_count': deleted_count,
         'mode': mode,
     }
+
+
+# ─── 시스템 입력 생산 배치 처리 ───
+
+def process_production_batch(db, date_str, mode, location, items):
+    """시스템 입력 다건 생산 처리 (FIFO 재료 차감 포함).
+
+    Args:
+        db: SupabaseDB instance
+        date_str: 생산일자 (YYYY-MM-DD)
+        mode: '신규입력' or '수정입력'
+        location: 생산 위치
+        items: list of dicts:
+            {product_name, qty, expiry_date, category, storage_method,
+             unit, manufacture_date,
+             materials: [{product_name, qty}]}
+
+    Returns:
+        dict: {produced, materials_used, warnings, shortage, deleted_count}
+    """
+    from services.excel_io import normalize_location as norm_loc
+
+    _validate_date(date_str)
+    loc = norm_loc(location) if location else ''
+
+    warnings = []
+    shortage = []
+    deleted_count = 0
+
+    # 수정입력: 기존 데이터 삭제
+    if mode == '수정입력':
+        del1 = db.delete_stock_ledger_by(date_str, "PRODUCTION")
+        del2 = db.delete_stock_ledger_by(date_str, "PROD_OUT")
+        deleted_count = del1 + del2
+
+    # 재고 스냅샷 로드 (재료 차감용)
+    stock = _load_stock_snapshot(db, loc) if loc else {}
+
+    # 재료 부족 사전 확인
+    for item in items:
+        for mat in item.get('materials', []):
+            mat_name = str(mat.get('product_name', '')).strip()
+            mat_qty = safe_int(mat.get('qty', 0))
+            if not mat_name or mat_qty <= 0:
+                continue
+            _snap = snapshot_lookup(stock, mat_name)
+            total = _snap.get('total', 0)
+            u = _snap.get('unit', '개')
+            if mat_qty > total:
+                shortage.append(f"[{loc}] {mat_name}: 필요 {mat_qty}{u} / 재고 {total}{u}")
+
+    if shortage:
+        warnings.append("재료 재고 부족:\n" + "\n".join(shortage))
+
+    # 페이로드 생성
+    payload = []
+    prod_count = 0
+    raw_count = 0
+
+    for item in items:
+        name = str(item.get('product_name', '')).strip()
+        prod_qty = safe_int(item.get('qty', 0))
+        if not name or prod_qty <= 0:
+            continue
+
+        # PRODUCTION 산출
+        payload.append({
+            "transaction_date": date_str,
+            "type": "PRODUCTION",
+            "product_name": name,
+            "qty": prod_qty,
+            "location": loc,
+            "expiry_date": safe_date(item.get('expiry_date', '')),
+            "category": str(item.get('category', '')).strip(),
+            "storage_method": str(item.get('storage_method', '')).strip(),
+            "unit": str(item.get('unit', '개')).strip() or '개',
+            "manufacture_date": safe_date(item.get('manufacture_date', '')),
+        })
+        prod_count += 1
+
+        # PROD_OUT 재료 차감 (FIFO)
+        for mat in item.get('materials', []):
+            mat_name = str(mat.get('product_name', '')).strip()
+            mat_qty = safe_int(mat.get('qty', 0))
+            if not mat_name or mat_qty <= 0:
+                continue
+
+            groups = snapshot_lookup(stock, mat_name).get('groups', [])
+            remain = mat_qty
+
+            if not groups:
+                payload.append({
+                    "transaction_date": date_str,
+                    "type": "PROD_OUT",
+                    "product_name": mat_name,
+                    "qty": -remain,
+                    "location": loc,
+                    "manufacture_date": '',
+                })
+                raw_count += 1
+            else:
+                for g in groups:
+                    if remain <= 0:
+                        break
+                    deduct = min(remain, g['qty'])
+                    if deduct <= 0:
+                        continue
+                    payload.append({
+                        "transaction_date": date_str,
+                        "type": "PROD_OUT",
+                        "product_name": mat_name,
+                        "qty": -deduct,
+                        "location": loc,
+                        "category": g['category'],
+                        "expiry_date": g['expiry_date'],
+                        "storage_method": g['storage_method'],
+                        "unit": g.get('unit', '개'),
+                        "manufacture_date": g.get('manufacture_date', ''),
+                    })
+                    g['qty'] -= deduct
+                    remain -= deduct
+                    raw_count += 1
+
+    if payload:
+        try:
+            db.insert_stock_ledger(payload)
+        except Exception as e:
+            if mode == '수정입력' and deleted_count > 0:
+                warnings.append(f"주의: 기존 {deleted_count}건이 삭제되었으나 새 데이터 저장에 실패했습니다. 수정입력으로 재시도하세요.")
+            raise
+
+    return {
+        'produced': prod_count,
+        'materials_used': raw_count,
+        'warnings': warnings,
+        'shortage': shortage,
+        'deleted_count': deleted_count,
+    }
