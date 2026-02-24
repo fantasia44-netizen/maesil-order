@@ -479,8 +479,8 @@
             rows.forEach(r => {
                 let adminCol = '';
                 if(isAdmin){ adminCol = `<td class="text-nowrap">
-                    <button class="btn btn-outline-primary btn-sm py-0 px-1 hist-edit" data-id="${r.id}" title="수정"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-outline-danger btn-sm py-0 px-1 hist-del" data-id="${r.id}" title="삭제"><i class="bi bi-trash3"></i></button></td>`; }
+                    <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="window._editHist('${r.id}')" title="수정"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="window._deleteHist('${r.id}')" title="삭제"><i class="bi bi-trash3"></i></button></td>`; }
                 const tr = document.createElement('tr');
                 tr.innerHTML = `<td class="small">${r.date}</td><td class="small">${escapeHtml(r.product_name)}</td>
                     <td class="text-end small">${r.qty}</td><td class="small">${escapeHtml(r.location)}</td>
@@ -491,14 +491,11 @@
         } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger small">${e.message}</td></tr>`; }
     });
 
-    // 개별 수정/삭제 (admin)
-    document.getElementById('historyBody').addEventListener('click', function(e){
-        const editBtn = e.target.closest('.hist-edit');
-        const delBtn = e.target.closest('.hist-del');
-        if(editBtn) {
-            const id = editBtn.dataset.id;
+    // 개별 수정 (admin) — onclick 직접 바인딩
+    window._editHist = function(id) {
+        try {
             const row = historyData.find(r => String(r.id) === String(id));
-            if(!row){ console.warn('editModal: row not found for id', id, historyData); return; }
+            if(!row){ alert('데이터를 찾을 수 없습니다. (id: '+id+')'); return; }
             document.getElementById('editId').value = id;
             document.getElementById('editProductName').value = row.product_name || '';
             document.getElementById('editQty').value = row.qty || '';
@@ -508,17 +505,19 @@
             document.getElementById('editStorage').value = row.storage_method || '';
             document.getElementById('editExpiry').value = row.expiry_date || '';
             document.getElementById('editMfgDate').value = row.manufacture_date || '';
-            bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
-        }
-        if(delBtn) {
-            if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
-            const id = delBtn.dataset.id;
-            fetch(`/inbound/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
-                .then(r=>r.json())
-                .then(data=>{ if(data.success) delBtn.closest('tr').remove(); else alert('삭제 실패: '+(data.error||'')); })
-                .catch(e=>alert('통신 오류: '+e));
-        }
-    });
+            const modalEl = document.getElementById('editModal');
+            if(!modalEl){ alert('editModal 요소를 찾을 수 없습니다.'); return; }
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        } catch(err) { alert('수정 모달 오류: ' + err.message); }
+    };
+    // 개별 삭제 (admin)
+    window._deleteHist = function(id) {
+        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        fetch(`/inbound/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
+            .then(r=>r.json())
+            .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('삭제 실패: '+(data.error||'')); })
+            .catch(e=>alert('통신 오류: '+e));
+    };
 
     // 수정 저장
     if(isAdmin){
