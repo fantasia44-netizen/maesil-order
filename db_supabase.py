@@ -317,10 +317,15 @@ class SupabaseDB(DBBase):
 
     def upsert_product_cost(self, product_name, cost_price, unit='', memo='',
                             weight=0, weight_unit='g', cost_type='매입',
-                            material_type='원료'):
+                            material_type='원료',
+                            purchase_unit='', standard_unit='',
+                            conversion_ratio=1):
         """품목 단가 1건 등록/수정 (upsert).
         cost_type: '매입' = 원재료 매입단가, '생산' = 완제품 생산단가
         material_type: '원료', '부재료', '반제품', '완제품', '포장재'
+        purchase_unit: 매입단위 (박스, 포대, kg 등)
+        standard_unit: 사용단위 (g, 개, kg 등)
+        conversion_ratio: 1 매입단위 = X 사용단위
         """
         from datetime import datetime, timezone
         payload = {
@@ -332,6 +337,9 @@ class SupabaseDB(DBBase):
             'weight_unit': weight_unit or 'g',
             'cost_type': cost_type or '매입',
             'material_type': material_type or '원료',
+            'purchase_unit': purchase_unit or '',
+            'standard_unit': standard_unit or '',
+            'conversion_ratio': float(conversion_ratio or 1),
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("product_costs").upsert(
@@ -340,7 +348,9 @@ class SupabaseDB(DBBase):
 
     def upsert_product_costs_batch(self, items):
         """품목 단가 일괄 등록/수정.
-        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?, cost_type?, material_type?}]
+        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?,
+                 cost_type?, material_type?, purchase_unit?, standard_unit?,
+                 conversion_ratio?}]
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -355,6 +365,9 @@ class SupabaseDB(DBBase):
                 'weight_unit': item.get('weight_unit', 'g') or 'g',
                 'cost_type': item.get('cost_type', '매입') or '매입',
                 'material_type': item.get('material_type', '원료') or '원료',
+                'purchase_unit': item.get('purchase_unit', '') or '',
+                'standard_unit': item.get('standard_unit', '') or '',
+                'conversion_ratio': float(item.get('conversion_ratio', 1) or 1),
                 'updated_at': now,
             })
         if not payload:

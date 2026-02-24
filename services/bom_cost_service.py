@@ -109,9 +109,13 @@ def calculate_bom_costs(db):
         except Exception:
             continue
 
-    # 2. 매입단가 로드
+    # 2. 매입단가 로드 (conversion_ratio 반영: 사용단위당 단가)
     cost_map_raw = db.query_product_costs()
-    cost_map = {k: float(v.get('cost_price', 0)) for k, v in cost_map_raw.items()}
+    cost_map = {}
+    for k, v in cost_map_raw.items():
+        price = float(v.get('cost_price', 0))
+        ratio = float(v.get('conversion_ratio', 1) or 1)
+        cost_map[k] = price / ratio if ratio > 0 else price
 
     # 2-1. 중량 맵 (weight + material_type)
     # stock_ledger의 category를 실제 종류(material_type)로 사용

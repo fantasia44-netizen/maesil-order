@@ -296,7 +296,8 @@ def revert_audit_log(log_id):
 
         # ── 액션별 롤백 수행 ──
         if action == 'update_product_cost':
-            # old_value: {cost_price, unit, memo, weight, weight_unit, cost_type, material_type}
+            # old_value: {cost_price, unit, memo, weight, weight_unit, cost_type,
+            #             material_type, purchase_unit, standard_unit, conversion_ratio}
             db.upsert_product_cost(
                 product_name=target,
                 cost_price=old_value.get('cost_price', 0),
@@ -306,6 +307,9 @@ def revert_audit_log(log_id):
                 weight_unit=old_value.get('weight_unit', 'g'),
                 cost_type=old_value.get('cost_type', '매입'),
                 material_type=old_value.get('material_type', '원료'),
+                purchase_unit=old_value.get('purchase_unit', ''),
+                standard_unit=old_value.get('standard_unit', ''),
+                conversion_ratio=old_value.get('conversion_ratio', 1),
             )
 
         elif action == 'delete_product_cost':
@@ -319,6 +323,9 @@ def revert_audit_log(log_id):
                 weight_unit=old_value.get('weight_unit', 'g'),
                 cost_type=old_value.get('cost_type', '매입'),
                 material_type=old_value.get('material_type', '원료'),
+                purchase_unit=old_value.get('purchase_unit', ''),
+                standard_unit=old_value.get('standard_unit', ''),
+                conversion_ratio=old_value.get('conversion_ratio', 1),
             )
 
         elif action == 'update_channel_cost':

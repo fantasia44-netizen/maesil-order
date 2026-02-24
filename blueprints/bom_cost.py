@@ -43,15 +43,21 @@ def api_data():
             mt = (category_map.get(name)
                   or category_map.get(name.replace(' ', ''))
                   or detail.get('material_type', '원료') or '원료')
+            ratio = float(detail.get('conversion_ratio', 1) or 1)
+            cost_price = float(detail.get('cost_price', 0))
             cost_list.append({
                 'product_name': name,
-                'cost_price': float(detail.get('cost_price', 0)),
+                'cost_price': cost_price,
                 'unit': detail.get('unit', ''),
                 'memo': detail.get('memo', ''),
                 'weight': float(detail.get('weight', 0) or 0),
                 'weight_unit': detail.get('weight_unit', 'g') or 'g',
                 'cost_type': detail.get('cost_type', '매입') or '매입',
                 'material_type': mt,
+                'purchase_unit': detail.get('purchase_unit', '') or '',
+                'standard_unit': detail.get('standard_unit', '') or '',
+                'conversion_ratio': ratio,
+                'unit_cost': round(cost_price / ratio, 2) if ratio > 0 else cost_price,
             })
 
         return jsonify({
@@ -89,17 +95,24 @@ def api_save_cost():
     weight = float(data.get('weight', 0) or 0)
     weight_unit = (data.get('weight_unit') or 'g').strip()
     cost_type = (data.get('cost_type') or '매입').strip()
+    purchase_unit = (data.get('purchase_unit') or '').strip()
+    standard_unit = (data.get('standard_unit') or '').strip()
+    conversion_ratio = float(data.get('conversion_ratio', 1) or 1)
 
     try:
         # 수정 전 데이터 조회 (롤백용 + material_type 보존)
         cost_map_raw = db.query_product_costs()
         old_data = cost_map_raw.get(product_name)
         old_value = None
-        # material_type: stock_ledger.category 우선, 없으면 기존 DB값 유지
-        category_map = db.query_product_categories()
-        material_type = (category_map.get(product_name)
-                         or category_map.get(product_name.replace(' ', ''))
-                         or (old_data.get('material_type', '원료') if old_data else '원료'))
+        # material_type: 클라이언트 값 우선 → stock_ledger.category → 기존 DB값
+        client_mt = (data.get('material_type') or '').strip()
+        if client_mt:
+            material_type = client_mt
+        else:
+            category_map = db.query_product_categories()
+            material_type = (category_map.get(product_name)
+                             or category_map.get(product_name.replace(' ', ''))
+                             or (old_data.get('material_type', '원료') if old_data else '원료'))
         if old_data:
             old_value = {
                 'cost_price': float(old_data.get('cost_price', 0)),
@@ -108,19 +121,29 @@ def api_save_cost():
                 'weight': float(old_data.get('weight', 0) or 0),
                 'weight_unit': old_data.get('weight_unit', 'g'),
                 'cost_type': old_data.get('cost_type', '매입'),
+                'purchase_unit': old_data.get('purchase_unit', ''),
+                'standard_unit': old_data.get('standard_unit', ''),
+                'conversion_ratio': float(old_data.get('conversion_ratio', 1) or 1),
+                'material_type': old_data.get('material_type', '원료'),
             }
 
         new_value = {
             'cost_price': cost_price, 'unit': unit, 'memo': memo,
             'weight': weight, 'weight_unit': weight_unit,
             'cost_type': cost_type,
+            'purchase_unit': purchase_unit, 'standard_unit': standard_unit,
+            'conversion_ratio': conversion_ratio,
+            'material_type': material_type,
         }
 
         db.upsert_product_cost(product_name, cost_price, unit, memo,
                                weight=weight, weight_unit=weight_unit,
-                               cost_type=cost_type, material_type=material_type)
+                               cost_type=cost_type, material_type=material_type,
+                               purchase_unit=purchase_unit,
+                               standard_unit=standard_unit,
+                               conversion_ratio=conversion_ratio)
         _log_action('update_product_cost', target=product_name,
-                     detail=f'유형={cost_type}, 단가={cost_price}, 중량={weight}{weight_unit}',
+                     detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 변환={conversion_ratio}',
                      old_value=old_value, new_value=new_value)
         return jsonify({'success': True})
     except Exception as e:
@@ -137,7 +160,7 @@ def api_save_cost_batch():
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
     items = data['items']
-    # stock_ledger.category 우선, 없으면 기존 product_costs.material_type 유지
+    # material_type: 클라이언트 값 우선 → stock_ledger.category → 기존 DB값
     cost_map_raw = db.query_product_costs()
     category_map = db.query_product_categories()
     valid_items = []
@@ -145,9 +168,13 @@ def api_save_cost_batch():
         pn = (item.get('product_name') or '').strip()
         if pn:
             existing = cost_map_raw.get(pn)
-            mt = (category_map.get(pn)
-                  or category_map.get(pn.replace(' ', ''))
-                  or (existing.get('material_type', '원료') if existing else '원료'))
+            client_mt = (item.get('material_type') or '').strip()
+            if client_mt:
+                mt = client_mt
+            else:
+                mt = (category_map.get(pn)
+                      or category_map.get(pn.replace(' ', ''))
+                      or (existing.get('material_type', '원료') if existing else '원료'))
             valid_items.append({
                 'product_name': pn,
                 'cost_price': float(item.get('cost_price', 0)),
@@ -157,6 +184,9 @@ def api_save_cost_batch():
                 'weight_unit': (item.get('weight_unit') or 'g').strip(),
                 'cost_type': (item.get('cost_type') or '매입').strip(),
                 'material_type': mt,
+                'purchase_unit': (item.get('purchase_unit') or '').strip(),
+                'standard_unit': (item.get('standard_unit') or '').strip(),
+                'conversion_ratio': float(item.get('conversion_ratio', 1) or 1),
             })
 
     if not valid_items:
@@ -190,6 +220,9 @@ def api_delete_cost(product_name):
                 'weight_unit': old_data.get('weight_unit', 'g'),
                 'cost_type': old_data.get('cost_type', '매입'),
                 'material_type': old_data.get('material_type', '원료'),
+                'purchase_unit': old_data.get('purchase_unit', ''),
+                'standard_unit': old_data.get('standard_unit', ''),
+                'conversion_ratio': float(old_data.get('conversion_ratio', 1) or 1),
             }
 
         db.delete_product_cost(product_name)

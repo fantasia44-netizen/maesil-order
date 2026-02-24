@@ -28,6 +28,10 @@
     .summary-card.avg-margin { border-color: #27ae60; }
     .summary-card.net-margin { border-color: #9b59b6; }
     .ch-cost-input { width: 110px; text-align: right; }
+    .unit-cost-display { color: #2980b9; font-weight: 600; }
+    .ratio-input { width: 80px; text-align: right; }
+    .unit-input { width: 70px; }
+    .mt-select { width: 70px; font-size: 0.75rem; padding: 1px 2px; }
 </style>
 {% endblock %}
 
@@ -187,18 +191,22 @@
                     <table class="table table-sm table-hover mb-0" id="costTable">
                         <thead class="table-light" style="position:sticky; top:0; z-index:1;">
                             <tr>
-                                <th style="width:65px;">유형</th>
+                                <th style="width:65px;">종류</th>
+                                <th style="width:55px;">유형</th>
                                 <th>품목명</th>
-                                <th class="text-end" style="width:120px;">단가 (원)</th>
-                                <th class="text-end" style="width:100px;">중량 (g)</th>
-                                <th style="width:70px;">단위</th>
-                                <th style="width:150px;">메모</th>
-                                <th style="width:70px;">상태</th>
-                                <th style="width:50px;"></th>
+                                <th class="text-end" style="width:100px;">매입단가</th>
+                                <th style="width:65px;">매입단위</th>
+                                <th style="width:65px;">사용단위</th>
+                                <th class="text-end" style="width:75px;">변환비율</th>
+                                <th class="text-end" style="width:95px;">단위당단가</th>
+                                <th class="text-end" style="width:80px;">중량</th>
+                                <th style="width:120px;">메모</th>
+                                <th style="width:55px;">상태</th>
+                                <th style="width:40px;"></th>
                             </tr>
                         </thead>
                         <tbody id="costBody">
-                            <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                            <tr><td colspan="12" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -207,28 +215,46 @@
             <div class="card-footer d-none" id="costAddForm">
                 <div class="row g-2 align-items-end">
                     <div class="col-auto">
+                        <label class="form-label small fw-semibold">종류</label>
+                        <select id="newMaterialType" class="form-select form-select-sm" style="width:75px;">
+                            <option value="원료">원료</option>
+                            <option value="부재료">부재료</option>
+                            <option value="반제품">반제품</option>
+                            <option value="완제품">완제품</option>
+                            <option value="포장재">포장재</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
                         <label class="form-label small fw-semibold">유형</label>
-                        <select id="newCostType" class="form-select form-select-sm" style="width:70px;">
+                        <select id="newCostType" class="form-select form-select-sm" style="width:65px;">
                             <option value="매입">매입</option>
                             <option value="생산">생산</option>
                         </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-2">
                         <label class="form-label small fw-semibold">품목명</label>
                         <input type="text" id="newCostName" class="form-control form-control-sm"
                                placeholder="품목명 검색/선택" list="productSuggestions" autocomplete="off">
                     </div>
-                    <div class="col-md-2">
-                        <label class="form-label small fw-semibold">단가</label>
-                        <input type="number" id="newCostPrice" class="form-control form-control-sm" placeholder="0" min="0">
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">매입단가</label>
+                        <input type="number" id="newCostPrice" class="form-control form-control-sm" placeholder="0" min="0" style="width:100px;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">매입단위</label>
+                        <input type="text" id="newPurchaseUnit" class="form-control form-control-sm" placeholder="박스" style="width:65px;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">사용단위</label>
+                        <input type="text" id="newStandardUnit" class="form-control form-control-sm" placeholder="g" style="width:65px;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">변환비율</label>
+                        <input type="number" id="newConversionRatio" class="form-control form-control-sm" placeholder="1" min="0" step="any" value="1" style="width:75px;">
                     </div>
                     <div class="col-auto">
                         <label class="form-label small fw-semibold">중량(g)</label>
                         <input type="number" id="newCostWeight" class="form-control form-control-sm" placeholder="0" min="0" style="width:80px;">
-                    </div>
-                    <div class="col-auto">
-                        <label class="form-label small fw-semibold">단위</label>
-                        <input type="text" id="newCostUnit" class="form-control form-control-sm" placeholder="개" style="width:60px;">
                     </div>
                     <div class="col">
                         <label class="form-label small fw-semibold">메모</label>
@@ -581,14 +607,20 @@
         function _buildItem(name, existing) {
             // categoryMap(stock_ledger.category) 우선 → costData → 기본값
             const mt = getMaterialType(name, existing ? existing.material_type : null);
+            const cp = existing ? existing.cost_price : 0;
+            const ratio = existing ? (existing.conversion_ratio || 1) : 1;
             return {
                 product_name: name,
-                cost_price: existing ? existing.cost_price : 0,
+                cost_price: cp,
                 weight: existing ? (existing.weight || 0) : 0,
                 unit: existing ? existing.unit : '',
                 memo: existing ? existing.memo : '',
                 cost_type: existing ? (existing.cost_type || '매입') : '매입',
                 material_type: mt,
+                purchase_unit: existing ? (existing.purchase_unit || '') : '',
+                standard_unit: existing ? (existing.standard_unit || '') : '',
+                conversion_ratio: ratio,
+                unit_cost: ratio > 0 ? Math.round(cp / ratio * 100) / 100 : cp,
                 is_bom: bomSet.has(name),
             };
         }
@@ -602,18 +634,29 @@
                     items.push(_buildItem(name, existing));
             });
         } else if (filterMode === 'entered') {
-            costData.forEach(c => items.push({ ...c, weight: c.weight || 0,
-                cost_type: c.cost_type || '매입',
-                material_type: getMaterialType(c.product_name, c.material_type),
-                is_bom: bomSet.has(c.product_name) }));
+            costData.forEach(c => {
+                const ratio = c.conversion_ratio || 1;
+                items.push({ ...c, weight: c.weight || 0,
+                    cost_type: c.cost_type || '매입',
+                    material_type: getMaterialType(c.product_name, c.material_type),
+                    purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
+                    conversion_ratio: ratio,
+                    unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
+                    is_bom: bomSet.has(c.product_name) });
+            });
         } else {
             const seen = new Set();
             allProducts.forEach(name => { items.push(_buildItem(name, costMap[name])); seen.add(name); });
             costData.forEach(c => {
-                if (!seen.has(c.product_name))
+                if (!seen.has(c.product_name)) {
+                    const ratio = c.conversion_ratio || 1;
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
                         material_type: getMaterialType(c.product_name, c.material_type),
+                        purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
+                        conversion_ratio: ratio,
+                        unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
                         is_bom: bomSet.has(c.product_name) });
+                }
             });
         }
 
@@ -624,7 +667,7 @@
         if (searchTerm) items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
 
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
             return;
         }
 
@@ -634,55 +677,92 @@
             const modKey = item.product_name;
             const isModified = modifiedCosts[modKey] !== undefined;
             const ct = item.cost_type || '매입';
+            const mt = item.material_type || '원료';
             const ctBadge = ct === '생산'
                 ? '<span class="badge bg-success">생산</span>'
                 : '<span class="badge bg-secondary">매입</span>';
+            const mtBadge = _mtBadge(mt);
+            const ratio = item.conversion_ratio || 1;
+            const unitCost = ratio > 0 ? Math.round(item.cost_price / ratio * 100) / 100 : item.cost_price;
 
             html += '<tr class="' + (isMissing ? 'missing-cost' : '') + '" id="cost-row-' + escapeAttr(modKey) + '">';
 
             if (costEditMode) {
                 // ── 수정 모드 ──
-                html += '<td><select class="form-select form-select-sm" style="width:60px;font-size:0.75rem;padding:1px 2px;" '
+                // 종류 (material_type 드롭다운)
+                html += '<td><select class="form-select form-select-sm mt-select" '
+                     + 'data-field="material_type" data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this)">';
+                ['원료','부재료','반제품','완제품','포장재'].forEach(t => {
+                    html += '<option value="' + t + '"' + (mt === t ? ' selected' : '') + '>' + t + '</option>';
+                });
+                html += '</select></td>';
+                // 유형 (cost_type)
+                html += '<td><select class="form-select form-select-sm" style="width:50px;font-size:0.75rem;padding:1px 2px;" '
                      + 'data-field="cost_type" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)">'
                      + '<option value="매입"' + (ct === '매입' ? ' selected' : '') + '>매입</option>'
                      + '<option value="생산"' + (ct === '생산' ? ' selected' : '') + '>생산</option></select></td>';
+                // 품목명
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
                 html += '</td>';
+                // 매입단가
                 html += '<td class="text-end"><input type="number" class="form-control form-control-sm cost-input" '
                      + 'value="' + item.cost_price + '" min="0" '
                      + 'data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this); window._recalcUnitCost(this)"></td>';
+                // 매입단위
+                html += '<td><input type="text" class="form-control form-control-sm unit-input" '
+                     + 'value="' + escapeAttr(item.purchase_unit || '') + '" placeholder="" '
+                     + 'data-field="purchase_unit" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)"></td>';
+                // 사용단위
+                html += '<td><input type="text" class="form-control form-control-sm unit-input" '
+                     + 'value="' + escapeAttr(item.standard_unit || '') + '" placeholder="" '
+                     + 'data-field="standard_unit" data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this)"></td>';
+                // 변환비율
+                html += '<td class="text-end"><input type="number" class="form-control form-control-sm ratio-input" '
+                     + 'value="' + ratio + '" min="0" step="any" '
+                     + 'data-field="conversion_ratio" data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this); window._recalcUnitCost(this)"></td>';
+                // 단위당단가 (자동계산, readonly)
+                html += '<td class="text-end unit-cost-display" data-unitcost="' + escapeAttr(item.product_name) + '">'
+                     + (unitCost > 0 ? formatNum(unitCost) : '-') + '</td>';
+                // 중량
                 html += '<td class="text-end"><input type="number" class="form-control form-control-sm weight-input" '
                      + 'value="' + (item.weight || 0) + '" min="0" step="0.1" '
                      + 'data-field="weight" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)"></td>';
+                // 메모
                 html += '<td><input type="text" class="form-control form-control-sm" '
-                     + 'value="' + escapeAttr(item.unit) + '" style="width:60px;" '
-                     + 'data-field="unit" data-name="' + escapeAttr(item.product_name) + '" '
-                     + 'onchange="window._costChanged(this)"></td>';
-                html += '<td><input type="text" class="form-control form-control-sm" '
-                     + 'value="' + escapeAttr(item.memo) + '" '
+                     + 'value="' + escapeAttr(item.memo) + '" style="width:100%;" '
                      + 'data-field="memo" data-name="' + escapeAttr(item.product_name) + '" '
                      + 'onchange="window._costChanged(this)"></td>';
+                // 상태
                 html += '<td>';
                 if (isMissing) html += '<span class="badge bg-warning text-dark">미입력</span>';
                 else if (isModified) html += '<span class="badge bg-info">변경됨</span>';
                 else html += '<span class="badge bg-success">완료</span>';
                 html += '</td>';
+                // 저장 버튼
                 html += '<td><button class="btn btn-sm btn-outline-primary py-0 px-1" '
                      + 'onclick="window._saveSingleCost(\'' + escapeAttr(item.product_name) + '\')" title="저장">'
                      + '<i class="bi bi-check-lg"></i></button></td>';
             } else {
                 // ── 보기 모드 ──
+                html += '<td>' + mtBadge + '</td>';
                 html += '<td>' + ctBadge + '</td>';
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
                 html += '</td>';
                 html += '<td class="text-end">' + (item.cost_price > 0 ? formatNum(item.cost_price) : '<span class="text-muted">-</span>') + '</td>';
+                html += '<td>' + escapeHtml(item.purchase_unit || '-') + '</td>';
+                html += '<td>' + escapeHtml(item.standard_unit || '-') + '</td>';
+                html += '<td class="text-end">' + (ratio !== 1 ? ratio : '<span class="text-muted">1</span>') + '</td>';
+                html += '<td class="text-end unit-cost-display">' + (unitCost > 0 ? formatNum(unitCost) : '<span class="text-muted">-</span>') + '</td>';
                 html += '<td class="text-end">' + (item.weight > 0 ? Number(item.weight).toLocaleString('ko-KR') + 'g' : '<span class="text-muted">-</span>') + '</td>';
-                html += '<td>' + escapeHtml(item.unit || '-') + '</td>';
                 html += '<td class="text-muted small">' + escapeHtml(item.memo || '') + '</td>';
                 html += '<td>';
                 if (isMissing) html += '<span class="badge bg-warning text-dark">미입력</span>';
@@ -752,6 +832,13 @@
         }
     }
 
+    // ====== 종류별 배지 생성 헬퍼 ======
+    function _mtBadge(mt) {
+        const colors = {'원료':'#3498db','부재료':'#27ae60','반제품':'#e67e22','완제품':'#9b59b6','포장재':'#95a5a6'};
+        const bg = colors[mt] || '#6c757d';
+        return '<span class="badge" style="background:' + bg + ';font-size:0.7rem;">' + escapeHtml(mt) + '</span>';
+    }
+
     // ====== 단가 변경 추적 ======
     window._costChanged = function(el) {
         const name = el.getAttribute('data-name');
@@ -761,9 +848,23 @@
         else modifiedCosts[name].cost_price = parseFloat(el.value) || 0;
         const row = el.closest('tr');
         if (row) {
-            const badge = row.querySelector('td:nth-child(8) .badge');
+            const badge = row.querySelector('td:nth-child(11) .badge');
             if (badge) { badge.className = 'badge bg-info'; badge.textContent = '변경됨'; }
         }
+    };
+
+    // ====== 단위당단가 자동 재계산 ======
+    window._recalcUnitCost = function(el) {
+        const row = el.closest('tr');
+        if (!row) return;
+        const priceInput = row.querySelector('input.cost-input');
+        const ratioInput = row.querySelector('input.ratio-input');
+        const ucCell = row.querySelector('td[data-unitcost]');
+        if (!priceInput || !ratioInput || !ucCell) return;
+        const price = parseFloat(priceInput.value) || 0;
+        const ratio = parseFloat(ratioInput.value) || 1;
+        const uc = ratio > 0 ? Math.round(price / ratio * 100) / 100 : price;
+        ucCell.innerHTML = uc > 0 ? formatNum(uc) : '-';
     };
 
     // ====== 행에서 cost_type / material_type 읽기 헬퍼 ======
@@ -771,39 +872,60 @@
         const sel = row.querySelector('select[data-field="cost_type"]');
         return sel ? sel.value : '매입';
     }
+    function _readRowMaterialType(row) {
+        const sel = row.querySelector('select[data-field="material_type"]');
+        return sel ? sel.value : '';
+    }
     // ====== 단건 저장 ======
     window._saveSingleCost = async function(productName) {
         const row = document.getElementById('cost-row-' + CSS.escape(productName));
         if (!row) return;
-        const inputs = row.querySelectorAll('input');
         const costType = _readRowCostType(row);
-        const costPrice = parseFloat(inputs[0].value) || 0;
-        const weight = parseFloat(inputs[1].value) || 0;
-        const unit = inputs[2].value.trim();
-        const memo = inputs[3].value.trim();
+        const materialType = _readRowMaterialType(row);
+        const priceInput = row.querySelector('input.cost-input');
+        const weightInput = row.querySelector('input.weight-input');
+        const puInput = row.querySelector('input[data-field="purchase_unit"]');
+        const suInput = row.querySelector('input[data-field="standard_unit"]');
+        const ratioInput = row.querySelector('input.ratio-input');
+        const memoInput = row.querySelector('input[data-field="memo"]');
+
+        const costPrice = parseFloat(priceInput ? priceInput.value : 0) || 0;
+        const weight = parseFloat(weightInput ? weightInput.value : 0) || 0;
+        const purchaseUnit = puInput ? puInput.value.trim() : '';
+        const standardUnit = suInput ? suInput.value.trim() : '';
+        const conversionRatio = parseFloat(ratioInput ? ratioInput.value : 1) || 1;
+        const memo = memoInput ? memoInput.value.trim() : '';
 
         try {
             const res = await fetch('/bom-cost/api/cost', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
                 body: JSON.stringify({product_name: productName, cost_price: costPrice,
-                    weight, unit, memo, cost_type: costType}),
+                    weight, unit: '', memo, cost_type: costType, material_type: materialType,
+                    purchase_unit: purchaseUnit, standard_unit: standardUnit,
+                    conversion_ratio: conversionRatio}),
             });
             const json = await res.json();
             if (json.success) {
                 delete modifiedCosts[productName];
                 row.classList.add('cost-saved');
                 setTimeout(() => row.classList.remove('cost-saved'), 600);
-                const badge = row.querySelector('td:nth-child(7) .badge');
+                const badge = row.querySelector('td:nth-child(11) .badge');
                 if (badge) { badge.className = 'badge bg-success'; badge.textContent = '완료'; }
                 row.classList.remove('missing-cost');
                 const existing = costData.find(c => c.product_name === productName);
                 if (existing) {
                     existing.cost_price = costPrice; existing.weight = weight;
-                    existing.unit = unit; existing.memo = memo; existing.cost_type = costType;
+                    existing.memo = memo; existing.cost_type = costType;
+                    existing.material_type = materialType;
+                    existing.purchase_unit = purchaseUnit;
+                    existing.standard_unit = standardUnit;
+                    existing.conversion_ratio = conversionRatio;
                 } else {
                     costData.push({product_name: productName, cost_price: costPrice,
-                        weight, unit, memo, cost_type: costType});
+                        weight, unit: '', memo, cost_type: costType, material_type: materialType,
+                        purchase_unit: purchaseUnit, standard_unit: standardUnit,
+                        conversion_ratio: conversionRatio});
                 }
             } else alert('저장 실패: ' + (json.error || ''));
         } catch(e) { alert('저장 오류: ' + e.message); }
@@ -814,21 +936,31 @@
         const rows = document.querySelectorAll('#costBody tr');
         const items = [];
         rows.forEach(row => {
-            const inputs = row.querySelectorAll('input');
-            if (inputs.length < 4) return;
-            const name = inputs[0].getAttribute('data-name');
+            const priceInput = row.querySelector('input.cost-input');
+            if (!priceInput) return;
+            const name = priceInput.getAttribute('data-name');
             if (!name) return;
             const costType = _readRowCostType(row);
-            const costPrice = parseFloat(inputs[0].value) || 0;
-            const weight = parseFloat(inputs[1].value) || 0;
+            const materialType = _readRowMaterialType(row);
+            const costPrice = parseFloat(priceInput.value) || 0;
+            const weightInput = row.querySelector('input.weight-input');
+            const weight = parseFloat(weightInput ? weightInput.value : 0) || 0;
             if (costPrice <= 0 && weight <= 0) return;
+            const puInput = row.querySelector('input[data-field="purchase_unit"]');
+            const suInput = row.querySelector('input[data-field="standard_unit"]');
+            const ratioInput = row.querySelector('input.ratio-input');
+            const memoInput = row.querySelector('input[data-field="memo"]');
             items.push({
                 product_name: name,
                 cost_price: costPrice,
                 weight: weight,
-                unit: inputs[2].value.trim(),
-                memo: inputs[3].value.trim(),
+                unit: '',
+                memo: memoInput ? memoInput.value.trim() : '',
                 cost_type: costType,
+                material_type: materialType,
+                purchase_unit: puInput ? puInput.value.trim() : '',
+                standard_unit: suInput ? suInput.value.trim() : '',
+                conversion_ratio: parseFloat(ratioInput ? ratioInput.value : 1) || 1,
             });
         });
 
@@ -856,21 +988,28 @@
         const name = document.getElementById('newCostName').value.trim();
         const price = parseFloat(document.getElementById('newCostPrice').value) || 0;
         const weight = parseFloat(document.getElementById('newCostWeight').value) || 0;
-        const unit = document.getElementById('newCostUnit').value.trim();
         const memo = document.getElementById('newCostMemo').value.trim();
         const costType = document.getElementById('newCostType').value;
+        const materialType = document.getElementById('newMaterialType').value;
+        const purchaseUnit = document.getElementById('newPurchaseUnit').value.trim();
+        const standardUnit = document.getElementById('newStandardUnit').value.trim();
+        const conversionRatio = parseFloat(document.getElementById('newConversionRatio').value) || 1;
         if (!name) { alert('품목명을 입력하세요.'); return; }
 
         try {
             const res = await fetch('/bom-cost/api/cost', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-                body: JSON.stringify({product_name: name, cost_price: price, weight, unit, memo,
-                    cost_type: costType}),
+                body: JSON.stringify({product_name: name, cost_price: price, weight,
+                    unit: '', memo, cost_type: costType, material_type: materialType,
+                    purchase_unit: purchaseUnit, standard_unit: standardUnit,
+                    conversion_ratio: conversionRatio}),
             });
             const json = await res.json();
             if (json.success) {
-                ['newCostName','newCostPrice','newCostWeight','newCostUnit','newCostMemo'].forEach(id => document.getElementById(id).value = '');
+                ['newCostName','newCostPrice','newCostWeight','newCostMemo',
+                 'newPurchaseUnit','newStandardUnit'].forEach(id => document.getElementById(id).value = '');
+                document.getElementById('newConversionRatio').value = '1';
                 loadData();
             } else alert('추가 실패: ' + (json.error || ''));
         } catch(e) { alert('추가 오류: ' + e.message); }
