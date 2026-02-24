@@ -293,7 +293,7 @@ class OrderProcessor:
                             'addr': full_addr,
                             'clean_addr': clean_addr,
                             'p1': re.sub(r'[^0-9]', '', self.get_safe_val(r, m['p1'])),
-                            'qty': int(float(self.get_safe_val(r, m['qty']) or 1)),
+                            'qty': int(pd.to_numeric(self.get_safe_val(r, m['qty']), errors='coerce') or 1),
                             'display_nm': match['품목명'],
                             'barcode': match['바코드'],
                             'code': int(pd.to_numeric(match['라인코드'], errors='coerce') or 0),
