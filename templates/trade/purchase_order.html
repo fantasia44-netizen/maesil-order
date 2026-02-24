@@ -19,10 +19,12 @@
                 <label class="form-label fw-semibold small">종료일</label>
                 <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to|default('') }}">
             </div>
-            <div class="col-md-3">
-                <label class="form-label fw-semibold small">공급업체</label>
-                <select name="partner_filter" class="form-select form-select-sm">
-                    <option value="전체">전체</option>
+            <div class="col-md-4">
+                <label class="form-label fw-semibold small">공급업체 검색/선택</label>
+                <input type="text" id="poFilterSearch" class="form-control form-control-sm mb-1"
+                       placeholder="공급업체명 입력하여 검색..." autocomplete="off">
+                <select name="partner_filter" id="poFilterSelect" class="form-select form-select-sm" size="4">
+                    <option value="전체" {{ 'selected' if not partner_filter or partner_filter == '전체' else '' }}>전체</option>
                     {% for p in partners|default([]) %}
                     <option value="{{ p.partner_name }}" {{ 'selected' if partner_filter == p.partner_name else '' }}>
                         {{ p.partner_name }}
@@ -30,7 +32,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2 d-flex flex-column gap-1">
                 <button type="submit" class="btn btn-sm btn-primary">
                     <i class="bi bi-search"></i> 조회
                 </button>
@@ -280,6 +282,32 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+
+    // ── 이력 조회: 공급업체 검색 필터 ──
+    const poFilterSearch = document.getElementById('poFilterSearch');
+    const poFilterSelect = document.getElementById('poFilterSelect');
+    let allFilterOptions = [];
+    if (poFilterSelect) {
+        poFilterSelect.querySelectorAll('option').forEach(opt => {
+            allFilterOptions.push({ value: opt.value, text: opt.textContent.trim(), selected: opt.selected });
+        });
+    }
+    if (poFilterSearch && poFilterSelect) {
+        poFilterSearch.addEventListener('input', function() {
+            const keyword = this.value.trim().toLowerCase();
+            poFilterSelect.innerHTML = '';
+            allFilterOptions.forEach(o => {
+                if (!keyword || o.text.toLowerCase().includes(keyword) || o.value === '전체') {
+                    const opt = document.createElement('option');
+                    opt.value = o.value;
+                    opt.textContent = o.text;
+                    if (o.selected) opt.selected = true;
+                    poFilterSelect.appendChild(opt);
+                }
+            });
+        });
+    }
+
     const itemBody  = document.getElementById('itemBody');
     const addBtn    = document.getElementById('addItemBtn');
     const noItemMsg = document.getElementById('noItemMsg');
