@@ -215,12 +215,6 @@
             <div class="card-footer d-none" id="costAddForm">
                 <div class="row g-2 align-items-end">
                     <div class="col-auto">
-                        <label class="form-label small fw-semibold">종류</label>
-                        <select id="newMaterialType" class="form-select form-select-sm" style="width:75px;">
-                            <!-- 동적 생성: populateMaterialTypeFilter() -->
-                        </select>
-                    </div>
-                    <div class="col-auto">
                         <label class="form-label small fw-semibold">유형</label>
                         <select id="newCostType" class="form-select form-select-sm" style="width:65px;">
                             <option value="매입">매입</option>
@@ -489,12 +483,11 @@
     }
 
     // ====== 품목의 종류(material_type) 조회 헬퍼 ======
-    function getMaterialType(productName, fallback) {
-        // 우선순위: categoryMap(stock_ledger.category) > fallback(costData) > '원료'
-        // 공백 포함/미포함 이름 모두 시도 (stock_ledger↔product_costs 이름 차이 대응)
+    function getMaterialType(productName) {
+        // stock_ledger.category만 조회. 없으면 빈값 (기본값 폴백 없음)
         return categoryMap[productName]
             || categoryMap[productName.replace(/\s/g, '')]
-            || fallback || '원료';
+            || '';
     }
 
     // ====== BOM 테이블 렌더링 ======
@@ -618,7 +611,7 @@
 
         function _buildItem(name, existing) {
             // categoryMap(stock_ledger.category) 우선 → costData → 기본값
-            const mt = getMaterialType(name, existing ? existing.material_type : null);
+            const mt = getMaterialType(name);
             const cp = existing ? existing.cost_price : 0;
             const ratio = existing ? (existing.conversion_ratio || 1) : 1;
             return {
@@ -650,7 +643,7 @@
                 const ratio = c.conversion_ratio || 1;
                 items.push({ ...c, weight: c.weight || 0,
                     cost_type: c.cost_type || '매입',
-                    material_type: getMaterialType(c.product_name, c.material_type),
+                    material_type: getMaterialType(c.product_name),
                     purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
                     conversion_ratio: ratio,
                     unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
@@ -663,7 +656,7 @@
                 if (!seen.has(c.product_name)) {
                     const ratio = c.conversion_ratio || 1;
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
-                        material_type: getMaterialType(c.product_name, c.material_type),
+                        material_type: getMaterialType(c.product_name),
                         purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
                         conversion_ratio: ratio,
                         unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
@@ -675,7 +668,7 @@
         // 유형 필터
         if (costTypeMode && costTypeMode !== 'all') items = items.filter(i => i.cost_type === costTypeMode);
         // 종류 필터
-        if (materialTypeMode && materialTypeMode !== 'all') items = items.filter(i => (i.material_type || '원료') === materialTypeMode);
+        if (materialTypeMode && materialTypeMode !== 'all') items = items.filter(i => i.material_type === materialTypeMode);
         if (searchTerm) items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
 
         if (items.length === 0) {
@@ -689,7 +682,7 @@
             const modKey = item.product_name;
             const isModified = modifiedCosts[modKey] !== undefined;
             const ct = item.cost_type || '매입';
-            const mt = item.material_type || '원료';
+            const mt = item.material_type || '';
             const ctBadge = ct === '생산'
                 ? '<span class="badge bg-success">생산</span>'
                 : '<span class="badge bg-secondary">매입</span>';
@@ -701,14 +694,8 @@
 
             if (costEditMode) {
                 // ── 수정 모드 ──
-                // 종류 (material_type 드롭다운 — stock_ledger 실제 카테고리 기반)
-                html += '<td><select class="form-select form-select-sm mt-select" '
-                     + 'data-field="material_type" data-name="' + escapeAttr(item.product_name) + '" '
-                     + 'onchange="window._costChanged(this)">';
-                getAvailableMaterialTypes().forEach(t => {
-                    html += '<option value="' + t + '"' + (mt === t ? ' selected' : '') + '>' + t + '</option>';
-                });
-                html += '</select></td>';
+                // 종류 (stock_ledger.category 읽기전용)
+                html += '<td>' + (mt ? _mtBadge(mt) : '<span class="text-muted">-</span>') + '</td>';
                 // 유형 (cost_type)
                 html += '<td><select class="form-select form-select-sm" style="width:50px;font-size:0.75rem;padding:1px 2px;" '
                      + 'data-field="cost_type" data-name="' + escapeAttr(item.product_name) + '" '
@@ -764,7 +751,7 @@
                      + '<i class="bi bi-check-lg"></i></button></td>';
             } else {
                 // ── 보기 모드 ──
-                html += '<td>' + mtBadge + '</td>';
+                html += '<td>' + (mt ? mtBadge : '<span class="text-muted">-</span>') + '</td>';
                 html += '<td>' + ctBadge + '</td>';
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
@@ -884,16 +871,11 @@
         const sel = row.querySelector('select[data-field="cost_type"]');
         return sel ? sel.value : '매입';
     }
-    function _readRowMaterialType(row) {
-        const sel = row.querySelector('select[data-field="material_type"]');
-        return sel ? sel.value : '';
-    }
     // ====== 단건 저장 ======
     window._saveSingleCost = async function(productName) {
         const row = document.getElementById('cost-row-' + CSS.escape(productName));
         if (!row) return;
         const costType = _readRowCostType(row);
-        const materialType = _readRowMaterialType(row);
         const priceInput = row.querySelector('input.cost-input');
         const weightInput = row.querySelector('input.weight-input');
         const puInput = row.querySelector('input[data-field="purchase_unit"]');
@@ -913,7 +895,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
                 body: JSON.stringify({product_name: productName, cost_price: costPrice,
-                    weight, unit: '', memo, cost_type: costType, material_type: materialType,
+                    weight, unit: '', memo, cost_type: costType,
                     purchase_unit: purchaseUnit, standard_unit: standardUnit,
                     conversion_ratio: conversionRatio}),
             });
@@ -929,13 +911,12 @@
                 if (existing) {
                     existing.cost_price = costPrice; existing.weight = weight;
                     existing.memo = memo; existing.cost_type = costType;
-                    existing.material_type = materialType;
                     existing.purchase_unit = purchaseUnit;
                     existing.standard_unit = standardUnit;
                     existing.conversion_ratio = conversionRatio;
                 } else {
                     costData.push({product_name: productName, cost_price: costPrice,
-                        weight, unit: '', memo, cost_type: costType, material_type: materialType,
+                        weight, unit: '', memo, cost_type: costType,
                         purchase_unit: purchaseUnit, standard_unit: standardUnit,
                         conversion_ratio: conversionRatio});
                 }
@@ -953,7 +934,6 @@
             const name = priceInput.getAttribute('data-name');
             if (!name) return;
             const costType = _readRowCostType(row);
-            const materialType = _readRowMaterialType(row);
             const costPrice = parseFloat(priceInput.value) || 0;
             const weightInput = row.querySelector('input.weight-input');
             const weight = parseFloat(weightInput ? weightInput.value : 0) || 0;
@@ -969,7 +949,6 @@
                 unit: '',
                 memo: memoInput ? memoInput.value.trim() : '',
                 cost_type: costType,
-                material_type: materialType,
                 purchase_unit: puInput ? puInput.value.trim() : '',
                 standard_unit: suInput ? suInput.value.trim() : '',
                 conversion_ratio: parseFloat(ratioInput ? ratioInput.value : 1) || 1,
@@ -1002,7 +981,6 @@
         const weight = parseFloat(document.getElementById('newCostWeight').value) || 0;
         const memo = document.getElementById('newCostMemo').value.trim();
         const costType = document.getElementById('newCostType').value;
-        const materialType = document.getElementById('newMaterialType').value;
         const purchaseUnit = document.getElementById('newPurchaseUnit').value.trim();
         const standardUnit = document.getElementById('newStandardUnit').value.trim();
         const conversionRatio = parseFloat(document.getElementById('newConversionRatio').value) || 1;
@@ -1013,7 +991,7 @@
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
                 body: JSON.stringify({product_name: name, cost_price: price, weight,
-                    unit: '', memo, cost_type: costType, material_type: materialType,
+                    unit: '', memo, cost_type: costType,
                     purchase_unit: purchaseUnit, standard_unit: standardUnit,
                     conversion_ratio: conversionRatio}),
             });

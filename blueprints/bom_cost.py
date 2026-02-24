@@ -38,11 +38,10 @@ def api_data():
         # cost_details → 직렬화 가능하게 변환
         cost_list = []
         for name, detail in result.get('cost_details', {}).items():
-            # 우선순위: stock_ledger.category > product_costs.material_type > '원료'
-            # product_costs 이름에 공백이 있을 수 있으므로 정규화 버전도 시도
+            # stock_ledger.category만 사용. 없으면 빈값 (기본값 '원료' 폴백 없음)
             mt = (category_map.get(name)
                   or category_map.get(name.replace(' ', ''))
-                  or detail.get('material_type', '원료') or '원료')
+                  or '')
             ratio = float(detail.get('conversion_ratio', 1) or 1)
             cost_price = float(detail.get('cost_price', 0))
             cost_list.append({

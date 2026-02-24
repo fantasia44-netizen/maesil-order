@@ -125,11 +125,10 @@ def calculate_bom_costs(db):
     for k, v in cost_map_raw.items():
         w = float(v.get('weight', 0) or 0)
         wu = v.get('weight_unit', 'g') or 'g'
-        # stock_ledger category 우선, 없으면 product_costs.material_type 폴백
-        # 공백 정규화 대응: product_costs 이름에 공백이 있을 수 있음
+        # stock_ledger.category만 사용. 없으면 빈값
         mt = (category_map.get(k)
               or category_map.get(k.replace(' ', ''))
-              or v.get('material_type', '원료') or '원료')
+              or '')
         weight_map[k] = {'weight': w, 'weight_unit': wu, 'material_type': mt}
 
     # 3. 판매가 로드
