@@ -163,10 +163,10 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
                 f"{item_name}: 필요 {needed_qty}, 현재고 {available} (부족 {needed_qty - available})"
             )
 
-    # 부재료 부족 체크 (세트 수량 곱산)
+    # 부재료 부족 체크 (입력된 총 수량 그대로 사용)
     for sm in sub_materials:
         sm_name = sm['name']
-        sm_needed = sm['qty'] * qty  # 세트 1개당 부재료 수량 × 세트 수량
+        sm_needed = sm['qty']  # 사용자가 입력한 총 수량
         snap_data = snapshot_lookup(snapshot, sm_name)
         available = snap_data.get('total', 0)
         if available < sm_needed:
@@ -231,7 +231,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
     sub_out_count = 0
     for sm in sub_materials:
         sm_name = sm['name']
-        sm_needed = sm['qty'] * qty  # 세트 1개당 × 세트 수량
+        sm_needed = sm['qty']  # 사용자가 입력한 총 수량
         snap_data = snapshot_lookup(snapshot, sm_name)
         groups = snap_data.get('groups', [])
         remain = sm_needed
