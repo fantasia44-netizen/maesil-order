@@ -108,6 +108,7 @@ def create_app(config_class=None):
             menus.append({'name': '통합 집계', 'icon': 'bi-calculator', 'url': '/aggregation'})
 
         if r in ('admin', 'manager', 'sales', 'general'):
+            menus.append({'name': '판매관리', 'icon': 'bi-tags', 'url': '/price'})
             menus.append({'name': '거래처 관리', 'icon': 'bi-building', 'url': '/trade'})
             menus.append({'name': '거래처주문처리', 'icon': 'bi-truck', 'url': '/outbound'})
             menus.append({'name': '매출 관리', 'icon': 'bi-currency-won', 'url': '/revenue'})
@@ -177,13 +178,14 @@ def create_app(config_class=None):
     from blueprints.mobile import mobile_bp
     from blueprints.bom_cost import bom_cost_bp
     from blueprints.yield_mgmt import yield_bp
+    from blueprints.price_mgmt import price_mgmt_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
-               mobile_bp, bom_cost_bp, yield_bp]:
+               mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp]:
         app.register_blueprint(bp)
 
     # 폴더 생성

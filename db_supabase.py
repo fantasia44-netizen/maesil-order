@@ -292,7 +292,8 @@ class SupabaseDB(DBBase):
         except Exception:
             return {}
 
-    def upsert_product_cost(self, product_name, cost_price, unit='', memo=''):
+    def upsert_product_cost(self, product_name, cost_price, unit='', memo='',
+                            weight=0, weight_unit='g'):
         """품목 매입단가 1건 등록/수정 (upsert)."""
         from datetime import datetime, timezone
         payload = {
@@ -300,6 +301,8 @@ class SupabaseDB(DBBase):
             'cost_price': float(cost_price),
             'unit': unit,
             'memo': memo,
+            'weight': float(weight or 0),
+            'weight_unit': weight_unit or 'g',
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("product_costs").upsert(
@@ -308,7 +311,7 @@ class SupabaseDB(DBBase):
 
     def upsert_product_costs_batch(self, items):
         """품목 매입단가 일괄 등록/수정.
-        items: [{product_name, cost_price, unit?, memo?}]
+        items: [{product_name, cost_price, unit?, memo?, weight?, weight_unit?}]
         """
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).isoformat()
@@ -319,6 +322,8 @@ class SupabaseDB(DBBase):
                 'cost_price': float(item.get('cost_price', 0)),
                 'unit': item.get('unit', ''),
                 'memo': item.get('memo', ''),
+                'weight': float(item.get('weight', 0) or 0),
+                'weight_unit': item.get('weight_unit', 'g') or 'g',
                 'updated_at': now,
             })
         if not payload:

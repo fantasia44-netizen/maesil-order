@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS channel_costs (
     memo         TEXT DEFAULT '',
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 7) product_costs 확장: 중량 컬럼 추가
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 0;
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS weight_unit TEXT DEFAULT 'g';
 """
 
 print("=" * 60)
