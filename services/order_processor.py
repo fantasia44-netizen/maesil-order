@@ -345,7 +345,7 @@ class OrderProcessor:
                 sums_by_line = sums.groupby('sort').agg({'display_nm': 'first', 'qty': 'sum'}).reset_index()
                 master_list = opt_raw[['출력순서', '품목명', '라인코드']].drop_duplicates('출력순서')
                 qty_rep = pd.merge(master_list, sums_by_line, left_on='출력순서', right_on='sort', how='left')
-                qty_rep['qty'] = qty_rep['qty'].fillna(0).astype(int)
+                qty_rep['qty'] = pd.to_numeric(qty_rep['qty'], errors='coerce').fillna(0).astype(int)
                 qty_rep['warehouse'] = qty_rep['라인코드'].apply(
                     lambda c: "해서" if int(pd.to_numeric(c, errors='coerce') or 0) == 5 else "넥스원"
                 )
