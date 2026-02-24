@@ -138,6 +138,9 @@ def create_app(config_class=None):
         if r in ('admin', 'manager'):
             menus.append({'name': 'BOM 원가', 'icon': 'bi-piggy-bank', 'url': '/bom-cost'})
 
+        if r in ('admin', 'manager', 'production'):
+            menus.append({'name': '수율 관리', 'icon': 'bi-graph-up', 'url': '/yield'})
+
         if r in ('admin', 'manager'):
             menus.append({'name': '기초 데이터', 'icon': 'bi-hdd', 'url': '/base-data'})
 
@@ -173,13 +176,14 @@ def create_app(config_class=None):
     from blueprints.aggregation import aggregation_bp
     from blueprints.mobile import mobile_bp
     from blueprints.bom_cost import bom_cost_bp
+    from blueprints.yield_mgmt import yield_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
-               mobile_bp, bom_cost_bp]:
+               mobile_bp, bom_cost_bp, yield_bp]:
         app.register_blueprint(bp)
 
     # 폴더 생성

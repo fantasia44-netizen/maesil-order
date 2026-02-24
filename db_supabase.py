@@ -334,6 +334,40 @@ class SupabaseDB(DBBase):
             "product_name", product_name
         ).execute()
 
+    # --- channel_costs (채널별 비용) ---
+
+    def query_channel_costs(self):
+        """채널별 비용 전체 조회 → {channel: {fee_rate, shipping, packaging, other_cost, memo}}."""
+        try:
+            rows = self._paginate_query("channel_costs",
+                lambda t: self.client.table(t).select("*").order("channel"))
+            return {r['channel']: r for r in rows}
+        except Exception:
+            return {}
+
+    def upsert_channel_cost(self, channel, fee_rate=0, shipping=0,
+                            packaging=0, other_cost=0, memo=''):
+        """채널 비용 1건 등록/수정 (upsert on channel)."""
+        from datetime import datetime, timezone
+        payload = {
+            'channel': channel,
+            'fee_rate': float(fee_rate),
+            'shipping': float(shipping),
+            'packaging': float(packaging),
+            'other_cost': float(other_cost),
+            'memo': memo,
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        self.client.table("channel_costs").upsert(
+            payload, on_conflict="channel"
+        ).execute()
+
+    def delete_channel_cost(self, channel):
+        """채널 비용 1건 삭제."""
+        self.client.table("channel_costs").delete().eq(
+            "channel", channel
+        ).execute()
+
     # --- business_partners ---
 
     def query_partners(self):

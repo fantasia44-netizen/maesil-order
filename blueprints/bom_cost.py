@@ -1,6 +1,6 @@
 """
 bom_cost.py — BOM 원가 관리 Blueprint.
-BOM 구성품 매입단가 관리 + 원가 분석 + 마진 분석.
+BOM 구성품 매입단가 관리 + 원가 분석 + 마진 분석 + 채널비용 관리.
 관리자/총괄책임자 전용.
 """
 from flask import (
@@ -47,6 +47,7 @@ def api_data():
             'cost_list': sorted(cost_list, key=lambda x: x['product_name']),
             'all_products': result['all_products'],
             'missing_costs': result['missing_costs'],
+            'channel_costs': result.get('channel_costs', {}),
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -119,6 +120,72 @@ def api_delete_cost(product_name):
     try:
         db.delete_product_cost(product_name)
         _log_action('delete_product_cost', target=product_name)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── 채널비용 관리 API ──
+
+@bom_cost_bp.route('/api/channels')
+@role_required('admin', 'manager')
+def api_channels():
+    """채널비용 목록 JSON"""
+    db = current_app.db
+    try:
+        costs = db.query_channel_costs()
+        result = []
+        for ch, info in costs.items():
+            result.append({
+                'channel': ch,
+                'fee_rate': float(info.get('fee_rate', 0) or 0),
+                'shipping': float(info.get('shipping', 0) or 0),
+                'packaging': float(info.get('packaging', 0) or 0),
+                'other_cost': float(info.get('other_cost', 0) or 0),
+                'memo': info.get('memo', ''),
+            })
+        return jsonify({'success': True, 'channels': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@bom_cost_bp.route('/api/channel', methods=['POST'])
+@role_required('admin', 'manager')
+def api_save_channel():
+    """채널비용 저장"""
+    db = current_app.db
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    channel = (data.get('channel') or '').strip()
+    if not channel:
+        return jsonify({'error': '채널명은 필수입니다.'}), 400
+
+    try:
+        db.upsert_channel_cost(
+            channel=channel,
+            fee_rate=float(data.get('fee_rate', 0)),
+            shipping=float(data.get('shipping', 0)),
+            packaging=float(data.get('packaging', 0)),
+            other_cost=float(data.get('other_cost', 0)),
+            memo=(data.get('memo') or '').strip(),
+        )
+        _log_action('update_channel_cost', target=channel,
+                     detail=f"수수료={data.get('fee_rate',0)}%")
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@bom_cost_bp.route('/api/channel/<path:channel>', methods=['DELETE'])
+@role_required('admin', 'manager')
+def api_delete_channel(channel):
+    """채널비용 삭제"""
+    db = current_app.db
+    try:
+        db.delete_channel_cost(channel)
+        _log_action('delete_channel_cost', target=channel)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

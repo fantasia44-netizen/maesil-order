@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+{% block title %}수율 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}수율 관리{% endblock %}
+
+{% block extra_css %}
+<style>
+    .yield-high { color: #27ae60; font-weight: 600; }
+    .yield-mid { color: #f39c12; font-weight: 600; }
+    .yield-low { color: #e74c3c; font-weight: 600; }
+    .yield-na { color: #999; }
+    .summary-card { border-left: 4px solid; }
+    .summary-card.blue { border-color: #3498db; }
+    .summary-card.green { border-color: #27ae60; }
+    .summary-card.orange { border-color: #f39c12; }
+    .summary-card.purple { border-color: #9b59b6; }
+    .comp-row { background: #f8f9fa; }
+    .comp-row td { font-size: 0.85rem; padding-left: 2rem !important; }
+    .prod-row { cursor: pointer; }
+    .prod-row:hover { background: #eef3f8; }
+    .prod-row td { font-weight: 600; }
+    .cost-diff-pos { color: #e74c3c; }
+    .cost-diff-neg { color: #27ae60; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 필터 영역 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-0">시작일</label>
+                <input type="date" id="dateFrom" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-0">종료일</label>
+                <input type="date" id="dateTo" class="form-control form-control-sm">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small fw-semibold mb-0">위치</label>
+                <select id="locationFilter" class="form-select form-select-sm">
+                    <option value="">전체</option>
+                    {% for loc in locations %}
+                    <option value="{{ loc }}">{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-semibold mb-0">제품 (차트 필터)</label>
+                <input type="text" id="productFilter" class="form-control form-control-sm" placeholder="제품명 (비우면 전체)">
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-sm btn-primary" onclick="loadAll()">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4" id="summaryCards" style="display:none;">
+    <div class="col-md-3">
+        <div class="card summary-card blue">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">분석 제품 수</small>
+                <h4 class="mb-0" id="totalProducts">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card green">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">평균 수율</small>
+                <h4 class="mb-0" id="avgYield">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card orange">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 산출량</small>
+                <h4 class="mb-0" id="totalOutput">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card purple">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 투입비용</small>
+                <h4 class="mb-0" id="totalCost">-</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭 -->
+<ul class="nav nav-tabs mb-0" role="tablist" id="yieldTabs" style="display:none;">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabSummary" type="button">
+            <i class="bi bi-table"></i> 제품별 수율 분석
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabChart" type="button">
+            <i class="bi bi-graph-up"></i> 일별 추이 차트
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="yieldContent" style="display:none;">
+    <!-- 탭1: 제품별 수율 분석 -->
+    <div class="tab-pane fade show active" id="tabSummary">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:25px;"></th>
+                                <th>제품명</th>
+                                <th class="text-end">생산횟수</th>
+                                <th class="text-end">총산출량</th>
+                                <th class="text-end">총투입비용</th>
+                                <th class="text-end">실제단위원가</th>
+                                <th class="text-end">BOM이론원가</th>
+                                <th class="text-end">원가차이</th>
+                                <th class="text-end">수율(%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="yieldBody">
+                            <tr><td colspan="9" class="text-center text-muted py-4">조회 기간을 선택하고 [조회] 버튼을 누르세요.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭2: 일별 추이 차트 -->
+    <div class="tab-pane fade" id="tabChart">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-body">
+                <canvas id="yieldChart" height="300"></canvas>
+            </div>
+            <div class="card-body border-top p-0">
+                <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light" style="position:sticky; top:0;">
+                            <tr>
+                                <th>날짜</th>
+                                <th>제품</th>
+                                <th class="text-end">산출량</th>
+                                <th class="text-end">단위원가</th>
+                                <th class="text-end">수율(%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dailyBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 초기 안내 (데이터 없을 때) -->
+<div id="emptyGuide" class="card">
+    <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-graph-up" style="font-size:3rem;"></i>
+        <h5 class="mt-3">수율 분석</h5>
+        <p>조회 기간을 선택하고 [조회] 버튼을 누르면<br>
+        생산 데이터 기반으로 제품별 수율과 실제원가를 분석합니다.</p>
+        <small class="text-muted">
+            수율(%) = (BOM 이론원가 / 실제단위원가) x 100<br>
+            100% 이상 = 효율적 / 100% 미만 = 비효율적 (재료 손실)
+        </small>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    let expandedProducts = new Set();
+    let yieldChart = null;
+    let summaryData = null;
+
+    // 기본 날짜 (최근 30일)
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() - 30);
+    document.getElementById('dateFrom').value = from.toISOString().slice(0, 10);
+    document.getElementById('dateTo').value = today.toISOString().slice(0, 10);
+
+    // ====== 전체 로드 ======
+    window.loadAll = async function() {
+        const dateFrom = document.getElementById('dateFrom').value;
+        const dateTo = document.getElementById('dateTo').value;
+        if (!dateFrom || !dateTo) { alert('기간을 선택하세요.'); return; }
+
+        await Promise.all([loadSummary(), loadDaily()]);
+    };
+
+    // ====== 요약 데이터 로드 ======
+    async function loadSummary() {
+        const params = buildParams();
+        try {
+            const res = await fetch('/yield/api/summary?' + params);
+            const json = await res.json();
+            if (!json.success) { alert('조회 실패: ' + (json.error || '')); return; }
+
+            summaryData = json;
+            document.getElementById('emptyGuide').style.display = 'none';
+            document.getElementById('summaryCards').style.display = '';
+            document.getElementById('yieldTabs').style.display = '';
+            document.getElementById('yieldContent').style.display = '';
+
+            updateSummaryCards(json.summary);
+            renderYieldTable(json.products);
+        } catch(e) { alert('조회 오류: ' + e.message); }
+    }
+
+    // ====== 일별 데이터 로드 ======
+    async function loadDaily() {
+        const params = buildParams();
+        const product = document.getElementById('productFilter').value.trim();
+        const extra = product ? '&product=' + encodeURIComponent(product) : '';
+        try {
+            const res = await fetch('/yield/api/daily?' + params + extra);
+            const json = await res.json();
+            if (!json.success) return;
+            renderChart(json);
+            renderDailyTable(json);
+        } catch(e) { console.error('차트 로드 오류:', e); }
+    }
+
+    function buildParams() {
+        const f = document.getElementById('dateFrom').value;
+        const t = document.getElementById('dateTo').value;
+        const loc = document.getElementById('locationFilter').value;
+        return 'from=' + f + '&to=' + t + (loc ? '&location=' + encodeURIComponent(loc) : '');
+    }
+
+    // ====== 요약 카드 ======
+    function updateSummaryCards(s) {
+        document.getElementById('totalProducts').textContent = s.total_products + '건';
+        document.getElementById('avgYield').textContent = s.avg_yield != null ? s.avg_yield + '%' : '-';
+        document.getElementById('totalOutput').textContent = Number(s.total_output).toLocaleString('ko-KR');
+        document.getElementById('totalCost').textContent = Number(s.total_cost).toLocaleString('ko-KR') + '원';
+    }
+
+    // ====== 수율 테이블 ======
+    function renderYieldTable(products) {
+        const tbody = document.getElementById('yieldBody');
+        if (!products || products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">해당 기간의 생산 데이터가 없습니다.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        products.forEach(p => {
+            const isExpanded = expandedProducts.has(p.product_name);
+            html += '<tr class="prod-row" onclick="window._toggleProd(\'' + esc(p.product_name) + '\')">';
+            html += '<td><i class="bi bi-caret-' + (isExpanded ? 'down' : 'right') + '-fill text-muted"></i></td>';
+            html += '<td>' + esc(p.product_name) + '</td>';
+            html += '<td class="text-end">' + p.production_count + '</td>';
+            html += '<td class="text-end">' + num(p.total_output) + '</td>';
+            html += '<td class="text-end">' + won(p.total_input_cost) + '</td>';
+            html += '<td class="text-end">' + won(p.actual_unit_cost) + '</td>';
+            html += '<td class="text-end">' + (p.bom_unit_cost > 0 ? won(p.bom_unit_cost) : '<span class="yield-na">미설정</span>') + '</td>';
+            html += '<td class="text-end">' + formatCostDiff(p.cost_diff, p.bom_unit_cost) + '</td>';
+            html += '<td class="text-end">' + formatYield(p.yield_rate) + '</td>';
+            html += '</tr>';
+
+            if (isExpanded && p.materials.length > 0) {
+                p.materials.forEach(m => {
+                    html += '<tr class="comp-row">';
+                    html += '<td></td>';
+                    html += '<td><i class="bi bi-arrow-return-right text-muted me-1"></i>' + esc(m.name) + '</td>';
+                    html += '<td></td>';
+                    html += '<td class="text-end">' + num(m.total_qty) + '</td>';
+                    html += '<td class="text-end">' + won(m.total_cost) + '</td>';
+                    html += '<td class="text-end text-muted">@' + won(m.unit_price) + '</td>';
+                    html += '<td colspan="3"></td>';
+                    html += '</tr>';
+                });
+            }
+        });
+        tbody.innerHTML = html;
+    }
+
+    window._toggleProd = function(name) {
+        if (expandedProducts.has(name)) expandedProducts.delete(name);
+        else expandedProducts.add(name);
+        if (summaryData) renderYieldTable(summaryData.products);
+    };
+
+    // ====== 차트 ======
+    function renderChart(data) {
+        const ctx = document.getElementById('yieldChart').getContext('2d');
+        if (yieldChart) yieldChart.destroy();
+
+        const colors = ['#3498db', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
+        const datasets = [];
+        let idx = 0;
+
+        for (const [pname, pdata] of Object.entries(data.products || {})) {
+            if (idx >= 5) break;
+            datasets.push({
+                label: pname,
+                data: pdata.yields.map(v => v != null ? v : null),
+                borderColor: colors[idx],
+                backgroundColor: colors[idx] + '20',
+                tension: 0.3,
+                spanGaps: true,
+                pointRadius: 3,
+            });
+            idx++;
+        }
+
+        yieldChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.dates || [],
+                datasets: datasets,
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    annotation: undefined,
+                },
+                scales: {
+                    y: {
+                        title: { display: true, text: '수율 (%)' },
+                        suggestedMin: 50,
+                        suggestedMax: 120,
+                    },
+                    x: { title: { display: true, text: '날짜' } },
+                },
+            },
+            plugins: [{
+                id: 'baseline',
+                afterDraw(chart) {
+                    const yScale = chart.scales.y;
+                    const xScale = chart.scales.x;
+                    const y100 = yScale.getPixelForValue(100);
+                    if (y100 >= yScale.top && y100 <= yScale.bottom) {
+                        const ctx = chart.ctx;
+                        ctx.save();
+                        ctx.strokeStyle = '#e74c3c';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.moveTo(xScale.left, y100);
+                        ctx.lineTo(xScale.right, y100);
+                        ctx.stroke();
+                        ctx.fillStyle = '#e74c3c';
+                        ctx.font = '11px sans-serif';
+                        ctx.fillText('100%', xScale.right + 5, y100 + 4);
+                        ctx.restore();
+                    }
+                }
+            }],
+        });
+    }
+
+    // ====== 일별 테이블 ======
+    function renderDailyTable(data) {
+        const tbody = document.getElementById('dailyBody');
+        if (!data.dates || data.dates.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">데이터가 없습니다.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.dates.forEach((date, i) => {
+            for (const [pname, pdata] of Object.entries(data.products || {})) {
+                const output = pdata.outputs[i];
+                if (!output) continue;
+                html += '<tr>';
+                html += '<td>' + date + '</td>';
+                html += '<td>' + esc(pname) + '</td>';
+                html += '<td class="text-end">' + num(output) + '</td>';
+                html += '<td class="text-end">' + won(pdata.costs[i]) + '</td>';
+                html += '<td class="text-end">' + formatYield(pdata.yields[i]) + '</td>';
+                html += '</tr>';
+            }
+        });
+        tbody.innerHTML = html || '<tr><td colspan="5" class="text-center text-muted py-3">데이터가 없습니다.</td></tr>';
+    }
+
+    // ====== 유틸 ======
+    function esc(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    function num(n) {
+        if (n == null || n === 0) return '-';
+        return Number(n).toLocaleString('ko-KR');
+    }
+    function won(n) {
+        if (n == null || n === 0) return '-';
+        return Number(n).toLocaleString('ko-KR') + '원';
+    }
+    function formatYield(y) {
+        if (y == null) return '<span class="yield-na">-</span>';
+        if (y >= 100) return '<span class="yield-high">' + y.toFixed(1) + '%</span>';
+        if (y >= 90) return '<span class="yield-mid">' + y.toFixed(1) + '%</span>';
+        return '<span class="yield-low">' + y.toFixed(1) + '%</span>';
+    }
+    function formatCostDiff(diff, bomCost) {
+        if (!bomCost || bomCost <= 0) return '<span class="yield-na">-</span>';
+        if (diff > 0) return '<span class="cost-diff-pos">+' + won(diff) + '</span>';
+        if (diff < 0) return '<span class="cost-diff-neg">' + won(diff) + '</span>';
+        return '<span class="yield-na">0</span>';
+    }
+})();
+</script>
+{% endblock %}

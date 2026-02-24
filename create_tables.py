@@ -79,6 +79,18 @@ CREATE TABLE IF NOT EXISTS product_costs (
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_product_costs_name ON product_costs(product_name);
+
+-- 6) channel_costs (채널별 비용: 수수료/배송비/포장비/기타)
+CREATE TABLE IF NOT EXISTS channel_costs (
+    id           BIGSERIAL PRIMARY KEY,
+    channel      TEXT UNIQUE NOT NULL,
+    fee_rate     NUMERIC DEFAULT 0,
+    shipping     NUMERIC DEFAULT 0,
+    packaging    NUMERIC DEFAULT 0,
+    other_cost   NUMERIC DEFAULT 0,
+    memo         TEXT DEFAULT '',
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 print("=" * 60)
@@ -93,7 +105,7 @@ print("=" * 60)
 
 # 현재 테이블 상태 확인
 print("\n📊 현재 테이블 상태:")
-for t in ["daily_revenue", "product_master", "price_master", "bom_master", "product_costs"]:
+for t in ["daily_revenue", "product_master", "price_master", "bom_master", "product_costs", "channel_costs"]:
     exists = table_exists(t)
     status = "✅ 존재" if exists else "❌ 없음 (생성 필요)"
     print(f"  {t}: {status}")

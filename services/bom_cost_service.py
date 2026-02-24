@@ -1,6 +1,7 @@
 """
 bom_cost_service.py — BOM 원가 분석 서비스.
 BOM 구성품 × 매입단가 → 세트/제품 원가 계산, 판매가 대비 마진 분석.
+채널별 수수료/배송비/포장비/기타비용 반영 순마진 산출.
 """
 from collections import defaultdict
 
@@ -66,7 +67,7 @@ def explode_bom_recursive(bom_lookup, set_name, channel, multiplier=1, _visited=
 
 
 def calculate_bom_costs(db):
-    """전체 BOM 원가 분석 데이터 생성.
+    """전체 BOM 원가 분석 데이터 생성 (채널비용 포함 순마진 산출).
 
     Returns:
         dict: {
@@ -75,11 +76,15 @@ def calculate_bom_costs(db):
                 'components': [{'name','qty','cost_price','subtotal'}],
                 'total_cost',
                 'prices': {'네이버': ..., '쿠팡': ..., '로켓': ...},
-                'margins': {'네이버': ..., '쿠팡': ..., '로켓': ...},
+                'margins': {'네이버': ..., ...},          # 원가마진
+                'net_margins': {'네이버': ..., ...},      # 순마진 (비용 전체 반영)
+                'net_profits': {'네이버': ..., ...},      # 순이익 (원)
+                'cost_breakdown': {'네이버': {...}, ...},  # 비용 상세
             }],
             'cost_map': {product_name: cost_price},
-            'all_products': [sorted list of all product names needing costs],
+            'all_products': [sorted list],
             'missing_costs': [products without cost data],
+            'channel_costs': {channel: {fee_rate, shipping, ...}},
         }
     """
     # 1. BOM 데이터 로드 (master_bom 우선, bom_master 폴백)
@@ -99,7 +104,19 @@ def calculate_bom_costs(db):
     # 3. 판매가 로드
     price_map = db.query_price_table()
 
-    # 4. BOM lookup 구축
+    # 4. 채널비용 로드
+    channel_costs_raw = db.query_channel_costs()
+    channel_costs = {}
+    for ch, info in channel_costs_raw.items():
+        channel_costs[ch] = {
+            'fee_rate': float(info.get('fee_rate', 0) or 0),
+            'shipping': float(info.get('shipping', 0) or 0),
+            'packaging': float(info.get('packaging', 0) or 0),
+            'other_cost': float(info.get('other_cost', 0) or 0),
+            'memo': info.get('memo', ''),
+        }
+
+    # 5. BOM lookup 구축
     bom_lookup = {}
     for row in bom_raw:
         ch = row.get('channel', '')
@@ -108,7 +125,7 @@ def calculate_bom_costs(db):
         if ch and sn:
             bom_lookup[(ch, sn)] = comp
 
-    # 5. 모든 BOM 항목 분석
+    # 6. 모든 BOM 항목 분석
     bom_items = []
     all_component_names = set()
 
@@ -133,17 +150,46 @@ def calculate_bom_costs(db):
             })
             all_component_names.add(comp_name)
 
-        # 판매가 조회
+        # 판매가 + 마진 계산
         prices = {}
         margins = {}
+        net_margins = {}
+        net_profits = {}
+        cost_breakdown = {}
         p = price_map.get(set_name, {})
+
         for label, key in [('네이버', '네이버판매가'), ('쿠팡', '쿠팡판매가'), ('로켓', '로켓판매가')]:
             sell = float(p.get(key, 0))
             prices[label] = sell
+
+            # 기존 원가마진
             if sell > 0 and total_cost > 0:
                 margins[label] = round((sell - total_cost) / sell * 100, 1)
             else:
                 margins[label] = None
+
+            # 채널비용 반영 순마진
+            ch_cost = channel_costs.get(label, {})
+            fee = sell * (ch_cost.get('fee_rate', 0) / 100)
+            ship = ch_cost.get('shipping', 0)
+            pack = ch_cost.get('packaging', 0)
+            etc = ch_cost.get('other_cost', 0)
+            total_deduct = total_cost + fee + ship + pack + etc
+
+            cost_breakdown[label] = {
+                'fee': round(fee),
+                'shipping': round(ship),
+                'packaging': round(pack),
+                'other': round(etc),
+                'total_deduct': round(total_deduct),
+            }
+
+            if sell > 0:
+                net_profits[label] = round(sell - total_deduct)
+                net_margins[label] = round((sell - total_deduct) / sell * 100, 1)
+            else:
+                net_profits[label] = None
+                net_margins[label] = None
 
         bom_items.append({
             'channel': channel,
@@ -153,10 +199,10 @@ def calculate_bom_costs(db):
             'total_cost': total_cost,
             'prices': prices,
             'margins': margins,
+            'net_margins': net_margins,
+            'net_profits': net_profits,
+            'cost_breakdown': cost_breakdown,
         })
-
-    # 세트명에도 판매가가 필요하므로 세트명도 all_products에 포함
-    all_set_names = set(sn for _, sn in bom_lookup.keys())
 
     # 원가 미입력 품목
     missing_costs = sorted([n for n in all_component_names if cost_map.get(n, 0) == 0])
@@ -168,4 +214,5 @@ def calculate_bom_costs(db):
         'all_products': sorted(all_component_names),
         'missing_costs': missing_costs,
         'price_map': price_map,
+        'channel_costs': channel_costs,
     }
