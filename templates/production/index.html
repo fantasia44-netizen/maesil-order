@@ -95,7 +95,7 @@
                 </div>
 
                 <!-- 재료 입력 -->
-                <div class="border rounded p-2 mb-2">
+                <div class="border rounded p-2 mb-2" style="overflow:visible;">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h6 class="mb-0"><i class="bi bi-layers"></i> 투입 재료</h6>
                         <div>
@@ -166,11 +166,11 @@
                 <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
-                            <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th>
+                            <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th><th>제조일</th><th>소비기한</th>
                                 {% if current_user.role == 'admin' %}<th style="width:70px;">관리</th>{% endif %}</tr>
                         </thead>
                         <tbody id="historyBody">
-                            <tr><td colspan="6" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
+                            <tr><td colspan="8" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -375,13 +375,14 @@
         currentMaterials.forEach((mat, idx) => {
             const div = document.createElement('div');
             div.className = 'row g-1 align-items-center mb-1';
+            div.style.position = 'relative';
             div.innerHTML = `
                 <div class="col-sm-4">
                     <div class="position-relative">
                         <input type="text" class="form-control form-control-sm mat-name" data-idx="${idx}"
-                               value="${escapeHtml(mat.product_name)}" placeholder="재료명 검색" autocomplete="off">
-                        <div class="mat-ac-list list-group position-absolute w-100"
-                             style="z-index:1010; max-height:150px; overflow-y:auto; display:none;"></div>
+                               value="${escapeHtml(mat.product_name)}" placeholder="원료명 검색" autocomplete="off">
+                        <div class="mat-ac-list list-group position-absolute"
+                             style="z-index:1050; max-height:180px; overflow-y:auto; display:none; width:300px; left:0;"></div>
                     </div>
                 </div>
                 <div class="col-sm-2">
@@ -575,12 +576,12 @@
         const to = document.getElementById('histDateTo').value;
         if (!from || !to) { alert('기간을 선택하세요.'); return; }
         const tbody = document.getElementById('historyBody');
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center small py-2">조회 중...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center small py-2">조회 중...</td></tr>';
         try {
             const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
             const rows = await res.json();
             historyData = rows;
-            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const isProd = r.type === 'PRODUCTION';
@@ -590,7 +591,9 @@
                     <td class="small"><span class="badge ${isProd?'bg-success':'bg-secondary'} small">${isProd?'생산':'투입'}</span></td>
                     <td class="small ${isProd?'fw-bold':''}">${isProd?'':'ㄴ '}${escapeHtml(r.product_name)}</td>
                     <td class="text-end small ${isProd?'text-success':'text-danger'}">${r.qty>0?'+':''}${r.qty}</td>
-                    <td class="small">${escapeHtml(r.location)}</td>`;
+                    <td class="small">${escapeHtml(r.location)}</td>
+                    <td class="small">${r.manufacture_date || '-'}</td>
+                    <td class="small">${r.expiry_date || '-'}</td>`;
                 if(isAdmin){
                     const td = document.createElement('td');
                     td.className = 'text-nowrap';
