@@ -283,8 +283,8 @@ def reapply_prices():
                 'product_name': rev['product_name'],
                 'category': cat,
                 'qty': rev['qty'],
-                'unit_price': new_unit_price,
-                'revenue': new_revenue,
+                'unit_price': int(new_unit_price),
+                'revenue': int(new_revenue),
             })
 
         # 4) upsert (conflict key: revenue_date, product_name, category)

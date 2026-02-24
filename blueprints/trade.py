@@ -1,6 +1,6 @@
 """
 trade.py — 거래처/거래 관리 Blueprint.
-거래처 CRUD, 수동 거래 등록, 거래명세서 PDF, 엑셀 일괄등록.
+거래처 CRUD, 수동 거래 등록, 거래명세서 PDF, 엑셀 일괄등록, 발주서.
 """
 import os
 import io
@@ -238,6 +238,46 @@ def delete_partner(partner_id):
     return redirect(url_for('trade.index'))
 
 
+@trade_bp.route('/api/partner/<int:partner_id>', methods=['PUT'])
+@role_required('admin', 'manager', 'sales', 'general')
+def api_update_partner(partner_id):
+    """거래처 정보 수정 API"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    # 업데이트 가능 필드
+    allowed = ['partner_name', 'business_number', 'representative', 'address',
+               'type', 'business_item', 'phone', 'fax', 'email', 'notes']
+    payload = {}
+    for key in allowed:
+        if key in data:
+            val = (data[key] or '').strip() if data[key] else None
+            payload[key] = val
+
+    if not payload:
+        return jsonify({'error': '수정할 데이터가 없습니다.'}), 400
+
+    try:
+        current_app.db.update_partner(partner_id, payload)
+        _log_action('update_partner', target=str(partner_id),
+                     detail=str(payload))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@trade_bp.route('/api/partners')
+@role_required('admin', 'manager', 'sales', 'general')
+def api_partners():
+    """거래처 목록 JSON"""
+    try:
+        partners = current_app.db.query_partners()
+        return jsonify({'success': True, 'partners': partners})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ── 거래 관리 ──
 
 @trade_bp.route('/trades')
@@ -409,8 +449,8 @@ def invoice(trade_id):
     db = current_app.db
 
     try:
-        trades = db.query_manual_trades()
-        trade = next((t for t in trades if t.get('id') == trade_id), None)
+        trades_data = db.query_manual_trades()
+        trade = next((t for t in trades_data if t.get('id') == trade_id), None)
         if not trade:
             abort(404)
 
@@ -491,3 +531,101 @@ def invoice_batch():
     except Exception as e:
         flash(f'거래명세서 생성 중 오류: {e}', 'danger')
         return redirect(url_for('trade.index'))
+
+
+# ── 발주서 관리 ──
+
+@trade_bp.route('/purchase-order')
+@role_required('admin', 'manager', 'sales', 'general')
+def purchase_order():
+    """발주서 작성 페이지"""
+    db = current_app.db
+    partners = []
+    my_biz_list = []
+
+    try:
+        partners = db.query_partners()
+    except Exception as e:
+        flash(f'거래처 조회 중 오류: {e}', 'danger')
+
+    try:
+        my_biz_list = db.query_my_business()
+    except Exception as e:
+        flash(f'사업장 조회 중 오류: {e}', 'danger')
+
+    return render_template('trade/purchase_order.html',
+                           partners=partners,
+                           my_businesses=my_biz_list)
+
+
+@trade_bp.route('/purchase-order/generate', methods=['POST'])
+@role_required('admin', 'manager', 'sales', 'general')
+def generate_purchase_order():
+    """발주서 PDF 생성/다운로드"""
+    import json
+    db = current_app.db
+
+    try:
+        # 발주처 (본사 사업장)
+        my_biz_id = request.form.get('my_biz_id', '')
+        my_biz_list = db.query_my_business()
+        my_biz = {}
+        if my_biz_id:
+            my_biz = next((b for b in my_biz_list if str(b.get('id')) == my_biz_id), {})
+        if not my_biz:
+            my_biz = next((b for b in my_biz_list if b.get('is_default')),
+                          my_biz_list[0] if my_biz_list else {})
+
+        # 공급업체 (거래처)
+        partner_id = request.form.get('partner_id', '')
+        partner = {}
+        if partner_id:
+            partners = db.query_partners()
+            partner = next(
+                (p for p in partners if str(p.get('id')) == partner_id), {}
+            )
+
+        # 발주내역
+        items_json = request.form.get('items', '[]')
+        items = json.loads(items_json)
+        if not items:
+            flash('발주내역을 입력하세요.', 'danger')
+            return redirect(url_for('trade.purchase_order'))
+
+        # 입고기한 + 주의사항
+        delivery_note = request.form.get('delivery_note', '').strip()
+        caution_text = request.form.get('caution_text', '').strip()
+        order_date = request.form.get('order_date', datetime.now().strftime('%Y-%m-%d'))
+
+        # PDF 생성
+        from reports.purchase_order_report import generate_purchase_order_pdf
+        output_dir = current_app.config['OUTPUT_FOLDER']
+        os.makedirs(output_dir, exist_ok=True)
+
+        supplier_name = partner.get('partner_name', '공급업체')
+        fname = f"발주서_{supplier_name}_{order_date}.pdf"
+        pdf_path = os.path.join(output_dir, fname)
+
+        generate_purchase_order_pdf(
+            path=pdf_path,
+            my_biz=my_biz,
+            supplier=partner,
+            items=items,
+            order_date=order_date,
+            delivery_note=delivery_note,
+            caution_text=caution_text,
+        )
+
+        _log_action('generate_purchase_order',
+                     target=supplier_name,
+                     detail=f'{len(items)}건 품목, 발주일={order_date}')
+
+        return send_file(
+            pdf_path,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=fname,
+        )
+    except Exception as e:
+        flash(f'발주서 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('trade.purchase_order'))

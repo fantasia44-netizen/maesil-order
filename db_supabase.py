@@ -405,6 +405,10 @@ class SupabaseDB(DBBase):
         """거래처 1건 삭제."""
         self.client.table("business_partners").delete().eq("id", partner_id).execute()
 
+    def update_partner(self, partner_id, payload):
+        """거래처 1건 수정."""
+        self.client.table("business_partners").update(payload).eq("id", partner_id).execute()
+
     # --- my_business ---
 
     def query_my_business(self):

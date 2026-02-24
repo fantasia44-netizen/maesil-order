@@ -111,6 +111,7 @@ def create_app(config_class=None):
             menus.append({'name': '판매관리', 'icon': 'bi-tags', 'url': '/price'})
             menus.append({'name': '거래처 관리', 'icon': 'bi-building', 'url': '/trade'})
             menus.append({'name': '거래처주문처리', 'icon': 'bi-truck', 'url': '/outbound'})
+            menus.append({'name': '발주서 관리', 'icon': 'bi-file-earmark-text', 'url': '/trade/purchase-order'})
             menus.append({'name': '매출 관리', 'icon': 'bi-currency-won', 'url': '/revenue'})
 
         if r in ('admin', 'manager', 'logistics', 'production'):

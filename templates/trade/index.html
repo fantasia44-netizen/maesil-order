@@ -44,49 +44,109 @@
                 </div>
             </div>
             <div class="card-body p-0">
-                <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
-                    <table class="table table-hover table-sm mb-0">
+                <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+                    <table class="table table-hover table-sm mb-0" id="partnerTable">
                         <thead class="table-light">
                             <tr>
                                 <th>거래처명</th>
                                 <th>사업자번호</th>
                                 <th>담당자</th>
                                 <th>연락처</th>
+                                <th>팩스</th>
+                                <th>이메일</th>
                                 <th>주소</th>
                                 <th>유형</th>
-                                <th style="width:100px">관리</th>
+                                <th>비고</th>
+                                <th style="width:130px">관리</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for p in partners|default([]) %}
-                            <tr>
-                                <td><strong>{{ p.partner_name }}</strong></td>
-                                <td>{{ p.business_number|default('-') }}</td>
-                                <td>{{ p.representative|default('-') }}</td>
-                                <td>{{ p.phone|default('-') }}</td>
-                                <td><small>{{ p.address|default('-') }}</small></td>
-                                <td>
-                                    {% if p.type == '매입' %}
-                                        <span class="badge bg-primary">매입</span>
-                                    {% elif p.type == '매출' %}
-                                        <span class="badge bg-success">매출</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">{{ p.type|default('-') }}</span>
-                                    {% endif %}
+                            <tr data-id="{{ p.id }}" data-mode="view">
+                                <!-- 보기모드 -->
+                                <td data-field="partner_name">
+                                    <span class="view-val"><strong>{{ p.partner_name }}</strong></span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.partner_name|default('') }}">
                                 </td>
-                                <td>
-                                    <form method="POST" action="{{ url_for('trade.delete_partner', partner_id=p.id) }}" class="d-inline"
-                                          onsubmit="return confirm('{{ p.partner_name }} 거래처를 삭제하시겠습니까?')">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
-                                            <i class="bi bi-trash"></i>
+                                <td data-field="business_number">
+                                    <span class="view-val">{{ p.business_number|default('-') }}</span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.business_number|default('') }}" placeholder="000-00-00000">
+                                </td>
+                                <td data-field="representative">
+                                    <span class="view-val">{{ p.representative|default('-') }}</span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.representative|default('') }}">
+                                </td>
+                                <td data-field="phone">
+                                    <span class="view-val">{{ p.phone|default('-') }}</span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.phone|default('') }}">
+                                </td>
+                                <td data-field="fax">
+                                    <span class="view-val">{{ p.fax|default('-') }}</span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.fax|default('') }}">
+                                </td>
+                                <td data-field="email">
+                                    <span class="view-val">{{ p.email|default('-') }}</span>
+                                    <input type="email" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.email|default('') }}">
+                                </td>
+                                <td data-field="address">
+                                    <span class="view-val"><small>{{ p.address|default('-') }}</small></span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.address|default('') }}">
+                                </td>
+                                <td data-field="type">
+                                    <span class="view-val">
+                                        {% if p.type == '매입' %}
+                                            <span class="badge bg-primary">매입</span>
+                                        {% elif p.type == '매출' %}
+                                            <span class="badge bg-success">매출</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">{{ p.type|default('-') }}</span>
+                                        {% endif %}
+                                    </span>
+                                    <select class="form-select form-select-sm edit-input d-none">
+                                        <option value="매입" {{ 'selected' if p.type == '매입' }}>매입</option>
+                                        <option value="매출" {{ 'selected' if p.type == '매출' }}>매출</option>
+                                    </select>
+                                </td>
+                                <td data-field="notes">
+                                    <span class="view-val"><small>{{ p.notes|default('-') }}</small></span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.notes|default('') }}">
+                                </td>
+                                <td class="text-nowrap">
+                                    <!-- 보기모드 버튼 -->
+                                    <span class="view-btns">
+                                        <button type="button" class="btn btn-sm btn-outline-warning btn-edit" title="수정">
+                                            <i class="bi bi-pencil"></i>
                                         </button>
-                                    </form>
+                                        <form method="POST" action="{{ url_for('trade.delete_partner', partner_id=p.id) }}" class="d-inline"
+                                              onsubmit="return confirm('{{ p.partner_name }} 거래처를 삭제하시겠습니까?')">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </form>
+                                    </span>
+                                    <!-- 수정모드 버튼 -->
+                                    <span class="edit-btns d-none">
+                                        <button type="button" class="btn btn-sm btn-success btn-save" title="저장">
+                                            <i class="bi bi-check-lg"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-secondary btn-cancel" title="취소">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </span>
                                 </td>
                             </tr>
                             {% else %}
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-4">등록된 거래처가 없습니다.</td>
+                                <td colspan="10" class="text-center text-muted py-4">등록된 거래처가 없습니다.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -281,4 +341,143 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.getElementById('partnerTable');
+    if (!table) return;
+
+    // ── 수정 버튼 클릭 ──
+    table.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-edit');
+        if (!btn) return;
+        const row = btn.closest('tr');
+        enterEditMode(row);
+    });
+
+    // ── 저장 버튼 클릭 ──
+    table.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-save');
+        if (!btn) return;
+        const row = btn.closest('tr');
+        saveRow(row);
+    });
+
+    // ── 취소 버튼 클릭 ──
+    table.addEventListener('click', function(e) {
+        const btn = e.target.closest('.btn-cancel');
+        if (!btn) return;
+        const row = btn.closest('tr');
+        cancelEditMode(row);
+    });
+
+    function enterEditMode(row) {
+        row.setAttribute('data-mode', 'edit');
+        row.querySelectorAll('.view-val').forEach(el => el.classList.add('d-none'));
+        row.querySelectorAll('.edit-input').forEach(el => el.classList.remove('d-none'));
+        row.querySelector('.view-btns').classList.add('d-none');
+        row.querySelector('.edit-btns').classList.remove('d-none');
+        // 첫 입력필드에 포커스
+        const firstInput = row.querySelector('.edit-input');
+        if (firstInput) firstInput.focus();
+    }
+
+    function cancelEditMode(row) {
+        row.setAttribute('data-mode', 'view');
+        row.querySelectorAll('.view-val').forEach(el => el.classList.remove('d-none'));
+        row.querySelectorAll('.edit-input').forEach(el => el.classList.add('d-none'));
+        row.querySelector('.view-btns').classList.remove('d-none');
+        row.querySelector('.edit-btns').classList.add('d-none');
+        // 원래 값 복원 (view-val 기준)
+        row.querySelectorAll('td[data-field]').forEach(td => {
+            const field = td.dataset.field;
+            const viewSpan = td.querySelector('.view-val');
+            const input = td.querySelector('.edit-input');
+            if (!input || !viewSpan) return;
+            if (field === 'type') {
+                // select 복원
+                const badge = viewSpan.querySelector('.badge');
+                if (badge) input.value = badge.textContent.trim();
+            } else {
+                // 원래 텍스트에서 '-'는 빈 값
+                let orig = viewSpan.textContent.trim();
+                if (orig === '-') orig = '';
+                input.value = orig;
+            }
+        });
+    }
+
+    function saveRow(row) {
+        const id = row.getAttribute('data-id');
+        const payload = {};
+        row.querySelectorAll('td[data-field]').forEach(td => {
+            const field = td.dataset.field;
+            const input = td.querySelector('.edit-input');
+            if (input) {
+                payload[field] = input.value.trim();
+            }
+        });
+
+        if (!payload.partner_name) {
+            alert('거래처명은 필수입니다.');
+            return;
+        }
+
+        const saveBtn = row.querySelector('.btn-save');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        fetch(`/trade/api/partner/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token() }}'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                // view-val 업데이트
+                row.querySelectorAll('td[data-field]').forEach(td => {
+                    const field = td.dataset.field;
+                    const viewSpan = td.querySelector('.view-val');
+                    const input = td.querySelector('.edit-input');
+                    if (!viewSpan || !input) return;
+                    const val = input.value.trim();
+                    if (field === 'type') {
+                        let cls = 'bg-secondary';
+                        if (val === '매입') cls = 'bg-primary';
+                        else if (val === '매출') cls = 'bg-success';
+                        viewSpan.innerHTML = `<span class="badge ${cls}">${val || '-'}</span>`;
+                    } else if (field === 'partner_name') {
+                        viewSpan.innerHTML = `<strong>${val || '-'}</strong>`;
+                    } else if (field === 'address' || field === 'notes') {
+                        viewSpan.innerHTML = `<small>${val || '-'}</small>`;
+                    } else {
+                        viewSpan.textContent = val || '-';
+                    }
+                });
+                // 보기모드로 전환
+                row.setAttribute('data-mode', 'view');
+                row.querySelectorAll('.view-val').forEach(el => el.classList.remove('d-none'));
+                row.querySelectorAll('.edit-input').forEach(el => el.classList.add('d-none'));
+                row.querySelector('.view-btns').classList.remove('d-none');
+                row.querySelector('.edit-btns').classList.add('d-none');
+            } else {
+                alert('수정 실패: ' + (data.error || '알 수 없는 오류'));
+            }
+        })
+        .catch(err => {
+            alert('수정 중 오류: ' + err.message);
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
+        });
+    }
+});
+</script>
 {% endblock %}
