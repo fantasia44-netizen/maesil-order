@@ -1,6 +1,9 @@
+import json
+from datetime import datetime, timezone
+
 from flask import (
     Blueprint, render_template, redirect, url_for,
-    flash, request, abort, current_app,
+    flash, request, abort, current_app, jsonify,
 )
 from flask_login import login_required, current_user
 from flask_wtf import FlaskForm
@@ -211,7 +214,18 @@ def user_unlock(user_id):
 def audit_logs():
     page = request.args.get('page', 1, type=int)
     per_page = 50
-    items, total = current_app.db.query_audit_logs(page, per_page)
+    action_filter = request.args.get('action', '').strip()
+    user_filter = request.args.get('user', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+
+    items, total = current_app.db.query_audit_logs(
+        page, per_page,
+        action_filter=action_filter or None,
+        user_filter=user_filter or None,
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
 
     # Wrap each dict so templates can use dot notation (log.action, log.user.name, etc.)
     wrapped = []
@@ -221,7 +235,139 @@ def audit_logs():
         # Attach a .user stub with .name
         user_name = item.pop('user_name', None) or '-'
         item['user'] = _UserStub(user_name)
+        # old_value/new_value가 JSON 문자열이면 dict로 파싱
+        for key in ('old_value', 'new_value'):
+            val = item.get(key)
+            if isinstance(val, str):
+                try:
+                    item[key] = json.loads(val)
+                except (json.JSONDecodeError, TypeError):
+                    pass
         wrapped.append(AuditLogItem(item))
 
     logs = Pagination(wrapped, page, per_page, total)
-    return render_template('admin/audit_logs.html', logs=logs)
+    return render_template('admin/audit_logs.html', logs=logs,
+                           action_filter=action_filter,
+                           user_filter=user_filter,
+                           date_from=date_from, date_to=date_to)
+
+
+# ── 롤백 지원 액션 목록 ──
+_REVERTABLE_ACTIONS = {
+    'update_product_cost', 'delete_product_cost',
+    'update_channel_cost', 'delete_channel_cost',
+    'edit_stock_ledger', 'delete_stock_ledger',
+    'update_price', 'batch_update_price',
+}
+
+
+@admin_bp.route('/logs/<int:log_id>/revert', methods=['POST'])
+@role_required('admin')
+def revert_audit_log(log_id):
+    """감사 로그 기반 롤백 — old_value를 복원"""
+    db = current_app.db
+
+    log_entry = db.query_audit_log_by_id(log_id)
+    if not log_entry:
+        return jsonify({'error': '로그를 찾을 수 없습니다.'}), 404
+
+    action = log_entry.get('action', '')
+    old_value = log_entry.get('old_value')
+    is_reverted = log_entry.get('is_reverted', False)
+
+    if is_reverted:
+        return jsonify({'error': '이미 되돌린 작업입니다.'}), 400
+
+    if action not in _REVERTABLE_ACTIONS:
+        return jsonify({'error': f'{action}은(는) 되돌리기를 지원하지 않습니다.'}), 400
+
+    if not old_value:
+        return jsonify({'error': '이전 데이터(old_value)가 없어 되돌릴 수 없습니다.'}), 400
+
+    # JSON string → dict 변환
+    if isinstance(old_value, str):
+        try:
+            old_value = json.loads(old_value)
+        except (json.JSONDecodeError, TypeError):
+            return jsonify({'error': 'old_value 파싱 오류'}), 400
+
+    try:
+        target = log_entry.get('target', '')
+
+        # ── 액션별 롤백 수행 ──
+        if action == 'update_product_cost':
+            # old_value: {cost_price, unit, memo, weight, weight_unit, cost_type, material_type}
+            db.upsert_product_cost(
+                product_name=target,
+                cost_price=old_value.get('cost_price', 0),
+                unit=old_value.get('unit', ''),
+                memo=old_value.get('memo', ''),
+                weight=old_value.get('weight', 0),
+                weight_unit=old_value.get('weight_unit', 'g'),
+                cost_type=old_value.get('cost_type', '매입'),
+                material_type=old_value.get('material_type', '원료'),
+            )
+
+        elif action == 'delete_product_cost':
+            # old_value: 삭제 전 전체 데이터
+            db.upsert_product_cost(
+                product_name=target,
+                cost_price=old_value.get('cost_price', 0),
+                unit=old_value.get('unit', ''),
+                memo=old_value.get('memo', ''),
+                weight=old_value.get('weight', 0),
+                weight_unit=old_value.get('weight_unit', 'g'),
+                cost_type=old_value.get('cost_type', '매입'),
+                material_type=old_value.get('material_type', '원료'),
+            )
+
+        elif action == 'update_channel_cost':
+            db.upsert_channel_cost(
+                channel=target,
+                fee_rate=old_value.get('fee_rate', 0),
+                shipping=old_value.get('shipping', 0),
+                packaging=old_value.get('packaging', 0),
+                other_cost=old_value.get('other_cost', 0),
+                memo=old_value.get('memo', ''),
+            )
+
+        elif action == 'delete_channel_cost':
+            db.upsert_channel_cost(
+                channel=target,
+                fee_rate=old_value.get('fee_rate', 0),
+                shipping=old_value.get('shipping', 0),
+                packaging=old_value.get('packaging', 0),
+                other_cost=old_value.get('other_cost', 0),
+                memo=old_value.get('memo', ''),
+            )
+
+        elif action == 'edit_stock_ledger':
+            # old_value: 수정 전 필드들
+            row_id = int(target)
+            db.update_stock_ledger(row_id, old_value)
+
+        elif action == 'delete_stock_ledger':
+            # old_value: 삭제 전 전체 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at', 'is_deleted', 'deleted_at', 'deleted_by')}
+            if restore_data.get('product_name'):
+                db.insert_stock_ledger([restore_data])
+
+        else:
+            return jsonify({'error': f'{action} 롤백 미구현'}), 400
+
+        # 롤백 완료 표시
+        db.update_audit_log(log_id, {
+            'is_reverted': True,
+            'reverted_by': current_user.id,
+            'reverted_at': datetime.now(timezone.utc).isoformat(),
+        })
+
+        # 롤백 자체도 감사 로그 기록
+        _log_action('revert_action', target=str(log_id),
+                     detail=f'작업 되돌리기: {action} → {target}')
+
+        return jsonify({'success': True, 'message': f'{action} 작업이 되돌려졌습니다.'})
+
+    except Exception as e:
+        return jsonify({'error': f'롤백 중 오류: {str(e)}'}), 500

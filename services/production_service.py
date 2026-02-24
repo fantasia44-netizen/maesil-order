@@ -2,6 +2,7 @@
 production_service.py -- 생산/입고 (탭2) 비즈니스 로직.
 Tkinter UI 제거, 순수 데이터 반환.
 """
+import uuid
 import pandas as pd
 from datetime import datetime
 
@@ -254,6 +255,9 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
         loc = normalize_location(row['창고위치'])
         exp_date = row.get('소비기한', '')
 
+        # 이 행(생산제품)에 대한 고유 batch_id — PRODUCTION+PROD_OUT 연결
+        batch_id = f"PROD_{date_str}_{uuid.uuid4().hex[:8]}"
+
         if prod_qty > 0:
             payload.append({
                 "transaction_date": date_str,
@@ -268,6 +272,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                 "lot_number": str(row.get('이력번호', '')).strip() or None,
                 "grade": str(row.get('등급', '')).strip() or None,
                 "manufacture_date": safe_date(row.get('제조일', '')),
+                "batch_id": batch_id,
             })
             prod_count += 1
 
@@ -297,6 +302,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                     "expiry_date": meta.get('expiry_date', ''),
                     "origin": meta.get('origin', '') or mat_origin,
                     "manufacture_date": meta.get('manufacture_date', ''),
+                    "batch_id": batch_id,
                 })
                 raw_count += 1
             else:
@@ -318,6 +324,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                         "unit": g.get('unit', '개'),
                         "origin": g.get('origin', '') or mat_origin,
                         "manufacture_date": g.get('manufacture_date', ''),
+                        "batch_id": batch_id,
                     })
                     g['qty'] -= deduct
                     remain -= deduct
@@ -406,6 +413,9 @@ def process_production_batch(db, date_str, mode, location, items):
         if not name or prod_qty <= 0:
             continue
 
+        # 이 항목(생산제품)에 대한 고유 batch_id — PRODUCTION+PROD_OUT 연결
+        batch_id = f"PROD_{date_str}_{uuid.uuid4().hex[:8]}"
+
         # PRODUCTION 산출
         payload.append({
             "transaction_date": date_str,
@@ -418,6 +428,7 @@ def process_production_batch(db, date_str, mode, location, items):
             "storage_method": str(item.get('storage_method', '')).strip(),
             "unit": str(item.get('unit', '개')).strip() or '개',
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
+            "batch_id": batch_id,
         })
         prod_count += 1
 
@@ -445,6 +456,7 @@ def process_production_batch(db, date_str, mode, location, items):
                     "expiry_date": meta.get('expiry_date', ''),
                     "origin": meta.get('origin', ''),
                     "manufacture_date": meta.get('manufacture_date', ''),
+                    "batch_id": batch_id,
                 })
                 raw_count += 1
             else:
@@ -465,6 +477,7 @@ def process_production_batch(db, date_str, mode, location, items):
                         "storage_method": g['storage_method'],
                         "unit": g.get('unit', '개'),
                         "manufacture_date": g.get('manufacture_date', ''),
+                        "batch_id": batch_id,
                     })
                     g['qty'] -= deduct
                     remain -= deduct

@@ -3,37 +3,133 @@
 {% block page_title %}감사 로그{% endblock %}
 
 {% block content %}
+<!-- 필터 영역 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-0 small">작업</label>
+                <input type="text" name="action" class="form-control form-control-sm"
+                       value="{{ action_filter }}" placeholder="login, delete...">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">사용자</label>
+                <input type="text" name="user" class="form-control form-control-sm"
+                       value="{{ user_filter }}" placeholder="이름">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm"
+                       value="{{ date_from }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 small">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm"
+                       value="{{ date_to }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">검색</button>
+                <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-sm btn-outline-secondary">초기화</a>
+            </div>
+            <div class="col-auto ms-auto">
+                <span class="badge bg-dark">총 {{ logs.total }}건</span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 로그 테이블 -->
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0">
+            <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
                 <thead class="table-light">
                     <tr>
-                        <th>시간</th>
-                        <th>사용자</th>
-                        <th>작업</th>
+                        <th style="width:110px;">시간</th>
+                        <th style="width:80px;">사용자</th>
+                        <th style="width:130px;">작업</th>
                         <th>대상</th>
                         <th>상세</th>
-                        <th>IP</th>
+                        <th style="width:90px;">IP</th>
+                        <th style="width:70px;">되돌리기</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs.items %}
-                    <tr>
-                        <td class="text-nowrap">{{ log.created_at.strftime('%m/%d %H:%M:%S') }}</td>
-                        <td>{% if log.user %}{{ log.user.name }}{% else %}-{% endif %}</td>
+                    <tr class="{% if log.get('is_reverted') %}table-warning{% endif %}">
+                        <td class="text-nowrap">
+                            {% if log.created_at %}{{ log.created_at.strftime('%m/%d %H:%M:%S') }}{% else %}-{% endif %}
+                        </td>
                         <td>
-                            {% if 'login' in log.action %}
-                                <span class="badge bg-info">{{ log.action }}</span>
-                            {% elif 'fail' in log.action %}
-                                <span class="badge bg-danger">{{ log.action }}</span>
+                            <strong>{% if log.user %}{{ log.user.name }}{% else %}-{% endif %}</strong>
+                        </td>
+                        <td>
+                            {% set action = log.action %}
+                            {% if 'delete' in action or 'reset' in action %}
+                                <span class="badge bg-danger">{{ action }}</span>
+                            {% elif 'login' in action %}
+                                <span class="badge bg-info">{{ action }}</span>
+                            {% elif 'fail' in action or 'block' in action %}
+                                <span class="badge bg-warning text-dark">{{ action }}</span>
+                            {% elif 'update' in action or 'edit' in action or 'batch' in action %}
+                                <span class="badge bg-primary">{{ action }}</span>
+                            {% elif 'revert' in action %}
+                                <span class="badge bg-success">{{ action }}</span>
+                            {% elif 'register' in action or 'approve' in action %}
+                                <span class="badge bg-success">{{ action }}</span>
                             {% else %}
-                                <span class="badge bg-secondary">{{ log.action }}</span>
+                                <span class="badge bg-secondary">{{ action }}</span>
+                            {% endif %}
+                            {% if log.get('is_reverted') %}
+                                <span class="badge bg-warning text-dark" title="되돌림 완료">&#8617;</span>
                             {% endif %}
                         </td>
-                        <td>{{ log.target or '-' }}</td>
-                        <td><small class="text-muted">{{ log.detail or '' }}</small></td>
+                        <td>
+                            <span title="{{ log.target or '' }}">{{ (log.target or '-')[:30] }}</span>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ (log.detail or '')[:60] }}</small>
+                            {% if log.get('old_value') or log.get('new_value') %}
+                            <button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-1"
+                                    onclick="toggleDetail(this)" title="상세 보기"
+                                    style="font-size:0.7rem;">&#9660;</button>
+                            <div class="audit-detail mt-1" style="display:none;">
+                                {% if log.get('old_value') %}
+                                <div class="mb-1">
+                                    <span class="badge bg-secondary">이전</span>
+                                    <code style="font-size:0.72rem;word-break:break-all;">
+                                        {{ log.get('old_value') }}
+                                    </code>
+                                </div>
+                                {% endif %}
+                                {% if log.get('new_value') %}
+                                <div>
+                                    <span class="badge bg-primary">이후</span>
+                                    <code style="font-size:0.72rem;word-break:break-all;">
+                                        {{ log.get('new_value') }}
+                                    </code>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
                         <td><small>{{ log.ip_address or '-' }}</small></td>
+                        <td>
+                            {% set revertable = ['update_product_cost','delete_product_cost',
+                                                 'update_channel_cost','delete_channel_cost',
+                                                 'edit_stock_ledger','delete_stock_ledger'] %}
+                            {% if log.action in revertable and log.get('old_value') and not log.get('is_reverted') %}
+                            <button class="btn btn-outline-warning btn-sm py-0 px-1"
+                                    onclick="revertLog({{ log.id }})" title="되돌리기"
+                                    style="font-size:0.72rem;">
+                                &#8617; 되돌리기
+                            </button>
+                            {% elif log.get('is_reverted') %}
+                            <small class="text-muted">되돌림</small>
+                            {% else %}
+                            <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -45,23 +141,68 @@
         <nav>
             <ul class="pagination pagination-sm justify-content-center mb-0">
                 {% if logs.has_prev %}
-                <li class="page-item"><a class="page-link" href="?page={{ logs.prev_num }}">이전</a></li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ logs.prev_num }}&action={{ action_filter }}&user={{ user_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">이전</a>
+                </li>
                 {% endif %}
                 {% for p in logs.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
                     {% if p %}
                     <li class="page-item {% if p == logs.page %}active{% endif %}">
-                        <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+                        <a class="page-link" href="?page={{ p }}&action={{ action_filter }}&user={{ user_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">{{ p }}</a>
                     </li>
                     {% else %}
                     <li class="page-item disabled"><span class="page-link">...</span></li>
                     {% endif %}
                 {% endfor %}
                 {% if logs.has_next %}
-                <li class="page-item"><a class="page-link" href="?page={{ logs.next_num }}">다음</a></li>
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ logs.next_num }}&action={{ action_filter }}&user={{ user_filter }}&date_from={{ date_from }}&date_to={{ date_to }}">다음</a>
+                </li>
                 {% endif %}
             </ul>
         </nav>
     </div>
     {% endif %}
 </div>
+
+<!-- 범례 -->
+<div class="mt-2 small text-muted">
+    <span class="badge bg-danger">삭제/초기화</span>
+    <span class="badge bg-primary">수정</span>
+    <span class="badge bg-info">로그인</span>
+    <span class="badge bg-warning text-dark">실패/차단</span>
+    <span class="badge bg-success">등록/승인/되돌리기</span>
+    &nbsp;|&nbsp;
+    <span class="badge bg-warning text-dark">&#8617;</span> = 되돌림 완료
+</div>
+
+<script>
+function toggleDetail(btn) {
+    const detail = btn.nextElementSibling;
+    if (detail) {
+        const visible = detail.style.display !== 'none';
+        detail.style.display = visible ? 'none' : 'block';
+        btn.innerHTML = visible ? '&#9660;' : '&#9650;';
+    }
+}
+
+function revertLog(logId) {
+    if (!confirm('이 작업을 되돌리시겠습니까?\n\n이전 데이터로 복원됩니다.')) return;
+
+    fetch(`/admin/logs/${logId}/revert`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || '되돌리기 완료');
+            location.reload();
+        } else {
+            alert('오류: ' + (data.error || '알 수 없는 오류'));
+        }
+    })
+    .catch(err => alert('요청 실패: ' + err));
+}
+</script>
 {% endblock %}

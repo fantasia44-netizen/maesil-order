@@ -132,14 +132,31 @@ def level_required(min_level):
     return decorator
 
 
-def _log_action(action, target=None, detail=None, user_id=None):
-    current_app.db.insert_audit_log({
+def _log_action(action, target=None, detail=None, user_id=None,
+                old_value=None, new_value=None):
+    """감사 로그 기록 (변경 전/후 데이터 포함 가능).
+
+    Args:
+        action: 작업 유형 (login, update_product_cost, delete_stock_ledger 등)
+        target: 작업 대상 (품목명, 사용자ID 등)
+        detail: 상세 설명 텍스트
+        user_id: 작업자 ID (기본: 현재 로그인 사용자)
+        old_value: 변경 전 데이터 (dict/list → JSON 저장, 롤백에 사용)
+        new_value: 변경 후 데이터 (dict/list → JSON 저장)
+    """
+    payload = {
         'user_id': user_id or (current_user.id if current_user.is_authenticated else None),
+        'user_name': current_user.name if current_user.is_authenticated else None,
         'action': action,
         'target': target,
         'detail': detail,
         'ip_address': request.remote_addr,
-    })
+    }
+    if old_value is not None:
+        payload['old_value'] = old_value
+    if new_value is not None:
+        payload['new_value'] = new_value
+    current_app.db.insert_audit_log(payload)
 
 
 # ── Routes ──

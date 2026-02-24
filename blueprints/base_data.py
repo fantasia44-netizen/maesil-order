@@ -43,7 +43,7 @@ def index():
 
 
 @base_data_bp.route('/reset-base', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def reset_base():
     """기초재고 초기화 — 전체 삭제 후 엑셀 업로드로 재설정"""
     confirm = request.form.get('confirm', '')
@@ -94,7 +94,7 @@ def reset_base():
 
 
 @base_data_bp.route('/reset-revenue', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def reset_revenue():
     """매출 데이터 초기화 — 전체 또는 기간 삭제"""
     confirm = request.form.get('confirm', '')

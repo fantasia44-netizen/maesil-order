@@ -82,11 +82,33 @@ def api_save_cost():
     material_type = (data.get('material_type') or '원료').strip()
 
     try:
+        # 수정 전 데이터 조회 (롤백용)
+        cost_map_raw = db.query_product_costs()
+        old_data = cost_map_raw.get(product_name)
+        old_value = None
+        if old_data:
+            old_value = {
+                'cost_price': float(old_data.get('cost_price', 0)),
+                'unit': old_data.get('unit', ''),
+                'memo': old_data.get('memo', ''),
+                'weight': float(old_data.get('weight', 0) or 0),
+                'weight_unit': old_data.get('weight_unit', 'g'),
+                'cost_type': old_data.get('cost_type', '매입'),
+                'material_type': old_data.get('material_type', '원료'),
+            }
+
+        new_value = {
+            'cost_price': cost_price, 'unit': unit, 'memo': memo,
+            'weight': weight, 'weight_unit': weight_unit,
+            'cost_type': cost_type, 'material_type': material_type,
+        }
+
         db.upsert_product_cost(product_name, cost_price, unit, memo,
                                weight=weight, weight_unit=weight_unit,
                                cost_type=cost_type, material_type=material_type)
         _log_action('update_product_cost', target=product_name,
-                     detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 중량={weight}{weight_unit}')
+                     detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 중량={weight}{weight_unit}',
+                     old_value=old_value, new_value=new_value)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -130,13 +152,29 @@ def api_save_cost_batch():
 
 
 @bom_cost_bp.route('/api/cost/<path:product_name>', methods=['DELETE'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def api_delete_cost(product_name):
-    """단가 1건 삭제"""
+    """단가 1건 삭제 — 관리자만 (삭제 전 데이터 보존)"""
     db = current_app.db
     try:
+        # 삭제 전 데이터 조회 (롤백용)
+        cost_map_raw = db.query_product_costs()
+        old_data = cost_map_raw.get(product_name)
+        old_value = None
+        if old_data:
+            old_value = {
+                'cost_price': float(old_data.get('cost_price', 0)),
+                'unit': old_data.get('unit', ''),
+                'memo': old_data.get('memo', ''),
+                'weight': float(old_data.get('weight', 0) or 0),
+                'weight_unit': old_data.get('weight_unit', 'g'),
+                'cost_type': old_data.get('cost_type', '매입'),
+                'material_type': old_data.get('material_type', '원료'),
+            }
+
         db.delete_product_cost(product_name)
-        _log_action('delete_product_cost', target=product_name)
+        _log_action('delete_product_cost', target=product_name,
+                     old_value=old_value)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -196,13 +234,27 @@ def api_save_channel():
 
 
 @bom_cost_bp.route('/api/channel/<path:channel>', methods=['DELETE'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def api_delete_channel(channel):
-    """채널비용 삭제"""
+    """채널비용 삭제 — 관리자만 (삭제 전 데이터 보존)"""
     db = current_app.db
     try:
+        # 삭제 전 데이터 조회
+        ch_costs = db.query_channel_costs()
+        old_data = ch_costs.get(channel)
+        old_value = None
+        if old_data:
+            old_value = {
+                'fee_rate': float(old_data.get('fee_rate', 0) or 0),
+                'shipping': float(old_data.get('shipping', 0) or 0),
+                'packaging': float(old_data.get('packaging', 0) or 0),
+                'other_cost': float(old_data.get('other_cost', 0) or 0),
+                'memo': old_data.get('memo', ''),
+            }
+
         db.delete_channel_cost(channel)
-        _log_action('delete_channel_cost', target=channel)
+        _log_action('delete_channel_cost', target=channel,
+                     old_value=old_value)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

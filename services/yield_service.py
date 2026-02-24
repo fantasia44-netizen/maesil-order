@@ -49,16 +49,28 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
     # 3. BOM 이론원가 로드
     bom_cost_map = _load_bom_cost_map(db)
 
-    # 4. 날짜+위치별로 PRODUCTION과 PROD_OUT 그룹핑
-    daily_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+    # 4. batch_id 기준 그룹핑 (신규) + 레거시 폴백 (date+location)
+    # batch_id가 있으면: 정확한 1 PRODUCTION ↔ N PROD_OUT 매칭
+    # batch_id 없으면(레거시): 날짜+위치 기준 비율 배분 (기존 방식)
+    batch_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+    legacy_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+
     for r in prod_data:
-        d = r.get('transaction_date', '')
-        loc = r.get('location', '')
-        key = (d, loc)
-        if r.get('type') == 'PRODUCTION':
-            daily_groups[key]['production'].append(r)
-        elif r.get('type') == 'PROD_OUT':
-            daily_groups[key]['prod_out'].append(r)
+        bid = r.get('batch_id')
+        if bid:
+            if r.get('type') == 'PRODUCTION':
+                batch_groups[bid]['production'].append(r)
+            elif r.get('type') == 'PROD_OUT':
+                batch_groups[bid]['prod_out'].append(r)
+        else:
+            # 레거시 데이터 (batch_id 없음) → 날짜+위치 그룹핑
+            d = r.get('transaction_date', '')
+            loc = r.get('location', '')
+            key = (d, loc)
+            if r.get('type') == 'PRODUCTION':
+                legacy_groups[key]['production'].append(r)
+            elif r.get('type') == 'PROD_OUT':
+                legacy_groups[key]['prod_out'].append(r)
 
     # 5. 제품별 집계
     product_stats = defaultdict(lambda: {
@@ -72,46 +84,52 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
         'daily_data': [],
     })
 
-    for (date, loc), group in daily_groups.items():
-        productions = group['production']
-        prod_outs = group['prod_out']
-
+    def _accumulate_group(productions, prod_outs, use_ratio=False):
+        """그룹 내 PRODUCTION/PROD_OUT 집계 → product_stats에 반영.
+        use_ratio=False: batch_id 기반 (1:1 정확 매칭, 비율배분 불필요)
+        use_ratio=True: 레거시 (날짜+위치 그룹, 비율배분)
+        """
         if not productions:
-            continue
+            return
 
-        # 이 날짜/위치의 총 투입비용 + 투입중량(주원료+반제품만)
-        daily_input_cost = 0
-        daily_input_weight = 0   # 주원료+반제품 투입중량(g)
-        daily_materials = defaultdict(lambda: {'qty': 0, 'cost': 0, 'weight_g': 0})
+        # 이 그룹의 총 투입비용 + 투입중량
+        group_input_cost = 0
+        group_input_weight = 0
+        group_materials = defaultdict(lambda: {'qty': 0, 'cost': 0, 'weight_g': 0})
         for po in prod_outs:
             mat_name = po.get('product_name', '')
             mat_qty = abs(po.get('qty', 0))
             unit_price = cost_map.get(mat_name, 0)
             mat_cost = mat_qty * unit_price
-            daily_input_cost += mat_cost
-            daily_materials[mat_name]['qty'] += mat_qty
-            daily_materials[mat_name]['cost'] += mat_cost
+            group_input_cost += mat_cost
+            group_materials[mat_name]['qty'] += mat_qty
+            group_materials[mat_name]['cost'] += mat_cost
 
             # 주원료 또는 반제품이면 투입중량 집계
             mat_type = type_map.get(mat_name, '원료')
             if mat_type in ('원료', '반제품'):
                 w_g = weight_map.get(mat_name, 0) * mat_qty
-                daily_input_weight += w_g
-                daily_materials[mat_name]['weight_g'] += w_g
+                group_input_weight += w_g
+                group_materials[mat_name]['weight_g'] += w_g
 
-        # 여러 제품이 같은 날 생산되면 산출량 비율로 비용 배분
-        total_daily_output = sum(p.get('qty', 0) for p in productions)
+        total_group_output = sum(p.get('qty', 0) for p in productions)
 
         for prod in productions:
             pname = prod.get('product_name', '')
             pqty = prod.get('qty', 0)
+            date = prod.get('transaction_date', '')
             if pqty <= 0:
                 continue
 
-            # 비용 비율 배분 (같은 날 여러 제품 생산 시)
-            ratio = pqty / total_daily_output if total_daily_output > 0 else 0
-            allocated_cost = daily_input_cost * ratio
-            allocated_input_weight = daily_input_weight * ratio
+            if use_ratio:
+                # 레거시: 비율 배분 (같은 날 여러 제품 생산 시)
+                ratio = pqty / total_group_output if total_group_output > 0 else 0
+            else:
+                # batch_id: 정확한 1:1 매칭 (비율 = 100%)
+                ratio = 1.0
+
+            allocated_cost = group_input_cost * ratio
+            allocated_input_weight = group_input_weight * ratio
 
             # 산출 중량 = 생산수량 × 완제품 1개 중량
             product_unit_weight = weight_map.get(pname, 0)
@@ -124,8 +142,8 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
             stats['total_input_weight_g'] += allocated_input_weight
             stats['production_count'] += 1
 
-            # 재료 상세 (비율 배분)
-            for mat_name, mat_info in daily_materials.items():
+            # 재료 상세
+            for mat_name, mat_info in group_materials.items():
                 allocated_qty = mat_info['qty'] * ratio
                 allocated_mat_cost = mat_info['cost'] * ratio
                 m = stats['materials'][mat_name]
@@ -142,6 +160,14 @@ def calculate_yield_summary(db, date_from, date_to, location=None):
                 'output_weight_g': output_weight,
                 'input_weight_g': allocated_input_weight,
             })
+
+    # 5-1. batch_id 기반 그룹 처리 (정확한 매칭)
+    for bid, group in batch_groups.items():
+        _accumulate_group(group['production'], group['prod_out'], use_ratio=False)
+
+    # 5-2. 레거시 그룹 처리 (비율 배분 폴백)
+    for key, group in legacy_groups.items():
+        _accumulate_group(group['production'], group['prod_out'], use_ratio=True)
 
     # 6. 최종 결과 구성
     products = []
@@ -272,16 +298,25 @@ def calculate_daily_yield(db, date_from, date_to, product_name=None, location=No
         weight_map[k] = w * 1000 if wu == 'kg' else w
         type_map[k] = v.get('material_type', '원료') or '원료'
 
-    # 3. 날짜별 그룹핑
-    daily_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+    # 3. batch_id 기준 그룹핑 (신규) + 레거시 폴백
+    batch_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+    legacy_groups = defaultdict(lambda: {'production': [], 'prod_out': []})
+
     for r in prod_data:
-        d = r.get('transaction_date', '')
-        loc = r.get('location', '')
-        key = (d, loc)
-        if r.get('type') == 'PRODUCTION':
-            daily_groups[key]['production'].append(r)
-        elif r.get('type') == 'PROD_OUT':
-            daily_groups[key]['prod_out'].append(r)
+        bid = r.get('batch_id')
+        if bid:
+            if r.get('type') == 'PRODUCTION':
+                batch_groups[bid]['production'].append(r)
+            elif r.get('type') == 'PROD_OUT':
+                batch_groups[bid]['prod_out'].append(r)
+        else:
+            d = r.get('transaction_date', '')
+            loc = r.get('location', '')
+            key = (d, loc)
+            if r.get('type') == 'PRODUCTION':
+                legacy_groups[key]['production'].append(r)
+            elif r.get('type') == 'PROD_OUT':
+                legacy_groups[key]['prod_out'].append(r)
 
     # 4. 일별 제품별 수율 계산
     daily_product = defaultdict(lambda: defaultdict(lambda: {
@@ -290,41 +325,52 @@ def calculate_daily_yield(db, date_from, date_to, product_name=None, location=No
     }))
     all_dates = set()
 
-    for (date, loc), group in daily_groups.items():
-        productions = group['production']
-        prod_outs = group['prod_out']
-
+    def _accumulate_daily(productions, prod_outs, use_ratio=False):
+        """그룹 내 PRODUCTION/PROD_OUT → daily_product에 반영."""
         if not productions:
-            continue
+            return
 
-        daily_input_cost = 0
-        daily_input_weight = 0
+        group_input_cost = 0
+        group_input_weight = 0
         for po in prod_outs:
             mat_name = po.get('product_name', '')
             mat_qty = abs(po.get('qty', 0))
-            daily_input_cost += mat_qty * cost_map.get(mat_name, 0)
+            group_input_cost += mat_qty * cost_map.get(mat_name, 0)
             mat_type = type_map.get(mat_name, '원료')
             if mat_type in ('원료', '반제품'):
-                daily_input_weight += weight_map.get(mat_name, 0) * mat_qty
+                group_input_weight += weight_map.get(mat_name, 0) * mat_qty
 
-        total_daily_output = sum(p.get('qty', 0) for p in productions)
+        total_group_output = sum(p.get('qty', 0) for p in productions)
 
         for prod in productions:
             pname = prod.get('product_name', '')
             pqty = prod.get('qty', 0)
+            date = prod.get('transaction_date', '')
             if pqty <= 0:
                 continue
 
             if product_name and pname != product_name:
                 continue
 
-            ratio = pqty / total_daily_output if total_daily_output > 0 else 0
+            if use_ratio:
+                ratio = pqty / total_group_output if total_group_output > 0 else 0
+            else:
+                ratio = 1.0
+
             d_info = daily_product[pname][date]
             d_info['output'] += pqty
-            d_info['input_cost'] += daily_input_cost * ratio
+            d_info['input_cost'] += group_input_cost * ratio
             d_info['output_weight_g'] += pqty * weight_map.get(pname, 0)
-            d_info['input_weight_g'] += daily_input_weight * ratio
+            d_info['input_weight_g'] += group_input_weight * ratio
             all_dates.add(date)
+
+    # batch_id 기반 (정확 매칭)
+    for bid, group in batch_groups.items():
+        _accumulate_daily(group['production'], group['prod_out'], use_ratio=False)
+
+    # 레거시 폴백 (비율 배분)
+    for key, group in legacy_groups.items():
+        _accumulate_daily(group['production'], group['prod_out'], use_ratio=True)
 
     # 5. 정렬된 날짜 리스트
     dates = sorted(all_dates)

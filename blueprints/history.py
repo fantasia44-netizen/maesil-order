@@ -70,10 +70,17 @@ def index():
 @history_bp.route('/edit/<int:row_id>', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def edit(row_id):
-    """개별 이력 수정"""
+    """개별 이력 수정 (변경 전 데이터를 감사로그에 보존)"""
     db = current_app.db
 
     try:
+        # 수정 전 데이터 조회 (롤백용)
+        old_record = db.query_stock_ledger_by_id(row_id)
+        old_value = None
+        if old_record:
+            old_value = {k: v for k, v in old_record.items()
+                         if k not in ('id', 'created_at', 'is_deleted', 'deleted_at', 'deleted_by')}
+
         update_data = {}
 
         # 폼에서 수정 가능한 필드들
@@ -93,7 +100,8 @@ def edit(row_id):
 
         db.update_stock_ledger(row_id, update_data)
         _log_action('edit_stock_ledger', target=str(row_id),
-                     detail=str(update_data))
+                     detail=str(update_data),
+                     old_value=old_value, new_value=update_data)
         flash(f'이력 #{row_id} 수정 완료', 'success')
     except Exception as e:
         flash(f'수정 중 오류: {e}', 'danger')
@@ -102,14 +110,22 @@ def edit(row_id):
 
 
 @history_bp.route('/delete/<int:row_id>', methods=['POST'])
-@role_required('admin', 'manager', 'logistics', 'production', 'general')
+@role_required('admin', 'manager')
 def delete(row_id):
-    """개별 이력 삭제"""
+    """개별 이력 삭제 — 관리자/책임자만 (삭제 전 데이터 보존)"""
     db = current_app.db
 
     try:
+        # 삭제 전 데이터 조회 (롤백용)
+        old_record = db.query_stock_ledger_by_id(row_id)
+        old_value = None
+        if old_record:
+            old_value = {k: v for k, v in old_record.items()
+                         if k not in ('id', 'created_at')}
+
         db.delete_stock_ledger_by_id(row_id)
-        _log_action('delete_stock_ledger', target=str(row_id))
+        _log_action('delete_stock_ledger', target=str(row_id),
+                     old_value=old_value)
         flash(f'이력 #{row_id} 삭제 완료', 'success')
     except Exception as e:
         flash(f'삭제 중 오류: {e}', 'danger')

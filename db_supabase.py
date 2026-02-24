@@ -765,24 +765,92 @@ class SupabaseDB(DBBase):
     # ================================================================
 
     def insert_audit_log(self, payload):
-        """감사 로그 기록."""
+        """감사 로그 기록 (old_value/new_value JSON 지원)."""
+        import json
+        # JSONB 필드는 dict → JSON string 변환
+        for key in ('old_value', 'new_value'):
+            if key in payload and payload[key] is not None:
+                if isinstance(payload[key], (dict, list)):
+                    payload[key] = json.dumps(payload[key], ensure_ascii=False)
         self.client.table("audit_logs").insert(payload).execute()
 
-    def query_audit_logs(self, page=1, per_page=50):
-        """감사 로그 페이지네이션 조회. returns (items, total_count)."""
+    def query_audit_logs(self, page=1, per_page=50, action_filter=None,
+                         user_filter=None, date_from=None, date_to=None):
+        """감사 로그 페이지네이션 조회 (필터 지원). returns (items, total_count)."""
         try:
-            # 전체 건수
-            count_res = self.client.table("audit_logs").select("id", count="exact") \
-                .limit(1).execute()
+            # 전체 건수 (필터 적용)
+            count_q = self.client.table("audit_logs").select("id", count="exact")
+            if action_filter:
+                count_q = count_q.ilike("action", f"%{action_filter}%")
+            if user_filter:
+                count_q = count_q.ilike("user_name", f"%{user_filter}%")
+            if date_from:
+                count_q = count_q.gte("created_at", date_from)
+            if date_to:
+                count_q = count_q.lte("created_at", date_to + 'T23:59:59')
+            count_res = count_q.limit(1).execute()
             total = count_res.count if count_res.count is not None else 0
 
             # 페이지 데이터
             offset = (page - 1) * per_page
-            data_res = self.client.table("audit_logs").select("*") \
-                .order("created_at", desc=True) \
-                .range(offset, offset + per_page - 1).execute()
+            data_q = self.client.table("audit_logs").select("*") \
+                .order("created_at", desc=True)
+            if action_filter:
+                data_q = data_q.ilike("action", f"%{action_filter}%")
+            if user_filter:
+                data_q = data_q.ilike("user_name", f"%{user_filter}%")
+            if date_from:
+                data_q = data_q.gte("created_at", date_from)
+            if date_to:
+                data_q = data_q.lte("created_at", date_to + 'T23:59:59')
+            data_res = data_q.range(offset, offset + per_page - 1).execute()
             items = data_res.data or []
 
             return items, total
         except Exception:
             return [], 0
+
+    def query_audit_log_by_id(self, log_id):
+        """감사 로그 1건 조회."""
+        try:
+            res = self.client.table("audit_logs").select("*") \
+                .eq("id", log_id).limit(1).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
+
+    def update_audit_log(self, log_id, update_data):
+        """감사 로그 수정 (롤백 상태 기록용)."""
+        self.client.table("audit_logs").update(update_data) \
+            .eq("id", log_id).execute()
+
+    # --- 소프트 삭제 지원 ---
+
+    def soft_delete_stock_ledger(self, row_id, deleted_by=None):
+        """stock_ledger 소프트 삭제 (is_deleted=True). 원본 데이터 보존."""
+        from datetime import datetime, timezone
+        update = {
+            'is_deleted': True,
+            'deleted_at': datetime.now(timezone.utc).isoformat(),
+        }
+        if deleted_by:
+            update['deleted_by'] = deleted_by
+        self.client.table("stock_ledger").update(update) \
+            .eq("id", row_id).execute()
+
+    def restore_stock_ledger(self, row_id):
+        """stock_ledger 소프트 삭제 복원."""
+        self.client.table("stock_ledger").update({
+            'is_deleted': False,
+            'deleted_at': None,
+            'deleted_by': None,
+        }).eq("id", row_id).execute()
+
+    def query_stock_ledger_by_id(self, row_id):
+        """stock_ledger 1건 조회 (ID 기준)."""
+        try:
+            res = self.client.table("stock_ledger").select("*") \
+                .eq("id", row_id).limit(1).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
