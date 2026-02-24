@@ -162,6 +162,14 @@
                         <option value="매입">매입(원재료)</option>
                         <option value="생산">생산(완제품)</option>
                     </select>
+                    <select id="materialTypeFilter" class="form-select form-select-sm" style="width:120px;">
+                        <option value="all">전체 종류</option>
+                        <option value="원료">원료</option>
+                        <option value="부재료">부재료</option>
+                        <option value="반제품">반제품</option>
+                        <option value="완제품">완제품</option>
+                        <option value="포장재">포장재</option>
+                    </select>
                     <input type="text" id="costSearch" class="form-control form-control-sm"
                            placeholder="품목명 검색..." style="width:200px;">
                     <select id="costFilter" class="form-select form-select-sm" style="width:130px;">
@@ -521,6 +529,7 @@
         const searchTerm = document.getElementById('costSearch').value.replace(/\s/g, '').toLowerCase();
         const filterMode = document.getElementById('costFilter').value;
         const costTypeMode = document.getElementById('costTypeFilter').value;
+        const materialTypeMode = document.getElementById('materialTypeFilter').value;
 
         const costMap = {};
         costData.forEach(c => { costMap[c.product_name] = c; });
@@ -536,6 +545,7 @@
                 unit: existing ? existing.unit : '',
                 memo: existing ? existing.memo : '',
                 cost_type: existing ? (existing.cost_type || '매입') : '매입',
+                material_type: existing ? (existing.material_type || '원료') : '원료',
                 is_bom: bomSet.has(name),
             };
         }
@@ -551,6 +561,7 @@
         } else if (filterMode === 'entered') {
             costData.forEach(c => items.push({ ...c, weight: c.weight || 0,
                 cost_type: c.cost_type || '매입',
+                material_type: c.material_type || '원료',
                 is_bom: bomSet.has(c.product_name) }));
         } else {
             const seen = new Set();
@@ -558,12 +569,15 @@
             costData.forEach(c => {
                 if (!seen.has(c.product_name))
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
+                        material_type: c.material_type || '원료',
                         is_bom: bomSet.has(c.product_name) });
             });
         }
 
         // 유형 필터
         if (costTypeMode && costTypeMode !== 'all') items = items.filter(i => i.cost_type === costTypeMode);
+        // 종류 필터
+        if (materialTypeMode && materialTypeMode !== 'all') items = items.filter(i => (i.material_type || '원료') === materialTypeMode);
         if (searchTerm) items = items.filter(i => i.product_name.replace(/\s/g, '').toLowerCase().includes(searchTerm));
 
         if (items.length === 0) {
@@ -992,6 +1006,7 @@
     document.getElementById('channelFilter').addEventListener('change', renderBomTable);
     document.getElementById('bomSearch').addEventListener('input', renderBomTable);
     document.getElementById('costTypeFilter').addEventListener('change', renderCostTable);
+    document.getElementById('materialTypeFilter').addEventListener('change', renderCostTable);
     document.getElementById('costSearch').addEventListener('input', renderCostTable);
     document.getElementById('costFilter').addEventListener('change', renderCostTable);
 

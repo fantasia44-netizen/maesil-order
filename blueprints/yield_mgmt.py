@@ -58,12 +58,15 @@ def api_daily():
     if not date_from or not date_to:
         return jsonify({'error': '기간을 선택하세요.'}), 400
 
+    period = request.args.get('period', 'day')
+
     try:
         from services.yield_service import calculate_daily_yield
         result = calculate_daily_yield(
             current_app.db, date_from, date_to,
             product_name=product or None,
-            location=location or None)
+            location=location or None,
+            period=period)
         return jsonify({'success': True, **result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
