@@ -8,7 +8,7 @@ from datetime import datetime
 from services.excel_io import (
     safe_int, safe_date, normalize_location, flexible_column_rename,
     detect_material_groups, parse_inbound_payload, build_stock_snapshot,
-    snapshot_lookup,
+    snapshot_lookup, normalize_product_name,
 )
 from services.validation import check_unit_mismatch
 
@@ -31,6 +31,58 @@ def _load_stock_snapshot(db, location):
     except Exception as e:
         print(f"재고 스냅샷 조회 에러: {e}")
         return {}
+
+
+def _load_stock_with_meta(db, location):
+    """특정 창고의 재고 FIFO 스냅샷 + 품목 메타데이터를 반환.
+    Returns: (snapshot_dict, meta_dict)
+    """
+    raw_data = []
+    try:
+        raw_data = db.query_stock_by_location(location)
+    except Exception as e:
+        print(f"재고 데이터 조회 에러: {e}")
+    snapshot = build_stock_snapshot(raw_data)
+    meta = _build_product_metadata(raw_data)
+    return snapshot, meta
+
+
+def _build_product_metadata(raw_stock_data):
+    """raw stock data에서 품목별 메타데이터 추출 (보관방법, 종류, 단위 등).
+    양수 재고 레코드 우선으로 가장 대표적인 메타데이터를 반환.
+    """
+    meta = {}
+    for r in raw_stock_data:
+        name = r.get('product_name', '')
+        qty = r.get('qty', 0) or 0
+        if not name:
+            continue
+        # 이미 있는 항목보다 양수 재고가 더 큰 레코드 우선
+        if name not in meta or qty > meta[name].get('_qty', 0):
+            meta[name] = {
+                'storage_method': r.get('storage_method', '') or '',
+                'category': r.get('category', '') or '',
+                'unit': r.get('unit', '개') or '개',
+                'expiry_date': r.get('expiry_date', '') or '',
+                'origin': r.get('origin', '') or '',
+                'manufacture_date': r.get('manufacture_date', '') or '',
+                '_qty': qty,
+            }
+    # 내부 _qty 필드 제거
+    for v in meta.values():
+        v.pop('_qty', None)
+    return meta
+
+
+def _lookup_product_meta(meta_dict, product_name):
+    """메타데이터 딕셔너리에서 품목 조회 (정규화 매칭 포함)."""
+    if product_name in meta_dict:
+        return meta_dict[product_name]
+    norm = normalize_product_name(product_name)
+    for key, val in meta_dict.items():
+        if normalize_product_name(key) == norm:
+            return val
+    return {}
 
 
 def _check_unit_mismatch_result(df, db, unit_col='단위'):
@@ -170,6 +222,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
     # ── 재료 부족 사전 확인 ──
     shortage = []
     snapshots = {}
+    product_metas = {}
     for _, row in df.iterrows():
         loc = normalize_location(row['창고위치'])
         for mg in material_groups:
@@ -180,7 +233,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
             if mat_qty <= 0:
                 continue
             if loc not in snapshots:
-                snapshots[loc] = _load_stock_snapshot(db, loc)
+                snapshots[loc], product_metas[loc] = _load_stock_with_meta(db, loc)
             _snap = snapshot_lookup(snapshots[loc], mat_name)
             total = _snap.get('total', 0)
             u = _snap.get('unit', '개')
@@ -226,19 +279,24 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
             mat_origin = str(row.get(mg['origin_col'], '')).strip() if mg.get('origin_col') else ''
 
             if loc not in snapshots:
-                snapshots[loc] = _load_stock_snapshot(db, loc)
+                snapshots[loc], product_metas[loc] = _load_stock_with_meta(db, loc)
             groups = snapshot_lookup(snapshots[loc], mat_name).get('groups', [])
 
             remain = mat_qty
             if not groups:
+                meta = _lookup_product_meta(product_metas.get(loc, {}), mat_name)
                 payload.append({
                     "transaction_date": date_str,
                     "type": "PROD_OUT",
                     "product_name": mat_name,
                     "qty": -remain,
                     "location": loc,
-                    "origin": mat_origin,
-                    "manufacture_date": '',
+                    "storage_method": meta.get('storage_method', ''),
+                    "category": meta.get('category', ''),
+                    "unit": meta.get('unit', '개'),
+                    "expiry_date": meta.get('expiry_date', ''),
+                    "origin": meta.get('origin', '') or mat_origin,
+                    "manufacture_date": meta.get('manufacture_date', ''),
                 })
                 raw_count += 1
             else:
@@ -315,8 +373,11 @@ def process_production_batch(db, date_str, mode, location, items):
         del2 = db.delete_stock_ledger_by(date_str, "PROD_OUT")
         deleted_count = del1 + del2
 
-    # 재고 스냅샷 로드 (재료 차감용)
-    stock = _load_stock_snapshot(db, loc) if loc else {}
+    # 재고 스냅샷 + 메타데이터 로드 (재료 차감용)
+    if loc:
+        stock, product_meta = _load_stock_with_meta(db, loc)
+    else:
+        stock, product_meta = {}, {}
 
     # 재료 부족 사전 확인
     for item in items:
@@ -371,13 +432,19 @@ def process_production_batch(db, date_str, mode, location, items):
             remain = mat_qty
 
             if not groups:
+                meta = _lookup_product_meta(product_meta, mat_name)
                 payload.append({
                     "transaction_date": date_str,
                     "type": "PROD_OUT",
                     "product_name": mat_name,
                     "qty": -remain,
                     "location": loc,
-                    "manufacture_date": '',
+                    "storage_method": meta.get('storage_method', ''),
+                    "category": meta.get('category', ''),
+                    "unit": meta.get('unit', '개'),
+                    "expiry_date": meta.get('expiry_date', ''),
+                    "origin": meta.get('origin', ''),
+                    "manufacture_date": meta.get('manufacture_date', ''),
                 })
                 raw_count += 1
             else:
