@@ -200,7 +200,7 @@ def pdf():
     ledger_type = request.args.get('ledger_type', '')
     view_mode = request.args.get('view_mode', 'default')
     fit_one_page = request.args.get('fit_one_page', '') == '1'
-    multi_col = request.args.get('multi_col', '') == '1'
+    multi_col = int(request.args.get('multi_col', '0') or '0')  # 0=off, 2=2단, 3=3단
 
     if not date_to:
         flash('종료일을 입력하세요.', 'warning')

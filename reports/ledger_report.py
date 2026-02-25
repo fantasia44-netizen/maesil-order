@@ -256,27 +256,17 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
     title = config.get('title', '수불부')
     include_warnings = config.get('include_warnings', True)
     fit_one_page = config.get('fit_one_page', False)
-    multi_col = config.get('multi_col', False)
+    multi_col = config.get('multi_col', 0)  # 0=off, 2=2단, 3=3단
     has_mfg = len(group_keys) > 4  # 제조일 분리 여부
 
     # ================================================================
-    # 다단 출력 모드 — 자동 2단/3단 감지
+    # 다단 출력 모드 — 사용자 선택 (2단 또는 3단)
     # ================================================================
-    if multi_col:
-        # 플랫 테이블: 1행 = 1품목
-        total_rows = len(sorted_keys)
-
-        # landscape A4: 높이 210mm, 마진 제외 ~180mm, 행당 ~3.5mm
-        rows_per_page = int(180 / 3.5)  # ≈ 51
-        est_pages = max(1, (total_rows + rows_per_page - 1) // rows_per_page)
-
-        if est_pages <= 1:
-            pass  # 1페이지면 다단 불필요, 일반 모드로 진행
-        else:
-            num_cols = 2 if est_pages <= 3 else 3
-            _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
-                                       sorted_keys, group_keys, num_cols, warnings)
-            return
+    if multi_col in (2, 3):
+        num_cols = multi_col
+        _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
+                                   sorted_keys, group_keys, num_cols, warnings)
+        return
 
     font_name = register_font()
     margin = 15 * mm
