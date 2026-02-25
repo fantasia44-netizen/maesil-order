@@ -166,10 +166,17 @@ def export():
 @revenue_bp.route('/delete/<int:revenue_id>', methods=['POST'])
 @role_required('admin')
 def delete_revenue(revenue_id):
-    """매출 1건 삭제 (admin/manager만)"""
+    """매출 1건 삭제 (admin 전용)"""
     try:
+        # 삭제 전 데이터 보존 (되돌리기용)
+        old_record = None
+        try:
+            res = current_app.db.client.table("daily_revenue").select("*").eq("id", revenue_id).execute()
+            old_record = res.data[0] if res.data else None
+        except Exception:
+            pass
         current_app.db.delete_revenue_by_id(revenue_id)
-        _log_action('delete_revenue', target=str(revenue_id))
+        _log_action('delete_revenue', target=str(revenue_id), old_value=old_record)
         flash('매출 삭제 완료', 'success')
     except Exception as e:
         flash(f'매출 삭제 중 오류: {e}', 'danger')

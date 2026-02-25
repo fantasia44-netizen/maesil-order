@@ -535,7 +535,7 @@ def delete_trade(trade_id):
             except Exception as rev_err:
                 current_app.logger.warning(f'매출 연동 삭제 실패: {rev_err}')
 
-        _log_action('delete_trade', target=str(trade_id))
+        _log_action('delete_trade', target=str(trade_id), old_value=trade)
         flash('거래 삭제 완료 (재고 복원 + 매출 데이터 함께 삭제됨)', 'success')
     except Exception as e:
         flash(f'거래 삭제 중 오류: {e}', 'danger')

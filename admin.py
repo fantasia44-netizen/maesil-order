@@ -258,6 +258,9 @@ _REVERTABLE_ACTIONS = {
     'update_channel_cost', 'delete_channel_cost',
     'edit_stock_ledger', 'delete_stock_ledger',
     'update_price', 'batch_update_price',
+    'delete_revenue', 'delete_purchase_order',
+    'delete_trade', 'delete_partner', 'delete_business',
+    'update_partner',
 }
 
 
@@ -359,6 +362,49 @@ def revert_audit_log(log_id):
                            if k not in ('id', 'created_at', 'is_deleted', 'deleted_at', 'deleted_by')}
             if restore_data.get('product_name'):
                 db.insert_stock_ledger([restore_data])
+
+        elif action == 'delete_revenue':
+            # old_value: daily_revenue 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at')}
+            if restore_data.get('product_name'):
+                db.client.table("daily_revenue").insert(restore_data).execute()
+
+        elif action == 'delete_purchase_order':
+            # old_value: purchase_orders 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at')}
+            if restore_data:
+                db.client.table("purchase_orders").insert(restore_data).execute()
+
+        elif action == 'delete_trade':
+            # old_value: manual_trades 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at')}
+            if restore_data:
+                db.client.table("manual_trades").insert(restore_data).execute()
+
+        elif action == 'delete_partner':
+            # old_value: business_partners 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at')}
+            if restore_data.get('partner_name'):
+                db.insert_partner(restore_data)
+
+        elif action == 'delete_business':
+            # old_value: my_business 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at')}
+            if restore_data:
+                db.client.table("my_business").insert(restore_data).execute()
+
+        elif action == 'update_partner':
+            # old_value: 수정 전 파트너 필드들
+            partner_id = int(target)
+            update_fields = {k: v for k, v in old_value.items()
+                            if k not in ('id', 'created_at')}
+            if update_fields:
+                db.update_partner(partner_id, update_fields)
 
         else:
             return jsonify({'error': f'{action} 롤백 미구현'}), 400

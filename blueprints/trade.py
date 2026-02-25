@@ -92,10 +92,16 @@ def set_default_business(biz_id):
 @trade_bp.route('/business/delete/<int:biz_id>', methods=['POST'])
 @role_required('admin')
 def delete_business(biz_id):
-    """본사 사업장 삭제"""
+    """본사 사업장 삭제 (admin 전용)"""
     try:
+        old_record = None
+        try:
+            res = current_app.db.client.table("my_business").select("*").eq("id", biz_id).execute()
+            old_record = res.data[0] if res.data else None
+        except Exception:
+            pass
         current_app.db.delete_my_business(biz_id)
-        _log_action('delete_business', target=str(biz_id))
+        _log_action('delete_business', target=str(biz_id), old_value=old_record)
         flash('사업장 삭제 완료', 'success')
     except Exception as e:
         flash(f'사업장 삭제 중 오류: {e}', 'danger')
@@ -230,10 +236,16 @@ def download_partner_template():
 @trade_bp.route('/delete/<int:partner_id>', methods=['POST'])
 @role_required('admin')
 def delete_partner(partner_id):
-    """거래처 삭제"""
+    """거래처 삭제 (admin 전용)"""
     try:
+        old_record = None
+        try:
+            res = current_app.db.client.table("business_partners").select("*").eq("id", partner_id).execute()
+            old_record = res.data[0] if res.data else None
+        except Exception:
+            pass
         current_app.db.delete_partner(partner_id)
-        _log_action('delete_partner', target=str(partner_id))
+        _log_action('delete_partner', target=str(partner_id), old_value=old_record)
         flash('거래처 삭제 완료', 'success')
     except Exception as e:
         flash(f'거래처 삭제 중 오류: {e}', 'danger')
@@ -411,7 +423,7 @@ def delete_trade(trade_id):
             except Exception as rev_err:
                 current_app.logger.warning(f'매출 연동 삭제 실패: {rev_err}')
 
-        _log_action('delete_trade', target=str(trade_id))
+        _log_action('delete_trade', target=str(trade_id), old_value=trade)
         flash('거래 삭제 완료 (재고 복원 + 매출 데이터 함께 삭제됨)', 'success')
     except Exception as e:
         flash(f'거래 삭제 중 오류: {e}', 'danger')
@@ -693,10 +705,11 @@ def generate_purchase_order():
 @trade_bp.route('/purchase-order/delete/<int:po_id>', methods=['POST'])
 @role_required('admin')
 def delete_purchase_order(po_id):
-    """발주서 이력 삭제"""
+    """발주서 이력 삭제 (admin 전용)"""
     try:
+        old_record = current_app.db.query_purchase_order_by_id(po_id)
         current_app.db.delete_purchase_order(po_id)
-        _log_action('delete_purchase_order', target=str(po_id))
+        _log_action('delete_purchase_order', target=str(po_id), old_value=old_record)
         flash('발주서 이력이 삭제되었습니다.', 'success')
     except Exception as e:
         flash(f'발주서 삭제 중 오류: {e}', 'danger')
