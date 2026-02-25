@@ -1,0 +1,545 @@
+{% extends "base.html" %}
+{% block title %}행사/쿠폰 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}행사/쿠폰 관리{% endblock %}
+
+{% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-3" id="promoTabs">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabPromo">
+            <i class="bi bi-megaphone"></i> 행사 등록
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabCoupon">
+            <i class="bi bi-ticket-perforated"></i> 쿠폰 등록
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- ═══════════════════ 행사 탭 ═══════════════════ -->
+    <div class="tab-pane fade show active" id="tabPromo">
+        <!-- 필터 -->
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">채널</label>
+                        <select id="promoFilterCat" class="form-select form-select-sm" style="width:140px">
+                            <option value="">전체</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">품목</label>
+                        <input id="promoFilterProd" type="text" class="form-control form-control-sm" placeholder="품목명" style="width:160px">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">기간</label>
+                        <input id="promoFilterFrom" type="date" class="form-control form-control-sm" style="width:140px">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">~</label>
+                        <input id="promoFilterTo" type="date" class="form-control form-control-sm" style="width:140px">
+                    </div>
+                    <div class="col-auto">
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="promoFilterActive">
+                            <label class="form-check-label small" for="promoFilterActive">활성만</label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-sm btn-primary" onclick="loadPromos()">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                    </div>
+                    <div class="col-auto ms-auto">
+                        <button class="btn btn-sm btn-success" onclick="openPromoModal()">
+                            <i class="bi bi-plus-lg"></i> 행사 등록
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 행사 테이블 -->
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>행사명</th>
+                                <th>품목</th>
+                                <th>채널</th>
+                                <th>시작일</th>
+                                <th>종료일</th>
+                                <th class="text-end">행사가</th>
+                                <th class="text-center">상태</th>
+                                <th>메모</th>
+                                <th style="width:100px">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="promoBody">
+                            <tr><td colspan="9" class="text-center text-muted py-3">조회 버튼을 클릭하세요</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ 쿠폰 탭 ═══════════════════ -->
+    <div class="tab-pane fade" id="tabCoupon">
+        <!-- 필터 -->
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">채널</label>
+                        <select id="couponFilterCat" class="form-select form-select-sm" style="width:140px">
+                            <option value="">전체</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">품목</label>
+                        <input id="couponFilterProd" type="text" class="form-control form-control-sm" placeholder="품목명" style="width:160px">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">기간</label>
+                        <input id="couponFilterFrom" type="date" class="form-control form-control-sm" style="width:140px">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0 small">~</label>
+                        <input id="couponFilterTo" type="date" class="form-control form-control-sm" style="width:140px">
+                    </div>
+                    <div class="col-auto">
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="couponFilterActive">
+                            <label class="form-check-label small" for="couponFilterActive">활성만</label>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-sm btn-primary" onclick="loadCoupons()">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                    </div>
+                    <div class="col-auto ms-auto">
+                        <button class="btn btn-sm btn-success" onclick="openCouponModal()">
+                            <i class="bi bi-plus-lg"></i> 쿠폰 등록
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 쿠폰 테이블 -->
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>쿠폰명</th>
+                                <th>품목</th>
+                                <th>채널</th>
+                                <th>시작일</th>
+                                <th>종료일</th>
+                                <th class="text-center">할인유형</th>
+                                <th class="text-end">할인값</th>
+                                <th class="text-center">상태</th>
+                                <th>메모</th>
+                                <th style="width:100px">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="couponBody">
+                            <tr><td colspan="10" class="text-center text-muted py-3">조회 버튼을 클릭하세요</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════ 행사 등록/수정 모달 ═══════════════════ -->
+<div class="modal fade" id="promoModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="promoModalTitle">행사 등록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="promoEditId">
+                <div class="mb-2">
+                    <label class="form-label">행사명</label>
+                    <input type="text" id="promoName" class="form-control" placeholder="예: 설연휴 행사">
+                </div>
+                <div class="row mb-2">
+                    <div class="col-7">
+                        <label class="form-label">품목명 <span class="text-danger">*</span></label>
+                        <input type="text" id="promoProduct" class="form-control" required>
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label">채널 <span class="text-danger">*</span></label>
+                        <select id="promoCategory" class="form-select">
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <label class="form-label">시작일 <span class="text-danger">*</span></label>
+                        <input type="date" id="promoStart" class="form-control" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">종료일 <span class="text-danger">*</span></label>
+                        <input type="date" id="promoEnd" class="form-control" required>
+                    </div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <label class="form-label">행사가 <span class="text-danger">*</span></label>
+                        <input type="number" id="promoPrice" class="form-control" min="0" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">상태</label>
+                        <select id="promoActive" class="form-select">
+                            <option value="true">활성</option>
+                            <option value="false">비활성</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">메모</label>
+                    <input type="text" id="promoMemo" class="form-control">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="savePromo()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════ 쿠폰 등록/수정 모달 ═══════════════════ -->
+<div class="modal fade" id="couponModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="couponModalTitle">쿠폰 등록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="couponEditId">
+                <div class="mb-2">
+                    <label class="form-label">쿠폰명</label>
+                    <input type="text" id="couponName" class="form-control" placeholder="예: 봄맞이 할인">
+                </div>
+                <div class="row mb-2">
+                    <div class="col-7">
+                        <label class="form-label">품목명 <span class="text-danger">*</span></label>
+                        <input type="text" id="couponProduct" class="form-control" required>
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label">채널 <span class="text-danger">*</span></label>
+                        <select id="couponCategory" class="form-select">
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6">
+                        <label class="form-label">시작일 <span class="text-danger">*</span></label>
+                        <input type="date" id="couponStart" class="form-control" required>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">종료일 <span class="text-danger">*</span></label>
+                        <input type="date" id="couponEnd" class="form-control" required>
+                    </div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-4">
+                        <label class="form-label">할인유형 <span class="text-danger">*</span></label>
+                        <select id="couponDiscType" class="form-select">
+                            <option value="금액">금액</option>
+                            <option value="%">%</option>
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">할인값 <span class="text-danger">*</span></label>
+                        <input type="number" id="couponDiscValue" class="form-control" min="0" step="any" required>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">상태</label>
+                        <select id="couponActive" class="form-select">
+                            <option value="true">활성</option>
+                            <option value="false">비활성</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">메모</label>
+                    <input type="text" id="couponMemo" class="form-control">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="saveCoupon()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = '{{ csrf_token() }}';
+const PROMO_API = '{{ url_for("promotions.api_promotions_list") }}';
+const COUPON_API = '{{ url_for("promotions.api_coupons_list") }}';
+
+// ════════════════════ 행사 ════════════════════
+
+function loadPromos() {
+    const params = new URLSearchParams({
+        category: document.getElementById('promoFilterCat').value,
+        product: document.getElementById('promoFilterProd').value,
+        date_from: document.getElementById('promoFilterFrom').value,
+        date_to: document.getElementById('promoFilterTo').value,
+        active_only: document.getElementById('promoFilterActive').checked ? '1' : '',
+    });
+    fetch(PROMO_API + '?' + params, {headers: {'X-CSRFToken': csrfToken}})
+    .then(r => r.json())
+    .then(res => {
+        const rows = res.data || [];
+        const tbody = document.getElementById('promoBody');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">데이터 없음</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(r => `
+            <tr>
+                <td>${esc(r.name)}</td>
+                <td><strong>${esc(r.product_name)}</strong></td>
+                <td><span class="badge bg-info text-dark">${esc(r.category)}</span></td>
+                <td>${r.start_date}</td>
+                <td>${r.end_date}</td>
+                <td class="text-end fw-bold">${Number(r.promo_price).toLocaleString()}</td>
+                <td class="text-center">${r.is_active
+                    ? '<span class="badge bg-success">활성</span>'
+                    : '<span class="badge bg-secondary">비활성</span>'}</td>
+                <td class="text-muted small">${esc(r.memo || '')}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick='editPromo(${JSON.stringify(r)})' title="수정">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deletePromo(${r.id})" title="삭제">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    })
+    .catch(err => alert('조회 오류: ' + err));
+}
+
+function openPromoModal(data) {
+    document.getElementById('promoEditId').value = data ? data.id : '';
+    document.getElementById('promoModalTitle').textContent = data ? '행사 수정' : '행사 등록';
+    document.getElementById('promoName').value = data ? data.name : '';
+    document.getElementById('promoProduct').value = data ? data.product_name : '';
+    document.getElementById('promoCategory').value = data ? data.category : '';
+    document.getElementById('promoStart').value = data ? data.start_date : '';
+    document.getElementById('promoEnd').value = data ? data.end_date : '';
+    document.getElementById('promoPrice').value = data ? data.promo_price : '';
+    document.getElementById('promoActive').value = data ? String(data.is_active) : 'true';
+    document.getElementById('promoMemo').value = data ? (data.memo || '') : '';
+    new bootstrap.Modal(document.getElementById('promoModal')).show();
+}
+
+function editPromo(data) { openPromoModal(data); }
+
+function savePromo() {
+    const editId = document.getElementById('promoEditId').value;
+    const payload = {
+        name: document.getElementById('promoName').value,
+        product_name: document.getElementById('promoProduct').value,
+        category: document.getElementById('promoCategory').value,
+        start_date: document.getElementById('promoStart').value,
+        end_date: document.getElementById('promoEnd').value,
+        promo_price: document.getElementById('promoPrice').value,
+        is_active: document.getElementById('promoActive').value === 'true',
+        memo: document.getElementById('promoMemo').value,
+    };
+    const url = editId ? PROMO_API.replace(/\/$/, '') + '/' + editId : PROMO_API;
+    const method = editId ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method, headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            bootstrap.Modal.getInstance(document.getElementById('promoModal')).hide();
+            loadPromos();
+        } else {
+            alert(res.error || '저장 실패');
+        }
+    })
+    .catch(err => alert('저장 오류: ' + err));
+}
+
+function deletePromo(id) {
+    if (!confirm('이 행사를 삭제하시겠습니까?')) return;
+    fetch(PROMO_API.replace(/\/$/, '') + '/' + id, {
+        method: 'DELETE', headers: {'X-CSRFToken': csrfToken}
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) loadPromos();
+        else alert(res.error || '삭제 실패');
+    })
+    .catch(err => alert('삭제 오류: ' + err));
+}
+
+
+// ════════════════════ 쿠폰 ════════════════════
+
+function loadCoupons() {
+    const params = new URLSearchParams({
+        category: document.getElementById('couponFilterCat').value,
+        product: document.getElementById('couponFilterProd').value,
+        date_from: document.getElementById('couponFilterFrom').value,
+        date_to: document.getElementById('couponFilterTo').value,
+        active_only: document.getElementById('couponFilterActive').checked ? '1' : '',
+    });
+    fetch(COUPON_API + '?' + params, {headers: {'X-CSRFToken': csrfToken}})
+    .then(r => r.json())
+    .then(res => {
+        const rows = res.data || [];
+        const tbody = document.getElementById('couponBody');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">데이터 없음</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(r => {
+            const discLabel = r.discount_type === '%'
+                ? `${r.discount_value}%`
+                : Number(r.discount_value).toLocaleString() + '원';
+            return `
+            <tr>
+                <td>${esc(r.name)}</td>
+                <td><strong>${esc(r.product_name)}</strong></td>
+                <td><span class="badge bg-info text-dark">${esc(r.category)}</span></td>
+                <td>${r.start_date}</td>
+                <td>${r.end_date}</td>
+                <td class="text-center"><span class="badge bg-warning text-dark">${esc(r.discount_type)}</span></td>
+                <td class="text-end fw-bold">${discLabel}</td>
+                <td class="text-center">${r.is_active
+                    ? '<span class="badge bg-success">활성</span>'
+                    : '<span class="badge bg-secondary">비활성</span>'}</td>
+                <td class="text-muted small">${esc(r.memo || '')}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick='editCoupon(${JSON.stringify(r)})' title="수정">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteCoupon(${r.id})" title="삭제">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    })
+    .catch(err => alert('조회 오류: ' + err));
+}
+
+function openCouponModal(data) {
+    document.getElementById('couponEditId').value = data ? data.id : '';
+    document.getElementById('couponModalTitle').textContent = data ? '쿠폰 수정' : '쿠폰 등록';
+    document.getElementById('couponName').value = data ? data.name : '';
+    document.getElementById('couponProduct').value = data ? data.product_name : '';
+    document.getElementById('couponCategory').value = data ? data.category : '';
+    document.getElementById('couponStart').value = data ? data.start_date : '';
+    document.getElementById('couponEnd').value = data ? data.end_date : '';
+    document.getElementById('couponDiscType').value = data ? data.discount_type : '금액';
+    document.getElementById('couponDiscValue').value = data ? data.discount_value : '';
+    document.getElementById('couponActive').value = data ? String(data.is_active) : 'true';
+    document.getElementById('couponMemo').value = data ? (data.memo || '') : '';
+    new bootstrap.Modal(document.getElementById('couponModal')).show();
+}
+
+function editCoupon(data) { openCouponModal(data); }
+
+function saveCoupon() {
+    const editId = document.getElementById('couponEditId').value;
+    const payload = {
+        name: document.getElementById('couponName').value,
+        product_name: document.getElementById('couponProduct').value,
+        category: document.getElementById('couponCategory').value,
+        start_date: document.getElementById('couponStart').value,
+        end_date: document.getElementById('couponEnd').value,
+        discount_type: document.getElementById('couponDiscType').value,
+        discount_value: document.getElementById('couponDiscValue').value,
+        is_active: document.getElementById('couponActive').value === 'true',
+        memo: document.getElementById('couponMemo').value,
+    };
+    const url = editId ? COUPON_API.replace(/\/$/, '') + '/' + editId : COUPON_API;
+    const method = editId ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method, headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            bootstrap.Modal.getInstance(document.getElementById('couponModal')).hide();
+            loadCoupons();
+        } else {
+            alert(res.error || '저장 실패');
+        }
+    })
+    .catch(err => alert('저장 오류: ' + err));
+}
+
+function deleteCoupon(id) {
+    if (!confirm('이 쿠폰을 삭제하시겠습니까?')) return;
+    fetch(COUPON_API.replace(/\/$/, '') + '/' + id, {
+        method: 'DELETE', headers: {'X-CSRFToken': csrfToken}
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) loadCoupons();
+        else alert(res.error || '삭제 실패');
+    })
+    .catch(err => alert('삭제 오류: ' + err));
+}
+
+// ════════════════════ 공통 ════════════════════
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// 페이지 로드 시 자동 조회
+document.addEventListener('DOMContentLoaded', () => {
+    loadPromos();
+    loadCoupons();
+});
+</script>
+{% endblock %}

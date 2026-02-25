@@ -39,9 +39,41 @@ TEMPLATE_OPTIONS = [
 ]
 
 CHANGE_LOG = [
+    "v12.2: 부서별 권한 설정 + 행사/쿠폰 관리",
     "v12.1: 거래 관리 모듈 — 거래처 등록, 수동 거래등록(재고연동), 거래명세서 PDF, 내 사업장 관리",
     "v12: 소분(리패킹) 탭 추가",
     "v11: HACCP 템플릿 기반 PDF",
+]
+
+# ── 메뉴 페이지 레지스트리 (동적 권한 관리용) ──
+# (page_key, name, icon, url, default_roles)
+PAGE_REGISTRY = [
+    ('dashboard',      '대시보드',       'bi-house',              '/',                    ['admin','manager','sales','logistics','production','general']),
+    ('stock',          '재고 현황',      'bi-box',                '/stock',               ['admin','manager','sales','logistics','production','general']),
+    ('orders',         '온라인주문처리',  'bi-cart',               '/orders',              ['admin','manager','sales']),
+    ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales']),
+    ('price',          '판매관리',       'bi-tags',               '/price',               ['admin','manager','sales','general']),
+    ('trade',          '거래처 관리',    'bi-building',           '/trade',               ['admin','manager','sales','general']),
+    ('outbound',       '거래처주문처리',  'bi-truck',              '/outbound',            ['admin','manager','sales','general']),
+    ('purchase_order', '발주서 관리',    'bi-file-earmark-text',  '/trade/purchase-order', ['admin','manager','sales','general']),
+    ('revenue',        '매출 관리',      'bi-currency-won',       '/revenue',             ['admin','manager','sales','general']),
+    ('promotions',     '행사/쿠폰',     'bi-megaphone',          '/promotions',          ['admin','manager','sales','general']),
+    ('inbound',        '입고 관리',      'bi-box-arrow-in-down',  '/inbound',             ['admin','manager','logistics','production']),
+    ('production',     '생산 관리',      'bi-gear',               '/production',          ['admin','manager','logistics','production']),
+    ('adjustment',     '재고 조정',      'bi-pencil-square',      '/adjustment',          ['admin','manager','production','logistics','general']),
+    ('set_assembly',   '세트작업',       'bi-boxes',              '/set-assembly',        ['admin','manager','sales','logistics','production','general']),
+    ('transfer',       '창고 이동',      'bi-arrow-left-right',   '/transfer',            ['admin','manager','logistics','general']),
+    ('repack',         '소분 관리',      'bi-scissors',           '/repack',              ['admin','manager','production']),
+    ('etc_outbound',   '기타출고',       'bi-box-arrow-right',    '/etc-outbound',        ['admin','manager','sales','logistics','production','general']),
+    ('ledger',         '수불장',         'bi-journal-text',       '/ledger',              ['admin','manager','logistics','production','general']),
+    ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general']),
+    ('bom_cost',       'BOM 원가',       'bi-piggy-bank',         '/bom-cost',            ['admin','manager']),
+    ('yield_mgmt',     '수율 관리',      'bi-graph-up',           '/yield',               ['admin','manager','production']),
+    ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager']),
+    ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin']),
+    ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin']),
+    ('admin_perms',    '권한 설정',      'bi-shield-lock',        '/admin/permissions',   ['admin']),
+    ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin']),
 ]
 
 

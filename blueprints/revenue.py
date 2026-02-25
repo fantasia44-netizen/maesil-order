@@ -274,7 +274,12 @@ def reapply_prices():
                 skipped += 1
                 continue
 
-            new_unit_price = float(price_info.get(price_col, 0) or 0)
+            # 행사/쿠폰 우선 적용 → 기본 판매가 폴백
+            rev_date = rev.get('revenue_date', '')
+            resolved_price, price_source = db.resolve_unit_price(
+                pname, cat, rev_date, price_map
+            )
+            new_unit_price = float(resolved_price)
             old_unit_price = float(rev.get('unit_price', 0) or 0)
 
             # 가격이 동일하면 건너뜀

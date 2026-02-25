@@ -565,12 +565,18 @@ class Aggregator:
                     total_rev = 0
                     has_revenue_qty = False
 
+                    today_str = datetime.now().strftime('%Y-%m-%d')
                     for c, price_col in REVENUE_CATEGORIES.items():
                         q = cats.get(c, 0)
                         if q == 0:
                             continue
                         has_revenue_qty = True
-                        unit_price = self.price_map.get(_norm(nm), {}).get(price_col, 0)
+                        # 행사/쿠폰 우선 적용 (DB 연결 시)
+                        if db is not None:
+                            unit_price, _src = db.resolve_unit_price(
+                                _norm(nm), c, today_str, self.price_map)
+                        else:
+                            unit_price = self.price_map.get(_norm(nm), {}).get(price_col, 0)
                         rev = q * unit_price
                         row[f'{c}_수량'] = q
                         row[f'{c}_단가'] = int(unit_price)

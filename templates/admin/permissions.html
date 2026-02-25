@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}권한 설정 - 배마마 통합시스템{% endblock %}
+{% block page_title %}부서별 권한 설정{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-shield-lock"></i> 메뉴 접근 권한 매트릭스</span>
+        <div>
+            <button id="btnReset" class="btn btn-sm btn-outline-secondary me-1">
+                <i class="bi bi-arrow-counterclockwise"></i> 기본값 초기화
+            </button>
+            <button id="btnSave" class="btn btn-sm btn-primary">
+                <i class="bi bi-check-lg"></i> 저장
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-sm mb-0 text-center align-middle" id="permTable">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="text-start" style="min-width:160px; position:sticky; left:0; z-index:2; background:#212529;">메뉴</th>
+                        {% for role_key, role_name in roles %}
+                        <th style="min-width:90px;">
+                            {{ role_name }}
+                            {% if role_key != 'admin' %}
+                            <br>
+                            <button class="btn btn-outline-light btn-sm py-0 px-1 mt-1 btn-col-toggle"
+                                    data-role="{{ role_key }}" title="전체 토글" style="font-size:0.65rem;">
+                                전체
+                            </button>
+                            {% endif %}
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for page_key, name, icon, url, defaults in page_registry %}
+                    <tr>
+                        <td class="text-start" style="position:sticky; left:0; z-index:1; background:#fff;">
+                            <i class="bi {{ icon }} me-1 text-muted"></i>{{ name }}
+                        </td>
+                        {% for role_key, role_name in roles %}
+                        <td>
+                            {% if role_key == 'admin' %}
+                            {# admin은 항상 활성, 비활성화 #}
+                            <input type="checkbox" class="form-check-input perm-check"
+                                   data-role="{{ role_key }}" data-page="{{ page_key }}"
+                                   checked disabled>
+                            {% else %}
+                            <input type="checkbox" class="form-check-input perm-check"
+                                   data-role="{{ role_key }}" data-page="{{ page_key }}"
+                                   {% if perms.get(role_key, {}).get(page_key, role_key in defaults) %}checked{% endif %}>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="mt-2 text-muted small">
+    <i class="bi bi-info-circle"></i>
+    관리자(admin)는 항상 전체 접근 권한이 부여됩니다.
+    체크 변경 후 <strong>저장</strong> 버튼을 클릭해야 적용됩니다.
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const csrfToken = '{{ csrf_token() }}';
+
+    // ── 전체 토글 버튼 ──
+    document.querySelectorAll('.btn-col-toggle').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const role = this.dataset.role;
+            const checks = document.querySelectorAll(`.perm-check[data-role="${role}"]:not(:disabled)`);
+            // 과반 이상 체크되어 있으면 전부 해제, 아니면 전부 체크
+            const checkedCount = [...checks].filter(c => c.checked).length;
+            const newState = checkedCount <= checks.length / 2;
+            checks.forEach(c => c.checked = newState);
+        });
+    });
+
+    // ── 저장 ──
+    document.getElementById('btnSave').addEventListener('click', function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 저장 중...';
+
+        // 체크박스 → {role: {page_key: bool}}
+        const data = {};
+        document.querySelectorAll('.perm-check:not(:disabled)').forEach(chk => {
+            const role = chk.dataset.role;
+            const page = chk.dataset.page;
+            if (!data[role]) data[role] = {};
+            data[role][page] = chk.checked;
+        });
+
+        fetch('{{ url_for("admin.permissions_save") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+            } else {
+                showToast(res.error || '저장 실패', 'danger');
+            }
+        })
+        .catch(err => showToast('네트워크 오류: ' + err, 'danger'))
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-check-lg"></i> 저장';
+        });
+    });
+
+    // ── 기본값 초기화 ──
+    document.getElementById('btnReset').addEventListener('click', function() {
+        if (!confirm('모든 권한을 기본값으로 초기화하시겠습니까?\n현재 설정은 사라집니다.')) return;
+
+        const btn = this;
+        btn.disabled = true;
+
+        fetch('{{ url_for("admin.permissions_reset") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(r => r.json())
+        .then(res => {
+            if (res.success) {
+                showToast(res.message, 'success');
+                setTimeout(() => location.reload(), 500);
+            } else {
+                showToast(res.error || '초기화 실패', 'danger');
+            }
+        })
+        .catch(err => showToast('네트워크 오류: ' + err, 'danger'))
+        .finally(() => { btn.disabled = false; });
+    });
+
+    // ── Toast 헬퍼 ──
+    function showToast(msg, type) {
+        // 기존 토스트 제거
+        document.querySelectorAll('.perm-toast').forEach(t => t.remove());
+
+        const toast = document.createElement('div');
+        toast.className = `perm-toast alert alert-${type} position-fixed shadow`;
+        toast.style.cssText = 'top:80px; right:20px; z-index:9999; min-width:250px;';
+        toast.innerHTML = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+});
+</script>
+{% endblock %}

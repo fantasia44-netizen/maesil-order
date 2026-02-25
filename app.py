@@ -91,65 +91,24 @@ def create_app(config_class=None):
             response.headers['Pragma'] = 'no-cache'
         return response
 
-    # 사이드바 메뉴 (모든 페이지에서 사용)
+    # 사이드바 메뉴 (DB 기반 동적 권한)
     @app.context_processor
     def inject_sidebar():
         if not current_user.is_authenticated:
             return dict(sidebar_menus=[], pending_users=0)
 
+        from models import PAGE_REGISTRY
         r = current_user.role
-        menus = [{'name': '대시보드', 'icon': 'bi-house', 'url': '/'}]
 
-        if r in ('admin', 'manager', 'sales', 'logistics', 'production', 'general'):
-            menus.append({'name': '재고 현황', 'icon': 'bi-box', 'url': '/stock'})
+        # DB 권한 조회 (TTL 캐시)
+        perms = app.db.query_role_permissions()
+        role_perms = perms.get(r, {})
 
-        if r in ('admin', 'manager', 'sales'):
-            menus.append({'name': '온라인주문처리', 'icon': 'bi-cart', 'url': '/orders'})
-            menus.append({'name': '통합 집계', 'icon': 'bi-calculator', 'url': '/aggregation'})
-
-        if r in ('admin', 'manager', 'sales', 'general'):
-            menus.append({'name': '판매관리', 'icon': 'bi-tags', 'url': '/price'})
-            menus.append({'name': '거래처 관리', 'icon': 'bi-building', 'url': '/trade'})
-            menus.append({'name': '거래처주문처리', 'icon': 'bi-truck', 'url': '/outbound'})
-            menus.append({'name': '발주서 관리', 'icon': 'bi-file-earmark-text', 'url': '/trade/purchase-order'})
-            menus.append({'name': '매출 관리', 'icon': 'bi-currency-won', 'url': '/revenue'})
-
-        if r in ('admin', 'manager', 'logistics', 'production'):
-            menus.append({'name': '입고 관리', 'icon': 'bi-box-arrow-in-down', 'url': '/inbound'})
-            menus.append({'name': '생산 관리', 'icon': 'bi-gear', 'url': '/production'})
-
-        if r in ('admin', 'manager', 'production', 'logistics', 'general'):
-            menus.append({'name': '재고 조정', 'icon': 'bi-pencil-square', 'url': '/adjustment'})
-
-        if r in ('admin', 'manager', 'sales', 'logistics', 'production', 'general'):
-            menus.append({'name': '세트작업', 'icon': 'bi-boxes', 'url': '/set-assembly'})
-
-        if r in ('admin', 'manager', 'logistics', 'general'):
-            menus.append({'name': '창고 이동', 'icon': 'bi-arrow-left-right', 'url': '/transfer'})
-
-        if r in ('admin', 'manager', 'production'):
-            menus.append({'name': '소분 관리', 'icon': 'bi-scissors', 'url': '/repack'})
-
-        if r in ('admin', 'manager', 'sales', 'logistics', 'production', 'general'):
-            menus.append({'name': '기타출고', 'icon': 'bi-box-arrow-right', 'url': '/etc-outbound'})
-
-        if r in ('admin', 'manager', 'logistics', 'production', 'general'):
-            menus.append({'name': '수불장', 'icon': 'bi-journal-text', 'url': '/ledger'})
-            menus.append({'name': '이력 관리', 'icon': 'bi-clock-history', 'url': '/history'})
-
-        if r in ('admin', 'manager'):
-            menus.append({'name': 'BOM 원가', 'icon': 'bi-piggy-bank', 'url': '/bom-cost'})
-
-        if r in ('admin', 'manager', 'production'):
-            menus.append({'name': '수율 관리', 'icon': 'bi-graph-up', 'url': '/yield'})
-
-        if r in ('admin', 'manager'):
-            menus.append({'name': '기초 데이터', 'icon': 'bi-hdd', 'url': '/base-data'})
-
-        if r == 'admin':
-            menus.append({'name': '마스터 관리', 'icon': 'bi-database', 'url': '/master'})
-            menus.append({'name': '사용자 관리', 'icon': 'bi-people', 'url': '/admin/users'})
-            menus.append({'name': '감사 로그', 'icon': 'bi-shield-check', 'url': '/admin/logs'})
+        menus = []
+        for page_key, name, icon, url, defaults in PAGE_REGISTRY:
+            # DB에 설정 있으면 DB 우선, 없으면 기본값(defaults) 사용
+            if role_perms.get(page_key, r in defaults):
+                menus.append({'name': name, 'icon': icon, 'url': url})
 
         pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
 
@@ -180,13 +139,14 @@ def create_app(config_class=None):
     from blueprints.bom_cost import bom_cost_bp
     from blueprints.yield_mgmt import yield_bp
     from blueprints.price_mgmt import price_mgmt_bp
+    from blueprints.promotions import promotions_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
-               mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp]:
+               mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp]:
         app.register_blueprint(bp)
 
     # 폴더 생성

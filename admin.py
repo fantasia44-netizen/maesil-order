@@ -10,7 +10,7 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, BooleanField
 from wtforms.validators import DataRequired, Length
 
-from models import User
+from models import User, PAGE_REGISTRY
 from auth import role_required, _log_action
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -71,6 +71,13 @@ class _UserStub:
 
 
 # ── Form ──
+
+# ── 소속(역할) 목록 헬퍼 (admin 제외) ──
+def _editable_roles():
+    """Config.ROLES에서 admin 제외 역할 목록 반환."""
+    from config import Config
+    return [(k, v['name']) for k, v in Config.ROLES.items() if k != 'admin']
+
 
 class UserEditForm(FlaskForm):
     name = StringField('이름', validators=[DataRequired(), Length(max=100)])
@@ -468,3 +475,101 @@ def revert_audit_log(log_id):
 
     except Exception as e:
         return jsonify({'error': f'롤백 중 오류: {str(e)}'}), 500
+
+
+# ══════════════════════════════════════════════════════════════
+# 부서별 권한 설정
+# ══════════════════════════════════════════════════════════════
+
+@admin_bp.route('/permissions')
+@role_required('admin')
+def permissions():
+    """권한 설정 매트릭스 페이지."""
+    from config import Config
+    db = current_app.db
+
+    # DB에서 현재 권한 조회
+    perms = db.query_role_permissions(use_cache=False)
+
+    # 역할 목록 (admin 포함 전체)
+    roles = [(k, v['name']) for k, v in Config.ROLES.items()]
+
+    return render_template(
+        'admin/permissions.html',
+        page_registry=PAGE_REGISTRY,
+        roles=roles,
+        perms=perms,
+    )
+
+
+@admin_bp.route('/permissions/save', methods=['POST'])
+@role_required('admin')
+def permissions_save():
+    """권한 저장 (AJAX). 역할별 {page_key: bool} 일괄 upsert."""
+    from config import Config
+    db = current_app.db
+
+    try:
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify({'error': '데이터가 없습니다.'}), 400
+
+        # data 형태: {role: {page_key: bool, ...}, ...}
+        page_keys = {pk for pk, *_ in PAGE_REGISTRY}
+
+        for role, page_perms in data.items():
+            if role not in Config.ROLES:
+                continue
+            # admin 역할은 모두 True 강제
+            if role == 'admin':
+                page_perms = {pk: True for pk in page_keys}
+            else:
+                # 유효한 page_key만 필터
+                page_perms = {pk: bool(v) for pk, v in page_perms.items()
+                              if pk in page_keys}
+            db.upsert_role_permissions(role, page_perms)
+
+        _log_action('update_permissions', detail='부서별 권한 설정 변경')
+
+        return jsonify({'success': True, 'message': '권한이 저장되었습니다.'})
+
+    except Exception as e:
+        return jsonify({'error': f'저장 중 오류: {str(e)}'}), 500
+
+
+@admin_bp.route('/permissions/reset', methods=['POST'])
+@role_required('admin')
+def permissions_reset():
+    """권한 기본값으로 초기화 (AJAX)."""
+    from config import Config
+    db = current_app.db
+
+    try:
+        # 기존 데이터 삭제 후 seed
+        db.client.table("role_permissions").delete().neq("id", 0).execute()
+        db._invalidate_perm_cache()
+
+        # 기본값 다시 생성
+        from datetime import datetime as _dt, timezone as _tz
+        now_str = _dt.now(_tz.utc).isoformat()
+        payload = []
+        for page_key, name, icon, url, default_roles in PAGE_REGISTRY:
+            for role in Config.ROLES.keys():
+                payload.append({
+                    'role': role,
+                    'page_key': page_key,
+                    'is_allowed': role in default_roles,
+                    'updated_at': now_str,
+                })
+        for i in range(0, len(payload), 500):
+            db.client.table("role_permissions").upsert(
+                payload[i:i+500], on_conflict="role,page_key"
+            ).execute()
+        db._invalidate_perm_cache()
+
+        _log_action('reset_permissions', detail='부서별 권한 기본값 초기화')
+
+        return jsonify({'success': True, 'message': '기본값으로 초기화되었습니다.'})
+
+    except Exception as e:
+        return jsonify({'error': f'초기화 중 오류: {str(e)}'}), 500

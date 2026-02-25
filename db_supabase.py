@@ -16,6 +16,13 @@ _option_cache = {
     'ttl': 300,           # 5분 캐시 (초)
 }
 
+# 권한 메모리 캐시 (TTL 기반)
+_perm_cache = {
+    'data': None,         # {role: {page_key: bool}}
+    'ts': 0,
+    'ttl': 300,
+}
+
 
 class SupabaseDB(DBBase):
     def __init__(self):
@@ -926,3 +933,229 @@ class SupabaseDB(DBBase):
             return res.data[0] if res.data else None
         except Exception:
             return None
+
+    # ================================================================
+    # 권한 관리 (role_permissions)
+    # ================================================================
+
+    def query_role_permissions(self, use_cache=True):
+        """권한 전체 조회 → {role: {page_key: bool}}. TTL 캐시."""
+        now = time.time()
+        if use_cache and _perm_cache['data'] and (now - _perm_cache['ts']) < _perm_cache['ttl']:
+            return _perm_cache['data']
+        try:
+            res = self.client.table("role_permissions").select("role,page_key,is_allowed").execute()
+            perms = {}
+            for row in (res.data or []):
+                role = row['role']
+                if role not in perms:
+                    perms[role] = {}
+                perms[role][row['page_key']] = row['is_allowed']
+            _perm_cache['data'] = perms
+            _perm_cache['ts'] = time.time()
+            return perms
+        except Exception:
+            return _perm_cache['data'] or {}
+
+    def upsert_role_permissions(self, role, perms_dict):
+        """한 역할의 권한 일괄 저장. perms_dict = {page_key: bool}."""
+        from datetime import datetime, timezone
+        now_str = datetime.now(timezone.utc).isoformat()
+        payload = [
+            {'role': role, 'page_key': pk, 'is_allowed': allowed, 'updated_at': now_str}
+            for pk, allowed in perms_dict.items()
+        ]
+        if payload:
+            self.client.table("role_permissions").upsert(
+                payload, on_conflict="role,page_key"
+            ).execute()
+        self._invalidate_perm_cache()
+
+    def seed_default_permissions(self, page_registry):
+        """테이블이 비어있으면 PAGE_REGISTRY 기본값으로 초기화."""
+        try:
+            res = self.client.table("role_permissions").select("id").limit(1).execute()
+            if res.data:
+                return  # 이미 데이터 있음
+        except Exception:
+            return
+        from datetime import datetime, timezone
+        from config import Config
+        now_str = datetime.now(timezone.utc).isoformat()
+        payload = []
+        for page_key, name, icon, url, default_roles in page_registry:
+            for role in Config.ROLES.keys():
+                payload.append({
+                    'role': role,
+                    'page_key': page_key,
+                    'is_allowed': role in default_roles,
+                    'updated_at': now_str,
+                })
+        # 500건씩 배치 upsert
+        for i in range(0, len(payload), 500):
+            self.client.table("role_permissions").upsert(
+                payload[i:i+500], on_conflict="role,page_key"
+            ).execute()
+        self._invalidate_perm_cache()
+
+    def _invalidate_perm_cache(self):
+        """권한 캐시 즉시 무효화."""
+        _perm_cache['data'] = None
+        _perm_cache['ts'] = 0
+
+    # ================================================================
+    # 행사 관리 (promotions)
+    # ================================================================
+
+    def query_promotions(self, product_name=None, category=None,
+                         date_from=None, date_to=None, active_only=False):
+        """행사 목록 조회."""
+        try:
+            q = self.client.table("promotions").select("*")
+            if product_name:
+                q = q.ilike("product_name", f"%{product_name}%")
+            if category:
+                q = q.eq("category", category)
+            if date_from:
+                q = q.gte("end_date", date_from)
+            if date_to:
+                q = q.lte("start_date", date_to)
+            if active_only:
+                q = q.eq("is_active", True)
+            q = q.order("start_date", desc=True)
+            res = q.execute()
+            return res.data or []
+        except Exception:
+            return []
+
+    def query_active_promotion(self, product_name, category, target_date):
+        """특정 품목+채널+일자에 활성 행사 조회 (가장 최근 등록 우선)."""
+        try:
+            res = self.client.table("promotions").select("*") \
+                .eq("product_name", product_name) \
+                .eq("category", category) \
+                .eq("is_active", True) \
+                .lte("start_date", target_date) \
+                .gte("end_date", target_date) \
+                .order("created_at", desc=True) \
+                .limit(1).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
+
+    def insert_promotion(self, payload):
+        """행사 1건 등록."""
+        self.client.table("promotions").insert(payload).execute()
+
+    def update_promotion(self, promo_id, update_data):
+        """행사 1건 수정."""
+        from datetime import datetime, timezone
+        update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+        self.client.table("promotions").update(update_data) \
+            .eq("id", promo_id).execute()
+
+    def delete_promotion(self, promo_id):
+        """행사 1건 삭제."""
+        self.client.table("promotions").delete().eq("id", promo_id).execute()
+
+    # ================================================================
+    # 쿠폰 관리 (coupons)
+    # ================================================================
+
+    def query_coupons(self, product_name=None, category=None,
+                      date_from=None, date_to=None, active_only=False):
+        """쿠폰 목록 조회."""
+        try:
+            q = self.client.table("coupons").select("*")
+            if product_name:
+                q = q.ilike("product_name", f"%{product_name}%")
+            if category:
+                q = q.eq("category", category)
+            if date_from:
+                q = q.gte("end_date", date_from)
+            if date_to:
+                q = q.lte("start_date", date_to)
+            if active_only:
+                q = q.eq("is_active", True)
+            q = q.order("start_date", desc=True)
+            res = q.execute()
+            return res.data or []
+        except Exception:
+            return []
+
+    def query_active_coupon(self, product_name, category, target_date):
+        """특정 품목+채널+일자에 활성 쿠폰 조회."""
+        try:
+            res = self.client.table("coupons").select("*") \
+                .eq("product_name", product_name) \
+                .eq("category", category) \
+                .eq("is_active", True) \
+                .lte("start_date", target_date) \
+                .gte("end_date", target_date) \
+                .order("created_at", desc=True) \
+                .limit(1).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None
+
+    def insert_coupon(self, payload):
+        """쿠폰 1건 등록."""
+        self.client.table("coupons").insert(payload).execute()
+
+    def update_coupon(self, coupon_id, update_data):
+        """쿠폰 1건 수정."""
+        from datetime import datetime, timezone
+        update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+        self.client.table("coupons").update(update_data) \
+            .eq("id", coupon_id).execute()
+
+    def delete_coupon(self, coupon_id):
+        """쿠폰 1건 삭제."""
+        self.client.table("coupons").delete().eq("id", coupon_id).execute()
+
+    # ================================================================
+    # 단가 결정 (행사 > 쿠폰 > 기본가)
+    # ================================================================
+
+    def resolve_unit_price(self, product_name, category, target_date, price_map=None):
+        """매출 단가 결정: 행사가 > 쿠폰할인가 > 기본 판매가.
+        Returns: (unit_price, source) — source: 'promotion'/'coupon'/'master'/'none'
+        """
+        import unicodedata
+        _CATEGORY_PRICE_COL = {
+            "일반매출": "네이버판매가",
+            "쿠팡매출": "쿠팡판매가",
+            "로켓": "로켓판매가",
+            "N배송(용인)": "네이버판매가",
+        }
+
+        # 1) 행사가 확인
+        promo = self.query_active_promotion(product_name, category, target_date)
+        if promo:
+            return float(promo['promo_price']), 'promotion'
+
+        # 2) 쿠폰 확인
+        coupon = self.query_active_coupon(product_name, category, target_date)
+        if coupon:
+            price_col = _CATEGORY_PRICE_COL.get(category)
+            norm_name = unicodedata.normalize('NFC', str(product_name).strip())
+            base_price = 0
+            if price_map and price_col:
+                base_price = float((price_map.get(norm_name) or {}).get(price_col, 0) or 0)
+            if base_price > 0:
+                if coupon['discount_type'] == '%':
+                    discount = base_price * float(coupon['discount_value']) / 100
+                else:
+                    discount = float(coupon['discount_value'])
+                return max(0, base_price - discount), 'coupon'
+
+        # 3) 기본 판매가
+        price_col = _CATEGORY_PRICE_COL.get(category)
+        if price_map and price_col:
+            import unicodedata
+            norm_name = unicodedata.normalize('NFC', str(product_name).strip())
+            base_price = float((price_map.get(norm_name) or {}).get(price_col, 0) or 0)
+            if base_price > 0:
+                return base_price, 'master'
+
+        return 0, 'none'

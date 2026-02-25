@@ -156,6 +156,54 @@ CREATE INDEX IF NOT EXISTS idx_purchase_orders_partner ON purchase_orders(partne
 
 -- business_partners: 담당자 컬럼 추가 (대표자 = representative, 담당자 = contact_person)
 ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS contact_person TEXT;
+
+-- 13) role_permissions (부서별 메뉴 접근 권한)
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id          BIGSERIAL PRIMARY KEY,
+    role        TEXT NOT NULL,
+    page_key    TEXT NOT NULL,
+    is_allowed  BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(role, page_key)
+);
+CREATE INDEX IF NOT EXISTS idx_role_perm_role ON role_permissions(role);
+
+-- 14) promotions (행사등록: 품목+채널+기간 → 판매가 조정)
+CREATE TABLE IF NOT EXISTS promotions (
+    id            BIGSERIAL PRIMARY KEY,
+    name          TEXT NOT NULL DEFAULT '',
+    product_name  TEXT NOT NULL,
+    category      TEXT NOT NULL,
+    start_date    DATE NOT NULL,
+    end_date      DATE NOT NULL,
+    promo_price   INTEGER NOT NULL DEFAULT 0,
+    memo          TEXT DEFAULT '',
+    is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by    TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_promotions_product ON promotions(product_name);
+CREATE INDEX IF NOT EXISTS idx_promotions_dates ON promotions(start_date, end_date);
+
+-- 15) coupons (쿠폰등록: 품목+채널+기간 → 할인 적용)
+CREATE TABLE IF NOT EXISTS coupons (
+    id              BIGSERIAL PRIMARY KEY,
+    name            TEXT NOT NULL DEFAULT '',
+    product_name    TEXT NOT NULL,
+    category        TEXT NOT NULL,
+    start_date      DATE NOT NULL,
+    end_date        DATE NOT NULL,
+    discount_type   TEXT NOT NULL DEFAULT '금액',
+    discount_value  NUMERIC NOT NULL DEFAULT 0,
+    memo            TEXT DEFAULT '',
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by      TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_coupons_product ON coupons(product_name);
+CREATE INDEX IF NOT EXISTS idx_coupons_dates ON coupons(start_date, end_date);
 """
 
 print("=" * 60)
