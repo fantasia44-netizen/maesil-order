@@ -150,7 +150,12 @@
 
         <!-- 생산 이력 조회 -->
         <div class="card mt-3">
-            <div class="card-header"><i class="bi bi-clock-history"></i> 생산 이력 조회</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history"></i> 생산 이력 조회</span>
+                {% if current_user.role in ('manager', 'production') %}
+                <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="window._toggleEditMode()">🔒 보기모드</button>
+                {% endif %}
+            </div>
             <div class="card-body">
                 <div class="row g-2 align-items-end mb-2">
                     <div class="col-sm-4">
@@ -314,6 +319,8 @@
     const HISTORY_URL = '{{ url_for("production.api_history") }}';
     const canEdit = {{ 'true' if current_user.role in ('admin', 'manager', 'production') else 'false' }};
     const canDelete = {{ 'true' if current_user.role == 'admin' else 'false' }};
+    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+    let editMode = isAdmin;
 
     const dateInput = document.getElementById('prodDate');
     const modeSelect = document.getElementById('prodMode');
@@ -651,21 +658,23 @@
                 if(canEdit){
                     const td = document.createElement('td');
                     td.className = 'text-nowrap';
-                    const eBtn = document.createElement('button');
-                    eBtn.type = 'button';
-                    eBtn.className = 'btn btn-outline-primary btn-sm py-0 px-1';
-                    eBtn.title = '수정';
-                    eBtn.innerHTML = '<i class="bi bi-pencil"></i>';
-                    eBtn.addEventListener('click', function(e) { e.stopPropagation(); window._editHist(String(r.id)); });
-                    td.appendChild(eBtn);
-                    if(canDelete){
-                        const dBtn = document.createElement('button');
-                        dBtn.type = 'button';
-                        dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
-                        dBtn.title = '삭제';
-                        dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
-                        dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
-                        td.appendChild(dBtn);
+                    if(editMode){
+                        const eBtn = document.createElement('button');
+                        eBtn.type = 'button';
+                        eBtn.className = 'btn btn-outline-primary btn-sm py-0 px-1';
+                        eBtn.title = '수정';
+                        eBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+                        eBtn.addEventListener('click', function(e) { e.stopPropagation(); window._editHist(String(r.id)); });
+                        td.appendChild(eBtn);
+                        if(canDelete){
+                            const dBtn = document.createElement('button');
+                            dBtn.type = 'button';
+                            dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
+                            dBtn.title = '삭제';
+                            dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+                            dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
+                            td.appendChild(dBtn);
+                        }
                     }
                     tr.appendChild(td);
                 }
@@ -732,6 +741,16 @@
             finally { this.disabled = false; }
         });
     }
+
+    window._toggleEditMode = function() {
+        editMode = !editMode;
+        const btn = document.getElementById('btnEditModeToggle');
+        if(btn){
+            btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+            btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
+        }
+        document.getElementById('searchHistoryBtn').click();
+    };
 
     function showResult(type, msg, isHtml) {
         resultCard.style.display = '';

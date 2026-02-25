@@ -9,11 +9,14 @@
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-building"></i> 거래처 목록 ({{ partners|default([])|length }}건)</span>
-                <div>
-                    <button class="btn btn-sm btn-success" data-bs-toggle="collapse" data-bs-target="#excelUploadArea">
+                <div class="d-flex gap-2 align-items-center">
+                    {% if current_user.role != 'admin' %}
+                    <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="toggleEditMode()">🔒 보기모드</button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-success action-btn" data-bs-toggle="collapse" data-bs-target="#excelUploadArea">
                         <i class="bi bi-file-earmark-excel"></i> 엑셀 일괄등록
                     </button>
-                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addPartnerModal">
+                    <button class="btn btn-sm btn-primary action-btn" data-bs-toggle="modal" data-bs-target="#addPartnerModal">
                         <i class="bi bi-plus-lg"></i> 거래처 추가
                     </button>
                 </div>
@@ -173,7 +176,7 @@
 <div class="card mt-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-building-gear"></i> 본사 사업장 관리 ({{ my_businesses|default([])|length }}건)</span>
-        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addBusinessModal">
+        <button class="btn btn-sm btn-primary action-btn" data-bs-toggle="modal" data-bs-target="#addBusinessModal">
             <i class="bi bi-plus-lg"></i> 사업장 추가
         </button>
     </div>
@@ -208,14 +211,14 @@
                         </td>
                         <td>
                             {% if not b.is_default %}
-                            <form method="POST" action="{{ url_for('trade.set_default_business', biz_id=b.id) }}" class="d-inline">
+                            <form method="POST" action="{{ url_for('trade.set_default_business', biz_id=b.id) }}" class="d-inline biz-action-btn">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-success" title="기본 지정">
                                     <i class="bi bi-check-lg"></i>
                                 </button>
                             </form>
                             {% endif %}
-                            <form method="POST" action="{{ url_for('trade.delete_business', biz_id=b.id) }}" class="d-inline"
+                            <form method="POST" action="{{ url_for('trade.delete_business', biz_id=b.id) }}" class="d-inline biz-action-btn"
                                   onsubmit="return confirm('{{ b.business_name }} 사업장을 삭제하시겠습니까?')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="삭제">
@@ -357,7 +360,26 @@
 
 {% block extra_js %}
 <script>
+const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+let editMode = isAdmin;
+
+function toggleEditMode() {
+    editMode = !editMode;
+    const btn = document.getElementById('btnEditModeToggle');
+    if(btn){
+        btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+        btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
+    }
+    applyEditMode();
+}
+function applyEditMode() {
+    document.querySelectorAll('.view-btns').forEach(el => el.style.display = editMode ? '' : 'none');
+    document.querySelectorAll('.action-btn').forEach(el => el.style.display = editMode ? '' : 'none');
+    document.querySelectorAll('.biz-action-btn').forEach(el => el.style.display = editMode ? '' : 'none');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    applyEditMode();
     const table = document.getElementById('partnerTable');
     if (!table) return;
 

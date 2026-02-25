@@ -142,7 +142,7 @@
               onsubmit="return confirm('{{ stale_days|default(30) }}일 이상 미사용 옵션 {{ stale_options|length }}건을 삭제합니다.\n삭제 후 다시 추가할 수 있습니다.\n\n진행하시겠습니까?');">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="days" value="{{ stale_days|default(30) }}">
-            <button type="submit" class="btn btn-danger">
+            <button type="submit" class="btn btn-danger master-action-btn">
                 <i class="bi bi-trash3"></i> {{ stale_options|length }}건 일괄 삭제
             </button>
         </form>
@@ -158,9 +158,14 @@
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-list-ul"></i> 옵션마스터 관리 (<span id="optTotalCount">0</span>건)</span>
-        <button class="btn btn-sm btn-primary" onclick="openAddOptionModal()">
-            <i class="bi bi-plus-circle"></i> 신규 등록
-        </button>
+        <div class="d-flex gap-2 align-items-center">
+            {% if current_user.role != 'admin' %}
+            <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="window._toggleMasterEditMode()">🔒 보기모드</button>
+            {% endif %}
+            <button class="btn btn-sm btn-primary master-action-btn" onclick="openAddOptionModal()">
+                <i class="bi bi-plus-circle"></i> 신규 등록
+            </button>
+        </div>
     </div>
     <div class="card-body">
         <!-- 검색 -->
@@ -262,7 +267,7 @@
         </div>
         <form method="POST" action="{{ url_for('master.fix_spaces') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-outline-primary">
+            <button type="submit" class="btn btn-outline-primary master-action-btn">
                 <i class="bi bi-magic"></i> 공백 정리 실행
             </button>
         </form>
@@ -331,6 +336,23 @@
 
 {% block extra_js %}
 <script>
+const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+let editMode = isAdmin;
+
+window._toggleMasterEditMode = function() {
+    editMode = !editMode;
+    const btn = document.getElementById('btnEditModeToggle');
+    if(btn){
+        btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+        btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
+    }
+    document.querySelectorAll('.master-action-btn').forEach(el => el.style.display = editMode ? '' : 'none');
+    loadOptions();
+};
+document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.master-action-btn').forEach(el => el.style.display = editMode ? '' : 'none');
+});
+
 (function() {
     const csrfToken = '{{ csrf_token() }}';
     let currentPage = 1;
@@ -393,9 +415,10 @@
                 '<td>' + (r.sort_order != null ? r.sort_order : 999) + '</td>' +
                 '<td>' + escapeHtml(r.barcode || '') + '</td>' +
                 '<td>' + lm + '</td>' +
-                '<td>' +
-                    '<button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal(' + r.id + ')" title="수정"><i class="bi bi-pencil"></i></button>' +
-                    '<button class="btn btn-sm btn-outline-danger" onclick="deleteOption(' + r.id + ')" title="삭제"><i class="bi bi-trash"></i></button>' +
+                '<td>' + (editMode
+                    ? '<button class="btn btn-sm btn-outline-primary me-1" onclick="openEditModal(' + r.id + ')" title="수정"><i class="bi bi-pencil"></i></button>' +
+                      '<button class="btn btn-sm btn-outline-danger" onclick="deleteOption(' + r.id + ')" title="삭제"><i class="bi bi-trash"></i></button>'
+                    : '') +
                 '</td>' +
             '</tr>';
         }).join('');

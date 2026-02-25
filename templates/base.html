@@ -92,6 +92,22 @@
         .badge-production { background: #9b59b6; color: #fff; }
         .badge-general { background: #1abc9c; color: #fff; }
 
+        /* 보기모드/수정모드 토글 */
+        .edit-mode-toggle {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 14px; border-radius: 20px;
+            font-size: 0.82rem; font-weight: 600;
+            cursor: pointer; border: 2px solid;
+            transition: all 0.25s; user-select: none;
+        }
+        .edit-mode-toggle.view-mode {
+            background: #f8f9fa; border-color: #adb5bd; color: #6c757d;
+        }
+        .edit-mode-toggle.edit-mode {
+            background: #fff3cd; border-color: #ffc107; color: #856404;
+        }
+        .edit-mode-toggle:hover { opacity: 0.85; }
+
         /* 반응형 */
         @media (max-width: 768px) {
             .sidebar { transform: translateX(-100%); }

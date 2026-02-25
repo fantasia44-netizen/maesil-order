@@ -178,10 +178,10 @@
                         <option value="missing">미입력만</option>
                         <option value="entered">입력완료만</option>
                     </select>
-                    <button class="btn btn-sm btn-outline-primary" onclick="toggleCostEditMode()" id="btnCostEditToggle">
-                        <i class="bi bi-pencil"></i> 수정 모드
-                    </button>
-                    <button class="btn btn-sm btn-success d-none" onclick="saveAllCosts()" id="btnSaveAll">
+                    {% if current_user.role != 'admin' %}
+                    <button class="edit-mode-toggle view-mode" onclick="toggleCostEditMode()" id="btnCostEditToggle">🔒 보기모드</button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-success {{ '' if current_user.role == 'admin' else 'd-none' }}" onclick="saveAllCosts()" id="btnSaveAll">
                         <i class="bi bi-save"></i> 일괄 저장
                     </button>
                 </div>
@@ -266,11 +266,11 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-shop"></i> 채널비용 관리</span>
                 <div class="d-flex gap-2 align-items-center">
-                    <button class="btn btn-sm btn-outline-primary" onclick="toggleChannelEditMode()" id="btnChannelEditToggle">
-                        <i class="bi bi-pencil"></i> 수정 모드
-                    </button>
-                    <small class="text-muted d-none" id="channelEditHint">수정 후 체크박스 선택 → 일괄적용</small>
-                    <button class="btn btn-sm btn-success d-none" onclick="saveSelectedChannels()" id="btnSaveChannels">
+                    {% if current_user.role != 'admin' %}
+                    <button class="edit-mode-toggle view-mode" onclick="toggleChannelEditMode()" id="btnChannelEditToggle">🔒 보기모드</button>
+                    {% endif %}
+                    <small class="text-muted {{ '' if current_user.role == 'admin' else 'd-none' }}" id="channelEditHint">수정 후 체크박스 선택 → 일괄적용</small>
+                    <button class="btn btn-sm btn-success {{ '' if current_user.role == 'admin' else 'd-none' }}" onclick="saveSelectedChannels()" id="btnSaveChannels">
                         <i class="bi bi-save"></i> 선택 일괄적용
                     </button>
                 </div>
@@ -348,8 +348,9 @@
     let bomComponents = []; // BOM 구성품만 (필터용)
     let allSuggestions = []; // autocomplete용 전체 품목
     let categoryMap = {};   // stock_ledger 기반 product_name→category 매핑
-    let costEditMode = false;
-    let channelEditMode = false;
+    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+    let costEditMode = isAdmin;
+    let channelEditMode = isAdmin;
 
     // ====== 데이터 로드 ======
     async function loadData() {
@@ -1131,36 +1132,28 @@
         const btn = document.getElementById('btnCostEditToggle');
         const saveBtn = document.getElementById('btnSaveAll');
         const addForm = document.getElementById('costAddForm');
-        if (costEditMode) {
-            btn.className = 'btn btn-sm btn-warning';
-            btn.innerHTML = '<i class="bi bi-eye"></i> 보기 모드';
-            saveBtn.classList.remove('d-none');
-            if (addForm) addForm.classList.remove('d-none');
-        } else {
-            btn.className = 'btn btn-sm btn-outline-primary';
-            btn.innerHTML = '<i class="bi bi-pencil"></i> 수정 모드';
-            saveBtn.classList.add('d-none');
-            if (addForm) addForm.classList.add('d-none');
+        if (btn) {
+            btn.className = costEditMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+            btn.innerHTML = costEditMode ? '✏️ 수정모드' : '🔒 보기모드';
         }
+        if (saveBtn) { costEditMode ? saveBtn.classList.remove('d-none') : saveBtn.classList.add('d-none'); }
+        if (isAdmin && saveBtn) saveBtn.classList.remove('d-none');
+        if (addForm) { costEditMode ? addForm.classList.remove('d-none') : addForm.classList.add('d-none'); }
     }
     function _updateChannelEditUI() {
         const btn = document.getElementById('btnChannelEditToggle');
         const saveBtn = document.getElementById('btnSaveChannels');
         const hint = document.getElementById('channelEditHint');
         const addForm = document.getElementById('channelAddForm');
-        if (channelEditMode) {
-            btn.className = 'btn btn-sm btn-warning';
-            btn.innerHTML = '<i class="bi bi-eye"></i> 보기 모드';
-            saveBtn.classList.remove('d-none');
-            if (hint) hint.classList.remove('d-none');
-            if (addForm) addForm.classList.remove('d-none');
-        } else {
-            btn.className = 'btn btn-sm btn-outline-primary';
-            btn.innerHTML = '<i class="bi bi-pencil"></i> 수정 모드';
-            saveBtn.classList.add('d-none');
-            if (hint) hint.classList.add('d-none');
-            if (addForm) addForm.classList.add('d-none');
+        if (btn) {
+            btn.className = channelEditMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+            btn.innerHTML = channelEditMode ? '✏️ 수정모드' : '🔒 보기모드';
         }
+        if (saveBtn) { channelEditMode ? saveBtn.classList.remove('d-none') : saveBtn.classList.add('d-none'); }
+        if (isAdmin && saveBtn) saveBtn.classList.remove('d-none');
+        if (hint) { channelEditMode ? hint.classList.remove('d-none') : hint.classList.add('d-none'); }
+        if (isAdmin && hint) hint.classList.remove('d-none');
+        if (addForm) { channelEditMode ? addForm.classList.remove('d-none') : addForm.classList.add('d-none'); }
     }
     window.toggleCostEditMode = function() {
         costEditMode = !costEditMode;

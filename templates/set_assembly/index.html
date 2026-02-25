@@ -73,8 +73,11 @@
     <!-- 세트작업 이력 -->
     <div class="col-lg-7">
         <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-clock-history"></i> 세트작업 이력 조회
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history"></i> 세트작업 이력 조회</span>
+                {% if current_user.role != 'admin' %}
+                <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="toggleEditMode()">🔒 보기모드</button>
+                {% endif %}
             </div>
             <div class="card-body">
                 <!-- 이력 조회 폼 -->
@@ -102,7 +105,7 @@
 
                 <!-- 이력 삭제 -->
                 {% if history is defined and history %}
-                <form method="POST" action="{{ url_for('set_assembly.delete') }}" class="row g-2 align-items-end mb-3"
+                <form method="POST" action="{{ url_for('set_assembly.delete') }}" class="row g-2 align-items-end mb-3 set-delete-form"
                       onsubmit="return confirm('해당 날짜의 세트작업 이력을 모두 삭제하시겠습니까?\n(단품 차감 + 세트 산출 모두 삭제되어 재고가 복원됩니다)');">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-md-5">
@@ -168,6 +171,22 @@
 </div>
 
 <script>
+const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+let editMode = isAdmin;
+
+function toggleEditMode() {
+    editMode = !editMode;
+    const btn = document.getElementById('btnEditModeToggle');
+    if(btn){
+        btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+        btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
+    }
+    document.querySelectorAll('.set-delete-form').forEach(el => el.style.display = editMode ? '' : 'none');
+}
+document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('.set-delete-form').forEach(el => el.style.display = editMode ? '' : 'none');
+});
+
 // BOM 데이터 (서버에서 전달)
 const bomData = {{ bom_data_json|safe }};
 

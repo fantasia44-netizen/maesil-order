@@ -84,7 +84,7 @@
 
 <!-- 단가 재적용 (관리자/책임자) -->
 {% if current_user.role in ['admin', 'manager'] %}
-<div class="card mt-3">
+<div class="card mt-3 rev-manage-section">
     <div class="card-header bg-warning bg-opacity-10">
         <i class="bi bi-arrow-repeat"></i> 단가 재적용
         <small class="text-muted ms-2">— 가격표(판매관리)에서 수정한 단가를 기존 매출에 일괄 반영</small>
@@ -123,10 +123,15 @@
 <div class="card mt-4">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-currency-won"></i> 매출 내역 ({{ revenues|length }}건)</span>
-        <a href="{{ url_for('revenue.export', date_from=date_from|default(''), date_to=date_to|default(''), category=category|default('')) }}"
-           class="btn btn-sm btn-outline-success">
-            <i class="bi bi-download"></i> 엑셀 다운로드
-        </a>
+        <div class="d-flex gap-2 align-items-center">
+            {% if current_user.role == 'manager' %}
+            <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="toggleEditMode()">🔒 보기모드</button>
+            {% endif %}
+            <a href="{{ url_for('revenue.export', date_from=date_from|default(''), date_to=date_to|default(''), category=category|default('')) }}"
+               class="btn btn-sm btn-outline-success">
+                <i class="bi bi-download"></i> 엑셀 다운로드
+            </a>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -156,7 +161,7 @@
                         <td class="text-end fw-bold">{{ '{:,.0f}'.format(rev.revenue|default(0)) }}</td>
                         {% if current_user.role in ['admin', 'manager'] %}
                         <td class="text-center">
-                            <form method="POST" action="{{ url_for('revenue.delete_revenue', revenue_id=rev.id) }}" class="d-inline"
+                            <form method="POST" action="{{ url_for('revenue.delete_revenue', revenue_id=rev.id) }}" class="d-inline rev-delete-btn"
                                   onsubmit="return confirm('이 매출을 삭제하시겠습니까?\n{{ rev.product_name }} / {{ '{:,.0f}'.format(rev.revenue|default(0)) }}원')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="date_from" value="{{ date_from|default('') }}">
@@ -190,6 +195,24 @@
 
 {% if current_user.role in ['admin', 'manager'] %}
 <script>
+const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+let editMode = isAdmin;
+
+function toggleEditMode() {
+    editMode = !editMode;
+    const btn = document.getElementById('btnEditModeToggle');
+    if(btn){
+        btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
+        btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
+    }
+    applyEditMode();
+}
+function applyEditMode() {
+    document.querySelectorAll('.rev-delete-btn').forEach(el => el.style.display = editMode ? '' : 'none');
+    document.querySelectorAll('.rev-manage-section').forEach(el => el.style.display = editMode ? '' : 'none');
+}
+document.addEventListener('DOMContentLoaded', applyEditMode);
+
 // 조회 필터 날짜 변경 시 단가 재적용 날짜도 동기화
 document.getElementById('filterDateFrom')?.addEventListener('change', function() {
     const el = document.getElementById('reapplyFrom');

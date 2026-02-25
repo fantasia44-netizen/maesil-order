@@ -137,9 +137,7 @@
 
         <!-- 입고 이력 조회 -->
         <div class="card mt-3">
-            <div class="card-header">
-                <i class="bi bi-clock-history"></i> 입고 이력 조회
-            </div>
+            <div class="card-header d-flex justify-content-between align-items-center"><span><i class="bi bi-clock-history"></i> 입고 이력 조회</span></div>
             <div class="card-body">
                 <div class="row g-2 align-items-end mb-2">
                     <div class="col-sm-4">
@@ -295,6 +293,7 @@
     const PRODUCTS_URL = '{{ url_for("inbound.api_products") }}';
     const HISTORY_URL = '{{ url_for("inbound.api_history") }}';
     const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+    let editMode = isAdmin;
 
     const productInput = document.getElementById('productInput');
     const qtyInput = document.getElementById('qtyInput');
@@ -482,7 +481,7 @@
                     <td class="text-end small">${r.qty}</td><td class="small">${escapeHtml(r.location)}</td>
                     <td class="small">${escapeHtml(r.category)}</td><td class="small">${r.unit}</td>
                     <td class="small">${r.expiry_date || ''}</td>`;
-                if(isAdmin){
+                if(isAdmin && editMode){
                     const td = document.createElement('td');
                     td.className = 'text-nowrap';
                     const eBtn = document.createElement('button');

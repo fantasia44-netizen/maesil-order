@@ -76,10 +76,10 @@
                 <option value="empty">미등록 있음</option>
             </select>
             {% if current_user.role in ('admin', 'manager', 'sales') %}
-            <button class="btn btn-sm btn-outline-primary" onclick="toggleEditMode()" id="btnEditToggle">
-                <i class="bi bi-pencil"></i> 수정 모드
-            </button>
-            <button class="btn btn-sm btn-success d-none" onclick="saveAllPrices()" id="btnSaveAll">
+            {% if current_user.role != 'admin' %}
+            <button class="edit-mode-toggle view-mode" onclick="toggleEditMode()" id="btnEditToggle">🔒 보기모드</button>
+            {% endif %}
+            <button class="btn btn-sm btn-success {{ '' if current_user.role == 'admin' else 'd-none' }}" onclick="saveAllPrices()" id="btnSaveAll">
                 <i class="bi bi-save"></i> 변경 일괄 저장
             </button>
             {% endif %}
@@ -124,9 +124,10 @@
 (function(){
     const CSRF = '{{ csrf_token() }}';
     const canEdit = {{ 'true' if current_user.role in ('admin', 'manager', 'sales') else 'false' }};
+    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
     let priceData = [];
     let modifiedPrices = {};
-    let editMode = false;
+    let editMode = isAdmin;
 
     // ====== 데이터 로드 ======
     async function loadData() {
@@ -339,17 +340,21 @@
         const btn = document.getElementById('btnEditToggle');
         const saveBtn = document.getElementById('btnSaveAll');
         const hint = document.getElementById('footerHint');
-        if (!btn) return; // canEdit가 아닌 경우
-        if (editMode) {
-            btn.className = 'btn btn-sm btn-warning';
-            btn.innerHTML = '<i class="bi bi-eye"></i> 보기 모드';
-            if (saveBtn) saveBtn.classList.remove('d-none');
-            if (hint) hint.innerHTML = '값을 변경 후 <strong>일괄 저장</strong> 또는 행별 <strong>✓</strong> 버튼을 클릭하세요';
-        } else {
-            btn.className = 'btn btn-sm btn-outline-primary';
-            btn.innerHTML = '<i class="bi bi-pencil"></i> 수정 모드';
-            if (saveBtn) saveBtn.classList.add('d-none');
-            if (hint) hint.innerHTML = '수정하려면 <strong>수정 모드</strong> 버튼을 클릭하세요';
+        if (btn) {
+            if (editMode) {
+                btn.className = 'edit-mode-toggle edit-mode';
+                btn.innerHTML = '✏️ 수정모드';
+            } else {
+                btn.className = 'edit-mode-toggle view-mode';
+                btn.innerHTML = '🔒 보기모드';
+            }
+        }
+        if (saveBtn) { editMode ? saveBtn.classList.remove('d-none') : saveBtn.classList.add('d-none'); }
+        if (isAdmin && saveBtn) saveBtn.classList.remove('d-none');
+        if (hint) {
+            hint.innerHTML = editMode
+                ? '값을 변경 후 <strong>일괄 저장</strong> 또는 행별 <strong>✓</strong> 버튼을 클릭하세요'
+                : '수정하려면 <strong>수정 모드</strong> 버튼을 클릭하세요';
         }
     }
     window.toggleEditMode = function() {
