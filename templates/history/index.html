@@ -28,13 +28,19 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 d-flex align-items-end gap-1">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-search"></i> 검색
                 </button>
                 <a href="{{ url_for('history.index') }}" class="btn btn-outline-secondary">
                     <i class="bi bi-arrow-counterclockwise"></i> 초기화
                 </a>
+                {% if records is defined and records %}
+                <a href="{{ url_for('history.excel', date_from=date_from|default(''), date_to=date_to|default(''), type=record_type|default(''), product_name=product_name|default('')) }}"
+                   class="btn btn-outline-success" title="엑셀 다운로드">
+                    <i class="bi bi-file-earmark-excel"></i>
+                </a>
+                {% endif %}
             </div>
         </form>
     </div>
