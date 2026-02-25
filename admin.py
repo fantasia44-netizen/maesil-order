@@ -261,6 +261,12 @@ _REVERTABLE_ACTIONS = {
     'delete_revenue', 'delete_purchase_order',
     'delete_trade', 'delete_partner', 'delete_business',
     'update_partner',
+    # 재고원장 기반 (생산/입고/조정/소분/세트)
+    'delete_production', 'update_production',
+    'delete_inbound', 'update_inbound',
+    'delete_adjustment', 'update_adjustment',
+    'delete_repack', 'update_repack',
+    'delete_set_assembly',
 }
 
 
@@ -405,6 +411,44 @@ def revert_audit_log(log_id):
                             if k not in ('id', 'created_at')}
             if update_fields:
                 db.update_partner(partner_id, update_fields)
+
+        # ── 재고원장 삭제 복원 (생산/입고/조정/소분) ──
+        elif action in ('delete_production', 'delete_inbound',
+                        'delete_adjustment', 'delete_repack'):
+            # old_value: stock_ledger 단일 레코드 → 재삽입
+            restore_data = {k: v for k, v in old_value.items()
+                           if k not in ('id', 'created_at', 'is_deleted',
+                                        'deleted_at', 'deleted_by')}
+            if restore_data.get('product_name'):
+                db.insert_stock_ledger([restore_data])
+
+        # ── 재고원장 수정 복원 (생산/입고/조정/소분) ──
+        elif action in ('update_production', 'update_inbound',
+                        'update_adjustment', 'update_repack'):
+            # old_value: 수정 전 전체 레코드 → 원래 값으로 복원
+            row_id = int(target)
+            restore_fields = {k: v for k, v in old_value.items()
+                             if k not in ('id', 'created_at', 'is_deleted',
+                                          'deleted_at', 'deleted_by')}
+            if restore_fields:
+                db.update_stock_ledger(row_id, restore_fields)
+
+        # ── 세트작업 삭제 복원 (다건) ──
+        elif action == 'delete_set_assembly':
+            # old_value: stock_ledger 레코드 리스트 → 전부 재삽입
+            if isinstance(old_value, list):
+                for rec in old_value:
+                    restore_data = {k: v for k, v in rec.items()
+                                   if k not in ('id', 'created_at', 'is_deleted',
+                                                'deleted_at', 'deleted_by')}
+                    if restore_data.get('product_name'):
+                        db.insert_stock_ledger([restore_data])
+            elif isinstance(old_value, dict):
+                restore_data = {k: v for k, v in old_value.items()
+                               if k not in ('id', 'created_at', 'is_deleted',
+                                            'deleted_at', 'deleted_by')}
+                if restore_data.get('product_name'):
+                    db.insert_stock_ledger([restore_data])
 
         else:
             return jsonify({'error': f'{action} 롤백 미구현'}), 400

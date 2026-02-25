@@ -15,7 +15,7 @@ from flask import (
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from auth import role_required
+from auth import role_required, _log_action
 
 production_bp = Blueprint('production', __name__, url_prefix='/production')
 
@@ -121,7 +121,10 @@ def api_history():
 def api_delete(record_id):
     """개별 생산 이력 삭제 (admin 전용)"""
     try:
+        old_record = current_app.db.query_stock_ledger_by_id(record_id)
         current_app.db.delete_stock_ledger_by_id(record_id)
+        _log_action('delete_production', target=str(record_id),
+                     old_value=old_record)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -153,7 +156,10 @@ def api_update(record_id):
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
+        old_record = current_app.db.query_stock_ledger_by_id(record_id)
         current_app.db.update_stock_ledger(record_id, update_data)
+        _log_action('update_production', target=str(record_id),
+                     old_value=old_record, new_value=update_data)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

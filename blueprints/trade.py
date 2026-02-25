@@ -274,9 +274,13 @@ def api_update_partner(partner_id):
         return jsonify({'error': '수정할 데이터가 없습니다.'}), 400
 
     try:
+        # 수정 전 원본 조회 (되돌리기용)
+        old_list = current_app.db.client.table("business_partners") \
+            .select("*").eq("id", partner_id).limit(1).execute()
+        old_record = old_list.data[0] if old_list.data else None
         current_app.db.update_partner(partner_id, payload)
         _log_action('update_partner', target=str(partner_id),
-                     detail=str(payload))
+                     old_value=old_record, new_value=payload)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

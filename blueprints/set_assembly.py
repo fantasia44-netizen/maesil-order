@@ -13,7 +13,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 
-from auth import role_required
+from auth import role_required, _log_action
 from models import INV_TYPE_LABELS
 
 set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly')
@@ -171,10 +171,17 @@ def delete():
         return redirect(url_for('set_assembly.index'))
 
     try:
+        # 삭제 전 원본 데이터 조회 (되돌리기용)
+        old_records = db.query_stock_ledger(
+            date_from=date_str, date_to=date_str,
+            type_list=['SET_OUT', 'SET_IN'])
         cnt1 = db.delete_stock_ledger_by(date_str, 'SET_OUT')
         cnt2 = db.delete_stock_ledger_by(date_str, 'SET_IN')
         total = (cnt1 or 0) + (cnt2 or 0)
         if total > 0:
+            _log_action('delete_set_assembly', target=date_str,
+                         old_value=old_records,
+                         detail=f'{total}건 삭제')
             flash(f'{date_str} 세트작업 이력 {total}건 삭제 완료', 'success')
         else:
             flash(f'{date_str} 에 삭제할 세트작업 이력이 없습니다.', 'warning')
