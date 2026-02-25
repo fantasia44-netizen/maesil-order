@@ -258,6 +258,151 @@
     </div>
 </div>
 
+<!-- 품목보기 (product_costs) 패널 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-box-seam"></i> 품목보기 (<span id="prodTotalCount">0</span>건)</span>
+    </div>
+    <div class="card-body">
+        <!-- 검색/필터 -->
+        <div class="row mb-3 g-2">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" id="prodSearchInput" class="form-control"
+                           placeholder="품목명 검색...">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select id="prodFilterMode" class="form-select">
+                    <option value="">전체</option>
+                    <option value="missing_food_type">식품유형 미기입</option>
+                    <option value="missing_unit">단위 미기입</option>
+                    <option value="missing_weight">중량 미기입</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="prodPerPage" class="form-select">
+                    <option value="30">30건</option>
+                    <option value="50" selected>50건</option>
+                    <option value="100">100건</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 테이블 -->
+        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th>품목명</th>
+                        <th style="width:70px">유형</th>
+                        <th style="width:70px">종류</th>
+                        <th style="width:80px">식품유형</th>
+                        <th class="text-end" style="width:80px">단가</th>
+                        <th style="width:50px">단위</th>
+                        <th class="text-end" style="width:60px">중량</th>
+                        <th style="width:50px">중량단위</th>
+                        <th style="width:60px">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="prodTableBody">
+                    <tr><td colspan="9" class="text-center text-muted py-4">로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 페이지네이션 -->
+        <nav class="mt-3 d-flex justify-content-between align-items-center">
+            <small class="text-muted" id="prodPageInfo"></small>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" id="prodPrevBtn" disabled>&laquo; 이전</button>
+                <button class="btn btn-outline-secondary" id="prodNextBtn" disabled>다음 &raquo;</button>
+            </div>
+        </nav>
+    </div>
+</div>
+
+<!-- 품목 수정 모달 -->
+<div class="modal fade" id="prodEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">품목 정보 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="prodEditName">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">품목명</label>
+                    <input type="text" id="prodEditNameDisplay" class="form-control" readonly>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">유형</label>
+                        <select id="prodEditCostType" class="form-select">
+                            <option value="매입">매입</option>
+                            <option value="생산">생산</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">종류</label>
+                        <select id="prodEditMaterialType" class="form-select">
+                            <option value="원료">원료</option>
+                            <option value="부재료">부재료</option>
+                            <option value="반제품">반제품</option>
+                            <option value="완제품">완제품</option>
+                            <option value="포장재">포장재</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">식품유형</label>
+                    <select id="prodEditFoodType" class="form-select">
+                        <option value="">선택</option>
+                        <option value="농산물">농산물</option>
+                        <option value="수산물">수산물</option>
+                        <option value="축산물">축산물</option>
+                    </select>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">단가</label>
+                        <input type="number" id="prodEditCostPrice" class="form-control">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">단위</label>
+                        <input type="text" id="prodEditUnit" class="form-control">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">메모</label>
+                        <input type="text" id="prodEditMemo" class="form-control">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">중량</label>
+                        <input type="number" step="0.01" id="prodEditWeight" class="form-control">
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label fw-semibold">중량단위</label>
+                        <select id="prodEditWeightUnit" class="form-select">
+                            <option value="g">g</option>
+                            <option value="kg">kg</option>
+                            <option value="ml">ml</option>
+                            <option value="L">L</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="prodEditSaveBtn">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 품목명 공백 정리 -->
 <div class="card mb-4">
     <div class="card-body d-flex justify-content-between align-items-center">
@@ -519,6 +664,164 @@ document.addEventListener('DOMContentLoaded', function(){
         })
         .catch(e => alert('삭제 중 오류: ' + e.message));
     };
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+})();
+
+// ================================================================
+// 품목보기 (product_costs) 패널
+// ================================================================
+(function() {
+    const csrfToken = '{{ csrf_token() }}';
+    let prodPage = 1;
+    let prodKeyword = '';
+    let prodFilter = '';
+    let prodPerPage = 50;
+
+    loadProducts();
+
+    let prodSearchTimer;
+    document.getElementById('prodSearchInput').addEventListener('input', function() {
+        clearTimeout(prodSearchTimer);
+        prodSearchTimer = setTimeout(function() {
+            prodKeyword = document.getElementById('prodSearchInput').value.trim();
+            prodPage = 1;
+            loadProducts();
+        }, 300);
+    });
+
+    document.getElementById('prodFilterMode').addEventListener('change', function() {
+        prodFilter = this.value;
+        prodPage = 1;
+        loadProducts();
+    });
+
+    document.getElementById('prodPerPage').addEventListener('change', function() {
+        prodPerPage = parseInt(this.value);
+        prodPage = 1;
+        loadProducts();
+    });
+
+    document.getElementById('prodPrevBtn').addEventListener('click', function() {
+        if (prodPage > 1) { prodPage--; loadProducts(); }
+    });
+    document.getElementById('prodNextBtn').addEventListener('click', function() {
+        prodPage++;
+        loadProducts();
+    });
+
+    function loadProducts() {
+        let url = '/master/api/products?page=' + prodPage + '&per_page=' + prodPerPage;
+        if (prodKeyword) url += '&q=' + encodeURIComponent(prodKeyword);
+        if (prodFilter) url += '&filter=' + encodeURIComponent(prodFilter);
+
+        fetch(url)
+            .then(r => r.json())
+            .then(resp => {
+                renderProdTable(resp.data);
+                updateProdPagination(resp);
+            })
+            .catch(e => console.error('품목 로드 실패:', e));
+    }
+
+    function foodTypeBadge(ft) {
+        if (!ft) return '-';
+        const cls = ft === '농산물' ? 'bg-success' : ft === '수산물' ? 'bg-primary' : ft === '축산물' ? 'bg-danger' : 'bg-secondary';
+        return '<span class="badge ' + cls + ' small">' + escapeHtml(ft) + '</span>';
+    }
+
+    function renderProdTable(rows) {
+        const tbody = document.getElementById('prodTableBody');
+        if (!rows || !rows.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            return;
+        }
+        window._prodRows = {};
+        tbody.innerHTML = rows.map(r => {
+            const pn = r.product_name || '';
+            window._prodRows[pn] = r;
+            const price = r.cost_price != null ? Number(r.cost_price).toLocaleString() : '0';
+            const wt = r.weight ? Number(r.weight).toLocaleString() : '-';
+            const pnEnc = encodeURIComponent(pn);
+            return '<tr>' +
+                '<td class="text-truncate" style="max-width:180px" title="' + escapeHtml(pn) + '">' + escapeHtml(pn) + '</td>' +
+                '<td><span class="badge ' + (r.cost_type === '생산' ? 'bg-info' : 'bg-secondary') + ' small">' + escapeHtml(r.cost_type || '매입') + '</span></td>' +
+                '<td>' + escapeHtml(r.material_type || '원료') + '</td>' +
+                '<td>' + foodTypeBadge(r.food_type) + '</td>' +
+                '<td class="text-end">' + price + '</td>' +
+                '<td>' + escapeHtml(r.unit || '-') + '</td>' +
+                '<td class="text-end">' + wt + '</td>' +
+                '<td>' + escapeHtml(r.weight_unit || 'g') + '</td>' +
+                '<td><button class="btn btn-sm btn-outline-primary" onclick="openProdEditModal(\'' + pnEnc + '\')" title="수정"><i class="bi bi-pencil"></i></button></td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    function updateProdPagination(resp) {
+        document.getElementById('prodTotalCount').textContent = resp.total;
+        const start = (resp.page - 1) * resp.per_page + 1;
+        const end = Math.min(resp.page * resp.per_page, resp.total);
+        document.getElementById('prodPageInfo').textContent = resp.total > 0
+            ? resp.total + '건 중 ' + start + '~' + end
+            : '0건';
+        document.getElementById('prodPrevBtn').disabled = resp.page <= 1;
+        document.getElementById('prodNextBtn').disabled = resp.page >= resp.total_pages;
+    }
+
+    // 품목 수정 모달
+    window.openProdEditModal = function(encodedName) {
+        const pn = decodeURIComponent(encodedName);
+        const r = window._prodRows[pn];
+        if (!r) return;
+        document.getElementById('prodEditName').value = pn;
+        document.getElementById('prodEditNameDisplay').value = pn;
+        document.getElementById('prodEditCostType').value = r.cost_type || '매입';
+        document.getElementById('prodEditMaterialType').value = r.material_type || '원료';
+        document.getElementById('prodEditFoodType').value = r.food_type || '';
+        document.getElementById('prodEditCostPrice').value = r.cost_price || 0;
+        document.getElementById('prodEditUnit').value = r.unit || '';
+        document.getElementById('prodEditMemo').value = r.memo || '';
+        document.getElementById('prodEditWeight').value = r.weight || 0;
+        document.getElementById('prodEditWeightUnit').value = r.weight_unit || 'g';
+        new bootstrap.Modal(document.getElementById('prodEditModal')).show();
+    };
+
+    // 품목 저장
+    document.getElementById('prodEditSaveBtn').addEventListener('click', function() {
+        const pn = document.getElementById('prodEditName').value;
+        if (!pn) return;
+
+        const payload = {
+            cost_type: document.getElementById('prodEditCostType').value,
+            material_type: document.getElementById('prodEditMaterialType').value,
+            food_type: document.getElementById('prodEditFoodType').value,
+            cost_price: parseFloat(document.getElementById('prodEditCostPrice').value) || 0,
+            unit: document.getElementById('prodEditUnit').value.trim(),
+            memo: document.getElementById('prodEditMemo').value.trim(),
+            weight: parseFloat(document.getElementById('prodEditWeight').value) || 0,
+            weight_unit: document.getElementById('prodEditWeightUnit').value,
+        };
+
+        fetch('/master/api/products/' + encodeURIComponent(pn), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+            body: JSON.stringify(payload),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                bootstrap.Modal.getInstance(document.getElementById('prodEditModal')).hide();
+                loadProducts();
+            } else {
+                alert('저장 실패: ' + (data.error || ''));
+            }
+        })
+        .catch(e => alert('저장 중 오류: ' + e.message));
+    });
 
     function escapeHtml(str) {
         const div = document.createElement('div');

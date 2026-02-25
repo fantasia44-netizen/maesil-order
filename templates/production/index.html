@@ -83,6 +83,15 @@
                                 <option value="실온">실온</option>
                             </select>
                         </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">식품유형</label>
+                            <select id="prodFoodTypeInput" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="농산물">농산물</option>
+                                <option value="수산물">수산물</option>
+                                <option value="축산물">축산물</option>
+                            </select>
+                        </div>
                         <div class="col-sm-3">
                             <label class="form-label small mb-1">제조일</label>
                             <input type="date" id="prodMfgInput" class="form-control form-control-sm">
@@ -330,6 +339,7 @@
     const prodCatInput = document.getElementById('prodCatInput');
     const prodUnitInput = document.getElementById('prodUnitInput');
     const prodStorageInput = document.getElementById('prodStorageInput');
+    const prodFoodTypeInput = document.getElementById('prodFoodTypeInput');
     const prodMfgInput = document.getElementById('prodMfgInput');
     const prodExpInput = document.getElementById('prodExpInput');
     const prodAcList = document.getElementById('prodAcList');
@@ -524,6 +534,7 @@
             category: prodCatInput.value.trim(),
             unit: prodUnitInput.value.trim() || '개',
             storage_method: prodStorageInput.value.trim(),
+            food_type: prodFoodTypeInput.value.trim(),
             manufacture_date: prodMfgInput.value || '',
             expiry_date: prodExpInput.value || '',
             materials: validMats,
@@ -532,6 +543,7 @@
         // 초기화
         prodNameInput.value = ''; prodQtyInput.value = '';
         prodCatInput.value = '반제품'; prodStorageInput.value = '';
+        prodFoodTypeInput.value = '';
         prodUnitInput.value = '개';
         prodMfgInput.value = ''; prodExpInput.value = '';
         currentMaterials = []; renderMaterialRows();

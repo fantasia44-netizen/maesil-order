@@ -428,6 +428,7 @@ def process_production_batch(db, date_str, mode, location, items):
             "storage_method": str(item.get('storage_method', '')).strip(),
             "unit": str(item.get('unit', '개')).strip() or '개',
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
+            "food_type": str(item.get('food_type', '')).strip(),
             "batch_id": batch_id,
         })
         prod_count += 1

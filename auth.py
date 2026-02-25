@@ -105,15 +105,31 @@ class ChangePasswordForm(FlaskForm):
 # ── 권한 데코레이터 ──
 
 def role_required(*roles):
-    """특정 역할만 접근 허용"""
+    """특정 역할만 접근 허용 (하드코딩 역할 + DB 권한 설정 모두 체크).
+    1) 하드코딩 roles에 포함되면 허용
+    2) DB role_permissions에서 해당 page_key가 is_allowed=True이면 허용
+    """
     def decorator(f):
         @wraps(f)
         @login_required
         def wrapped(*args, **kwargs):
-            if current_user.role not in roles:
-                flash('접근 권한이 없습니다.', 'danger')
-                return redirect(url_for('main.dashboard'))
-            return f(*args, **kwargs)
+            user_role = current_user.role
+            # 하드코딩 역할에 포함되면 바로 허용
+            if user_role in roles:
+                return f(*args, **kwargs)
+            # DB 권한 체크: 블루프린트 이름을 page_key로 사용
+            try:
+                bp_name = request.blueprints[0] if request.blueprints else ''
+                if bp_name:
+                    db = current_app.db
+                    perms = db.query_role_permissions()
+                    role_perms = perms.get(user_role, {})
+                    if role_perms.get(bp_name, False):
+                        return f(*args, **kwargs)
+            except Exception:
+                pass
+            flash('접근 권한이 없습니다.', 'danger')
+            return redirect(url_for('main.dashboard'))
         return wrapped
     return decorator
 

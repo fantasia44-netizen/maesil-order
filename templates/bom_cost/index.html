@@ -193,6 +193,7 @@
                             <tr>
                                 <th style="width:65px;">종류</th>
                                 <th style="width:55px;">유형</th>
+                                <th style="width:60px;">식품유형</th>
                                 <th>품목명</th>
                                 <th class="text-end" style="width:100px;">매입단가</th>
                                 <th style="width:65px;">매입단위</th>
@@ -206,7 +207,7 @@
                             </tr>
                         </thead>
                         <tbody id="costBody">
-                            <tr><td colspan="12" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                            <tr><td colspan="13" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -219,6 +220,15 @@
                         <select id="newCostType" class="form-select form-select-sm" style="width:65px;">
                             <option value="매입">매입</option>
                             <option value="생산">생산</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small fw-semibold">식품유형</label>
+                        <select id="newFoodType" class="form-select form-select-sm" style="width:70px;">
+                            <option value="">-</option>
+                            <option value="농산물">농산물</option>
+                            <option value="수산물">수산물</option>
+                            <option value="축산물">축산물</option>
                         </select>
                     </div>
                     <div class="col-md-2">
@@ -623,6 +633,7 @@
                 memo: existing ? existing.memo : '',
                 cost_type: existing ? (existing.cost_type || '매입') : '매입',
                 material_type: mt,
+                food_type: existing ? (existing.food_type || '') : '',
                 purchase_unit: existing ? (existing.purchase_unit || '') : '',
                 standard_unit: existing ? (existing.standard_unit || '') : '',
                 conversion_ratio: ratio,
@@ -645,6 +656,7 @@
                 items.push({ ...c, weight: c.weight || 0,
                     cost_type: c.cost_type || '매입',
                     material_type: getMaterialType(c.product_name),
+                    food_type: c.food_type || '',
                     purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
                     conversion_ratio: ratio,
                     unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
@@ -658,6 +670,7 @@
                     const ratio = c.conversion_ratio || 1;
                     items.push({ ...c, weight: c.weight || 0, cost_type: c.cost_type || '매입',
                         material_type: getMaterialType(c.product_name),
+                        food_type: c.food_type || '',
                         purchase_unit: c.purchase_unit || '', standard_unit: c.standard_unit || '',
                         conversion_ratio: ratio,
                         unit_cost: ratio > 0 ? Math.round(c.cost_price / ratio * 100) / 100 : c.cost_price,
@@ -693,6 +706,7 @@
 
             html += '<tr class="' + (isMissing ? 'missing-cost' : '') + '" id="cost-row-' + escapeAttr(modKey) + '">';
 
+            const ft = item.food_type || '';
             if (costEditMode) {
                 // ── 수정 모드 ──
                 // 종류 (stock_ledger.category 읽기전용)
@@ -703,6 +717,14 @@
                      + 'onchange="window._costChanged(this)">'
                      + '<option value="매입"' + (ct === '매입' ? ' selected' : '') + '>매입</option>'
                      + '<option value="생산"' + (ct === '생산' ? ' selected' : '') + '>생산</option></select></td>';
+                // 식품유형
+                html += '<td><select class="form-select form-select-sm" style="width:55px;font-size:0.7rem;padding:1px 2px;" '
+                     + 'data-field="food_type" data-name="' + escapeAttr(item.product_name) + '" '
+                     + 'onchange="window._costChanged(this)">'
+                     + '<option value=""' + (ft === '' ? ' selected' : '') + '>-</option>'
+                     + '<option value="농산물"' + (ft === '농산물' ? ' selected' : '') + '>농산물</option>'
+                     + '<option value="수산물"' + (ft === '수산물' ? ' selected' : '') + '>수산물</option>'
+                     + '<option value="축산물"' + (ft === '축산물' ? ' selected' : '') + '>축산물</option></select></td>';
                 // 품목명
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
@@ -754,6 +776,12 @@
                 // ── 보기 모드 ──
                 html += '<td>' + (mt ? mtBadge : '<span class="text-muted">-</span>') + '</td>';
                 html += '<td>' + ctBadge + '</td>';
+                // 식품유형
+                const ftBadge = ft === '농산물' ? '<span class="badge bg-success">농산</span>'
+                    : ft === '수산물' ? '<span class="badge bg-primary">수산</span>'
+                    : ft === '축산물' ? '<span class="badge bg-danger">축산</span>'
+                    : '<span class="text-muted">-</span>';
+                html += '<td>' + ftBadge + '</td>';
                 html += '<td>' + escapeHtml(item.product_name);
                 if (item.is_bom) html += ' <span class="badge bg-info badge-sm">BOM</span>';
                 html += '</td>';
@@ -883,6 +911,7 @@
         const suInput = row.querySelector('input[data-field="standard_unit"]');
         const ratioInput = row.querySelector('input.ratio-input');
         const memoInput = row.querySelector('input[data-field="memo"]');
+        const ftSelect = row.querySelector('select[data-field="food_type"]');
 
         const costPrice = parseFloat(priceInput ? priceInput.value : 0) || 0;
         const weight = parseFloat(weightInput ? weightInput.value : 0) || 0;
@@ -890,6 +919,7 @@
         const standardUnit = suInput ? suInput.value.trim() : '';
         const conversionRatio = parseFloat(ratioInput ? ratioInput.value : 1) || 1;
         const memo = memoInput ? memoInput.value.trim() : '';
+        const foodType = ftSelect ? ftSelect.value : '';
 
         try {
             const res = await fetch('/bom-cost/api/cost', {
@@ -898,7 +928,7 @@
                 body: JSON.stringify({product_name: productName, cost_price: costPrice,
                     weight, unit: '', memo, cost_type: costType,
                     purchase_unit: purchaseUnit, standard_unit: standardUnit,
-                    conversion_ratio: conversionRatio}),
+                    conversion_ratio: conversionRatio, food_type: foodType}),
             });
             const json = await res.json();
             if (json.success) {
@@ -943,6 +973,7 @@
             const suInput = row.querySelector('input[data-field="standard_unit"]');
             const ratioInput = row.querySelector('input.ratio-input');
             const memoInput = row.querySelector('input[data-field="memo"]');
+            const ftSelect = row.querySelector('select[data-field="food_type"]');
             items.push({
                 product_name: name,
                 cost_price: costPrice,
@@ -953,6 +984,7 @@
                 purchase_unit: puInput ? puInput.value.trim() : '',
                 standard_unit: suInput ? suInput.value.trim() : '',
                 conversion_ratio: parseFloat(ratioInput ? ratioInput.value : 1) || 1,
+                food_type: ftSelect ? ftSelect.value : '',
             });
         });
 
@@ -985,6 +1017,7 @@
         const purchaseUnit = document.getElementById('newPurchaseUnit').value.trim();
         const standardUnit = document.getElementById('newStandardUnit').value.trim();
         const conversionRatio = parseFloat(document.getElementById('newConversionRatio').value) || 1;
+        const foodType = document.getElementById('newFoodType').value;
         if (!name) { alert('품목명을 입력하세요.'); return; }
 
         try {
@@ -994,7 +1027,7 @@
                 body: JSON.stringify({product_name: name, cost_price: price, weight,
                     unit: '', memo, cost_type: costType,
                     purchase_unit: purchaseUnit, standard_unit: standardUnit,
-                    conversion_ratio: conversionRatio}),
+                    conversion_ratio: conversionRatio, food_type: foodType}),
             });
             const json = await res.json();
             if (json.success) {

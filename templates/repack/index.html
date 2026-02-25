@@ -82,6 +82,15 @@
                                 <option value="실온">실온</option>
                             </select>
                         </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">식품유형</label>
+                            <select id="outFoodType" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="농산물">농산물</option>
+                                <option value="수산물">수산물</option>
+                                <option value="축산물">축산물</option>
+                            </select>
+                        </div>
                         <div class="col-sm-3">
                             <label class="form-label small mb-1">제조일</label>
                             <input type="date" id="outMfg" class="form-control form-control-sm">
@@ -473,6 +482,7 @@
         const outCategory = document.getElementById('outCategory').value.trim();
         const outUnit = document.getElementById('outUnit').value.trim() || '개';
         const outStorage = document.getElementById('outStorage').value.trim();
+        const outFoodType = document.getElementById('outFoodType').value.trim();
         const outExpiry = document.getElementById('outExpiry').value;
         const outMfg = document.getElementById('outMfg').value;
 
@@ -495,6 +505,7 @@
             category: outCategory,
             unit: outUnit,
             storage_method: outStorage,
+            food_type: outFoodType,
             expiry_date: outExpiry,
             manufacture_date: outMfg,
             materials: materials
@@ -506,6 +517,7 @@
         document.getElementById('outCategory').value = '반제품';
         document.getElementById('outUnit').value = '개';
         document.getElementById('outStorage').value = '';
+        document.getElementById('outFoodType').value = '';
         document.getElementById('outExpiry').value = '';
         document.getElementById('outMfg').value = '';
         document.getElementById('materialRows').innerHTML = '';

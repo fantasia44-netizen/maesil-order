@@ -85,7 +85,7 @@ def edit(row_id):
 
         # 폼에서 수정 가능한 필드들
         for field in ['transaction_date', 'type', 'product_name', 'qty',
-                       'location', 'category', 'expiry_date', 'storage_method',
+                       'location', 'category', 'food_type', 'expiry_date', 'storage_method',
                        'unit', 'lot_number', 'grade', 'manufacture_date', 'origin']:
             val = request.form.get(field)
             if val is not None:

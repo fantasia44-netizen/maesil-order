@@ -58,6 +58,7 @@
                         <th>단위</th>
                         <th>위치</th>
                         <th>카테고리</th>
+                        <th>식품유형</th>
                         <th>보관</th>
                         <th>제조일</th>
                         <th>소비기한</th>
@@ -92,6 +93,7 @@
                         <td>{{ rec.unit|default('-') }}</td>
                         <td>{{ rec.location|default('-') }}</td>
                         <td>{{ rec.category|default('-') }}</td>
+                        <td>{% if rec.food_type %}<span class="badge {% if rec.food_type == '농산물' %}bg-success{% elif rec.food_type == '수산물' %}bg-primary{% elif rec.food_type == '축산물' %}bg-danger{% else %}bg-secondary{% endif %} small">{{ rec.food_type }}</span>{% else %}-{% endif %}</td>
                         <td>{{ rec.storage_method|default('-') }}</td>
                         <td>{{ rec.manufacture_date|default('-') }}</td>
                         <td>{{ rec.expiry_date|default('-') }}</td>
@@ -111,7 +113,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="12" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
+                        <td colspan="13" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -164,6 +166,15 @@
                         <input type="text" name="category" id="edit_category" class="form-control">
                     </div>
                     <div class="mb-3">
+                        <label class="form-label fw-semibold">식품유형</label>
+                        <select name="food_type" id="edit_food_type" class="form-select">
+                            <option value="">선택</option>
+                            <option value="농산물">농산물</option>
+                            <option value="수산물">수산물</option>
+                            <option value="축산물">축산물</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
                         <label class="form-label fw-semibold">보관방법</label>
                         <select name="storage_method" id="edit_storage_method" class="form-select">
                             <option value="">선택</option>
@@ -204,6 +215,7 @@ function openEditModal(rec) {
         document.getElementById('edit_unit').value = rec.unit || '';
         document.getElementById('edit_location').value = rec.location || '';
         document.getElementById('edit_category').value = rec.category || '';
+        document.getElementById('edit_food_type').value = rec.food_type || '';
         document.getElementById('edit_storage_method').value = rec.storage_method || '';
         document.getElementById('edit_manufacture_date').value = rec.manufacture_date || '';
         document.getElementById('edit_expiry_date').value = rec.expiry_date || '';

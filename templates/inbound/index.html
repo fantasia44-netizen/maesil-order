@@ -85,6 +85,15 @@
                         <input type="text" id="storageInput" class="form-control form-control-sm" placeholder="냉동/냉장/실온">
                     </div>
                     <div class="col-sm-2">
+                        <label class="form-label small mb-1">식품유형</label>
+                        <select id="foodTypeInput" class="form-select form-select-sm">
+                            <option value="">선택</option>
+                            <option value="농산물">농산물</option>
+                            <option value="수산물">수산물</option>
+                            <option value="축산물">축산물</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-2">
                         <label class="form-label small mb-1">제조일</label>
                         <input type="date" id="mfgDateInput" class="form-control form-control-sm">
                     </div>
@@ -301,6 +310,7 @@
     const categoryInput = document.getElementById('categoryInput');
     const unitInput = document.getElementById('unitInput');
     const storageInput = document.getElementById('storageInput');
+    const foodTypeInput = document.getElementById('foodTypeInput');
     const mfgDateInput = document.getElementById('mfgDateInput');
     const expiryInput = document.getElementById('expiryInput');
     const originInput = document.getElementById('originInput');
@@ -384,6 +394,7 @@
             category: categoryInput.value.trim(),
             unit: unitInput.value.trim() || '개',
             storage_method: storageInput.value.trim(),
+            food_type: foodTypeInput.value.trim(),
             manufacture_date: mfgDateInput.value || '',
             expiry_date: expiryInput.value || '',
             origin: originInput.value.trim(),
@@ -391,6 +402,7 @@
         });
 
         productInput.value = ''; qtyInput.value = '';
+        foodTypeInput.value = '';
         productInput.focus();
         renderTable();
     }

@@ -204,6 +204,14 @@ CREATE TABLE IF NOT EXISTS coupons (
 );
 CREATE INDEX IF NOT EXISTS idx_coupons_product ON coupons(product_name);
 CREATE INDEX IF NOT EXISTS idx_coupons_dates ON coupons(start_date, end_date);
+
+-- 16) product_costs 확장: 식품유형 (food_type) 컬럼 추가
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
+-- food_type: '농산물', '수산물', '축산물', '' (미지정)
+
+-- 17) stock_ledger 확장: 식품유형 (food_type) 컬럼 추가
+ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_stock_ledger_food_type ON stock_ledger(food_type);
 """
 
 print("=" * 60)

@@ -57,6 +57,7 @@ def process_inbound_batch(db, date_str, mode, items):
             "storage_method": str(item.get('storage_method', '')).strip(),
             "unit": str(item.get('unit', '개')).strip() or '개',
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
+            "food_type": str(item.get('food_type', '')).strip(),
             "origin": str(item.get('origin', '')).strip() or None,
             "lot_number": str(item.get('lot_number', '')).strip() or None,
             "grade": str(item.get('grade', '')).strip() or None,

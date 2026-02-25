@@ -95,7 +95,7 @@ def query_all_stock_data(db, date_to, date_from=None, location=None,
 # ─── 재고 현황 (스냅샷 뷰) ───
 
 def query_stock_snapshot(db, date_str, location=None, category=None,
-                         search=None, storage_method=None,
+                         search=None, storage_method=None, food_type=None,
                          split_expiry=False, split_manufacture=False):
     """기준일 기준 재고현황을 조회하여 리스트로 반환.
     app.py의 _refresh_stock_view 로직과 동일.
@@ -125,7 +125,7 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     if df.empty:
         return []
 
-    for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin']:
+    for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin', 'food_type']:
         if col not in df.columns:
             df[col] = ''
         df[col] = df[col].fillna('')
@@ -143,6 +143,13 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
+    # food_type 빈값 통합: 같은 품목에 food_type이 있으면 채워넣기
+    ft_map = df[df['food_type'] != ''].groupby('product_name')['food_type'].first().to_dict()
+    if ft_map:
+        mask_ft = df['food_type'] == ''
+        if mask_ft.any():
+            df.loc[mask_ft, 'food_type'] = df.loc[mask_ft, 'product_name'].map(ft_map).fillna('')
+
     if split_manufacture:
         group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'manufacture_date']
     elif split_expiry:
@@ -153,6 +160,9 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()
     summary = summary[summary['qty'] != 0]
 
+    # food_type을 product_name 기준으로 매핑 (그룹 키에 포함하지 않고 별도 매핑)
+    ft_lookup = ft_map  # {product_name: food_type}
+
     if search:
         summary = summary[summary['product_name'].str.contains(search, case=False, na=False)]
     if location and location != '전체':
@@ -161,6 +171,10 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         summary = summary[summary['category'] == category]
     if storage_method and storage_method != '전체':
         summary = summary[summary['storage_method'] == storage_method]
+
+    # food_type 필터
+    if food_type and food_type != '전체':
+        summary = summary[summary['product_name'].map(lambda n: ft_lookup.get(n, '') == food_type)]
 
     results = []
     for _, r in summary.iterrows():
@@ -174,6 +188,7 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
             'location': r['location'],
             'category': r['category'],
             'storage_method': r['storage_method'],
+            'food_type': ft_lookup.get(r['product_name'], ''),
             'is_negative': qty_val < 0,
         }
         if split_manufacture:

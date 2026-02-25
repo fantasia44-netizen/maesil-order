@@ -29,7 +29,16 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-md-1">
+                <label class="form-label fw-semibold">식품유형</label>
+                <select name="food_type" class="form-select">
+                    <option value="전체">전체</option>
+                    <option value="농산물" {% if food_type_filter == '농산물' %}selected{% endif %}>농산물</option>
+                    <option value="수산물" {% if food_type_filter == '수산물' %}selected{% endif %}>수산물</option>
+                    <option value="축산물" {% if food_type_filter == '축산물' %}selected{% endif %}>축산물</option>
+                </select>
+            </div>
+            <div class="col-md-1">
                 <label class="form-label fw-semibold">보기 옵션</label>
                 <select name="view_mode" class="form-select">
                     <option value="기본" {% if view_mode|default('기본') == '기본' %}selected{% endif %}>기본</option>
@@ -47,11 +56,11 @@
                     <i class="bi bi-search"></i>
                 </button>
                 {% if rows is defined and rows %}
-                <a href="{{ url_for('stock.excel', date=date_str, location=location, category=category, view_mode=view_mode, product=product_filter|default('')) }}"
+                <a href="{{ url_for('stock.excel', date=date_str, location=location, category=category, food_type=food_type_filter|default('전체'), view_mode=view_mode, product=product_filter|default('')) }}"
                    class="btn btn-outline-success" title="엑셀 다운로드">
                     <i class="bi bi-file-earmark-excel"></i>
                 </a>
-                <a href="{{ url_for('stock.pdf', date=date_str, location=location, category=category, view_mode=view_mode, product=product_filter|default('')) }}"
+                <a href="{{ url_for('stock.pdf', date=date_str, location=location, category=category, food_type=food_type_filter|default('전체'), view_mode=view_mode, product=product_filter|default('')) }}"
                    class="btn btn-outline-danger" title="PDF 다운로드">
                     <i class="bi bi-file-earmark-pdf"></i>
                 </a>
@@ -96,6 +105,7 @@
                     <tr>
                         <th>품목명</th>
                         <th>카테고리</th>
+                        <th>식품유형</th>
                         <th class="text-end">수량</th>
                         <th>단위</th>
                         <th>위치</th>
@@ -112,6 +122,7 @@
                     <tr{% if row.is_negative %} class="table-danger"{% endif %}>
                         <td><strong>{{ row.product_name }}</strong></td>
                         <td>{{ row.category|default('-', true) }}</td>
+                        <td>{% if row.food_type %}<span class="badge {% if row.food_type == '농산물' %}bg-success{% elif row.food_type == '수산물' %}bg-primary{% elif row.food_type == '축산물' %}bg-danger{% else %}bg-secondary{% endif %} small">{{ row.food_type }}</span>{% else %}-{% endif %}</td>
                         <td class="text-end">{{ '{:,.0f}'.format(row.qty) }}</td>
                         <td>{{ row.unit|default('-', true) }}</td>
                         <td>{{ row.location|default('-', true) }}</td>

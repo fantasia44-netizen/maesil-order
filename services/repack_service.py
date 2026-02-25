@@ -463,6 +463,7 @@ def process_repack_batch(db, date_str, mode, location, items):
             "unit": str(item.get('unit', '개')).strip() or '개',
             "expiry_date": safe_date(item.get('expiry_date', '')),
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
+            "food_type": str(item.get('food_type', '')).strip(),
             "lot_number": str(item.get('lot_number', '')).strip() or None,
             "repack_doc_no": doc_no,
         })

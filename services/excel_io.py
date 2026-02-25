@@ -201,7 +201,7 @@ def build_stock_snapshot(all_data):
     if not all_data:
         return {}
     df = pd.DataFrame(all_data)
-    for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit']:
+    for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit', 'food_type']:
         if col not in df.columns:
             df[col] = ''
     df['origin'] = df['origin'].fillna('')
@@ -209,8 +209,9 @@ def build_stock_snapshot(all_data):
     df['storage_method'] = df['storage_method'].fillna('')
     df['category'] = df['category'].fillna('')
     df['unit'] = df['unit'].fillna('개')
+    df['food_type'] = df['food_type'].fillna('')
     group_cols = ['product_name', 'category', 'expiry_date',
-                  'storage_method', 'unit', 'origin', 'manufacture_date']
+                  'storage_method', 'unit', 'origin', 'manufacture_date', 'food_type']
     summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()
 
     # ── 필터 전: 모든 품목의 메타 정보 수집 (재고 0인 품목 포함) ──
@@ -221,7 +222,8 @@ def build_stock_snapshot(all_data):
             unit_val = r['unit'] if (pd.notna(r.get('unit')) and r['unit'] != '') else '개'
             cat_val = r['category'] if (pd.notna(r['category']) and r['category'] != '') else ''
             stg_val = r['storage_method'] if (pd.notna(r['storage_method']) and r['storage_method'] != '') else ''
-            all_meta[name] = {'unit': unit_val, 'category': cat_val, 'storage_method': stg_val}
+            ft_val = r['food_type'] if (pd.notna(r.get('food_type')) and r['food_type'] != '') else ''
+            all_meta[name] = {'unit': unit_val, 'category': cat_val, 'storage_method': stg_val, 'food_type': ft_val}
 
     summary = summary[summary['qty'] > 0]
     summary = summary.sort_values(['product_name', 'expiry_date'], na_position='last')
@@ -234,6 +236,7 @@ def build_stock_snapshot(all_data):
             'unit': meta['unit'],
             'category': meta['category'],
             'storage_method': meta['storage_method'],
+            'food_type': meta.get('food_type', ''),
         }
 
     for _, r in summary.iterrows():
@@ -247,6 +250,7 @@ def build_stock_snapshot(all_data):
             'unit': unit_val,
             'origin': r['origin'] if pd.notna(r.get('origin')) else '',
             'manufacture_date': r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else '',
+            'food_type': r['food_type'] if pd.notna(r.get('food_type')) else '',
             'qty': int(r['qty'])
         })
         stock[name]['total'] += int(r['qty'])

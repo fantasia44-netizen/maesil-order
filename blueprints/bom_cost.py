@@ -97,6 +97,7 @@ def api_save_cost():
     purchase_unit = (data.get('purchase_unit') or '').strip()
     standard_unit = (data.get('standard_unit') or '').strip()
     conversion_ratio = float(data.get('conversion_ratio', 1) or 1)
+    food_type = (data.get('food_type') or '').strip()
 
     try:
         # 수정 전 데이터 조회 (롤백용 + material_type 보존)
@@ -120,6 +121,7 @@ def api_save_cost():
                 'standard_unit': old_data.get('standard_unit', ''),
                 'conversion_ratio': float(old_data.get('conversion_ratio', 1) or 1),
                 'material_type': old_data.get('material_type', '원료'),
+                'food_type': old_data.get('food_type', ''),
             }
 
         new_value = {
@@ -129,6 +131,7 @@ def api_save_cost():
             'purchase_unit': purchase_unit, 'standard_unit': standard_unit,
             'conversion_ratio': conversion_ratio,
             'material_type': material_type,
+            'food_type': food_type,
         }
 
         db.upsert_product_cost(product_name, cost_price, unit, memo,
@@ -136,7 +139,8 @@ def api_save_cost():
                                cost_type=cost_type, material_type=material_type,
                                purchase_unit=purchase_unit,
                                standard_unit=standard_unit,
-                               conversion_ratio=conversion_ratio)
+                               conversion_ratio=conversion_ratio,
+                               food_type=food_type)
         _log_action('update_product_cost', target=product_name,
                      detail=f'유형={cost_type}, 종류={material_type}, 단가={cost_price}, 변환={conversion_ratio}',
                      old_value=old_value, new_value=new_value)
@@ -176,6 +180,7 @@ def api_save_cost_batch():
                 'purchase_unit': (item.get('purchase_unit') or '').strip(),
                 'standard_unit': (item.get('standard_unit') or '').strip(),
                 'conversion_ratio': float(item.get('conversion_ratio', 1) or 1),
+                'food_type': (item.get('food_type') or '').strip(),
             })
 
     if not valid_items:

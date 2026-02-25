@@ -455,3 +455,104 @@ def api_option_delete(option_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ================================================================
+# 품목보기 (product_costs) API
+# ================================================================
+
+@master_bp.route('/api/products')
+@role_required('admin', 'manager')
+def api_products():
+    """품목(product_costs) 목록 API — 검색 + 미기입 필터 + 페이지네이션"""
+    keyword = request.args.get('q', '').strip()
+    filter_mode = request.args.get('filter', '')  # 'missing_food_type', 'missing_category', ''
+    page = max(int(request.args.get('page', 1)), 1)
+    per_page = min(int(request.args.get('per_page', 50)), 200)
+
+    db = current_app.db
+    cost_map = db.query_product_costs()  # {product_name: {...}}
+
+    # dict → list
+    all_data = []
+    for pname, info in cost_map.items():
+        row = dict(info)
+        row['product_name'] = pname
+        all_data.append(row)
+
+    # 정렬: 품목명 기준
+    all_data.sort(key=lambda r: r.get('product_name', ''))
+
+    # 키워드 필터
+    if keyword:
+        kw = keyword.replace(' ', '').lower()
+        all_data = [r for r in all_data
+                    if kw in r.get('product_name', '').replace(' ', '').lower()]
+
+    # 미기입 필터
+    if filter_mode == 'missing_food_type':
+        all_data = [r for r in all_data if not r.get('food_type')]
+    elif filter_mode == 'missing_unit':
+        all_data = [r for r in all_data if not r.get('unit')]
+    elif filter_mode == 'missing_weight':
+        all_data = [r for r in all_data if not r.get('weight') or float(r.get('weight', 0)) == 0]
+
+    total = len(all_data)
+    start = (page - 1) * per_page
+    page_data = all_data[start:start + per_page]
+
+    return jsonify({
+        'data': page_data,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': max((total + per_page - 1) // per_page, 1),
+    })
+
+
+@master_bp.route('/api/products/<path:product_name>', methods=['PUT'])
+@role_required('admin', 'manager')
+def api_product_update(product_name):
+    """품목(product_costs) 개별 필드 수정 API"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    db = current_app.db
+    cost_map = db.query_product_costs()
+    existing = cost_map.get(product_name)
+    if not existing:
+        return jsonify({'error': f'품목 "{product_name}"을 찾을 수 없습니다.'}), 404
+
+    # 수정 가능 필드
+    allowed = {'cost_price', 'unit', 'memo', 'weight', 'weight_unit',
+               'cost_type', 'material_type', 'food_type',
+               'purchase_unit', 'standard_unit', 'conversion_ratio'}
+    updates = {k: v for k, v in data.items() if k in allowed}
+
+    if not updates:
+        return jsonify({'error': '수정할 필드가 없습니다.'}), 400
+
+    try:
+        # 기존 값과 병합하여 upsert
+        merged = {
+            'product_name': product_name,
+            'cost_price': updates.get('cost_price', existing.get('cost_price', 0)),
+            'unit': updates.get('unit', existing.get('unit', '')),
+            'memo': updates.get('memo', existing.get('memo', '')),
+            'weight': updates.get('weight', existing.get('weight', 0)),
+            'weight_unit': updates.get('weight_unit', existing.get('weight_unit', 'g')),
+            'cost_type': updates.get('cost_type', existing.get('cost_type', '매입')),
+            'material_type': updates.get('material_type', existing.get('material_type', '원료')),
+            'food_type': updates.get('food_type', existing.get('food_type', '')),
+            'purchase_unit': updates.get('purchase_unit', existing.get('purchase_unit', '')),
+            'standard_unit': updates.get('standard_unit', existing.get('standard_unit', '')),
+            'conversion_ratio': updates.get('conversion_ratio', existing.get('conversion_ratio', 1)),
+        }
+
+        db.upsert_product_cost(**merged)
+        _log_action('update_product_cost', target=product_name,
+                     detail=str(updates))
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

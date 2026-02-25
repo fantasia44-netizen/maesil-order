@@ -23,6 +23,7 @@ def index():
     date_str = request.args.get('date', '')
     location = request.args.get('location', '전체')
     category = request.args.get('category', '전체')
+    food_type_filter = request.args.get('food_type', '전체')
     view_mode = request.args.get('view_mode', '기본')
     product_filter = request.args.get('product', '').strip()
 
@@ -46,6 +47,7 @@ def index():
                 db, date_str,
                 location=location,
                 category=category,
+                food_type=food_type_filter,
                 split_manufacture=split_manufacture,
                 split_expiry=split_expiry,
             )
@@ -65,6 +67,7 @@ def index():
     return render_template('stock/index.html',
                            date_str=date_str, location=location,
                            category=category, view_mode=view_mode,
+                           food_type_filter=food_type_filter,
                            product_filter=product_filter,
                            locations=locations, categories=categories,
                            rows=rows, stats=stats)
@@ -79,6 +82,7 @@ def pdf():
     date_str = request.args.get('date', '')
     location = request.args.get('location', '전체')
     category = request.args.get('category', '전체')
+    food_type_filter = request.args.get('food_type', '전체')
     view_mode = request.args.get('view_mode', '기본')
     product_filter = request.args.get('product', '').strip()
 
@@ -100,6 +104,7 @@ def pdf():
             db, date_str,
             location=location,
             category=category,
+            food_type=food_type_filter,
             split_manufacture=split_manufacture,
             split_expiry=split_expiry,
         )
@@ -160,6 +165,7 @@ def excel():
     date_str = request.args.get('date', '')
     location = request.args.get('location', '전체')
     category = request.args.get('category', '전체')
+    food_type_filter = request.args.get('food_type', '전체')
     view_mode = request.args.get('view_mode', '기본')
     product_filter = request.args.get('product', '').strip()
 
@@ -179,6 +185,7 @@ def excel():
             db, date_str,
             location=location,
             category=category,
+            food_type=food_type_filter,
             split_manufacture=split_manufacture,
             split_expiry=split_expiry,
         )
@@ -200,6 +207,7 @@ def excel():
         col_map = {
             'product_name': '품목명',
             'category': '카테고리',
+            'food_type': '식품유형',
             'qty': '수량',
             'unit': '단위',
             'location': '위치',
