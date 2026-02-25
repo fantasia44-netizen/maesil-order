@@ -35,46 +35,79 @@
                         </select>
                     </div>
                 </div>
-                <hr>
+                <hr class="my-2">
 
                 <!-- 산출품 입력 -->
-                <h6 class="fw-bold text-success mb-2"><i class="bi bi-plus-circle"></i> 산출품 (소분 결과)</h6>
-                <div class="row g-2 mb-2">
-                    <div class="col-md-4">
-                        <input type="text" id="outName" class="form-control form-control-sm" placeholder="산출 품목명" list="productList" autocomplete="off">
-                        <datalist id="productList"></datalist>
+                <div class="border rounded p-2 mb-2 bg-light">
+                    <h6 class="mb-2"><i class="bi bi-plus-circle text-success"></i> 산출품 (소분 결과)</h6>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-4">
+                            <label class="form-label small mb-1">품목명</label>
+                            <div class="position-relative">
+                                <input type="text" id="outName" class="form-control form-control-sm" placeholder="산출 품목명" autocomplete="off">
+                                <div id="outAcList" class="autocomplete-list list-group position-absolute w-100"
+                                     style="z-index:1000; max-height:200px; overflow-y:auto; display:none;"></div>
+                            </div>
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">산출수량</label>
+                            <input type="number" id="outQty" class="form-control form-control-sm" min="1">
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">종류</label>
+                            <select id="outCategory" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="완제품">완제품</option>
+                                <option value="반제품" selected>반제품</option>
+                                <option value="원료">원료</option>
+                                <option value="부자재">부자재</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">단위</label>
+                            <select id="outUnit" class="form-select form-select-sm">
+                                <option value="개" selected>개</option>
+                                <option value="kg">kg</option>
+                                <option value="EA">EA</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="col-md-2">
-                        <input type="number" id="outQty" class="form-control form-control-sm" placeholder="산출수량" min="1">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="text" id="outCategory" class="form-control form-control-sm" placeholder="종류">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="text" id="outUnit" class="form-control form-control-sm" placeholder="단위" value="EA">
-                    </div>
-                </div>
-                <div class="row g-2 mb-3">
-                    <div class="col-md-2">
-                        <input type="text" id="outStorage" class="form-control form-control-sm" placeholder="보관방법">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="date" id="outExpiry" class="form-control form-control-sm" title="소비기한">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="date" id="outMfg" class="form-control form-control-sm" title="제조일">
-                    </div>
-                    <div class="col-md-2">
-                        <input type="text" id="outLot" class="form-control form-control-sm" placeholder="이력번호">
+                    <div class="row g-2 mt-1">
+                        <div class="col-sm-2">
+                            <label class="form-label small mb-1">보관방법</label>
+                            <select id="outStorage" class="form-select form-select-sm">
+                                <option value="">선택</option>
+                                <option value="냉동">냉동</option>
+                                <option value="냉장">냉장</option>
+                                <option value="실온">실온</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1">제조일</label>
+                            <input type="date" id="outMfg" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label small mb-1">소비기한</label>
+                            <input type="date" id="outExpiry" class="form-control form-control-sm">
+                        </div>
                     </div>
                 </div>
 
                 <!-- 투입품(원료) 입력 -->
-                <h6 class="fw-bold text-danger mb-2"><i class="bi bi-dash-circle"></i> 투입품 (원료/반제품)</h6>
-                <div id="materialRows"></div>
-                <button type="button" class="btn btn-outline-secondary btn-sm mb-3" id="addMatBtn">
-                    <i class="bi bi-plus-lg"></i> 투입품 추가
-                </button>
+                <div class="border rounded p-2 mb-2" style="overflow:visible;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0"><i class="bi bi-layers text-danger"></i> 투입품 (원료/반제품)
+                            <small id="stockStatus" class="text-muted ms-2" style="font-weight:normal;"></small>
+                        </h6>
+                        <button type="button" class="btn btn-outline-info btn-sm" id="addMatBtn">
+                            <i class="bi bi-plus"></i> 투입품 추가
+                        </button>
+                    </div>
+                    <div id="materialRows"></div>
+                    <div id="materialEmpty" class="text-center text-muted small py-2">
+                        <i class="bi bi-info-circle"></i> "투입품 추가" 버튼으로 원료를 추가하세요.
+                    </div>
+                </div>
 
                 <!-- 소분항목 추가 버튼 -->
                 <div class="d-grid mb-3">
@@ -278,19 +311,33 @@
         fetch('/repack/api/products')
             .then(r=>r.json())
             .then(data=>{
-                if(Array.isArray(data)){
-                    allProducts = data;
-                    const dl = document.getElementById('productList');
-                    dl.innerHTML = '';
-                    data.forEach(p=>{
-                        const o = document.createElement('option');
-                        o.value = p.name;
-                        dl.appendChild(o);
-                    });
-                }
+                if(Array.isArray(data)) allProducts = data;
             }).catch(()=>{});
     }
     loadProducts();
+
+    // ── 산출품 자동완성 ──
+    const outNameInput = document.getElementById('outName');
+    const outAcList = document.getElementById('outAcList');
+    outNameInput.addEventListener('input', function(){
+        const q = this.value.trim().toLowerCase();
+        outAcList.innerHTML = '';
+        if(!q || !allProducts.length){ outAcList.style.display = 'none'; return; }
+        const matches = allProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 12);
+        if(!matches.length){ outAcList.style.display = 'none'; return; }
+        matches.forEach(p => {
+            const a = document.createElement('a');
+            a.href = '#'; a.className = 'list-group-item list-group-item-action py-1 px-2 small';
+            a.textContent = p.name;
+            a.addEventListener('mousedown', e => {
+                e.preventDefault(); outNameInput.value = p.name;
+                outAcList.style.display = 'none'; document.getElementById('outQty').focus();
+            });
+            outAcList.appendChild(a);
+        });
+        outAcList.style.display = 'block';
+    });
+    outNameInput.addEventListener('blur', () => setTimeout(() => outAcList.style.display = 'none', 200));
 
     function loadStockProducts(loc){
         if(!loc){ stockProducts=[]; return; }
@@ -299,34 +346,31 @@
             .then(data=>{
                 if(Array.isArray(data)) stockProducts = data;
                 else stockProducts = [];
-                updateMatDatalist();
+                if(stockStatusEl){
+                    stockStatusEl.innerHTML = stockProducts.length
+                        ? `<span class="text-success">✔ ${loc} 재고 ${stockProducts.length}건</span>`
+                        : `<span class="text-warning">⚠ ${loc} 재고 0건</span>`;
+                }
             }).catch(()=>{ stockProducts=[]; });
     }
 
-    function updateMatDatalist(){
-        let dl = document.getElementById('matDatalist');
-        if(!dl){
-            dl = document.createElement('datalist');
-            dl.id = 'matDatalist';
-            document.body.appendChild(dl);
-        }
-        dl.innerHTML = '';
-        stockProducts.forEach(p=>{
-            const o = document.createElement('option');
-            o.value = p.name;
-            o.label = `재고: ${p.qty.toLocaleString()}${p.unit}`;
-            dl.appendChild(o);
-        });
-    }
 
     // ── 위치 변경 ──
+    const stockStatusEl = document.getElementById('stockStatus');
     document.getElementById('repackLocation').addEventListener('change', function(){
+        if(!this.value){
+            stockStatusEl.innerHTML = '<span class="text-warning">⚠ 위치를 선택하세요</span>';
+        } else {
+            stockStatusEl.innerHTML = '<span class="text-info">로딩...</span>';
+        }
         loadStockProducts(this.value);
     });
 
     // ── 투입품(재료) 행 ──
+    const materialEmpty = document.getElementById('materialEmpty');
     document.getElementById('addMatBtn').addEventListener('click', function(){
         addMaterialRow();
+        if(materialEmpty) materialEmpty.style.display = 'none';
     });
 
     function addMaterialRow(){
@@ -410,6 +454,9 @@
         if(btn){
             const row = btn.closest('.mat-row');
             if(row) row.remove();
+            if(!document.querySelectorAll('.mat-row').length && materialEmpty){
+                materialEmpty.style.display = '';
+            }
         }
     });
 
@@ -418,11 +465,10 @@
         const outName = document.getElementById('outName').value.trim();
         const outQty = parseInt(document.getElementById('outQty').value) || 0;
         const outCategory = document.getElementById('outCategory').value.trim();
-        const outUnit = document.getElementById('outUnit').value.trim() || 'EA';
+        const outUnit = document.getElementById('outUnit').value.trim() || '개';
         const outStorage = document.getElementById('outStorage').value.trim();
         const outExpiry = document.getElementById('outExpiry').value;
         const outMfg = document.getElementById('outMfg').value;
-        const outLot = document.getElementById('outLot').value.trim();
 
         if(!outName){ alert('산출 품목명을 입력하세요.'); return; }
         if(outQty <= 0){ alert('산출수량을 입력하세요.'); return; }
@@ -445,20 +491,19 @@
             storage_method: outStorage,
             expiry_date: outExpiry,
             manufacture_date: outMfg,
-            lot_number: outLot,
             materials: materials
         });
 
         // 입력 초기화
         document.getElementById('outName').value = '';
         document.getElementById('outQty').value = '';
-        document.getElementById('outCategory').value = '';
-        document.getElementById('outUnit').value = 'EA';
+        document.getElementById('outCategory').value = '반제품';
+        document.getElementById('outUnit').value = '개';
         document.getElementById('outStorage').value = '';
         document.getElementById('outExpiry').value = '';
         document.getElementById('outMfg').value = '';
-        document.getElementById('outLot').value = '';
         document.getElementById('materialRows').innerHTML = '';
+        if(materialEmpty) materialEmpty.style.display = '';
         currentMaterials = [];
         matIdCounter = 0;
 
