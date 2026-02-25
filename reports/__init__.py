@@ -7,7 +7,9 @@ try:
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle,
-                                     Paragraph, Spacer, PageBreak, KeepTogether)
+                                     Paragraph, Spacer, PageBreak, KeepTogether,
+                                     BaseDocTemplate, Frame, PageTemplate,
+                                     NextPageTemplate, FrameBreak)
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont

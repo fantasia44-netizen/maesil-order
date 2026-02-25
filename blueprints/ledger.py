@@ -200,6 +200,7 @@ def pdf():
     ledger_type = request.args.get('ledger_type', '')
     view_mode = request.args.get('view_mode', 'default')
     fit_one_page = request.args.get('fit_one_page', '') == '1'
+    multi_col = request.args.get('multi_col', '') == '1'
 
     if not date_to:
         flash('종료일을 입력하세요.', 'warning')
@@ -264,6 +265,7 @@ def pdf():
             'title': title,
             'include_warnings': False,
             'fit_one_page': fit_one_page,
+            'multi_col': multi_col,
         }
 
         tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)

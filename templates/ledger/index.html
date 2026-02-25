@@ -59,6 +59,10 @@
                        class="btn btn-outline-danger" title="가로방향, 한 페이지에 축소 출력">
                         <i class="bi bi-file-earmark-pdf"></i> 한장출력
                     </a>
+                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default'), multi_col='1') }}"
+                       class="btn btn-outline-danger" title="가로방향 다단 레이아웃 (자동 2단/3단)">
+                        <i class="bi bi-layout-three-columns"></i> 다단출력
+                    </a>
                 </div>
                 {% endif %}
             </div>
