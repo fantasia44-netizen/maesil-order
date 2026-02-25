@@ -179,7 +179,7 @@ def download(filename):
 
 
 @aggregation_bp.route('/delete-file', methods=['POST'])
-@role_required('admin', 'manager', 'sales')
+@role_required('admin')
 def delete_file():
     """집계 결과 파일 삭제"""
     filenames = request.form.getlist('delete_files')

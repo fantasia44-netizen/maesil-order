@@ -117,7 +117,8 @@
                         <td>
                             {% set revertable = ['update_product_cost','delete_product_cost',
                                                  'update_channel_cost','delete_channel_cost',
-                                                 'edit_stock_ledger','delete_stock_ledger'] %}
+                                                 'edit_stock_ledger','delete_stock_ledger',
+                                                 'update_price','batch_update_price'] %}
                             {% if log.action in revertable and log.get('old_value') and not log.get('is_reverted') %}
                             <button class="btn btn-outline-warning btn-sm py-0 px-1"
                                     onclick="revertLog({{ log.id }})" title="되돌리기"
@@ -189,11 +190,21 @@ function toggleDetail(btn) {
 function revertLog(logId) {
     if (!confirm('이 작업을 되돌리시겠습니까?\n\n이전 데이터로 복원됩니다.')) return;
 
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+                   || document.querySelector('input[name="csrf_token"]')?.value
+                   || '{{ csrf_token() }}';
+
     fetch(`/admin/logs/${logId}/revert`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+        },
     })
-    .then(r => r.json())
+    .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+    })
     .then(data => {
         if (data.success) {
             alert(data.message || '되돌리기 완료');

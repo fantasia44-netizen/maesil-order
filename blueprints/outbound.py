@@ -490,7 +490,7 @@ def batch():
 # ── 거래 이력 관리 ──
 
 @outbound_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin')
 def delete_trade(trade_id):
     """거래 삭제 (manual_trades + daily_revenue + stock_ledger 연동 삭제)"""
     db = current_app.db

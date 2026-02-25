@@ -312,7 +312,8 @@
     const PRODUCTS_URL = '{{ url_for("production.api_products") }}';
     const STOCK_URL = '{{ url_for("production.api_stock") }}';
     const HISTORY_URL = '{{ url_for("production.api_history") }}';
-    const isAdmin = {{ 'true' if current_user.role in ('admin', 'manager', 'production') else 'false' }};
+    const canEdit = {{ 'true' if current_user.role in ('admin', 'manager', 'production') else 'false' }};
+    const canDelete = {{ 'true' if current_user.role == 'admin' else 'false' }};
 
     const dateInput = document.getElementById('prodDate');
     const modeSelect = document.getElementById('prodMode');
@@ -634,7 +635,7 @@
                     <td class="small">${r.storage_method || '-'}</td>
                     <td class="small">${r.manufacture_date || '-'}</td>
                     <td class="small">${r.expiry_date || '-'}</td>`;
-                if(isAdmin){
+                if(canEdit){
                     const td = document.createElement('td');
                     td.className = 'text-nowrap';
                     const eBtn = document.createElement('button');
@@ -643,14 +644,16 @@
                     eBtn.title = '수정';
                     eBtn.innerHTML = '<i class="bi bi-pencil"></i>';
                     eBtn.addEventListener('click', function(e) { e.stopPropagation(); window._editHist(String(r.id)); });
-                    const dBtn = document.createElement('button');
-                    dBtn.type = 'button';
-                    dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
-                    dBtn.title = '삭제';
-                    dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
-                    dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
                     td.appendChild(eBtn);
-                    td.appendChild(dBtn);
+                    if(canDelete){
+                        const dBtn = document.createElement('button');
+                        dBtn.type = 'button';
+                        dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
+                        dBtn.title = '삭제';
+                        dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+                        dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
+                        td.appendChild(dBtn);
+                    }
                     tr.appendChild(td);
                 }
                 tbody.appendChild(tr);
@@ -687,7 +690,7 @@
     };
 
     // 수정 저장
-    if(isAdmin){
+    if(canEdit){
         document.getElementById('editSaveBtn').addEventListener('click', async function(){
             const id = document.getElementById('editId').value;
             const payload = {

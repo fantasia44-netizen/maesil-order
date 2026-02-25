@@ -164,7 +164,7 @@ def export():
 
 
 @revenue_bp.route('/delete/<int:revenue_id>', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def delete_revenue(revenue_id):
     """매출 1건 삭제 (admin/manager만)"""
     try:

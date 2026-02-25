@@ -160,7 +160,7 @@ def process():
 
 
 @set_assembly_bp.route('/delete', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def delete():
     """세트작업 이력 삭제 (해당일 SET_OUT + SET_IN 전부 삭제)"""
     db = current_app.db

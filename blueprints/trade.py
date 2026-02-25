@@ -90,7 +90,7 @@ def set_default_business(biz_id):
 
 
 @trade_bp.route('/business/delete/<int:biz_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin')
 def delete_business(biz_id):
     """본사 사업장 삭제"""
     try:
@@ -228,7 +228,7 @@ def download_partner_template():
 
 
 @trade_bp.route('/delete/<int:partner_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin')
 def delete_partner(partner_id):
     """거래처 삭제"""
     try:
@@ -367,7 +367,7 @@ def add_trade():
 
 
 @trade_bp.route('/trades/delete/<int:trade_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin')
 def delete_trade(trade_id):
     """거래 삭제 (manual_trades + daily_revenue + stock_ledger 연동 삭제)"""
     db = current_app.db
@@ -691,7 +691,7 @@ def generate_purchase_order():
 
 
 @trade_bp.route('/purchase-order/delete/<int:po_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin')
 def delete_purchase_order(po_id):
     """발주서 이력 삭제"""
     try:

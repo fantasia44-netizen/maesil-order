@@ -110,7 +110,7 @@ def edit(row_id):
 
 
 @history_bp.route('/delete/<int:row_id>', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin')
 def delete(row_id):
     """개별 이력 삭제 — 관리자/책임자만 (삭제 전 데이터 보존)"""
     db = current_app.db
