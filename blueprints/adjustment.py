@@ -115,6 +115,10 @@ def api_update(record_id):
             return jsonify({'error': '수량은 0이 아니어야 합니다.'}), 400
     if 'memo' in update_data and not update_data['memo'].strip():
         return jsonify({'error': '사유를 입력하세요.'}), 400
+    # 빈 문자열 → None 변환 (PostgreSQL TEXT 컬럼 호환)
+    for key in ('storage_method',):
+        if key in update_data and update_data[key] == '':
+            update_data[key] = None
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:

@@ -113,6 +113,10 @@ def api_update(record_id):
                 raise ValueError
         except (ValueError, TypeError):
             return jsonify({'error': '수량이 올바르지 않습니다.'}), 400
+    # 빈 문자열 → None 변환 (PostgreSQL DATE/TEXT 컬럼 호환)
+    for key in ('expiry_date', 'manufacture_date', 'storage_method'):
+        if key in update_data and update_data[key] == '':
+            update_data[key] = None
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
