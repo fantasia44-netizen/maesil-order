@@ -142,7 +142,7 @@ def batch():
             '품목명': str(item['product_name']).strip(),
             '현재창고위치': str(item['from_location']).strip(),
             '이동창고위치': str(item['to_location']).strip(),
-            '수량입력': int(float(item['qty'])),
+            '수량입력': float(item['qty']) if float(item['qty']) != int(float(item['qty'])) else int(float(item['qty'])),
         })
     df = pd.DataFrame(rows)
 

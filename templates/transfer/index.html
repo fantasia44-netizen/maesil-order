@@ -62,7 +62,7 @@
                     <div class="col-sm-2">
                         <label class="form-label small mb-1">수량</label>
                         <input type="number" id="qtyInput" class="form-control form-control-sm"
-                               step="1" min="1" placeholder="수량">
+                               step="any" min="0.001" placeholder="수량">
                     </div>
                     <div class="col-sm-1">
                         <button type="button" class="btn btn-outline-primary btn-sm w-100" id="addItemBtn"
@@ -292,7 +292,7 @@
         const fromLoc = fromSelect.value;
         const toLoc = toSelect.value;
         const name = productInput.value.trim();
-        const qty = parseInt(qtyInput.value);
+        const qty = parseFloat(qtyInput.value);
 
         if (!fromLoc) { alert('출발 위치를 선택하세요.'); fromSelect.focus(); return; }
         if (!toLoc) { alert('도착 위치를 선택하세요.'); toSelect.focus(); return; }

@@ -3,7 +3,7 @@ inbound_service.py — 입고 관리 비즈니스 로직.
 시스템 입력(다건 배치) 처리.
 """
 from datetime import datetime
-from services.excel_io import safe_date, normalize_location
+from services.excel_io import safe_date, normalize_location, safe_qty
 
 
 def _validate_date(date_str):
@@ -40,7 +40,8 @@ def process_inbound_batch(db, date_str, mode, items):
     payload = []
     for item in items:
         name = str(item.get('product_name', '')).strip()
-        qty = int(float(item.get('qty', 0)))
+        unit = str(item.get('unit', '개')).strip() or '개'
+        qty = safe_qty(item.get('qty', 0), unit=unit)
         location = normalize_location(item.get('location', ''))
 
         if not name or qty <= 0 or not location:

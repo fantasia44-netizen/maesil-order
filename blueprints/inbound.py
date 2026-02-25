@@ -111,9 +111,11 @@ def api_update(record_id):
     update_data = {k: v for k, v in data.items() if k in allowed}
     if 'qty' in update_data:
         try:
-            update_data['qty'] = int(float(update_data['qty']))
+            update_data['qty'] = float(update_data['qty'])
             if update_data['qty'] <= 0:
                 raise ValueError
+            if update_data['qty'] == int(update_data['qty']):
+                update_data['qty'] = int(update_data['qty'])
         except (ValueError, TypeError):
             return jsonify({'error': '수량이 올바르지 않습니다.'}), 400
     # 빈 문자열 → None 변환 (PostgreSQL DATE/TEXT 컬럼 호환)
@@ -157,7 +159,7 @@ def batch():
         if not location:
             return jsonify({'error': f'{i+1}번째 항목: 창고위치를 선택하세요.'}), 400
         try:
-            if int(float(qty)) <= 0:
+            if float(qty) <= 0:
                 raise ValueError
         except (ValueError, TypeError):
             return jsonify({'error': f'{i+1}번째 항목 ({name}): 수량이 올바르지 않습니다.'}), 400

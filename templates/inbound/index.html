@@ -54,7 +54,7 @@
                     </div>
                     <div class="col-sm-2">
                         <label class="form-label small mb-1">수량</label>
-                        <input type="number" id="qtyInput" class="form-control form-control-sm" min="1" placeholder="수량">
+                        <input type="number" id="qtyInput" class="form-control form-control-sm" min="0.001" step="any" placeholder="수량">
                     </div>
                     <div class="col-sm-3">
                         <label class="form-label small mb-1">창고위치</label>
@@ -254,7 +254,7 @@
                     </div>
                     <div class="col-4 mb-2">
                         <label class="form-label small mb-1">수량</label>
-                        <input type="number" id="editQty" class="form-control form-control-sm" min="1">
+                        <input type="number" id="editQty" class="form-control form-control-sm" min="0.001" step="any">
                     </div>
                     <div class="col-4 mb-2">
                         <label class="form-label small mb-1">위치</label>
@@ -383,7 +383,7 @@
     addBtn.addEventListener('click', addItem);
     function addItem() {
         const name = productInput.value.trim();
-        const qty = parseInt(qtyInput.value);
+        const qty = parseFloat(qtyInput.value);
         const location = locationSelect.value;
         if (!name) { alert('품목명을 입력하세요.'); productInput.focus(); return; }
         if (!qty || qty <= 0) { alert('수량을 입력하세요.'); qtyInput.focus(); return; }
@@ -551,7 +551,7 @@
             const id = document.getElementById('editId').value;
             const payload = {
                 product_name: document.getElementById('editProductName').value.trim(),
-                qty: parseInt(document.getElementById('editQty').value) || 0,
+                qty: parseFloat(document.getElementById('editQty').value) || 0,
                 location: document.getElementById('editLocation').value.trim(),
                 category: document.getElementById('editCategory').value.trim(),
                 unit: document.getElementById('editUnit').value.trim(),

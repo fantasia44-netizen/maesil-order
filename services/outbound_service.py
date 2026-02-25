@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 
 from services.excel_io import (
-    safe_int, normalize_location, detect_qty_col,
+    safe_int, safe_qty, normalize_location, detect_qty_col,
     build_stock_snapshot, snapshot_lookup, parse_revenue_payload,
 )
 
@@ -146,10 +146,10 @@ def process_single_outbound(db, date_str, location, items):
     # 재고 검증
     for item in items:
         name = str(item['product_name']).strip()
-        req_qty = abs(int(item['qty']))
         _snap = snapshot_lookup(stock, name)
-        total = _snap.get('total', 0)
         u = _snap.get('unit', item.get('unit', '개'))
+        req_qty = abs(safe_qty(item['qty'], unit=u))
+        total = _snap.get('total', 0)
         if req_qty > total:
             shortage.append(f"{name}: 요청 {req_qty}{u} / 재고 {total}{u}")
 
@@ -165,7 +165,9 @@ def process_single_outbound(db, date_str, location, items):
     payload = []
     for item in items:
         name = str(item['product_name']).strip()
-        remain = abs(int(item['qty']))
+        _snap = snapshot_lookup(stock, name)
+        u = _snap.get('unit', item.get('unit', '개'))
+        remain = abs(safe_qty(item['qty'], unit=u))
         snap_data = snapshot_lookup(stock, name)
         groups = snap_data.get('groups', [])
         if not groups:

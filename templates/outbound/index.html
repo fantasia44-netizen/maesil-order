@@ -378,7 +378,7 @@
                 </div>
             </td>
             <td class="stock-qty text-center text-muted">-</td>
-            <td><input type="number" class="form-control form-control-sm qty-input" min="1" required></td>
+            <td><input type="number" class="form-control form-control-sm qty-input" min="0.001" step="any" required></td>
             <td><input type="number" class="form-control form-control-sm price-input" min="0" value="0"></td>
             <td class="row-amount text-end">0</td>
             <td class="text-center">
@@ -406,7 +406,7 @@
     }
 
     function calcRow(tr) {
-        const qty = parseInt(tr.querySelector('.qty-input').value) || 0;
+        const qty = parseFloat(tr.querySelector('.qty-input').value) || 0;
         const price = parseInt(tr.querySelector('.price-input').value) || 0;
         const amount = qty * price;
         tr.querySelector('.row-amount').textContent = amount.toLocaleString();
@@ -500,7 +500,7 @@
             const qtyInput = tr.querySelector('.qty-input');
             const priceInput = tr.querySelector('.price-input');
             const product = productInput.value.trim();
-            const qty = parseInt(qtyInput.value) || 0;
+            const qty = parseFloat(qtyInput.value) || 0;
             const unitPrice = parseInt(priceInput.value) || 0;
             const unit = productInput.dataset.unit || '개';
 

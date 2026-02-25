@@ -41,7 +41,7 @@
                     </div>
                     <div class="col-sm-2">
                         <label class="form-label small mb-1">수량 (+/-)</label>
-                        <input type="number" id="qtyInput" class="form-control form-control-sm" placeholder="양수/음수">
+                        <input type="number" id="qtyInput" class="form-control form-control-sm" step="any" placeholder="양수/음수">
                     </div>
                     <div class="col-sm-3">
                         <label class="form-label small mb-1">사유 (필수)</label>
@@ -179,7 +179,7 @@
                     </div>
                     <div class="col-4 mb-2">
                         <label class="form-label small mb-1">수량 (+/-)</label>
-                        <input type="number" id="editQty" class="form-control form-control-sm">
+                        <input type="number" id="editQty" class="form-control form-control-sm" step="any">
                     </div>
                     <div class="col-4 mb-2">
                         <label class="form-label small mb-1">위치</label>
@@ -287,7 +287,7 @@
     function addItem() {
         const loc = locationSelect.value;
         const name = productInput.value.trim();
-        const qty = parseInt(qtyInput.value);
+        const qty = parseFloat(qtyInput.value);
         const memo = memoInput.value.trim();
         if (!loc) { alert('창고위치를 선택하세요.'); return; }
         if (!name) { alert('품목명을 입력하세요.'); return; }
@@ -447,7 +447,7 @@
             const id = document.getElementById('editId').value;
             const payload = {
                 product_name: document.getElementById('editProductName').value.trim(),
-                qty: parseInt(document.getElementById('editQty').value) || 0,
+                qty: parseFloat(document.getElementById('editQty').value) || 0,
                 location: document.getElementById('editLocation').value.trim(),
                 storage_method: document.getElementById('editStorage').value.trim(),
                 unit: document.getElementById('editUnit').value.trim(),

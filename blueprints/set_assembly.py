@@ -124,7 +124,9 @@ def process():
     for i in range(len(sub_names)):
         s_name = sub_names[i].strip() if i < len(sub_names) else ''
         try:
-            s_qty = int(sub_qtys[i]) if i < len(sub_qtys) else 0
+            s_qty = float(sub_qtys[i]) if i < len(sub_qtys) else 0
+            if s_qty == int(s_qty):
+                s_qty = int(s_qty)
         except (ValueError, IndexError):
             s_qty = 0
         if s_name and s_qty > 0:

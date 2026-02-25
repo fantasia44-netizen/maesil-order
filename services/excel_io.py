@@ -16,6 +16,41 @@ def safe_int(val, default=0):
         return default
 
 
+def safe_qty(val, unit='개', default=0):
+    """단위 기반 수량 변환. kg → float(소수점 허용), 개 → int(정수).
+    단위가 'kg'이면 소수점 유지, 그 외는 정수 변환."""
+    try:
+        n = pd.to_numeric(val, errors='coerce') if not isinstance(val, (int, float)) else val
+        if isinstance(n, float) and pd.isna(n):
+            return default
+        n = float(n)
+    except (ValueError, TypeError):
+        return default
+    if _is_decimal_unit(unit):
+        # 소수점 유지, 불필요한 소수점 제거 (1.0 → 1)
+        return n if n != int(n) else int(n)
+    return int(n)
+
+
+def _is_decimal_unit(unit):
+    """소수점을 허용하는 단위인지 판별."""
+    if not unit:
+        return False
+    u = str(unit).strip().lower()
+    return u in ('kg', 'g', 'l', 'ml', 'lb')
+
+
+def _snap_qty(val, unit='개'):
+    """스냅샷 qty 변환: kg 등 소수점 단위면 float, 그 외는 int."""
+    try:
+        n = float(val)
+    except (ValueError, TypeError):
+        return 0
+    if _is_decimal_unit(unit):
+        return n if n != int(n) else int(n)
+    return int(n)
+
+
 def normalize_product_name(name):
     """품목명 정규화 — 공백 제거 후 비교용 키 생성.
     예: '(수)건해삼채 200g' → '(수)건해삼채200g'
@@ -125,7 +160,8 @@ def parse_inbound_payload(df, today):
     """입고 엑셀 → payload list."""
     payload = []
     for _, row in df.iterrows():
-        qty = safe_int(row.get('입고수량', row.get('현재재고', 0)))
+        unit = str(row.get('단위', '개')).strip() or '개'
+        qty = safe_qty(row.get('입고수량', row.get('현재재고', 0)), unit=unit)
         payload.append({
             "transaction_date": today, "type": "INBOUND",
             "product_name": str(row['품목명']).strip(),
@@ -146,7 +182,8 @@ def parse_base_data_payload(df, today):
     """기초데이터 엑셀 → payload list."""
     payload = []
     for _, row in df.iterrows():
-        qty = safe_int(row.get('입고수량', row.get('현재재고', 0)))
+        unit = str(row.get('단위', '개')).strip() or '개'
+        qty = safe_qty(row.get('입고수량', row.get('현재재고', 0)), unit=unit)
         if qty == 0:
             continue
         payload.append({
@@ -251,8 +288,8 @@ def build_stock_snapshot(all_data):
             'origin': r['origin'] if pd.notna(r.get('origin')) else '',
             'manufacture_date': r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else '',
             'food_type': r['food_type'] if pd.notna(r.get('food_type')) else '',
-            'qty': int(r['qty'])
+            'qty': _snap_qty(r['qty'], unit_val)
         })
-        stock[name]['total'] += int(r['qty'])
+        stock[name]['total'] += _snap_qty(r['qty'], unit_val)
         stock[name]['unit'] = unit_val
     return stock

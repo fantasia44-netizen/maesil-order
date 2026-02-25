@@ -3,7 +3,7 @@ adjustment_service.py — 재고 조정 비즈니스 로직.
 양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
 """
 from datetime import datetime
-from services.excel_io import normalize_location
+from services.excel_io import normalize_location, safe_qty
 
 
 def _validate_date(date_str):
@@ -35,7 +35,8 @@ def process_adjustment_batch(db, date_str, items):
     for item in items:
         name = str(item.get('product_name', '')).strip()
         location = normalize_location(item.get('location', ''))
-        qty = int(float(item.get('qty', 0)))
+        unit = str(item.get('unit', '')).strip()
+        qty = safe_qty(item.get('qty', 0), unit=unit or '개')
         memo = str(item.get('memo', '')).strip()
         storage_method = str(item.get('storage_method', '')).strip()
         unit = str(item.get('unit', '')).strip()

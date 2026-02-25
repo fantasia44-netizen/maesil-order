@@ -212,6 +212,9 @@ ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
 -- 17) stock_ledger 확장: 식품유형 (food_type) 컬럼 추가
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_stock_ledger_food_type ON stock_ledger(food_type);
+
+-- 18) stock_ledger qty 소수점 지원 (kg 단위 소수점 수량)
+ALTER TABLE stock_ledger ALTER COLUMN qty TYPE NUMERIC USING qty::NUMERIC;
 """
 
 print("=" * 60)

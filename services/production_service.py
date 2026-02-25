@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 
 from services.excel_io import (
-    safe_int, safe_date, normalize_location, flexible_column_rename,
+    safe_int, safe_qty, safe_date, normalize_location, flexible_column_rename,
     detect_material_groups, parse_inbound_payload, build_stock_snapshot,
     snapshot_lookup, normalize_product_name,
 )
@@ -230,14 +230,14 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
             mat_name = str(row.get(mg['name_col'], '')).strip()
             if not mat_name:
                 continue
-            mat_qty = safe_int(row.get(mg['qty_col'], 0))
-            if mat_qty <= 0:
-                continue
             if loc not in snapshots:
                 snapshots[loc], product_metas[loc] = _load_stock_with_meta(db, loc)
             _snap = snapshot_lookup(snapshots[loc], mat_name)
-            total = _snap.get('total', 0)
             u = _snap.get('unit', '개')
+            mat_qty = safe_qty(row.get(mg['qty_col'], 0), unit=u)
+            if mat_qty <= 0:
+                continue
+            total = _snap.get('total', 0)
             if mat_qty > total:
                 shortage.append(f"  [{loc}] {mat_name}: 필요 {mat_qty}{u} / 재고 {total}{u}")
 
@@ -251,7 +251,8 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
 
     for _, row in df.iterrows():
         name = str(row['품목명']).strip()
-        prod_qty = safe_int(row.get('생산수량', 0))
+        prod_unit = str(row.get('단위', '개')).strip() or '개'
+        prod_qty = safe_qty(row.get('생산수량', 0), unit=prod_unit)
         loc = normalize_location(row['창고위치'])
         exp_date = row.get('소비기한', '')
 
@@ -278,14 +279,18 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
 
         for mg in material_groups:
             mat_name = str(row.get(mg['name_col'], '')).strip()
-            mat_qty = safe_int(row.get(mg['qty_col'], 0))
-            if not mat_name or mat_qty <= 0:
+            if not mat_name:
                 continue
             mat_origin = str(row.get(mg['origin_col'], '')).strip() if mg.get('origin_col') else ''
 
             if loc not in snapshots:
                 snapshots[loc], product_metas[loc] = _load_stock_with_meta(db, loc)
-            groups = snapshot_lookup(snapshots[loc], mat_name).get('groups', [])
+            _mat_snap = snapshot_lookup(snapshots[loc], mat_name)
+            mat_unit = _mat_snap.get('unit', '개')
+            mat_qty = safe_qty(row.get(mg['qty_col'], 0), unit=mat_unit)
+            if mat_qty <= 0:
+                continue
+            groups = _mat_snap.get('groups', [])
 
             remain = mat_qty
             if not groups:
@@ -390,12 +395,14 @@ def process_production_batch(db, date_str, mode, location, items):
     for item in items:
         for mat in item.get('materials', []):
             mat_name = str(mat.get('product_name', '')).strip()
-            mat_qty = safe_int(mat.get('qty', 0))
-            if not mat_name or mat_qty <= 0:
+            if not mat_name:
                 continue
             _snap = snapshot_lookup(stock, mat_name)
-            total = _snap.get('total', 0)
             u = _snap.get('unit', '개')
+            mat_qty = safe_qty(mat.get('qty', 0), unit=u)
+            if mat_qty <= 0:
+                continue
+            total = _snap.get('total', 0)
             if mat_qty > total:
                 shortage.append(f"[{loc}] {mat_name}: 필요 {mat_qty}{u} / 재고 {total}{u}")
 
@@ -409,7 +416,8 @@ def process_production_batch(db, date_str, mode, location, items):
 
     for item in items:
         name = str(item.get('product_name', '')).strip()
-        prod_qty = safe_int(item.get('qty', 0))
+        prod_unit = str(item.get('unit', '개')).strip() or '개'
+        prod_qty = safe_qty(item.get('qty', 0), unit=prod_unit)
         if not name or prod_qty <= 0:
             continue
 
@@ -426,7 +434,7 @@ def process_production_batch(db, date_str, mode, location, items):
             "expiry_date": safe_date(item.get('expiry_date', '')),
             "category": str(item.get('category', '')).strip(),
             "storage_method": str(item.get('storage_method', '')).strip(),
-            "unit": str(item.get('unit', '개')).strip() or '개',
+            "unit": prod_unit,
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
             "food_type": str(item.get('food_type', '')).strip(),
             "batch_id": batch_id,
@@ -436,9 +444,13 @@ def process_production_batch(db, date_str, mode, location, items):
         # PROD_OUT 재료 차감 (제조일 지정 시 해당 배치, 미지정 시 FIFO)
         for mat in item.get('materials', []):
             mat_name = str(mat.get('product_name', '')).strip()
-            mat_qty = safe_int(mat.get('qty', 0))
             mat_mfg_date = str(mat.get('manufacture_date', '')).strip()
-            if not mat_name or mat_qty <= 0:
+            if not mat_name:
+                continue
+            _mat_snap = snapshot_lookup(stock, mat_name)
+            mat_unit = _mat_snap.get('unit', '개')
+            mat_qty = safe_qty(mat.get('qty', 0), unit=mat_unit)
+            if mat_qty <= 0:
                 continue
 
             groups = snapshot_lookup(stock, mat_name).get('groups', [])

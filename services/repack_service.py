@@ -7,12 +7,12 @@ from datetime import datetime
 
 try:
     from excel_io import (
-        safe_int, safe_date, normalize_location, detect_material_groups,
+        safe_int, safe_qty, safe_date, normalize_location, detect_material_groups,
         build_stock_snapshot, snapshot_lookup
     )
 except ImportError:
     from services.excel_io import (
-        safe_int, safe_date, normalize_location, detect_material_groups,
+        safe_int, safe_qty, safe_date, normalize_location, detect_material_groups,
         build_stock_snapshot, snapshot_lookup
     )
 from models import INV_TYPE_LABELS
@@ -127,7 +127,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
 
         for _, row in df.iterrows():
             out_name = str(row.get('품목명', '')).strip()
-            out_qty = safe_int(row.get('생산수량', 0))
+            out_unit = str(row.get('단위', '개')).strip() or '개'
+            out_qty = safe_qty(row.get('생산수량', 0), unit=out_unit)
             out_loc = normalize_location(str(row.get('창고위치', '')))
             if not out_name or out_qty <= 0:
                 continue
@@ -136,15 +137,16 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
 
             for gi, mg in enumerate(material_groups):
                 mat_name = str(row.get(mg['name_col'], '')).strip()
-                mat_qty = safe_int(row.get(mg['qty_col'], 0))
+                # 단위: 원재료 단위는 unit_cols[1](단위.1) 이후부터 매핑
+                _mat_unit_col = unit_cols[gi + 1] if (gi + 1) < len(unit_cols) else None
+                _mat_unit_tmp = str(row.get(_mat_unit_col, '개')).strip() if _mat_unit_col else '개'
+                if not _mat_unit_tmp or _mat_unit_tmp == 'nan':
+                    _mat_unit_tmp = '개'
+                mat_qty = safe_qty(row.get(mg['qty_col'], 0), unit=_mat_unit_tmp)
                 if not mat_name or mat_qty <= 0:
                     continue
 
-                # 단위: 원재료 단위는 unit_cols[1](단위.1) 이후부터 매핑
-                mat_unit_col = unit_cols[gi + 1] if (gi + 1) < len(unit_cols) else None
-                mat_unit = str(row.get(mat_unit_col, '개')).strip() if mat_unit_col else '개'
-                if not mat_unit or mat_unit == 'nan':
-                    mat_unit = '개'
+                mat_unit = _mat_unit_tmp
 
                 rows_new.append({
                     '소분번호': doc_no,
@@ -202,7 +204,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     input_demand = {}
     for _, row in df.iterrows():
         inp_name = str(row['투입품목명']).strip()
-        inp_qty = safe_int(row['투입수량'])
+        inp_unit = str(row.get('투입단위', '개')).strip() or '개'
+        inp_qty = safe_qty(row['투입수량'], unit=inp_unit)
         inp_loc = normalize_location(str(row['투입창고']).strip())
         if inp_name and inp_qty > 0:
             key = (inp_name, inp_loc)
@@ -212,7 +215,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     if '부자재명' in cols and '부자재수량' in cols:
         for _, row in df.iterrows():
             sub_name = str(row.get('부자재명', '')).strip()
-            sub_qty = safe_int(row.get('부자재수량', 0))
+            sub_unit = str(row.get('부자재단위', '개')).strip() or '개'
+            sub_qty = safe_qty(row.get('부자재수량', 0), unit=sub_unit)
             sub_loc = normalize_location(
                 str(row.get('부자재창고', row.get('투입창고', ''))).strip()
             )
@@ -250,7 +254,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
 
         # ─ 투입품 차감 (REPACK_OUT, FIFO) ─
         inp_name = str(row['투입품목명']).strip()
-        inp_qty = safe_int(row['투입수량'])
+        inp_unit = str(row.get('투입단위', '개')).strip() or '개'
+        inp_qty = safe_qty(row['투입수량'], unit=inp_unit)
         inp_loc = normalize_location(str(row['투입창고']).strip())
 
         if inp_name and inp_qty > 0:
@@ -295,7 +300,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
 
         # ─ 산출품 입고 (REPACK_IN) ─
         out_name = str(row['산출품목명']).strip()
-        out_qty = safe_int(row['산출수량'])
+        out_unit = str(row.get('산출단위', '개')).strip() or '개'
+        out_qty = safe_qty(row['산출수량'], unit=out_unit)
         out_loc = normalize_location(str(row['산출창고']).strip())
 
         if out_name and out_qty > 0:
@@ -317,7 +323,8 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
         # ─ 부자재 차감 (REPACK_OUT, FIFO) ─
         if '부자재명' in cols:
             sub_name = str(row.get('부자재명', '')).strip()
-            sub_qty = safe_int(row.get('부자재수량', 0))
+            sub_unit = str(row.get('부자재단위', '개')).strip() or '개'
+            sub_qty = safe_qty(row.get('부자재수량', 0), unit=sub_unit)
             sub_loc = normalize_location(
                 str(row.get('부자재창고', inp_loc)).strip()
             )
@@ -405,17 +412,18 @@ def process_repack_batch(db, date_str, mode, location, items):
     loc = normalize_location(location)
 
     # ── 사전 유효성 검증 (DB 변경 전) ──
+    # 재고 스냅샷 먼저 로드 (단위 조회용)
+    snapshot = _load_stock_snapshot(db, loc) if loc else {}
     input_demand = {}
     for item in items:
         for mat in item.get('materials', []):
             mat_name = str(mat.get('product_name', '')).strip()
-            mat_qty = int(float(mat.get('qty', 0)))
+            _ms = snapshot_lookup(snapshot, mat_name)
+            mat_unit = _ms.get('unit', '개')
+            mat_qty = safe_qty(mat.get('qty', 0), unit=mat_unit)
             if mat_name and mat_qty > 0:
                 key = (mat_name, loc)
                 input_demand[key] = input_demand.get(key, 0) + mat_qty
-
-    # 재고 스냅샷 & 부족 체크 (삭제 전에 먼저 검증)
-    snapshot = _load_stock_snapshot(db, loc) if loc else {}
     shortage = []
     for (name, _loc), need in input_demand.items():
         snap = snapshot_lookup(snapshot, name)
@@ -446,7 +454,8 @@ def process_repack_batch(db, date_str, mode, location, items):
 
     for item in items:
         out_name = str(item.get('product_name', '')).strip()
-        out_qty = int(float(item.get('qty', 0)))
+        out_unit = str(item.get('unit', '개')).strip() or '개'
+        out_qty = safe_qty(item.get('qty', 0), unit=out_unit)
 
         if not out_name or out_qty <= 0:
             continue
@@ -460,7 +469,7 @@ def process_repack_batch(db, date_str, mode, location, items):
             "location": loc,
             "category": str(item.get('category', '')).strip() or None,
             "storage_method": str(item.get('storage_method', '')).strip() or None,
-            "unit": str(item.get('unit', '개')).strip() or '개',
+            "unit": out_unit,
             "expiry_date": safe_date(item.get('expiry_date', '')),
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
             "food_type": str(item.get('food_type', '')).strip(),
@@ -472,12 +481,16 @@ def process_repack_batch(db, date_str, mode, location, items):
         # 투입품 (REPACK_OUT, FIFO)
         for mat in item.get('materials', []):
             mat_name = str(mat.get('product_name', '')).strip()
-            mat_qty = int(float(mat.get('qty', 0)))
+            if not mat_name:
+                continue
+            _ms = snapshot_lookup(snapshot, mat_name)
+            mat_unit = _ms.get('unit', '개')
+            mat_qty = safe_qty(mat.get('qty', 0), unit=mat_unit)
 
-            if not mat_name or mat_qty <= 0:
+            if mat_qty <= 0:
                 continue
 
-            groups = snapshot_lookup(snapshot, mat_name).get('groups', [])
+            groups = _ms.get('groups', [])
             remain = mat_qty
 
             if not groups:
