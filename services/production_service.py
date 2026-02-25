@@ -242,7 +242,7 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                 shortage.append(f"  [{loc}] {mat_name}: 필요 {mat_qty}{u} / 재고 {total}{u}")
 
     if shortage:
-        warnings.append("재료 재고 부족:\n" + "\n".join(shortage))
+        raise ValueError("재료 재고 부족 (품목명·위치·보관방법을 확인하세요):\n" + "\n".join(shortage))
 
     # ── 페이로드 생성 ──
     payload = []
@@ -407,7 +407,7 @@ def process_production_batch(db, date_str, mode, location, items):
                 shortage.append(f"[{loc}] {mat_name}: 필요 {mat_qty}{u} / 재고 {total}{u}")
 
     if shortage:
-        warnings.append("재료 재고 부족:\n" + "\n".join(shortage))
+        raise ValueError("재료 재고 부족 (품목명·위치·보관방법을 확인하세요):\n" + "\n".join(shortage))
 
     # 페이로드 생성
     payload = []

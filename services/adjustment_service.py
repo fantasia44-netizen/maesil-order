@@ -3,7 +3,7 @@ adjustment_service.py — 재고 조정 비즈니스 로직.
 양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
 """
 from datetime import datetime
-from services.excel_io import normalize_location, safe_qty
+from services.excel_io import normalize_location, safe_qty, build_stock_snapshot, snapshot_lookup
 
 
 def _validate_date(date_str):
@@ -32,6 +32,9 @@ def process_adjustment_batch(db, date_str, items):
     increase_count = 0
     decrease_count = 0
 
+    # 재고 스냅샷 캐시 (차감 검증용)
+    _snapshots = {}
+
     for item in items:
         name = str(item.get('product_name', '')).strip()
         location = normalize_location(item.get('location', ''))
@@ -43,6 +46,28 @@ def process_adjustment_batch(db, date_str, items):
 
         if not name or qty == 0 or not location or not memo:
             continue
+
+        # ── 음수(차감) 시 재고 존재 및 충분 여부 검증 ──
+        if qty < 0:
+            if location not in _snapshots:
+                try:
+                    raw = db.query_stock_by_location(location)
+                    _snapshots[location] = build_stock_snapshot(raw)
+                except Exception:
+                    _snapshots[location] = {}
+            snap = snapshot_lookup(_snapshots[location], name)
+            total = snap.get('total', 0)
+            snap_unit = snap.get('unit', '')
+            abs_qty = abs(qty)
+            if total <= 0:
+                raise ValueError(
+                    f"[{location}] '{name}' 재고가 없습니다. "
+                    f"품목명·위치·보관방법을 확인하세요.")
+            if abs_qty > total:
+                u = snap_unit or unit or '개'
+                raise ValueError(
+                    f"[{location}] '{name}' 재고 부족: "
+                    f"차감 {abs_qty}{u} / 현재 재고 {total}{u}")
 
         row = {
             "transaction_date": date_str,

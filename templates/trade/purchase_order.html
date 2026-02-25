@@ -457,7 +457,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <td class="text-center item-no">${itemIndex}</td>
             <td><input type="text" class="form-control form-control-sm item-name" placeholder="물품명" required></td>
             <td><input type="text" class="form-control form-control-sm item-unit" value="EA" placeholder="단위"></td>
-            <td><input type="number" class="form-control form-control-sm item-qty" min="0" value="1" placeholder="수량"></td>
+            <td><input type="number" class="form-control form-control-sm item-qty" min="0.001" step="any" value="1" placeholder="수량"></td>
             <td><input type="text" class="form-control form-control-sm item-note" placeholder="비고"></td>
             <td>
                 <button type="button" class="btn btn-sm btn-outline-danger btn-remove-item" title="삭제">
