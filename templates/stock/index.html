@@ -47,6 +47,10 @@
                     <i class="bi bi-search"></i>
                 </button>
                 {% if rows is defined and rows %}
+                <a href="{{ url_for('stock.excel', date=date_str, location=location, category=category, view_mode=view_mode, product=product_filter|default('')) }}"
+                   class="btn btn-outline-success" title="엑셀 다운로드">
+                    <i class="bi bi-file-earmark-excel"></i>
+                </a>
                 <a href="{{ url_for('stock.pdf', date=date_str, location=location, category=category, view_mode=view_mode, product=product_filter|default('')) }}"
                    class="btn btn-outline-danger" title="PDF 다운로드">
                     <i class="bi bi-file-earmark-pdf"></i>

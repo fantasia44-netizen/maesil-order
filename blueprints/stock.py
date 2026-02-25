@@ -148,3 +148,93 @@ def pdf():
         return redirect(url_for('stock.index', date=date_str,
                                  location=location, category=category,
                                  view_mode=view_mode))
+
+
+@stock_bp.route('/excel')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+def excel():
+    """재고현황 엑셀 다운로드"""
+    import pandas as pd
+    from openpyxl.utils import get_column_letter
+
+    date_str = request.args.get('date', '')
+    location = request.args.get('location', '전체')
+    category = request.args.get('category', '전체')
+    view_mode = request.args.get('view_mode', '기본')
+    product_filter = request.args.get('product', '').strip()
+
+    if not date_str:
+        flash('기준일을 입력하세요.', 'warning')
+        return redirect(url_for('stock.index'))
+
+    db = current_app.db
+
+    try:
+        from services.stock_service import query_stock_snapshot
+
+        split_manufacture = (view_mode == '제조일분리')
+        split_expiry = (view_mode == '소비기한분리')
+
+        rows = query_stock_snapshot(
+            db, date_str,
+            location=location,
+            category=category,
+            split_manufacture=split_manufacture,
+            split_expiry=split_expiry,
+        )
+
+        # 품목명 필터
+        if product_filter:
+            pf = product_filter.lower()
+            rows = [r for r in rows if pf in r.get('product_name', '').lower()]
+
+        if not rows:
+            flash('엑셀로 출력할 데이터가 없습니다.', 'warning')
+            return redirect(url_for('stock.index', date=date_str,
+                                     location=location, category=category,
+                                     view_mode=view_mode))
+
+        df = pd.DataFrame(rows)
+
+        # 컬럼 한글 매핑
+        col_map = {
+            'product_name': '품목명',
+            'category': '카테고리',
+            'qty': '수량',
+            'unit': '단위',
+            'location': '위치',
+            'storage_method': '보관방법',
+        }
+        if split_expiry:
+            col_map['expiry_date'] = '소비기한'
+        if split_manufacture:
+            col_map['manufacture_date'] = '제조일'
+
+        # 필요한 컬럼만 선택 + 한글 이름
+        use_cols = [c for c in col_map if c in df.columns]
+        df_out = df[use_cols].rename(columns=col_map)
+
+        # 엑셀 생성
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df_out.to_excel(writer, index=False, sheet_name='재고현황')
+
+            # 열 너비 자동 조정
+            ws = writer.sheets['재고현황']
+            for i, col_name in enumerate(df_out.columns, 1):
+                max_len = max(
+                    len(str(col_name)) * 2,  # 한글은 2배
+                    df_out.iloc[:, i - 1].astype(str).str.len().max() if len(df_out) > 0 else 0
+                )
+                ws.column_dimensions[get_column_letter(i)].width = min(max_len + 4, 40)
+
+        buf.seek(0)
+        fname = f"재고현황_{date_str}.xlsx"
+        return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True, download_name=fname)
+
+    except Exception as e:
+        flash(f'엑셀 생성 중 오류: {e}', 'danger')
+        return redirect(url_for('stock.index', date=date_str,
+                                 location=location, category=category,
+                                 view_mode=view_mode))
