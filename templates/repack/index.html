@@ -387,8 +387,11 @@
                          style="position:absolute; z-index:9999; top:100%; left:0; max-height:200px; overflow-y:auto; display:none; width:320px; background:#fff; border:1px solid #ccc; box-shadow:0 4px 8px rgba(0,0,0,.15);"></div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <input type="number" class="form-control form-control-sm mat-qty" placeholder="수량" min="1">
+            </div>
+            <div class="col-md-1">
+                <span class="form-text small mat-unit text-primary fw-bold"></span>
             </div>
             <div class="col-md-2">
                 <span class="form-text small mat-stock-info"></span>
@@ -404,6 +407,7 @@
         const nameInput = row.querySelector('.mat-name');
         const acList = row.querySelector('.mat-ac-list');
         const stockInfo = row.querySelector('.mat-stock-info');
+        const unitEl = row.querySelector('.mat-unit');
 
         nameInput.addEventListener('input', function(){
             const q = this.value.trim().toLowerCase();
@@ -427,7 +431,8 @@
                     nameInput.value = p.name;
                     acList.style.display = 'none';
                     if(useStock){
-                        stockInfo.textContent = `재고: ${p.qty.toLocaleString()}${p.unit}`;
+                        unitEl.textContent = p.unit || '';
+                        stockInfo.textContent = `재고:${p.qty.toLocaleString()}`;
                         stockInfo.className = 'form-text small mat-stock-info text-success';
                     }
                     row.querySelector('.mat-qty').focus();
@@ -440,9 +445,11 @@
         nameInput.addEventListener('change', function(){
             const found = stockProducts.find(p => p.name === this.value);
             if(found){
-                stockInfo.textContent = `재고: ${found.qty.toLocaleString()}${found.unit}`;
+                unitEl.textContent = found.unit || '';
+                stockInfo.textContent = `재고:${found.qty.toLocaleString()}`;
                 stockInfo.className = 'form-text small mat-stock-info text-success';
             } else {
+                unitEl.textContent = '';
                 stockInfo.textContent = '';
             }
         });

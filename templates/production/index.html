@@ -411,7 +411,7 @@
             div.className = 'row g-1 align-items-center mb-1';
             div.style.cssText = 'position:relative; overflow:visible;';
             div.innerHTML = `
-                <div class="col-sm-4" style="overflow:visible;">
+                <div class="col-sm-3" style="overflow:visible;">
                     <div style="position:relative; overflow:visible;">
                         <input type="text" class="form-control form-control-sm mat-name" data-idx="${idx}"
                                value="${escapeHtml(mat.product_name)}" placeholder="원료명 검색" autocomplete="off">
@@ -423,7 +423,10 @@
                     <input type="number" class="form-control form-control-sm mat-qty" data-idx="${idx}"
                            value="${mat.qty || ''}" min="1" placeholder="수량">
                 </div>
-                <div class="col-sm-3">
+                <div class="col-sm-1">
+                    <small class="text-primary fw-bold mat-unit" data-idx="${idx}"></small>
+                </div>
+                <div class="col-sm-2">
                     <input type="date" class="form-control form-control-sm mat-mfg-date" data-idx="${idx}"
                            value="${mat.manufacture_date || ''}" title="제조일 (미입력 시 FIFO)">
                 </div>
@@ -441,6 +444,7 @@
             const nameEl = div.querySelector('.mat-name');
             const acEl = div.querySelector('.mat-ac-list');
             const stockEl = div.querySelector('.mat-stock');
+            const unitEl = div.querySelector('.mat-unit');
             nameEl.addEventListener('input', function() {
                 const q = this.value.trim().toLowerCase();
                 acEl.innerHTML = '';
@@ -461,7 +465,10 @@
                         e.preventDefault();
                         currentMaterials[idx].product_name = p.name;
                         nameEl.value = p.name;
-                        if (useStock) stockEl.textContent = `재고:${p.qty}`;
+                        if (useStock) {
+                            unitEl.textContent = p.unit || '';
+                            stockEl.textContent = `재고:${p.qty}`;
+                        }
                         acEl.style.display = 'none';
                         div.querySelector('.mat-qty').focus();
                     });
@@ -470,7 +477,12 @@
                 acEl.style.display = 'block';
             });
             nameEl.addEventListener('blur', () => setTimeout(() => acEl.style.display = 'none', 200));
-            nameEl.addEventListener('change', function() { currentMaterials[idx].product_name = this.value.trim(); });
+            nameEl.addEventListener('change', function() {
+                currentMaterials[idx].product_name = this.value.trim();
+                const found = stockProducts.find(p => p.name === this.value.trim());
+                if(found) { unitEl.textContent = found.unit || ''; stockEl.textContent = `재고:${found.qty}`; }
+                else { unitEl.textContent = ''; }
+            });
             div.querySelector('.mat-qty').addEventListener('change', function() { currentMaterials[idx].qty = parseInt(this.value) || 0; });
             div.querySelector('.mat-mfg-date').addEventListener('change', function() { currentMaterials[idx].manufacture_date = this.value || ''; });
         });
