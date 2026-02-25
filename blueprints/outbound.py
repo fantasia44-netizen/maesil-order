@@ -143,6 +143,13 @@ def single():
         flash('품목 데이터가 올바르지 않습니다.', 'danger')
         return redirect(url_for('outbound.index'))
 
+    # 부대비용 파싱
+    extra_costs_json = request.form.get('extra_costs', '[]')
+    try:
+        extra_costs = json.loads(extra_costs_json) if extra_costs_json else []
+    except (json.JSONDecodeError, TypeError):
+        extra_costs = []
+
     if not items:
         flash('출고할 품목을 추가하세요.', 'danger')
         return redirect(url_for('outbound.index'))
@@ -219,6 +226,33 @@ def single():
                     'revenue': qty * unit_price,
                 })
 
+        # 부대비용 → manual_trades + revenue_payload 추가
+        for ec in extra_costs:
+            ec_name = str(ec.get('name', '')).strip()
+            ec_amount = int(ec.get('amount', 0))
+            ec_memo = str(ec.get('memo', '')).strip()
+            if ec_name and ec_amount > 0:
+                db.insert_manual_trade({
+                    'partner_name': partner_name,
+                    'product_name': ec_name,
+                    'trade_date': date_str,
+                    'trade_type': '판매',
+                    'qty': 1,
+                    'unit': '식',
+                    'unit_price': ec_amount,
+                    'amount': ec_amount,
+                    'memo': f'부대비용 - {ec_memo}' if ec_memo else '부대비용',
+                    'registered_by': current_user.username,
+                })
+                revenue_payload.append({
+                    'revenue_date': date_str,
+                    'product_name': ec_name,
+                    'category': '거래처매출',
+                    'qty': 1,
+                    'unit_price': ec_amount,
+                    'revenue': ec_amount,
+                })
+
         # 매출 관리(daily_revenue)에 거래처매출 자동 등록
         if revenue_payload:
             try:
@@ -247,6 +281,7 @@ def single():
             'my_biz_id': int(my_biz_id) if my_biz_id else None,
             'my_biz': my_biz_info,
             'items': items,
+            'extra_costs': extra_costs,
             'count': result['count'],
         }
 
@@ -277,12 +312,16 @@ def result():
             abs(int(i.get('qty', 0))) * int(i.get('unit_price', 0))
             for i in result_data.get('items', [])
         )
+        # 부대비용 합계
+        extra_total = sum(int(ec.get('amount', 0)) for ec in result_data.get('extra_costs', []))
 
         return render_template('outbound/result.html',
                                result=result_data,
                                my_biz=my_biz,
                                total_qty=total_qty,
-                               total_amount=total_amount)
+                               total_amount=total_amount,
+                               extra_total=extra_total,
+                               grand_total=total_amount + extra_total)
     except Exception as e:
         current_app.logger.error(f'결과 페이지 오류: {e}')
         flash('출고 처리는 완료되었습니다. (결과 페이지 표시 중 오류 발생)', 'warning')
@@ -333,6 +372,19 @@ def invoice():
                 'amount': qty * unit_price,
                 'memo': '',
             })
+
+        # 부대비용 항목 추가 (인보이스에 포함)
+        for ec in result_data.get('extra_costs', []):
+            ec_amount = int(ec.get('amount', 0))
+            if ec_amount > 0:
+                trades.append({
+                    'product_name': ec.get('name', ''),
+                    'qty': 1,
+                    'unit': '식',
+                    'unit_price': ec_amount,
+                    'amount': ec_amount,
+                    'memo': ec.get('memo', ''),
+                })
 
         # PDF 생성
         from reports.invoice_report import generate_invoice_pdf

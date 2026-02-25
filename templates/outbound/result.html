@@ -65,7 +65,7 @@
                         </tbody>
                         <tfoot>
                             <tr class="table-light fw-bold">
-                                <td colspan="2" class="text-end">합계</td>
+                                <td colspan="2" class="text-end">상품 합계</td>
                                 <td class="text-end">{{ '{:,.0f}'.format(total_qty) }}</td>
                                 <td></td>
                                 <td></td>
@@ -74,6 +74,43 @@
                         </tfoot>
                     </table>
                 </div>
+
+                {% if result.extra_costs %}
+                <!-- 부대비용 -->
+                <h6 class="mt-3"><i class="bi bi-receipt"></i> 부대비용</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>항목</th>
+                                <th class="text-end" style="width:150px">금액</th>
+                                <th>비고</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ec in result.extra_costs %}
+                            <tr>
+                                <td>{{ ec.name }}</td>
+                                <td class="text-end fw-bold">{{ '{:,.0f}'.format(ec.amount) }}</td>
+                                <td><small class="text-muted">{{ ec.memo|default('') }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light fw-bold">
+                                <td class="text-end">부대비용 소계</td>
+                                <td class="text-end">{{ '{:,.0f}'.format(extra_total) }}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <div class="alert alert-primary py-2 d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">총 합계 (상품 + 부대비용)</span>
+                    <span class="fw-bold fs-5">{{ '{:,.0f}'.format(grand_total) }}원</span>
+                </div>
+                {% endif %}
 
                 <!-- 버튼 -->
                 <div class="d-flex gap-2 mt-4">
