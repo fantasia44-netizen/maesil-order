@@ -218,7 +218,7 @@ def build_stock_snapshot(all_data):
         name = r['product_name']
         if name not in stock:
             stock[name] = {'groups': [], 'total': 0, 'unit': '개'}
-        unit_val = r['unit'] if pd.notna(r.get('unit')) else '개'
+        unit_val = r['unit'] if (pd.notna(r.get('unit')) and r['unit'] != '') else '개'
         stock[name]['groups'].append({
             'category': r['category'] if pd.notna(r['category']) else '',
             'expiry_date': r['expiry_date'] if pd.notna(r['expiry_date']) else None,

@@ -430,8 +430,8 @@
                     e.preventDefault();
                     nameInput.value = p.name;
                     acList.style.display = 'none';
+                    unitEl.textContent = p.unit || '개';
                     if(useStock){
-                        unitEl.textContent = p.unit || '';
                         stockInfo.textContent = `재고:${p.qty.toLocaleString()}`;
                         stockInfo.className = 'form-text small mat-stock-info text-success';
                     }
@@ -443,14 +443,12 @@
         });
         nameInput.addEventListener('blur', () => setTimeout(() => acList.style.display = 'none', 200));
         nameInput.addEventListener('change', function(){
-            const found = stockProducts.find(p => p.name === this.value);
-            if(found){
-                unitEl.textContent = found.unit || '';
+            const found = stockProducts.find(p => p.name === this.value)
+                       || allProducts.find(p => p.name === this.value);
+            unitEl.textContent = (found && found.unit) ? found.unit : '개';
+            if(found && found.qty != null){
                 stockInfo.textContent = `재고:${found.qty.toLocaleString()}`;
                 stockInfo.className = 'form-text small mat-stock-info text-success';
-            } else {
-                unitEl.textContent = '';
-                stockInfo.textContent = '';
             }
         });
     }

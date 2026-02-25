@@ -44,8 +44,8 @@ def index():
 def api_products():
     """전체 고유 품목명 목록 JSON (자동완성용)"""
     try:
-        names = current_app.db.query_unique_product_names()
-        return jsonify([{'name': n} for n in names])
+        products = current_app.db.query_unique_product_names()
+        return jsonify(products)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

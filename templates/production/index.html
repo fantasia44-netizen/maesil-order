@@ -465,8 +465,8 @@
                         e.preventDefault();
                         currentMaterials[idx].product_name = p.name;
                         nameEl.value = p.name;
+                        unitEl.textContent = p.unit || '개';
                         if (useStock) {
-                            unitEl.textContent = p.unit || '';
                             stockEl.textContent = `재고:${p.qty}`;
                         }
                         acEl.style.display = 'none';
@@ -479,9 +479,10 @@
             nameEl.addEventListener('blur', () => setTimeout(() => acEl.style.display = 'none', 200));
             nameEl.addEventListener('change', function() {
                 currentMaterials[idx].product_name = this.value.trim();
-                const found = stockProducts.find(p => p.name === this.value.trim());
-                if(found) { unitEl.textContent = found.unit || ''; stockEl.textContent = `재고:${found.qty}`; }
-                else { unitEl.textContent = ''; }
+                const found = stockProducts.find(p => p.name === this.value.trim())
+                           || allProducts.find(p => p.name === this.value.trim());
+                unitEl.textContent = (found && found.unit) ? found.unit : '개';
+                if(found && found.qty != null) { stockEl.textContent = `재고:${found.qty}`; }
             });
             div.querySelector('.mat-qty').addEventListener('change', function() { currentMaterials[idx].qty = parseInt(this.value) || 0; });
             div.querySelector('.mat-mfg-date').addEventListener('change', function() { currentMaterials[idx].manufacture_date = this.value || ''; });
