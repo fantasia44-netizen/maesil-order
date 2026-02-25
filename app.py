@@ -34,6 +34,13 @@ def create_app(config_class=None):
     app.db = SupabaseDB()
     app.db.connect()
 
+    # 권한 테이블 기본값 초기화 (테이블이 비어있으면 PAGE_REGISTRY 기본값 삽입)
+    try:
+        from models import PAGE_REGISTRY
+        app.db.seed_default_permissions(PAGE_REGISTRY)
+    except Exception as e:
+        print(f"[WARN] seed_default_permissions: {e}")
+
     # 로그인 매니저
     login_manager = LoginManager()
     login_manager.init_app(app)
