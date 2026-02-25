@@ -334,9 +334,14 @@
         const row = document.createElement('div');
         row.className = 'row g-2 mb-1 mat-row';
         row.dataset.matId = id;
+        row.style.cssText = 'position:relative; overflow:visible;';
         row.innerHTML = `
-            <div class="col-md-5">
-                <input type="text" class="form-control form-control-sm mat-name" placeholder="투입품명" list="matDatalist" autocomplete="off">
+            <div class="col-md-5" style="overflow:visible;">
+                <div style="position:relative; overflow:visible;">
+                    <input type="text" class="form-control form-control-sm mat-name" placeholder="투입품명 검색" autocomplete="off">
+                    <div class="mat-ac-list list-group"
+                         style="position:absolute; z-index:9999; top:100%; left:0; max-height:200px; overflow-y:auto; display:none; width:320px; background:#fff; border:1px solid #ccc; box-shadow:0 4px 8px rgba(0,0,0,.15);"></div>
+                </div>
             </div>
             <div class="col-md-3">
                 <input type="number" class="form-control form-control-sm mat-qty" placeholder="수량" min="1">
@@ -351,11 +356,45 @@
             </div>`;
         document.getElementById('materialRows').appendChild(row);
 
-        // 재고 표시
+        // 커스텀 자동완성 (재고 기반)
         const nameInput = row.querySelector('.mat-name');
+        const acList = row.querySelector('.mat-ac-list');
+        const stockInfo = row.querySelector('.mat-stock-info');
+
+        nameInput.addEventListener('input', function(){
+            const q = this.value.trim().toLowerCase();
+            acList.innerHTML = '';
+            if(!q){ acList.style.display = 'none'; return; }
+            // 위치 선택 시 재고 품목, 미선택 시 전체 품목
+            const useStock = stockProducts.length > 0;
+            const source = useStock ? stockProducts : allProducts;
+            if(!source.length){ acList.style.display = 'none'; return; }
+            const matches = source.filter(p => p.name.toLowerCase().includes(q)).slice(0, 10);
+            if(!matches.length){ acList.style.display = 'none'; return; }
+            matches.forEach(p => {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'list-group-item list-group-item-action py-1 px-2 small';
+                a.innerHTML = useStock
+                    ? `${escapeHtml(p.name)} <span class="text-muted">(재고: ${p.qty.toLocaleString()}${p.unit})</span>`
+                    : escapeHtml(p.name);
+                a.addEventListener('mousedown', function(e){
+                    e.preventDefault();
+                    nameInput.value = p.name;
+                    acList.style.display = 'none';
+                    if(useStock){
+                        stockInfo.textContent = `재고: ${p.qty.toLocaleString()}${p.unit}`;
+                        stockInfo.className = 'form-text small mat-stock-info text-success';
+                    }
+                    row.querySelector('.mat-qty').focus();
+                });
+                acList.appendChild(a);
+            });
+            acList.style.display = 'block';
+        });
+        nameInput.addEventListener('blur', () => setTimeout(() => acList.style.display = 'none', 200));
         nameInput.addEventListener('change', function(){
-            const stockInfo = row.querySelector('.mat-stock-info');
-            const found = stockProducts.find(p=>p.name === this.value);
+            const found = stockProducts.find(p => p.name === this.value);
             if(found){
                 stockInfo.textContent = `재고: ${found.qty.toLocaleString()}${found.unit}`;
                 stockInfo.className = 'form-text small mat-stock-info text-success';
