@@ -117,9 +117,9 @@ def api_history():
 # ── API: 개별 삭제 (admin 전용) ──
 
 @production_bp.route('/api/delete/<int:record_id>', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager', 'production')
 def api_delete(record_id):
-    """개별 생산 이력 삭제 (admin 전용)"""
+    """개별 생산 이력 삭제"""
     try:
         current_app.db.delete_stock_ledger_by_id(record_id)
         return jsonify({'success': True})
@@ -132,9 +132,9 @@ def api_delete(record_id):
 # ── API: 개별 수정 (admin 전용) ──
 
 @production_bp.route('/api/update/<int:record_id>', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'manager', 'production')
 def api_update(record_id):
-    """개별 생산 이력 수정 (admin 전용)"""
+    """개별 생산 이력 수정"""
     data = request.get_json(silent=True)
     if not data:
         return jsonify({'error': '수정 데이터가 없습니다.'}), 400

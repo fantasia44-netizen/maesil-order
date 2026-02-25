@@ -169,7 +169,7 @@
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
                             <tr><th>일자</th><th>유형</th><th>품목명</th><th>수량</th><th>위치</th><th>보관</th><th>제조일</th><th>소비기한</th>
-                                {% if current_user.role == 'admin' %}<th style="width:70px;">관리</th>{% endif %}</tr>
+                                {% if current_user.role in ('admin', 'manager', 'production') %}<th style="width:70px;">관리</th>{% endif %}</tr>
                         </thead>
                         <tbody id="historyBody">
                             <tr><td colspan="9" class="text-center text-muted small py-2">기간 선택 후 조회</td></tr>
@@ -238,7 +238,7 @@
     </div>
 </div>
 
-{% if current_user.role == 'admin' %}
+{% if current_user.role in ('admin', 'manager', 'production') %}
 <!-- 수정 모달 -->
 <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -312,7 +312,7 @@
     const PRODUCTS_URL = '{{ url_for("production.api_products") }}';
     const STOCK_URL = '{{ url_for("production.api_stock") }}';
     const HISTORY_URL = '{{ url_for("production.api_history") }}';
-    const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
+    const isAdmin = {{ 'true' if current_user.role in ('admin', 'manager', 'production') else 'false' }};
 
     const dateInput = document.getElementById('prodDate');
     const modeSelect = document.getElementById('prodMode');
