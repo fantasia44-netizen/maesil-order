@@ -4,6 +4,7 @@ trade.py — 거래처/거래 관리 Blueprint.
 """
 import os
 import io
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -568,6 +569,13 @@ def purchase_order():
             date_to=date_to or None,
             partner_name=partner_filter if partner_filter != '전체' else None,
         )
+        # items가 JSON 문자열이면 파싱
+        for po in po_list:
+            if isinstance(po.get('items'), str):
+                try:
+                    po['items'] = json.loads(po['items'])
+                except (json.JSONDecodeError, TypeError):
+                    po['items'] = []
     except Exception as e:
         flash(f'발주서 이력 조회 중 오류: {e}', 'danger')
 
