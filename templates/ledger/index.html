@@ -67,6 +67,10 @@
                        class="btn btn-outline-danger" title="가로방향 3단 레이아웃">
                         <i class="bi bi-layout-three-columns"></i> 3단출력
                     </a>
+                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default'), multi_col='4') }}"
+                       class="btn btn-outline-danger" title="가로방향 4단 레이아웃">
+                        <i class="bi bi-grid"></i> 4단출력
+                    </a>
                 </div>
                 {% endif %}
             </div>

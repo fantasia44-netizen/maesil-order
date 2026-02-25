@@ -134,7 +134,11 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
     doc.addPageTemplates([first_tmpl, later_tmpl])
 
     # ── 플랫 테이블 데이터 구축 (한장출력과 동일) ──
-    if has_mfg:
+    if num_cols >= 4:
+        # 4단: 최소 칼럼 (품목명, 전일, 입고, 출고, 잔고)
+        headers = ["품목명", "전일", "입고", "출고", "잔고"]
+        cw = [col_w * 0.36, col_w * 0.16, col_w * 0.16, col_w * 0.16, col_w * 0.16]
+    elif has_mfg:
         if num_cols >= 3:
             headers = ["품목명", "제조일", "전일", "입고", "출고", "잔고"]
             cw = [col_w * 0.30, col_w * 0.18, col_w * 0.13,
@@ -170,7 +174,15 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
         loc_str = str(location) if location and str(location) not in ('', 'nan', 'None') else ''
         mfg_str = str(mfg_date) if mfg_date and str(mfg_date) not in ('', 'nan', 'None') else ''
 
-        if has_mfg:
+        if num_cols >= 4:
+            table_data.append([
+                product_name,
+                _fmt_qty(opening) if opening else "",
+                _fmt_qty(total_in) if total_in else "",
+                _fmt_qty(total_out) if total_out else "",
+                _fmt_qty(closing)
+            ])
+        elif has_mfg:
             if num_cols >= 3:
                 table_data.append([
                     product_name, mfg_str,
@@ -207,7 +219,9 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
 
     # ── 동적 폰트 크기 ──
     row_count = len(table_data)
-    if num_cols >= 3:
+    if num_cols >= 4:
+        d_font, h_font, pad = 5, 5.5, 0.8
+    elif num_cols >= 3:
         d_font, h_font, pad = 5.5, 6.5, 1
     else:
         d_font, h_font, pad = 6, 7, 1.5
@@ -262,7 +276,7 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
     # ================================================================
     # 다단 출력 모드 — 사용자 선택 (2단 또는 3단)
     # ================================================================
-    if multi_col in (2, 3):
+    if multi_col in (2, 3, 4):
         num_cols = multi_col
         _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
                                    sorted_keys, group_keys, num_cols, warnings)
