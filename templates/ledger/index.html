@@ -118,12 +118,12 @@
                         {% elif view_mode|default('default') == 'expiry' %}
                         <td>{{ row.expiry_date|default('-') }}</td>
                         {% endif %}
-                        <td class="text-end">{{ '{:,.0f}'.format(row.opening|default(0)) }}</td>
-                        <td class="text-end text-primary">{{ '{:,.0f}'.format(row.inbound|default(0)) }}</td>
-                        <td class="text-end text-success">{{ '{:,.0f}'.format(row.production|default(0)) }}</td>
-                        <td class="text-end text-danger">{{ '{:,.0f}'.format(row.outbound|default(0)) }}</td>
-                        <td class="text-end text-info">{{ '{:,.0f}'.format(row.transfer|default(0)) }}</td>
-                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.closing|default(0)) }}</td>
+                        <td class="text-end">{{ (row.opening|default(0))|fmt_qty }}</td>
+                        <td class="text-end text-primary">{{ (row.inbound|default(0))|fmt_qty }}</td>
+                        <td class="text-end text-success">{{ (row.production|default(0))|fmt_qty }}</td>
+                        <td class="text-end text-danger">{{ (row.outbound|default(0))|fmt_qty }}</td>
+                        <td class="text-end text-info">{{ (row.transfer|default(0))|fmt_qty }}</td>
+                        <td class="text-end fw-bold">{{ (row.closing|default(0))|fmt_qty }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>

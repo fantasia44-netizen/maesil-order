@@ -156,6 +156,18 @@ def create_app(config_class=None):
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp]:
         app.register_blueprint(bp)
 
+    # ── Jinja2 커스텀 필터 ──
+    def fmt_qty(val):
+        """수량 포맷: 정수면 쉼표만, 소수면 소수점 유지 (최대 2자리)"""
+        try:
+            n = float(val)
+            if n == int(n):
+                return f"{int(n):,}"
+            return f"{n:,.2f}".rstrip('0').rstrip('.')
+        except (ValueError, TypeError):
+            return str(val) if val else '0'
+    app.jinja_env.filters['fmt_qty'] = fmt_qty
+
     # 폴더 생성
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)
     os.makedirs(app.config.get('OUTPUT_FOLDER', 'output'), exist_ok=True)

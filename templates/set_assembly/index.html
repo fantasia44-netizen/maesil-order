@@ -147,7 +147,7 @@
                                         <span class="badge bg-secondary">{{ type_labels.get(t, t) }}</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-end">{{ '{:,.0f}'.format(row.qty) }}</td>
+                                <td class="text-end">{{ row.qty|fmt_qty }}</td>
                                 <td>{{ row.location|default('-') }}</td>
                                 <td class="text-muted small">{{ row.memo|default('-') }}</td>
                             </tr>

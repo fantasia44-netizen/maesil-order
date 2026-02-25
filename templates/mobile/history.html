@@ -72,9 +72,9 @@
             <div class="fw-bold mt-1" style="font-size:0.95rem;">
                 {% if r.qty is defined %}
                     {% if r.qty > 0 %}
-                        <span class="text-primary">+{{ '{:,.0f}'.format(r.qty) }}</span>
+                        <span class="text-primary">+{{ r.qty|fmt_qty }}</span>
                     {% else %}
-                        <span class="text-danger">{{ '{:,.0f}'.format(r.qty) }}</span>
+                        <span class="text-danger">{{ r.qty|fmt_qty }}</span>
                     {% endif %}
                 {% endif %}
             </div>

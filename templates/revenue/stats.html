@@ -139,7 +139,7 @@
                     <tr>
                         <td class="text-center fw-bold">{{ loop.index }}</td>
                         <td><strong>{{ p.name }}</strong></td>
-                        <td class="text-end">{{ '{:,.0f}'.format(p.qty) }}</td>
+                        <td class="text-end">{{ p.qty|fmt_qty }}</td>
                         <td class="text-end fw-bold">{{ '{:,.0f}'.format(p.revenue) }}원</td>
                         <td>
                             {% set pct = (p.revenue / stats.summary.total_revenue * 100) if stats.summary.total_revenue > 0 else 0 %}

@@ -59,7 +59,7 @@
         <div class="text-end">
             <span class="fw-bold text-success">{{ '{:,.0f}'.format(r.revenue|default(0)) }}</span>
             <div class="item-sub">
-                {% if r.qty %}{{ '{:,.0f}'.format(r.qty) }}개{% endif %}
+                {% if r.qty %}{{ r.qty|fmt_qty }}개{% endif %}
                 {% if r.unit_price %} @ {{ '{:,.0f}'.format(r.unit_price) }}{% endif %}
             </div>
         </div>

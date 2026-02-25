@@ -85,7 +85,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <div class="text-muted small">총 수량</div>
-                <h3 class="mb-0 fw-bold text-success">{{ '{:,.0f}'.format(stats.total_qty) }}</h3>
+                <h3 class="mb-0 fw-bold text-success">{{ stats.total_qty|fmt_qty }}</h3>
             </div>
         </div>
     </div>
@@ -123,7 +123,7 @@
                         <td><strong>{{ row.product_name }}</strong></td>
                         <td>{{ row.category|default('-', true) }}</td>
                         <td>{% if row.food_type %}<span class="badge {% if row.food_type == '농산물' %}bg-success{% elif row.food_type == '수산물' %}bg-primary{% elif row.food_type == '축산물' %}bg-danger{% else %}bg-secondary{% endif %} small">{{ row.food_type }}</span>{% else %}-{% endif %}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(row.qty) }}</td>
+                        <td class="text-end">{{ row.qty|fmt_qty }}</td>
                         <td>{{ row.unit|default('-', true) }}</td>
                         <td>{{ row.location|default('-', true) }}</td>
                         <td>{{ row.storage_method|default('-', true) }}</td>

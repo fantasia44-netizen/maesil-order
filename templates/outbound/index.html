@@ -240,7 +240,7 @@
                         <td>{{ t.trade_date|default(t.date|default('-')) }}</td>
                         <td>{{ t.partner_name|default('-') }}</td>
                         <td>{{ t.product_name }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(t.qty) }}</td>
+                        <td class="text-end">{{ t.qty|fmt_qty }}</td>
                         <td class="text-end">{{ '{:,.0f}'.format(t.unit_price|default(0)) }}</td>
                         <td class="text-end fw-bold">{{ '{:,.0f}'.format(t.amount|default(0)) }}</td>
                         <td><small class="text-muted">{{ t.memo|default('') }}</small></td>

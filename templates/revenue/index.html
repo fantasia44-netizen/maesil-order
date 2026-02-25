@@ -156,7 +156,7 @@
                         <td>{{ rev.revenue_date|default('-') }}</td>
                         <td>{{ rev.product_name }}</td>
                         <td>{{ rev.category|default('-') }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(rev.qty) }}</td>
+                        <td class="text-end">{{ rev.qty|fmt_qty }}</td>
                         <td class="text-end">{{ '{:,.0f}'.format(rev.unit_price|default(0)) }}</td>
                         <td class="text-end fw-bold">{{ '{:,.0f}'.format(rev.revenue|default(0)) }}</td>
                         {% if current_user.role in ['admin', 'manager'] %}

@@ -40,7 +40,7 @@
             <div class="desc">품목 수</div>
         </div>
         <div class="col-6 m-stat">
-            <div class="num">{{ '{:,.0f}'.format(stats.total_qty) }}</div>
+            <div class="num">{{ stats.total_qty|fmt_qty }}</div>
             <div class="desc">총 수량</div>
         </div>
     </div>
@@ -59,7 +59,7 @@
             </div>
         </div>
         <div class="text-end">
-            <span class="fw-bold text-primary" style="font-size:1.1rem;">{{ '{:,.0f}'.format(row.qty) }}</span>
+            <span class="fw-bold text-primary" style="font-size:1.1rem;">{{ row.qty|fmt_qty }}</span>
             <div class="item-sub">{{ row.unit|default('개') }}</div>
         </div>
     </div>

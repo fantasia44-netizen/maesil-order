@@ -95,7 +95,7 @@
                             {% endif %}
                         </td>
                         <td>{{ rec.product_name }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(rec.qty) }}</td>
+                        <td class="text-end">{{ rec.qty|fmt_qty }}</td>
                         <td>{{ rec.unit|default('-') }}</td>
                         <td>{{ rec.location|default('-') }}</td>
                         <td>{{ rec.category|default('-') }}</td>

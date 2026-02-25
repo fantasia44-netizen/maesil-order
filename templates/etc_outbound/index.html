@@ -140,7 +140,7 @@
                                 </td>
                                 <td>{{ row.product_name }}</td>
                                 <td class="text-end {{ 'text-success' if row.qty > 0 else 'text-danger' }}">
-                                    {{ '{:,.0f}'.format(row.qty) }}
+                                    {{ row.qty|fmt_qty }}
                                 </td>
                                 <td>{{ row.location|default('-') }}</td>
                                 <td class="text-muted small">{{ row.memo|default('-') }}</td>
