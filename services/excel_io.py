@@ -194,7 +194,9 @@ def parse_revenue_payload(df, upload_date):
 
 def build_stock_snapshot(all_data):
     """raw stock_ledger list of dict → 품목별 FIFO 그룹 딕셔너리.
-    returns: {product_name: {groups: [...], total: int, unit: str}}
+    returns: {product_name: {groups: [...], total: int, unit: str,
+              category: str, storage_method: str}}
+    ※ category, storage_method는 재고 0인 품목도 최근 데이터에서 가져옴 (fallback용)
     """
     if not all_data:
         return {}
@@ -210,14 +212,33 @@ def build_stock_snapshot(all_data):
     group_cols = ['product_name', 'category', 'expiry_date',
                   'storage_method', 'unit', 'origin', 'manufacture_date']
     summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()
+
+    # ── 필터 전: 모든 품목의 메타 정보 수집 (재고 0인 품목 포함) ──
+    all_meta = {}
+    for _, r in summary.iterrows():
+        name = r['product_name']
+        if name not in all_meta:
+            unit_val = r['unit'] if (pd.notna(r.get('unit')) and r['unit'] != '') else '개'
+            cat_val = r['category'] if (pd.notna(r['category']) and r['category'] != '') else ''
+            stg_val = r['storage_method'] if (pd.notna(r['storage_method']) and r['storage_method'] != '') else ''
+            all_meta[name] = {'unit': unit_val, 'category': cat_val, 'storage_method': stg_val}
+
     summary = summary[summary['qty'] > 0]
     summary = summary.sort_values(['product_name', 'expiry_date'], na_position='last')
 
+    # ── stock dict: 메타 있는 모든 품목 미리 생성 (재고 0 포함) ──
     stock = {}
+    for name, meta in all_meta.items():
+        stock[name] = {
+            'groups': [], 'total': 0,
+            'unit': meta['unit'],
+            'category': meta['category'],
+            'storage_method': meta['storage_method'],
+        }
+
     for _, r in summary.iterrows():
         name = r['product_name']
-        if name not in stock:
-            stock[name] = {'groups': [], 'total': 0, 'unit': '개'}
+        # stock[name]은 위에서 이미 생성됨
         unit_val = r['unit'] if (pd.notna(r.get('unit')) and r['unit'] != '') else '개'
         stock[name]['groups'].append({
             'category': r['category'] if pd.notna(r['category']) else '',

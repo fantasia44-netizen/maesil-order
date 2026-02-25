@@ -78,7 +78,8 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
     for _, row in df.iterrows():
         name = str(row['품목명']).strip()
         remain = abs(safe_int(row[qty_col]))
-        groups = snapshot_lookup(stock, name).get('groups', [])
+        snap_data = snapshot_lookup(stock, name)
+        groups = snap_data.get('groups', [])
         if not groups:
             payload.append({
                 "transaction_date": date_str,
@@ -86,6 +87,9 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
                 "product_name": name,
                 "qty": -remain,
                 "location": location,
+                "unit": snap_data.get('unit', '개'),
+                "category": snap_data.get('category', ''),
+                "storage_method": snap_data.get('storage_method', ''),
                 "manufacture_date": '',
             })
             continue
@@ -162,7 +166,8 @@ def process_single_outbound(db, date_str, location, items):
     for item in items:
         name = str(item['product_name']).strip()
         remain = abs(int(item['qty']))
-        groups = snapshot_lookup(stock, name).get('groups', [])
+        snap_data = snapshot_lookup(stock, name)
+        groups = snap_data.get('groups', [])
         if not groups:
             payload.append({
                 "transaction_date": date_str,
@@ -170,6 +175,9 @@ def process_single_outbound(db, date_str, location, items):
                 "product_name": name,
                 "qty": -remain,
                 "location": location,
+                "unit": snap_data.get('unit', item.get('unit', '개')),
+                "category": snap_data.get('category', ''),
+                "storage_method": snap_data.get('storage_method', ''),
                 "manufacture_date": '',
             })
             continue

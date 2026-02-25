@@ -120,6 +120,8 @@ def process_etc_outbound(db, date_str, location, items):
                 "qty": -remain,
                 "location": location,
                 "unit": snap_data.get('unit', '개'),
+                "category": snap_data.get('category', ''),
+                "storage_method": snap_data.get('storage_method', ''),
                 "memo": memo_str,
             })
             out_count += 1
