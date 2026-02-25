@@ -92,7 +92,8 @@ def edit(row_id):
             val = request.form.get(field)
             if val is not None:
                 if field == 'qty':
-                    update_data[field] = int(val)
+                    n = float(val)
+                    update_data[field] = int(n) if n == int(n) else n
                 else:
                     update_data[field] = val.strip() if val.strip() else None
 

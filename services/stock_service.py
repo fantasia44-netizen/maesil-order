@@ -5,7 +5,7 @@ Tkinter UI 제거, 순수 데이터 반환.
 import pandas as pd
 from datetime import datetime
 
-from services.excel_io import build_stock_snapshot, snapshot_lookup
+from services.excel_io import build_stock_snapshot, snapshot_lookup, _snap_qty
 
 
 # ─── 헬퍼 ───
@@ -179,7 +179,7 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     results = []
     for _, r in summary.iterrows():
         unit = r['unit'] if pd.notna(r.get('unit')) else '개'
-        qty_val = int(r['qty'])
+        qty_val = _snap_qty(r['qty'], unit)
         item = {
             'product_name': r['product_name'],
             'qty': qty_val,
@@ -392,7 +392,7 @@ def query_ledger_data(db, date_from, date_to, location=None, category=None,
         pb = df_before.groupby(group_keys)['qty'].sum().reset_index()
         for _, r in pb.iterrows():
             key = tuple(r[k] for k in group_keys)
-            prev_dict[key] = int(r['qty'])
+            prev_dict[key] = _snap_qty(r['qty'], r.get('unit', '개'))
 
     sort_cols = ['transaction_date']
     if 'id' in df_period.columns:
