@@ -78,138 +78,22 @@ def _draw_mc_header(canvas, config, font_name, page_w, page_h, margin):
     canvas.drawRightString(page_w - margin, y_top - 32, subtitle)
 
 
-def _build_mc_product_block(gkey, prev_dict, period_groups, col_w,
-                             font_name, num_cols, date_from, has_mfg):
-    """다단 레이아웃용 품목 블록 생성."""
-    product_name, location, category, unit, mfg_date = _unpack_gkey(gkey)
-    running = prev_dict.get(gkey, 0)
-    transactions = period_groups.get(gkey, [])
-
-    block = []
-
-    # ── 품목 배너 ──
-    b_font = 6 if num_cols == 2 else 5.5
-    item_style = ParagraphStyle('MCItem', fontName=font_name, fontSize=b_font,
-                                 textColor=colors.Color(0.1, 0.1, 0.4),
-                                 leading=b_font + 2)
-    label = f"▶ {product_name}"
-    if category and str(category) not in ('', 'nan', 'None'):
-        label += f" ({category})"
-    loc_str = str(location) if location and str(location) not in ('', 'nan', 'None') else ''
-    if loc_str:
-        label += f" [{loc_str}]"
-    if has_mfg and mfg_date and str(mfg_date) not in ('', 'nan', 'None'):
-        label += f" 제조:{mfg_date}"
-
-    banner_data = [[Paragraph(label, item_style)]]
-    banner = Table(banner_data, colWidths=[col_w])
-    banner.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.Color(0.92, 0.94, 0.98)),
-        ('TOPPADDING', (0, 0), (-1, -1), 1),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-        ('LEFTPADDING', (0, 0), (-1, -1), 2),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 1),
-    ]))
-    block.append(banner)
-
-    # ── 데이터 테이블 ──
-    if num_cols == 2:
-        headers = ["일자", "구분", "입고", "출고", "잔고", "비고"]
-        cw = [col_w * 0.16, col_w * 0.13, col_w * 0.14, col_w * 0.14,
-              col_w * 0.14, col_w * 0.29]
-        h_font, d_font, pad = 6.5, 5.5, 1
-        n_data_cols = 6
-    else:  # 3단
-        headers = ["일자", "구분", "입고", "출고", "잔고"]
-        cw = [col_w * 0.24, col_w * 0.20, col_w * 0.19, col_w * 0.19, col_w * 0.18]
-        h_font, d_font, pad = 5.5, 5, 1
-        n_data_cols = 5
-
-    table_data = [headers]
-    item_total_in = 0
-    item_total_out = 0
-
-    # 전일이월
-    if running != 0:
-        carry_row = [date_from or "", "이월", "", "", _fmt_qty(running)]
-        if num_cols == 2:
-            carry_row.append("")
-        table_data.append(carry_row)
-
-    # 거래내역
-    for row in transactions:
-        qty = _safe_num(row['qty'])
-        running += qty
-        type_label = INV_TYPE_LABELS.get(row.get('type', ''), row.get('type', ''))
-        # 구분 라벨 축약
-        short_label = type_label.replace('판매출고', '판출').replace('이동입고', '이입') \
-                                 .replace('이동출고', '이출').replace('생산입고', '생입') \
-                                 .replace('매입입고', '매입').replace('기타출고', '기출') \
-                                 .replace('기타입고', '기입').replace('소분입고', '소입') \
-                                 .replace('소분출고', '소출').replace('재고조정', '조정') \
-                                 .replace('세트구성', '세트').replace('세트해체', '해체')
-        in_q = _fmt_qty(qty) if qty >= 0 else ""
-        out_q = _fmt_qty(abs(qty)) if qty < 0 else ""
-        if qty >= 0:
-            item_total_in += qty
-        else:
-            item_total_out += abs(qty)
-
-        data_row = [str(row.get('transaction_date', ''))[5:],  # MM-DD만
-                    short_label, in_q, out_q, _fmt_qty(running)]
-        if num_cols == 2:
-            memo_val = str(row.get('memo', '')).strip()
-            if memo_val in ('nan', 'None'):
-                memo_val = ''
-            # 비고 너무 길면 자르기
-            data_row.append(memo_val[:12] if len(memo_val) > 12 else memo_val)
-        table_data.append(data_row)
-
-    # 소계
-    sub_row = ["", "소계",
-               _fmt_qty(item_total_in) if item_total_in else "",
-               _fmt_qty(item_total_out) if item_total_out else "",
-               _fmt_qty(running)]
-    if num_cols == 2:
-        sub_row.append("")
-    table_data.append(sub_row)
-
-    t = make_data_table(table_data, cw, font_name,
-                         header_font=h_font, data_font=d_font, padding=pad)
-
-    # 소계 줄 배경
-    lr = len(table_data) - 1
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, lr), (-1, lr), colors.Color(0.92, 0.92, 0.92)),
-    ]))
-    # 이월 줄 배경
-    if prev_dict.get(gkey, 0) != 0 and len(table_data) > 2:
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 1), (-1, 1), colors.Color(0.88, 0.93, 1.0)),
-        ]))
-
-    block.append(t)
-    return block
-
-
 def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
                                 sorted_keys, group_keys, num_cols, warnings=None):
-    """다단 레이아웃 PDF 생성 (2단 또는 3단)."""
+    """다단 플랫테이블 PDF 생성 — 한장출력 스타일을 2~3단으로 분할."""
     font_name = register_font()
     margin = 15 * mm
     page_size = landscape(A4)
     page_w, page_h = page_size
     has_mfg = len(group_keys) > 4
-    date_from = config.get('date_from', '')
 
     # 칼럼 너비 계산
-    gap = 4 * mm
+    gap = 5 * mm
     total_gap = gap * (num_cols - 1)
     col_w = (page_w - 2 * margin - total_gap) / num_cols
 
     # 헤더/푸터 높이
     header_h = 36 * mm
-    footer_h = 8 * mm
 
     # 프레임 생성 헬퍼
     def make_frames(prefix, content_h, y_bottom):
@@ -218,21 +102,16 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
             x = margin + i * (col_w + gap)
             frames.append(Frame(x, y_bottom, col_w, content_h,
                                 id=f'{prefix}_c{i}',
-                                leftPadding=1, rightPadding=1,
-                                topPadding=2, bottomPadding=2))
+                                leftPadding=0, rightPadding=0,
+                                topPadding=0, bottomPadding=0))
         return frames
 
-    # 첫 페이지: 헤더 아래부터
     fp_content_h = page_h - margin - margin - header_h
-    fp_y_bottom = margin
-    fp_frames = make_frames('fp', fp_content_h, fp_y_bottom)
+    fp_frames = make_frames('fp', fp_content_h, margin)
 
-    # 이후 페이지: 전체 높이
     lp_content_h = page_h - margin - margin
-    lp_y_bottom = margin
-    lp_frames = make_frames('lp', lp_content_h, lp_y_bottom)
+    lp_frames = make_frames('lp', lp_content_h, margin)
 
-    # 페이지 콜백
     def on_first_page(canvas, doc):
         canvas.saveState()
         _draw_mc_header(canvas, config, font_name, page_w, page_h, margin)
@@ -246,7 +125,6 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
         canvas.drawCentredString(page_w / 2, 8 * mm, f"- {doc.page} -")
         canvas.restoreState()
 
-    # 문서 생성
     first_tmpl = PageTemplate(id='first', frames=fp_frames, onPage=on_first_page)
     later_tmpl = PageTemplate(id='later', frames=lp_frames, onPage=on_later_pages)
 
@@ -255,51 +133,106 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
                           topMargin=margin, bottomMargin=margin)
     doc.addPageTemplates([first_tmpl, later_tmpl])
 
-    elements = [NextPageTemplate('later')]
+    # ── 플랫 테이블 데이터 구축 (한장출력과 동일) ──
+    if has_mfg:
+        if num_cols >= 3:
+            headers = ["품목명", "제조일", "전일", "입고", "출고", "잔고"]
+            cw = [col_w * 0.30, col_w * 0.18, col_w * 0.13,
+                  col_w * 0.13, col_w * 0.13, col_w * 0.13]
+        else:
+            headers = ["품목명", "제조일", "단위", "전일", "입고", "출고", "잔고"]
+            cw = [col_w * 0.26, col_w * 0.16, col_w * 0.07,
+                  col_w * 0.12, col_w * 0.12, col_w * 0.12, col_w * 0.15]
+    else:
+        if num_cols >= 3:
+            headers = ["품목명", "창고", "전일", "입고", "출고", "잔고"]
+            cw = [col_w * 0.30, col_w * 0.15, col_w * 0.14,
+                  col_w * 0.14, col_w * 0.14, col_w * 0.13]
+        else:
+            headers = ["품목명", "창고", "단위", "전일", "입고", "출고", "잔고"]
+            cw = [col_w * 0.26, col_w * 0.13, col_w * 0.07,
+                  col_w * 0.13, col_w * 0.13, col_w * 0.13, col_w * 0.15]
 
-    # 요약 테이블 (전체 폭 — 첫 번째 프레임에만)
-    full_w = col_w  # 첫 번째 칼럼 폭 내에서
-    info_style = ParagraphStyle('MCInfo', fontName=font_name, fontSize=6,
-                                 textColor=colors.Color(0.3, 0.3, 0.3))
-    n_items = len(sorted_keys)
-    total_txns = sum(len(period_groups.get(k, [])) for k in sorted_keys)
-    elements.append(Paragraph(
-        f"총 {n_items}품목 / {total_txns}건 / {num_cols}단 출력", info_style))
-    elements.append(Spacer(1, 2 * mm))
-
-    # 품목 블록 생성
-    current_location = None
+    table_data = [headers]
     for gkey in sorted_keys:
         product_name, location, category, unit, mfg_date = _unpack_gkey(gkey)
+        opening = prev_dict.get(gkey, 0)
+        total_in = 0
+        total_out = 0
+        for row in period_groups.get(gkey, []):
+            qty = _safe_num(row['qty'])
+            if qty >= 0:
+                total_in += qty
+            else:
+                total_out += abs(qty)
+        closing = opening + total_in - total_out
+        u = unit if str(unit) not in ('', 'nan') else '개'
+        loc_str = str(location) if location and str(location) not in ('', 'nan', 'None') else ''
+        mfg_str = str(mfg_date) if mfg_date and str(mfg_date) not in ('', 'nan', 'None') else ''
 
-        # 창고 변경 시 구분선
-        if location != current_location:
-            if current_location is not None:
-                elements.append(Spacer(1, 2 * mm))
-            current_location = location
-            loc_style = ParagraphStyle('MCLoc', fontName=font_name,
-                                        fontSize=6.5 if num_cols == 2 else 5.5,
-                                        textColor=colors.white)
-            loc_data = [[Paragraph(f" 창고: {location}", loc_style)]]
-            loc_banner = Table(loc_data, colWidths=[col_w])
-            loc_banner.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, -1), colors.Color(0.2, 0.3, 0.5)),
-                ('TOPPADDING', (0, 0), (-1, -1), 2),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-                ('LEFTPADDING', (0, 0), (-1, -1), 2),
-            ]))
-            elements.append(loc_banner)
-            elements.append(Spacer(1, 1.5 * mm))
+        if has_mfg:
+            if num_cols >= 3:
+                table_data.append([
+                    product_name, mfg_str,
+                    _fmt_qty(opening) if opening else "",
+                    _fmt_qty(total_in) if total_in else "",
+                    _fmt_qty(total_out) if total_out else "",
+                    _fmt_qty(closing)
+                ])
+            else:
+                table_data.append([
+                    product_name, mfg_str, u,
+                    _fmt_qty(opening) if opening else "",
+                    _fmt_qty(total_in) if total_in else "",
+                    _fmt_qty(total_out) if total_out else "",
+                    _fmt_qty(closing)
+                ])
+        else:
+            if num_cols >= 3:
+                table_data.append([
+                    product_name, loc_str,
+                    _fmt_qty(opening) if opening else "",
+                    _fmt_qty(total_in) if total_in else "",
+                    _fmt_qty(total_out) if total_out else "",
+                    _fmt_qty(closing)
+                ])
+            else:
+                table_data.append([
+                    product_name, loc_str, u,
+                    _fmt_qty(opening) if opening else "",
+                    _fmt_qty(total_in) if total_in else "",
+                    _fmt_qty(total_out) if total_out else "",
+                    _fmt_qty(closing)
+                ])
 
-        # 품목 블록
-        block = _build_mc_product_block(gkey, prev_dict, period_groups, col_w,
-                                         font_name, num_cols, date_from, has_mfg)
-        try:
-            elements.append(KeepTogether(block))
-        except Exception:
-            elements.extend(block)
-        elements.append(Spacer(1, 1.5 * mm))
+    # ── 동적 폰트 크기 ──
+    row_count = len(table_data)
+    if num_cols >= 3:
+        d_font, h_font, pad = 5.5, 6.5, 1
+    else:
+        d_font, h_font, pad = 6, 7, 1.5
 
+    # 테이블 생성 (repeatRows=1 → 헤더가 각 프레임 상단에 반복)
+    t = Table(table_data, colWidths=cw, repeatRows=1, splitByRow=True)
+    t.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, 0), h_font),
+        ('FONTSIZE', (0, 1), (-1, -1), d_font),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (0, 1), (0, -1), 'LEFT'),  # 품목명 좌측 정렬
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.3, colors.Color(0.6, 0.6, 0.6)),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.2, 0.3, 0.5)),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1),
+         [colors.white, colors.Color(0.96, 0.96, 0.96)]),
+        ('TOPPADDING', (0, 0), (-1, -1), pad),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), pad),
+        ('LEFTPADDING', (0, 0), (-1, -1), 2),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+    ]))
+
+    elements = [NextPageTemplate('later'), t]
     doc.build(elements)
 
 
@@ -330,13 +263,11 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
     # 다단 출력 모드 — 자동 2단/3단 감지
     # ================================================================
     if multi_col:
-        # 페이지 수 추정: 품목당 평균 행 수 (헤더+이월+거래+소계)
-        total_rows = 0
-        for gkey in sorted_keys:
-            total_rows += 3 + len(period_groups.get(gkey, []))
+        # 플랫 테이블: 1행 = 1품목
+        total_rows = len(sorted_keys)
 
-        # 세로 A4 기준: ~230mm 사용 가능, 행당 ~4.5mm
-        rows_per_page = int(230 / 4.5)  # ≈ 51
+        # landscape A4: 높이 210mm, 마진 제외 ~180mm, 행당 ~3.5mm
+        rows_per_page = int(180 / 3.5)  # ≈ 51
         est_pages = max(1, (total_rows + rows_per_page - 1) // rows_per_page)
 
         if est_pages <= 1:
