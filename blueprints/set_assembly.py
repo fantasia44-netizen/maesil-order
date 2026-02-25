@@ -20,7 +20,7 @@ set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly'
 
 
 @set_assembly_bp.route('/')
-@role_required('admin', 'manager', 'logistics', 'production', 'general')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def index():
     """세트작업 폼 + 이력 조회"""
     db = current_app.db
@@ -73,7 +73,7 @@ def index():
 
 
 @set_assembly_bp.route('/api/products')
-@role_required('admin', 'manager', 'logistics', 'production', 'general')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def api_products():
     """창고별 재고 품목 목록 JSON 반환 (부재료 자동완성용)"""
     location = request.args.get('location', '')
@@ -98,7 +98,7 @@ def api_products():
 
 
 @set_assembly_bp.route('/process', methods=['POST'])
-@role_required('admin', 'manager', 'logistics', 'production', 'general')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def process():
     """세트작업 처리"""
     date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
@@ -185,7 +185,7 @@ def delete():
 
 
 @set_assembly_bp.route('/export')
-@role_required('admin', 'manager', 'logistics', 'production', 'general')
+@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def export():
     """세트작업 이력 엑셀 다운로드"""
     db = current_app.db

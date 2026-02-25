@@ -26,7 +26,8 @@
         <div>
             <div class="item-title">{{ p.partner_name }}</div>
             <div class="item-sub">
-                {% if p.representative %}{{ p.representative }}{% endif %}
+                {% if p.representative %}대표: {{ p.representative }}{% endif %}
+                {% if p.contact_person %} · 담당: {{ p.contact_person }}{% endif %}
                 {% if p.phone %} · {{ p.phone }}{% endif %}
             </div>
             {% if p.address %}

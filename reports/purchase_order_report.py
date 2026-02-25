@@ -67,22 +67,44 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
     elements.append(Paragraph(f"발주일자: {order_date}", date_style))
 
     # ─── Section 1: 발주처 (본사) ───
-    def _info_table(title_text, rows_data, width):
-        """정보 섹션 테이블."""
+    def _info_table(title_text, rows_data, width, full_row_labels=None):
+        """정보 섹션 테이블 — 한 줄에 2개 항목, full_row_labels는 전체 너비."""
+        if full_row_labels is None:
+            full_row_labels = set()
+        cw = [width * 0.13, width * 0.37, width * 0.13, width * 0.37]
         data = []
+        span_rows = []
+
         header_para = Paragraph(
             f"<b>{title_text}</b>",
             ParagraphStyle('IH', fontName=font_name, fontSize=10,
                            alignment=1, textColor=colors.white))
-        data.append([header_para, ""])
-        for lbl, val in rows_data:
+        data.append([header_para, "", "", ""])
+
+        i = 0
+        while i < len(rows_data):
+            lbl, val = rows_data[i]
             lp = Paragraph(f"  {lbl}", label_style)
             vp = Paragraph(str(val or ''), value_style)
-            data.append([lp, vp])
-        t = Table(data, colWidths=[width * 0.30, width * 0.70])
-        t.setStyle(TableStyle([
+            if lbl in full_row_labels:
+                data.append([lp, vp, "", ""])
+                span_rows.append(len(data) - 1)
+                i += 1
+            elif i + 1 < len(rows_data) and rows_data[i + 1][0] not in full_row_labels:
+                lbl2, val2 = rows_data[i + 1]
+                lp2 = Paragraph(f"  {lbl2}", label_style)
+                vp2 = Paragraph(str(val2 or ''), value_style)
+                data.append([lp, vp, lp2, vp2])
+                i += 2
+            else:
+                data.append([lp, vp, "", ""])
+                span_rows.append(len(data) - 1)
+                i += 1
+
+        t = Table(data, colWidths=cw)
+        style_cmds = [
             ('BACKGROUND', (0, 0), (-1, 0), colors.Color(0.2, 0.3, 0.5)),
-            ('SPAN', (0, 0), (1, 0)),
+            ('SPAN', (0, 0), (3, 0)),
             ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, -1), font_name),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
@@ -91,25 +113,28 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
             ('TOPPADDING', (0, 0), (-1, -1), 3),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
             ('LEFTPADDING', (0, 0), (-1, -1), 4),
-        ]))
+        ]
+        for r in span_rows:
+            style_cmds.append(('SPAN', (1, r), (3, r)))
+        t.setStyle(TableStyle(style_cmds))
         return t
 
-    # 발주처 정보
+    # 발주처 정보 (2개씩 짝, 회사주소는 전체 너비)
+    full_labels = {"회사주소"}
     orderer_info = [
         ("상호", my_biz.get('business_name', '')),
         ("사업자번호", my_biz.get('business_number', '')),
         ("대표자명", my_biz.get('representative', '')),
-        ("회사주소", my_biz.get('address', '')),
         ("연락처", my_biz.get('contact', '')),
+        ("회사주소", my_biz.get('address', '')),
         ("팩스", my_biz.get('fax', '')),
         ("E-Mail", my_biz.get('email', '')),
     ]
-    # 입고요청일 / 입고기한
+    # 입고요청일 / 입고기한 (짝으로 추가)
     if request_date:
-        orderer_info.insert(2, ("입고요청일", request_date))
+        orderer_info.append(("입고요청일", request_date))
     if delivery_note:
-        idx = 3 if request_date else 2
-        orderer_info.insert(idx, ("입고기한", delivery_note))
+        orderer_info.append(("입고기한", delivery_note))
     # 담당자 정보
     if order_manager:
         orderer_info.append(("발주담당자", order_manager))
@@ -118,7 +143,7 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
     if manager_contact:
         orderer_info.append(("담당자연락처", manager_contact))
 
-    elements.append(_info_table("발 주 처", orderer_info, usable_w))
+    elements.append(_info_table("발 주 처", orderer_info, usable_w, full_labels))
     elements.append(Spacer(1, 4 * mm))
 
     # ─── Section 2: 발주내역 ───
@@ -177,12 +202,13 @@ def generate_purchase_order_pdf(path, my_biz, supplier, items,
         ("상호", supplier.get('partner_name', '')),
         ("사업자번호", supplier.get('business_number', '')),
         ("대표자명", supplier.get('representative', '')),
+        ("담당자", supplier.get('contact_person', '')),
         ("회사주소", supplier.get('address', '')),
         ("연락처", supplier.get('phone', '')),
         ("팩스", supplier.get('fax', '')),
         ("E-Mail", supplier.get('email', '')),
     ]
-    elements.append(_info_table("공 급 업 체", supplier_info, usable_w))
+    elements.append(_info_table("공 급 업 체", supplier_info, usable_w, full_labels))
 
     # ─── 하단: 서명 영역 ───
     elements.append(Spacer(1, 10 * mm))

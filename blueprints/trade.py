@@ -114,7 +114,8 @@ def add_partner():
     payload = {
         'partner_name': partner_name,
         'business_number': request.form.get('business_number', '').strip() or None,
-        'representative': request.form.get('contact_name', '').strip() or None,
+        'representative': request.form.get('representative', '').strip() or None,
+        'contact_person': request.form.get('contact_person', '').strip() or None,
         'address': request.form.get('address', '').strip() or None,
         'type': request.form.get('type', '').strip() or None,
         'business_item': request.form.get('business_item', '').strip() or None,
@@ -155,7 +156,8 @@ def upload_partners():
         col_map = {
             '업체명': 'partner_name', '거래처명': 'partner_name', '상호': 'partner_name',
             '소재지': 'address', '주소': 'address',
-            '담당자': 'representative', '대표자': 'representative',
+            '대표자': 'representative', '대표자명': 'representative',
+            '담당자': 'contact_person', '담당자명': 'contact_person',
             '연락처': 'phone', '전화번호': 'phone', '전화': 'phone', 'TEL': 'phone',
             '팩스번호': 'fax', '팩스': 'fax', 'FAX': 'fax',
             '이메일': 'email', 'E-mail': 'email', 'EMAIL': 'email',
@@ -182,8 +184,8 @@ def upload_partners():
             return redirect(url_for('trade.index'))
 
         # DB 필드만 추출
-        valid_fields = ['partner_name', 'address', 'representative', 'phone',
-                        'fax', 'email', 'business_number', 'type', 'business_item', 'notes']
+        valid_fields = ['partner_name', 'address', 'representative', 'contact_person',
+                        'phone', 'fax', 'email', 'business_number', 'type', 'business_item', 'notes']
         payload_list = []
         for _, row in df.iterrows():
             rec = {}
@@ -208,9 +210,9 @@ def upload_partners():
 @role_required('admin', 'manager', 'sales', 'general')
 def download_partner_template():
     """거래처 일괄등록 엑셀 양식 다운로드"""
-    df = pd.DataFrame(columns=['업체명', '소재지', '담당자', '연락처', '팩스번호', '이메일', '사업자등록번호', '유형', '비고'])
+    df = pd.DataFrame(columns=['업체명', '소재지', '대표자', '담당자', '연락처', '팩스번호', '이메일', '사업자등록번호', '유형', '비고'])
     # 샘플 데이터 추가
-    df.loc[0] = ['(주)테스트업체', '서울시 강남구', '홍길동', '02-1234-5678', '02-1234-5679', 'test@example.com', '123-45-67890', '매입', '']
+    df.loc[0] = ['(주)테스트업체', '서울시 강남구', '김대표', '홍길동', '02-1234-5678', '02-1234-5679', 'test@example.com', '123-45-67890', '매입', '']
 
     buf = io.BytesIO()
     df.to_excel(buf, index=False, engine='openpyxl')
@@ -247,8 +249,8 @@ def api_update_partner(partner_id):
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
     # 업데이트 가능 필드
-    allowed = ['partner_name', 'business_number', 'representative', 'address',
-               'type', 'business_item', 'phone', 'fax', 'email', 'notes']
+    allowed = ['partner_name', 'business_number', 'representative', 'contact_person',
+               'address', 'type', 'business_item', 'phone', 'fax', 'email', 'notes']
     payload = {}
     for key in allowed:
         if key in data:

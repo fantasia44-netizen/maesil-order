@@ -43,10 +43,11 @@
         </form>
 
         <!-- 발주서 이력 테이블 -->
-        <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
-            <table class="table table-hover table-sm mb-0">
+        <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+            <table class="table table-sm mb-0" id="poHistoryTable">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:30px"></th>
                         <th>발주일</th>
                         <th>공급업체</th>
                         <th>발주처</th>
@@ -58,7 +59,8 @@
                 </thead>
                 <tbody>
                     {% for po in po_list|default([]) %}
-                    <tr>
+                    <tr class="po-row" style="cursor:pointer" data-po-id="{{ po.id }}">
+                        <td class="text-center text-muted"><i class="bi bi-chevron-right po-chevron" style="transition:transform .2s"></i></td>
                         <td>{{ po.order_date|default('-') }}</td>
                         <td><strong>{{ po.partner_name|default('-') }}</strong></td>
                         <td>{{ po.my_biz_name|default('-') }}</td>
@@ -69,21 +71,54 @@
                         <td><small class="text-muted">{{ po.registered_by|default('-') }}</small></td>
                         <td>
                             <a href="{{ url_for('trade.redownload_purchase_order', po_id=po.id) }}"
-                               class="btn btn-sm btn-outline-primary py-0 px-1" title="PDF 다운로드">
+                               class="btn btn-sm btn-outline-primary py-0 px-1" title="PDF 다운로드"
+                               onclick="event.stopPropagation()">
                                 <i class="bi bi-file-earmark-pdf"></i>
                             </a>
                             <form method="POST" action="{{ url_for('trade.delete_purchase_order', po_id=po.id) }}" class="d-inline"
-                                  onsubmit="return confirm('이 발주서 이력을 삭제하시겠습니까?\n{{ po.partner_name }} / {{ po.order_date }}')">
+                                  onsubmit="event.stopPropagation(); return confirm('이 발주서 이력을 삭제하시겠습니까?\n{{ po.partner_name }} / {{ po.order_date }}')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="삭제">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="삭제"
+                                        onclick="event.stopPropagation()">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </form>
                         </td>
                     </tr>
+                    <!-- 품목 상세 (숨김) -->
+                    <tr class="po-detail d-none" id="poDetail_{{ po.id }}">
+                        <td></td>
+                        <td colspan="7" class="p-0">
+                            <div class="bg-light border-top px-3 py-2">
+                                <table class="table table-bordered table-sm mb-0" style="font-size:0.8rem">
+                                    <thead>
+                                        <tr class="table-secondary">
+                                            <th style="width:40px">No</th>
+                                            <th>물품명</th>
+                                            <th style="width:60px">단위</th>
+                                            <th style="width:60px" class="text-end">수량</th>
+                                            <th>비고</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% set items = po.items if po.items is iterable and po.items is not string else [] %}
+                                        {% for item in items %}
+                                        <tr>
+                                            <td class="text-center">{{ loop.index }}</td>
+                                            <td>{{ item.product_name|default('-') }}</td>
+                                            <td>{{ item.unit|default('-') }}</td>
+                                            <td class="text-end">{{ item.qty|default('-') }}</td>
+                                            <td><small>{{ item.note|default('') }}</small></td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center text-muted py-4">
+                        <td colspan="8" class="text-center text-muted py-4">
                             {% if date_from or date_to or (partner_filter and partner_filter != '전체') %}
                             해당 조건의 발주서 이력이 없습니다.
                             {% else %}
@@ -96,6 +131,7 @@
                 {% if po_list|default([])|length > 0 %}
                 <tfoot class="table-light">
                     <tr>
+                        <td></td>
                         <td colspan="3" class="text-end fw-bold">합계</td>
                         <td class="text-center fw-bold text-primary">{{ po_list|map(attribute='item_count')|sum }}건</td>
                         <td colspan="3"></td>
@@ -163,6 +199,7 @@
                                     data-name="{{ p.partner_name|default('') }}"
                                     data-bnum="{{ p.business_number|default('') }}"
                                     data-rep="{{ p.representative|default('') }}"
+                                    data-contact="{{ p.contact_person|default('') }}"
                                     data-addr="{{ p.address|default('') }}"
                                     data-tel="{{ p.phone|default('') }}"
                                     data-fax="{{ p.fax|default('') }}"
@@ -283,6 +320,21 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
 
+    // ── 이력 조회: 품목 상세 토글 ──
+    document.querySelectorAll('.po-row').forEach(row => {
+        row.addEventListener('click', function() {
+            const poId = this.dataset.poId;
+            const detail = document.getElementById('poDetail_' + poId);
+            const chevron = this.querySelector('.po-chevron');
+            if (detail) {
+                detail.classList.toggle('d-none');
+                if (chevron) {
+                    chevron.style.transform = detail.classList.contains('d-none') ? '' : 'rotate(90deg)';
+                }
+            }
+        });
+    });
+
     // ── 이력 조회: 공급업체 검색 필터 ──
     const poFilterSearch = document.getElementById('poFilterSearch');
     const poFilterSelect = document.getElementById('poFilterSelect');
@@ -388,7 +440,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!opt || !opt.value) { partnerPreview.innerHTML = ''; return; }
         partnerPreview.innerHTML = `
             <div><strong>${opt.dataset.name || ''}</strong></div>
-            <div>사업자번호: ${opt.dataset.bnum || '-'} &nbsp;|&nbsp; 대표자: ${opt.dataset.rep || '-'}</div>
+            <div>사업자번호: ${opt.dataset.bnum || '-'} &nbsp;|&nbsp; 대표자: ${opt.dataset.rep || '-'} &nbsp;|&nbsp; 담당자: ${opt.dataset.contact || '-'}</div>
             <div>주소: ${opt.dataset.addr || '-'}</div>
             <div>TEL: ${opt.dataset.tel || '-'} / FAX: ${opt.dataset.fax || '-'}</div>
         `;

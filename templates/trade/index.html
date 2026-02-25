@@ -50,6 +50,7 @@
                             <tr>
                                 <th>거래처명</th>
                                 <th>사업자번호</th>
+                                <th>대표자</th>
                                 <th>담당자</th>
                                 <th>연락처</th>
                                 <th>팩스</th>
@@ -78,6 +79,11 @@
                                     <span class="view-val">{{ p.representative|default('-') }}</span>
                                     <input type="text" class="form-control form-control-sm edit-input d-none"
                                            value="{{ p.representative|default('') }}">
+                                </td>
+                                <td data-field="contact_person">
+                                    <span class="view-val">{{ p.contact_person|default('-') }}</span>
+                                    <input type="text" class="form-control form-control-sm edit-input d-none"
+                                           value="{{ p.contact_person|default('') }}">
                                 </td>
                                 <td data-field="phone">
                                     <span class="view-val">{{ p.phone|default('-') }}</span>
@@ -310,9 +316,15 @@
                         <label class="form-label fw-semibold">소재지</label>
                         <input type="text" name="address" class="form-control">
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">담당자</label>
-                        <input type="text" name="contact_name" class="form-control">
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">대표자</label>
+                            <input type="text" name="representative" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">담당자</label>
+                            <input type="text" name="contact_person" class="form-control">
+                        </div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-6">

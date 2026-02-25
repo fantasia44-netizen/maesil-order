@@ -121,7 +121,7 @@ def create_app(config_class=None):
         if r in ('admin', 'manager', 'production', 'logistics', 'general'):
             menus.append({'name': '재고 조정', 'icon': 'bi-pencil-square', 'url': '/adjustment'})
 
-        if r in ('admin', 'manager', 'logistics', 'production', 'general'):
+        if r in ('admin', 'manager', 'sales', 'logistics', 'production', 'general'):
             menus.append({'name': '세트작업', 'icon': 'bi-boxes', 'url': '/set-assembly'})
 
         if r in ('admin', 'manager', 'logistics', 'general'):

@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
 );
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_date ON purchase_orders(order_date);
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_partner ON purchase_orders(partner_name);
+
+-- business_partners: 담당자 컬럼 추가 (대표자 = representative, 담당자 = contact_person)
+ALTER TABLE business_partners ADD COLUMN IF NOT EXISTS contact_person TEXT;
 """
 
 print("=" * 60)
