@@ -205,38 +205,67 @@ class OrderProcessor:
             df = None
             if mode == "스마트스토어":
                 df = self.load_smart_store_memory(order_file)
-                cols = [unicodedata.normalize('NFC', str(c)).replace(" ", "") for c in df.columns]
+                if df is None or df.empty:
+                    result['error'] = "스마트스토어 파일 읽기 실패"
+                    return result
 
-                def get_c(names, d):
-                    for n in names:
-                        n_n = unicodedata.normalize('NFC', n)
-                        for i, c in enumerate(cols):
-                            if n_n in c:
-                                return i
-                    return d
+                # 컬럼명 정규화 맵 (정확 매칭 + 부분 매칭)
+                norm_cols = {}
+                for i, c in enumerate(df.columns):
+                    normalized = unicodedata.normalize('NFC', str(c)).strip().replace(" ", "")
+                    norm_cols[normalized] = i
+
+                def find_col(*candidates):
+                    """컬럼명 후보에서 매칭 인덱스 반환 (정확→부분 순서)"""
+                    for name in candidates:
+                        n = unicodedata.normalize('NFC', name).replace(" ", "")
+                        if n in norm_cols:
+                            return norm_cols[n]
+                    for name in candidates:
+                        n = unicodedata.normalize('NFC', name).replace(" ", "")
+                        for col_name, idx in norm_cols.items():
+                            if n in col_name:
+                                return idx
+                    return None
 
                 m = {
-                    'n': get_c(['수취인명', '수하인명'], 9),
-                    'a': get_c(['배송지', '주소'], 33),
-                    'a2': get_c(['상세주소'], 34),
-                    'p1': get_c(['수취인연락처1'], 31),
-                    'msg': get_c(['배송메세지'], 37),
-                    'opt': get_c(['옵션정보'], 14),
-                    'prod': get_c(['상품명'], 12),
-                    'qty': get_c(['수량'], 16),
-                    'st': get_c(['주문상태', '배송상태'], 10),
-                    'date': get_c(['주문일시', '결제일'], 1),
-                    'no': get_c(['상품주문번호', '주문번호'], 0)
+                    'n': find_col('수취인명', '수하인명'),
+                    'a': find_col('기본배송지'),
+                    'a2': find_col('상세배송지'),
+                    'p1': find_col('수취인연락처1'),
+                    'p2': find_col('수취인연락처2'),
+                    'msg': find_col('배송메세지'),
+                    'opt': find_col('옵션정보'),
+                    'prod': find_col('상품명'),
+                    'qty': find_col('수량'),
+                    'st': find_col('주문상태'),
+                    'date': find_col('주문일시', '결제일'),
+                    'no': find_col('상품주문번호', '주문번호'),
                 }
+
+                # 필수 컬럼 검증
+                field_labels = {'n': '수취인명', 'a': '기본배송지', 'p1': '수취인연락처1',
+                                'opt': '옵션정보', 'prod': '상품명', 'qty': '수량',
+                                'st': '주문상태', 'no': '주문번호'}
+                missing = [field_labels[k] for k in field_labels if m.get(k) is None]
+                if missing:
+                    result['error'] = f"스마트스토어 파일에서 필수 컬럼을 찾을 수 없습니다:\n{', '.join(missing)}"
+                    return result
+
+                self.log(f"📋 컬럼 자동 매핑 ({len(df.columns)}열): "
+                         f"수취인=[{m['n']}] 상품명=[{m['prod']}] 옵션=[{m['opt']}] 수량=[{m['qty']}]")
 
                 # 1차 필터링 (취소/반품 제외)
                 target = df[~df.iloc[:, m['st']].astype(str).str.contains('취소|반품', na=False)].copy()
 
-                # [핵심] AW열(Index 48) 'N배송' 필터링 로직 추가
-                if target.shape[1] > 48:
-                    n_ship_col = target.iloc[:, 48].astype(str)
-                    target = target[~n_ship_col.str.contains('N배송', na=False)].copy()
-                    self.log(f"🚫 N배송 상품 자동 제외 완료 (잔여: {len(target)}건)")
+                # N배송 필터링 (배송속성 컬럼 — 위치 무관)
+                n_ship_idx = find_col('배송속성')
+                if n_ship_idx is not None:
+                    n_ship_col = target.iloc[:, n_ship_idx].astype(str)
+                    n_excluded = n_ship_col.str.contains('N배송', na=False).sum()
+                    if n_excluded > 0:
+                        target = target[~n_ship_col.str.contains('N배송', na=False)].copy()
+                        self.log(f"🚫 N배송 상품 {n_excluded}건 자동 제외 (잔여: {len(target)}건)")
 
             elif mode == "자사몰":
                 df = self.load_generic(order_file, header=0)
