@@ -119,15 +119,16 @@ def role_required(*roles):
                 return f(*args, **kwargs)
             # DB 권한 체크: 블루프린트 이름을 page_key로 사용
             try:
-                bp_name = request.blueprints[0] if request.blueprints else ''
+                bp_name = getattr(request, 'blueprint', '') or ''
                 if bp_name:
                     db = current_app.db
                     perms = db.query_role_permissions()
                     role_perms = perms.get(user_role, {})
                     if role_perms.get(bp_name, False):
                         return f(*args, **kwargs)
-            except Exception:
-                pass
+            except Exception as e:
+                import traceback
+                current_app.logger.warning(f'role_required DB 권한 체크 오류: {e}\n{traceback.format_exc()}')
             flash('접근 권한이 없습니다.', 'danger')
             return redirect(url_for('main.dashboard'))
         return wrapped
