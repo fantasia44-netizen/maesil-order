@@ -47,14 +47,16 @@ def process_adjustment_batch(db, date_str, items):
         if not name or qty == 0 or not location or not memo:
             continue
 
+        # ── 재고 스냅샷 로드 (차감 검증 + 카테고리 자동 매핑) ──
+        if location not in _snapshots:
+            try:
+                raw = db.query_stock_by_location(location)
+                _snapshots[location] = build_stock_snapshot(raw)
+            except Exception:
+                _snapshots[location] = {}
+
         # ── 음수(차감) 시 재고 존재 및 충분 여부 검증 ──
         if qty < 0:
-            if location not in _snapshots:
-                try:
-                    raw = db.query_stock_by_location(location)
-                    _snapshots[location] = build_stock_snapshot(raw)
-                except Exception:
-                    _snapshots[location] = {}
             snap = snapshot_lookup(_snapshots[location], name)
             total = snap.get('total', 0)
             snap_unit = snap.get('unit', '')
@@ -81,6 +83,14 @@ def process_adjustment_batch(db, date_str, items):
             row["storage_method"] = storage_method
         if unit:
             row["unit"] = unit
+
+        # ── category: 직접 입력값 → 기존 재고 스냅샷에서 자동 매핑 ──
+        category = str(item.get('category', '')).strip()
+        if not category and location in _snapshots:
+            snap = snapshot_lookup(_snapshots[location], name)
+            category = snap.get('category', '')
+        if category:
+            row["category"] = category
 
         payload.append(row)
 

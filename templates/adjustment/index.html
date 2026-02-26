@@ -55,6 +55,10 @@
                 </div>
                 <div class="row g-2 mb-2">
                     <div class="col-sm-3">
+                        <label class="form-label small mb-1">카테고리</label>
+                        <input type="text" id="categoryInput" class="form-control form-control-sm" placeholder="종류 (자동입력)">
+                    </div>
+                    <div class="col-sm-3">
                         <label class="form-label small mb-1">보관방법</label>
                         <select id="storageInput" class="form-select form-select-sm">
                             <option value="">선택</option>
@@ -77,6 +81,7 @@
                                 <th style="width:25px;">#</th>
                                 <th>품목명</th>
                                 <th style="width:70px;">위치</th>
+                                <th style="width:60px;">카테고리</th>
                                 <th style="width:80px;">수량</th>
                                 <th style="width:50px;">보관</th>
                                 <th style="width:40px;">단위</th>
@@ -85,7 +90,7 @@
                             </tr>
                         </thead>
                         <tbody id="pendingBody">
-                            <tr><td colspan="8" class="text-center text-muted py-3">
+                            <tr><td colspan="9" class="text-center text-muted py-3">
                                 <i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>
                         </tbody>
                     </table>
@@ -123,11 +128,11 @@
                 <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
                     <table class="table table-sm table-bordered mb-0">
                         <thead class="table-light" style="position:sticky; top:0;">
-                            <tr><th>일자</th><th>품목명</th><th>위치</th><th>수량</th><th>보관</th><th>단위</th><th>사유</th>
+                            <tr><th>일자</th><th>품목명</th><th>위치</th><th>카테고리</th><th>수량</th><th>보관</th><th>단위</th><th>사유</th>
                                 {% if current_user.role == 'admin' %}<th style="width:70px;">관리</th>{% endif %}</tr>
                         </thead>
                         <tbody id="historyBody">
-                            <tr><td colspan="8" class="text-center text-muted small py-2">기간을 선택하고 조회하세요</td></tr>
+                            <tr><td colspan="9" class="text-center text-muted small py-2">기간을 선택하고 조회하세요</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -186,6 +191,10 @@
                         <input type="text" id="editLocation" class="form-control form-control-sm">
                     </div>
                     <div class="col-4 mb-2">
+                        <label class="form-label small mb-1">카테고리</label>
+                        <input type="text" id="editCategory" class="form-control form-control-sm" placeholder="종류">
+                    </div>
+                    <div class="col-4 mb-2">
                         <label class="form-label small mb-1">보관방법</label>
                         <input type="text" id="editStorage" class="form-control form-control-sm" placeholder="냉동/냉장/실온">
                     </div>
@@ -227,6 +236,7 @@
     const memoInput = document.getElementById('memoInput');
     const storageInput = document.getElementById('storageInput');
     const unitInput = document.getElementById('unitInput');
+    const categoryInput = document.getElementById('categoryInput');
     const acList = document.getElementById('acList');
     const stockInfo = document.getElementById('stockInfo');
     const addBtn = document.getElementById('addItemBtn');
@@ -273,6 +283,9 @@
             item.addEventListener('mousedown', function(e) {
                 e.preventDefault(); productInput.value = p.name;
                 selectedProduct = p; stockInfo.textContent = `현재 재고: ${p.qty} ${p.unit}`;
+                categoryInput.value = p.category || '';
+                if (p.storage_method) storageInput.value = p.storage_method;
+                if (p.unit) unitInput.value = p.unit;
                 acList.style.display = 'none'; qtyInput.focus();
             });
             acList.appendChild(item);
@@ -296,11 +309,12 @@
 
         pendingItems.push({
             product_name: name, location: loc, qty: qty, memo: memo,
+            category: categoryInput.value.trim(),
             storage_method: storageInput.value.trim(),
             unit: unitInput.value.trim() || '개',
         });
         productInput.value = ''; qtyInput.value = ''; memoInput.value = '';
-        storageInput.value = '';
+        storageInput.value = ''; categoryInput.value = '';
         stockInfo.textContent = ''; selectedProduct = null;
         productInput.focus();
         renderTable();
@@ -309,7 +323,7 @@
     function renderTable() {
         pendingBody.innerHTML = '';
         if (!pendingItems.length) {
-            pendingBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>';
+            pendingBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> 조정할 항목을 추가하세요</td></tr>';
             submitBtn.disabled = true; clearAllBtn.style.display = 'none';
         } else {
             pendingItems.forEach((item, idx) => {
@@ -319,6 +333,7 @@
                     <td class="text-muted small">${idx+1}</td>
                     <td class="small">${escapeHtml(item.product_name)}</td>
                     <td class="small">${escapeHtml(item.location)}</td>
+                    <td class="small">${escapeHtml(item.category || '')}</td>
                     <td class="text-end small fw-bold ${isPlus ? 'text-success' : 'text-danger'}">
                         ${isPlus ? '+' : ''}${item.qty.toLocaleString()}</td>
                     <td class="small">${escapeHtml(item.storage_method || '')}</td>
@@ -375,18 +390,19 @@
         const to = document.getElementById('histDateTo').value;
         if (!from || !to) { alert('기간을 선택하세요.'); return; }
         const tbody = document.getElementById('historyBody');
-        tbody.innerHTML = '<tr><td colspan="8" class="text-center small py-2">조회 중...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center small py-2">조회 중...</td></tr>';
         try {
             const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
             const rows = await res.json();
             historyData = rows;
-            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
+            if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
             rows.forEach(r => {
                 const isPlus = r.qty > 0;
                 const tr = document.createElement('tr');
                 tr.innerHTML = `<td class="small">${r.date}</td><td class="small">${escapeHtml(r.product_name)}</td>
                     <td class="small">${escapeHtml(r.location)}</td>
+                    <td class="small">${escapeHtml(r.category || '')}</td>
                     <td class="text-end small fw-bold ${isPlus?'text-success':'text-danger'}">${isPlus?'+':''}${r.qty}</td>
                     <td class="small">${escapeHtml(r.storage_method || '')}</td>
                     <td class="small">${escapeHtml(r.unit || '')}</td>
@@ -412,7 +428,7 @@
                 }
                 tbody.appendChild(tr);
             });
-        } catch (e) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger small">${e.message}</td></tr>`; }
+        } catch (e) { tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger small">${e.message}</td></tr>`; }
     });
 
     // 개별 수정 (admin) — onclick 직접 바인딩
@@ -424,6 +440,7 @@
             document.getElementById('editProductName').value = row.product_name || '';
             document.getElementById('editQty').value = row.qty || '';
             document.getElementById('editLocation').value = row.location || '';
+            document.getElementById('editCategory').value = row.category || '';
             document.getElementById('editStorage').value = row.storage_method || '';
             document.getElementById('editUnit').value = row.unit || '';
             document.getElementById('editMemo').value = row.memo || '';
@@ -449,6 +466,7 @@
                 product_name: document.getElementById('editProductName').value.trim(),
                 qty: parseFloat(document.getElementById('editQty').value) || 0,
                 location: document.getElementById('editLocation').value.trim(),
+                category: document.getElementById('editCategory').value.trim(),
                 storage_method: document.getElementById('editStorage').value.trim(),
                 unit: document.getElementById('editUnit').value.trim(),
                 memo: document.getElementById('editMemo').value.trim(),

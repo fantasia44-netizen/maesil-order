@@ -46,6 +46,8 @@ def api_products():
                     'name': name,
                     'qty': info['total'],
                     'unit': info.get('unit', '개'),
+                    'category': info.get('category', ''),
+                    'storage_method': info.get('storage_method', ''),
                 })
         products.sort(key=lambda x: x['name'])
         return jsonify(products)
@@ -75,6 +77,7 @@ def api_history():
                 'storage_method': r.get('storage_method', ''),
                 'unit': r.get('unit', ''),
                 'memo': r.get('memo', ''),
+                'category': r.get('category', ''),
             })
         rows.sort(key=lambda x: (x['date'], x['product_name']))
         return jsonify(rows)
@@ -107,7 +110,7 @@ def api_update(record_id):
     data = request.get_json(silent=True)
     if not data:
         return jsonify({'error': '수정 데이터가 없습니다.'}), 400
-    allowed = {'product_name', 'qty', 'location', 'memo', 'storage_method', 'unit'}
+    allowed = {'product_name', 'qty', 'location', 'memo', 'storage_method', 'unit', 'category'}
     update_data = {k: v for k, v in data.items() if k in allowed}
     if 'qty' in update_data:
         try:
@@ -119,7 +122,7 @@ def api_update(record_id):
     if 'memo' in update_data and not update_data['memo'].strip():
         return jsonify({'error': '사유를 입력하세요.'}), 400
     # 빈 문자열 → None 변환 (PostgreSQL TEXT 컬럼 호환)
-    for key in ('storage_method',):
+    for key in ('storage_method', 'category'):
         if key in update_data and update_data[key] == '':
             update_data[key] = None
     if not update_data:
