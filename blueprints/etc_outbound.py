@@ -103,7 +103,7 @@ def process():
     for i in range(len(product_names)):
         name = product_names[i].strip() if i < len(product_names) else ''
         try:
-            qty = int(qtys[i]) if i < len(qtys) else 0
+            qty = float(qtys[i]) if i < len(qtys) else 0
         except (ValueError, IndexError):
             qty = 0
         reason = reasons[i] if i < len(reasons) else '기타'

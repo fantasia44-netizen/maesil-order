@@ -82,6 +82,11 @@ def index():
                         transfer += q
                     elif t == 'INIT':
                         inbound += q
+                    elif t == 'ADJUST':
+                        if q >= 0:
+                            inbound += q
+                        else:
+                            outbound += abs(q)
 
                 period_total = sum(tx.get('qty', 0) for tx in txns)
                 closing = opening + period_total
