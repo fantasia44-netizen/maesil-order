@@ -357,14 +357,26 @@
     let pendingItems = [];
     let matIdCounter = 0;
 
+    // JSON 응답 안전 파싱 (세션 만료 등 HTML 응답 감지)
+    async function safeJson(res) {
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            if (res.status === 401 || res.redirected) {
+                throw new Error('세션이 만료되었습니다. 페이지를 새로고침 해주세요.');
+            }
+            throw new Error(`서버 오류 (${res.status}). 페이지를 새로고침 후 다시 시도하세요.`);
+        }
+        return await res.json();
+    }
+
     dateInput.value = new Date().toISOString().slice(0, 10);
 
     // 전체 품목 로드 (생산품 자동완성)
     async function loadProducts() {
         try {
             const res = await fetch(PRODUCTS_URL);
-            allProducts = await res.json();
-        } catch (e) { console.error(e); }
+            allProducts = await safeJson(res);
+        } catch (e) { console.error('품목 로드 오류:', e); }
     }
     loadProducts();
 
@@ -376,7 +388,7 @@
         stockStatus.innerHTML = '<span class="text-info">로딩...</span>';
         try {
             const res = await fetch(`${STOCK_URL}?location=${encodeURIComponent(this.value)}`);
-            const data = await res.json();
+            const data = await safeJson(res);
             if (!res.ok) {
                 stockStatus.innerHTML = `<span class="text-danger">오류: ${data.error || res.status}</span>`;
                 stockProducts = []; return;
@@ -620,8 +632,18 @@
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
                 body: JSON.stringify({ date: dateVal, mode: modeVal, location: locVal, items: pendingItems }),
             });
+            // 세션 만료 등으로 로그인 페이지 리다이렉트 감지
+            const ct = res.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) {
+                if (res.status === 401 || res.redirected) {
+                    showResult('danger', '세션이 만료되었습니다. 페이지를 새로고침 해주세요.');
+                } else {
+                    showResult('danger', `서버 오류 (${res.status}). 페이지를 새로고침 후 다시 시도하세요.`);
+                }
+                return;
+            }
             const data = await res.json();
-            if (!res.ok || data.error) { showResult('danger', data.error); }
+            if (!res.ok || data.error) { showResult('danger', data.error || '처리 중 오류가 발생했습니다.'); }
             else {
                 let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i> 생산 완료:
                     산출 <strong>${data.produced}건</strong>, 재료 차감 <strong>${data.materials_used}건</strong></p>`;
@@ -651,7 +673,7 @@
         tbody.innerHTML = '<tr><td colspan="9" class="text-center small py-2">조회 중...</td></tr>';
         try {
             const res = await fetch(`${HISTORY_URL}?date_from=${from}&date_to=${to}`);
-            const rows = await res.json();
+            const rows = await safeJson(res);
             historyData = rows;
             if (!rows.length) { tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-2">데이터 없음</td></tr>'; return; }
             tbody.innerHTML = '';
@@ -718,7 +740,11 @@
     window._deleteHist = function(id) {
         if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
         fetch(`/production/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
-            .then(r=>r.json())
+            .then(r => {
+                const ct = r.headers.get('content-type') || '';
+                if (!ct.includes('application/json')) throw new Error('세션 만료. 새로고침 해주세요.');
+                return r.json();
+            })
             .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('삭제 실패: '+(data.error||'')); })
             .catch(e=>alert('통신 오류: '+e));
     };
@@ -744,7 +770,7 @@
                     method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf_token},
                     body: JSON.stringify(payload)
                 });
-                const data = await res.json();
+                const data = await safeJson(res);
                 if(data.success){
                     bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
                     document.getElementById('searchHistoryBtn').click();

@@ -107,6 +107,39 @@ def create_app(config_class=None):
             response.headers['Pragma'] = 'no-cache'
         return response
 
+    # ── 에러 핸들러: API 요청 시 JSON 응답 ──
+    from flask_wtf.csrf import CSRFError
+    from auth import _is_api_request
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        """CSRF 토큰 만료/누락 시 API는 JSON, 일반은 리다이렉트"""
+        if _is_api_request():
+            return jsonify({'error': '세션이 만료되었습니다. 페이지를 새로고침 해주세요.'}), 400
+        flash('세션이 만료되었습니다. 다시 시도해주세요.', 'warning')
+        return redirect(request.referrer or url_for('auth.login'))
+
+    @app.errorhandler(400)
+    def handle_400(e):
+        if _is_api_request():
+            return jsonify({'error': '잘못된 요청입니다.'}), 400
+        flash('잘못된 요청입니다.', 'warning')
+        return redirect(request.referrer or url_for('main.dashboard'))
+
+    @app.errorhandler(404)
+    def handle_404(e):
+        if _is_api_request():
+            return jsonify({'error': '요청한 리소스를 찾을 수 없습니다.'}), 404
+        flash('페이지를 찾을 수 없습니다.', 'warning')
+        return redirect(url_for('main.dashboard'))
+
+    @app.errorhandler(500)
+    def handle_500(e):
+        if _is_api_request():
+            return jsonify({'error': '서버 내부 오류가 발생했습니다.'}), 500
+        flash('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'danger')
+        return redirect(url_for('main.dashboard'))
+
     # 사이드바 메뉴 (DB 기반 동적 권한)
     @app.context_processor
     def inject_sidebar():
