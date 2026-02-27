@@ -159,6 +159,12 @@ class OrderProcessor:
                 if not opt_list:
                     result['error'] = "옵션마스터 DB에 데이터가 없습니다.\n마스터 관리에서 옵션리스트를 동기화하세요."
                     return result
+                # 헤더 잔여행/빈 데이터 제거 (Standard_Name, 빈 원문명 등)
+                _header_vals = {'standard_name', 'product_name', '품목명', 'original_name', '원문명'}
+                opt_list = [o for o in opt_list
+                            if str(o.get('원문명', '')).strip()
+                            and str(o.get('품목명', '')).strip().lower() not in _header_vals
+                            and str(o.get('원문명', '')).strip().lower() not in _header_vals]
                 opt_raw = pd.DataFrame(opt_list)[['원문명', '품목명', '라인코드', '출력순서', '바코드']]
                 opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
                 self.log(f"✅ 옵션마스터(DB) 로드: {len(opt_list)}건")
@@ -175,7 +181,13 @@ class OrderProcessor:
                     o['Key'] = str(o['원문명']).replace(" ", "").upper()
 
             # [검증] 같은 출력순서(E열)에 품목명(B열)이 다른 경우 체크
-            line_groups = opt_raw.groupby('출력순서')['품목명'].apply(lambda x: list(x.unique())).to_dict()
+            # — 빈 품목명, 헤더 잔여값(Standard_Name 등), 출력순서 999(미지정)는 검증 제외
+            _bad_names = {'', 'standard_name', 'product_name', '품목명'}
+            check_df = opt_raw[
+                (opt_raw['출력순서'] != 999) &
+                (~opt_raw['품목명'].str.strip().str.lower().isin(_bad_names))
+            ].copy()
+            line_groups = check_df.groupby('출력순서')['품목명'].apply(lambda x: list(x.unique())).to_dict()
             conflict_lines = {k: v for k, v in line_groups.items() if len(v) > 1}
             if conflict_lines:
                 err_msg = "⚠️ 옵션리스트 품목명 불일치!\n같은 라인(출력순서)에 품목명이 다릅니다.\n품목명을 통일해주세요.\n\n"

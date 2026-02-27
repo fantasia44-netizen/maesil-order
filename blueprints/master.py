@@ -160,9 +160,16 @@ def sync_option():
             return redirect(url_for('master.index'))
 
         payload = []
+        # 헤더행으로 의심되는 값 (엑셀 첫 행이 컬럼명일 때 걸러냄)
+        _header_keywords = {'original_name', 'product_name', 'standard_name',
+                            '원문명', '품목명', 'line_code', 'sort_order', 'barcode',
+                            '라인코드', '출력순서', '바코드'}
         for _, row in df.iterrows():
             orig = str(row.iloc[0]).strip()
             if not orig or orig == 'nan':
+                continue
+            # 헤더행 스킵
+            if orig.replace(' ', '').lower() in _header_keywords:
                 continue
             try:
                 sv = float(str(row.iloc[4]).strip() or '999')
