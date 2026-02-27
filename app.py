@@ -1,7 +1,7 @@
 import os
 import time
 
-from flask import Flask, redirect, request, session, url_for, flash
+from flask import Flask, redirect, request, session, url_for, flash, jsonify
 from flask_login import LoginManager, current_user, logout_user
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -52,6 +52,15 @@ def create_app(config_class=None):
     def load_user(user_id):
         row = app.db.query_user_by_id(int(user_id))
         return User(row) if row else None
+
+    @login_manager.unauthorized_handler
+    def unauthorized_api():
+        """API 요청 시 JSON 반환, 일반 요청 시 로그인 페이지 리다이렉트"""
+        from auth import _is_api_request
+        if _is_api_request():
+            return jsonify({'error': '로그인이 필요합니다. 페이지를 새로고침 해주세요.'}), 401
+        flash('로그인이 필요합니다.', 'warning')
+        return redirect(url_for('auth.login', next=request.url))
 
     # ── 보안: HTTPS 강제 (리버스프록시 환경) ──
     @app.before_request

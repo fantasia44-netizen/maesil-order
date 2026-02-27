@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, session
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, session, jsonify
 from flask_login import login_user, logout_user, login_required, current_user
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField
@@ -12,6 +12,22 @@ from wtforms.validators import DataRequired, Length, EqualTo, Regexp
 from models import User
 
 auth_bp = Blueprint('auth', __name__)
+
+
+def _is_api_request():
+    """AJAX/fetch API 요청 여부 판별"""
+    if '/api/' in request.path:
+        return True
+    if request.content_type and 'application/json' in request.content_type:
+        return True
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+    if request.accept_mimetypes.best == 'application/json':
+        return True
+    # /batch, /excel 등 POST JSON 요청도 감지
+    if request.method == 'POST' and request.is_json:
+        return True
+    return False
 
 # ── IP 기반 로그인 시도 제한 (메모리 기반) ──
 _ip_login_attempts = defaultdict(list)   # {ip: [timestamp, ...]}
@@ -108,11 +124,17 @@ def role_required(*roles):
     """특정 역할만 접근 허용 (하드코딩 역할 + DB 권한 설정 모두 체크).
     1) 하드코딩 roles에 포함되면 허용
     2) DB role_permissions에서 해당 page_key가 is_allowed=True이면 허용
+    API 요청(fetch/AJAX)인 경우 JSON 에러 응답 반환 (HTML 리다이렉트 방지)
     """
     def decorator(f):
         @wraps(f)
-        @login_required
         def wrapped(*args, **kwargs):
+            # 로그인 확인 (API 요청 시 JSON 반환, 일반 요청 시 리다이렉트)
+            if not current_user.is_authenticated:
+                if _is_api_request():
+                    return jsonify({'error': '로그인이 필요합니다. 페이지를 새로고침 해주세요.'}), 401
+                return current_app.login_manager.unauthorized()
+
             user_role = current_user.role
             # 하드코딩 역할에 포함되면 바로 허용
             if user_role in roles:
@@ -129,6 +151,9 @@ def role_required(*roles):
             except Exception as e:
                 import traceback
                 current_app.logger.warning(f'role_required DB 권한 체크 오류: {e}\n{traceback.format_exc()}')
+
+            if _is_api_request():
+                return jsonify({'error': '접근 권한이 없습니다.'}), 403
             flash('접근 권한이 없습니다.', 'danger')
             return redirect(url_for('main.dashboard'))
         return wrapped
