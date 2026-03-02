@@ -36,14 +36,16 @@ def _cleanup_file(path):
 
 
 def _get_result_files(output_dir):
-    """최근 처리 결과 파일 목록"""
+    """최근 처리 결과 파일 목록 — 파일 수정일 기준 최신순, 최대 100건"""
     if os.path.exists(output_dir):
-        return sorted(
-            [f for f in os.listdir(output_dir)
-             if f.endswith('.xlsx') and not f.startswith('집계')
-             and not f.startswith('통합')],
-            reverse=True,
-        )[:20]
+        files = [
+            f for f in os.listdir(output_dir)
+            if f.endswith('.xlsx') and not f.startswith('집계')
+            and not f.startswith('통합')
+        ]
+        # 파일 수정일 기준 최신순 정렬
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(output_dir, f)), reverse=True)
+        return files[:100]
     return []
 
 
