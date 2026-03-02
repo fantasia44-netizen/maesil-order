@@ -6,6 +6,33 @@ import msoffcrypto
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 
+def _write_xls(filepath, headers, rows):
+    """xlwt로 .xls 파일 직접 생성 (리스트 데이터용)"""
+    import xlwt
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('Sheet1')
+    for ci, h in enumerate(headers):
+        ws.write(0, ci, h)
+    for ri, row in enumerate(rows, 1):
+        for ci, val in enumerate(row):
+            ws.write(ri, ci, val)
+    wb.save(filepath)
+
+
+def _write_xls_from_df(filepath, df):
+    """xlwt로 .xls 파일 직접 생성 (DataFrame용)"""
+    import xlwt
+    wb = xlwt.Workbook(encoding='utf-8')
+    ws = wb.add_sheet('Sheet1')
+    for ci, col in enumerate(df.columns):
+        ws.write(0, ci, str(col))
+    for ri, (_, row) in enumerate(df.iterrows(), 1):
+        for ci, val in enumerate(row):
+            cell = str(val) if pd.notna(val) else ''
+            ws.write(ri, ci, cell)
+    wb.save(filepath)
+
+
 class OrderProcessor:
     def __init__(self):
         self.logs = []
@@ -560,9 +587,9 @@ class OrderProcessor:
                         result['error'] = "외부송장 매칭 데이터 없음"
                         return result
                     ss_ext_path = os.path.join(output_dir, f"스마트스토어_외부_일괄배송_{ts}.xls")
-                    pd.DataFrame(ss_ext, columns=[
-                        "상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"
-                    ]).to_excel(ss_ext_path, index=False, engine='xlwt')
+                    _write_xls(ss_ext_path,
+                               ["상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"],
+                               ss_ext)
                     result['files'].append(ss_ext_path)
                     result['success'] = True
                     self.log(f"스마트스토어 외부송장 일괄배송 생성 완료! {len(ss_ext)}건")
@@ -610,7 +637,7 @@ class OrderProcessor:
                     # 외부송장 대상만 필터 (E열 송장번호가 채워진 행만)
                     cp_filled = cp_bulk[cp_bulk.iloc[:, 4].astype(str).str.strip().ne('')]
                     cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xls")
-                    cp_filled.to_excel(cp_ext_path, index=False, engine='xlwt')
+                    _write_xls_from_df(cp_ext_path, cp_filled)
                     result['files'].append(cp_ext_path)
                     self.log(f"✅ 쿠팡 외부 일괄배송 파일 생성: {fill_cnt}건 송장 입력")
                     result['success'] = True
