@@ -508,10 +508,10 @@ class OrderProcessor:
                 result['files'].append(rp_path)
 
                 if mode == "스마트스토어" and ss_bulk:
-                    ss_path = os.path.join(output_dir, f"스마트스토어_일괄배송입력_{ts}.xlsx")
-                    pd.DataFrame(ss_bulk, columns=[
-                        "상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"
-                    ]).to_excel(ss_path, index=False)
+                    ss_path = os.path.join(output_dir, f"스마트스토어_일괄배송입력_{ts}.xls")
+                    _write_xls(ss_path,
+                               ["상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"],
+                               ss_bulk)
                     result['files'].append(ss_path)
                     result['success'] = True
                     self.log("리얼패킹 & 스마트스토어 일괄배송입력 생성 완료!")
@@ -636,8 +636,8 @@ class OrderProcessor:
                     cp_bulk.drop(columns=['_p_cl'], inplace=True)
                     # 외부송장 대상만 필터 (E열 송장번호가 채워진 행만)
                     cp_filled = cp_bulk[cp_bulk.iloc[:, 4].astype(str).str.strip().ne('')]
-                    cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xls")
-                    _write_xls_from_df(cp_ext_path, cp_filled)
+                    cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xlsx")
+                    cp_filled.to_excel(cp_ext_path, index=False)
                     result['files'].append(cp_ext_path)
                     self.log(f"✅ 쿠팡 외부 일괄배송 파일 생성: {fill_cnt}건 송장 입력")
                     result['success'] = True
