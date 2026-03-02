@@ -40,7 +40,7 @@ def _get_result_files(output_dir):
     if os.path.exists(output_dir):
         files = [
             f for f in os.listdir(output_dir)
-            if f.endswith('.xlsx') and not f.startswith('집계')
+            if (f.endswith('.xlsx') or f.endswith('.xls')) and not f.startswith('집계')
             and not f.startswith('통합')
         ]
         # 파일 수정일 기준 최신순 정렬
