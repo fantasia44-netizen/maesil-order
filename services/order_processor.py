@@ -559,10 +559,10 @@ class OrderProcessor:
                     if not ss_ext:
                         result['error'] = "외부송장 매칭 데이터 없음"
                         return result
-                    ss_ext_path = os.path.join(output_dir, f"스마트스토어_외부_일괄배송_{ts}.xlsx")
+                    ss_ext_path = os.path.join(output_dir, f"스마트스토어_외부_일괄배송_{ts}.xls")
                     pd.DataFrame(ss_ext, columns=[
                         "상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"
-                    ]).to_excel(ss_ext_path, index=False)
+                    ]).to_excel(ss_ext_path, index=False, engine='xlwt')
                     result['files'].append(ss_ext_path)
                     result['success'] = True
                     self.log(f"스마트스토어 외부송장 일괄배송 생성 완료! {len(ss_ext)}건")
@@ -609,8 +609,8 @@ class OrderProcessor:
                     cp_bulk.drop(columns=['_p_cl'], inplace=True)
                     # 외부송장 대상만 필터 (E열 송장번호가 채워진 행만)
                     cp_filled = cp_bulk[cp_bulk.iloc[:, 4].astype(str).str.strip().ne('')]
-                    cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xlsx")
-                    cp_filled.to_excel(cp_ext_path, index=False)
+                    cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xls")
+                    cp_filled.to_excel(cp_ext_path, index=False, engine='xlwt')
                     result['files'].append(cp_ext_path)
                     self.log(f"✅ 쿠팡 외부 일괄배송 파일 생성: {fill_cnt}건 송장 입력")
                     result['success'] = True
