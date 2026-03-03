@@ -13,6 +13,19 @@
             <a href="/planning" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-clipboard-data"></i> 생산계획
             </a>
+            <div class="dropdown">
+                <button class="btn btn-outline-success btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="bi bi-tags"></i> 품목 분류
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="/planning/api/category-download">
+                        <i class="bi bi-download"></i> 분류 엑셀 다운로드</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="document.getElementById('catUploadFile').click(); return false;">
+                        <i class="bi bi-upload"></i> 분류 엑셀 업로드</a></li>
+                </ul>
+            </div>
+            <input type="file" id="catUploadFile" accept=".xlsx,.xls" class="d-none">
         </div>
     </div>
 
@@ -283,5 +296,26 @@ function renderTable(items) {
 
 // 페이지 로드 시 자동 조회
 window.addEventListener('DOMContentLoaded', load);
+
+// ── 분류 엑셀 업로드 ──
+document.getElementById('catUploadFile').addEventListener('change', async function() {
+    if(!this.files.length) return;
+    if(!confirm('품목 분류를 일괄 업데이트합니다. 진행할까요?')) { this.value=''; return; }
+    const fd = new FormData();
+    fd.append('file', this.files[0]);
+    try {
+        const res = await fetch('/planning/api/category-upload', {
+            method:'POST',
+            headers:{'X-CSRFToken':csrf_token},
+            body:fd,
+        });
+        const data = await res.json();
+        if(data.error){alert(data.error); return;}
+        alert(`완료! ${data.updated}건 반영, ${data.skipped}건 스킵` +
+            (data.errors.length ? '\n오류: '+data.errors.join('\n') : ''));
+        if(allData) load(); // 재조회
+    } catch(e){alert(e.message);}
+    finally { this.value=''; }
+});
 </script>
 {% endblock %}

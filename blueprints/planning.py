@@ -163,6 +163,137 @@ def api_update_sales_category():
         return jsonify({'error': str(e)}), 500
 
 
+# ── API: 품목 분류 엑셀 다운로드 ──
+
+@planning_bp.route('/api/category-download')
+@role_required('admin', 'manager')
+def api_category_download():
+    """product_costs 전체 → 분류 작업용 엑셀 다운로드."""
+    from flask import send_file
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    try:
+        cost_map = current_app.db.query_product_costs()
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '품목분류'
+
+        # 헤더
+        headers = ['품목명', 'sales_category', 'material_type', 'cost_type', '단가', '단위', '비고']
+        hfill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
+        hfont = Font(bold=True, color='FFFFFF', size=11)
+        thin = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin'),
+        )
+        for c, h in enumerate(headers, 1):
+            cell = ws.cell(1, c, h)
+            cell.fill = hfill
+            cell.font = hfont
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = thin
+
+        # 데이터
+        row = 2
+        for name in sorted(cost_map.keys()):
+            info = cost_map[name]
+            ws.cell(row, 1, name).border = thin
+            ws.cell(row, 2, info.get('sales_category') or '').border = thin
+            ws.cell(row, 3, info.get('material_type') or '').border = thin
+            ws.cell(row, 4, info.get('cost_type') or '').border = thin
+            ws.cell(row, 5, info.get('cost_price', 0) or 0).border = thin
+            ws.cell(row, 6, info.get('unit') or '').border = thin
+            ws.cell(row, 7, info.get('memo') or '').border = thin
+            row += 1
+
+        # 열 너비
+        ws.column_dimensions['A'].width = 30
+        ws.column_dimensions['B'].width = 15
+        ws.column_dimensions['C'].width = 12
+        ws.column_dimensions['D'].width = 8
+        ws.column_dimensions['E'].width = 10
+        ws.column_dimensions['F'].width = 6
+        ws.column_dimensions['G'].width = 20
+
+        # 안내 시트
+        ws2 = wb.create_sheet('안내')
+        ws2.cell(1, 1, '📌 사용법').font = Font(bold=True, size=14)
+        ws2.cell(3, 1, '1. "품목분류" 시트의 B열(sales_category)에 분류명을 입력하세요')
+        ws2.cell(4, 1, '2. 분류 예시: 큐브, 세트, oem, pack, 해미애찬, 농산물, 수산물, 축산물')
+        ws2.cell(5, 1, '3. 작성 후 "판매분석" 페이지에서 업로드하면 일괄 반영됩니다')
+        ws2.cell(7, 1, '⚠️ A열(품목명)은 수정하지 마세요. 매칭 기준입니다.')
+        ws2.column_dimensions['A'].width = 60
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name='품목분류_작업용.xlsx',
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── API: 품목 분류 엑셀 업로드 (일괄 반영) ──
+
+@planning_bp.route('/api/category-upload', methods=['POST'])
+@role_required('admin', 'manager')
+def api_category_upload():
+    """엑셀 업로드 → sales_category 일괄 수정."""
+    import pandas as pd
+
+    try:
+        f = request.files.get('file')
+        if not f:
+            return jsonify({'error': '파일을 선택하세요.'}), 400
+
+        df = pd.read_excel(f, sheet_name=0)
+
+        # 컬럼 확인
+        if '품목명' not in df.columns or 'sales_category' not in df.columns:
+            return jsonify({'error': "'품목명'과 'sales_category' 컬럼이 필요합니다."}), 400
+
+        updated = 0
+        skipped = 0
+        errors = []
+
+        for _, row in df.iterrows():
+            name = str(row.get('품목명', '')).strip()
+            cat = str(row.get('sales_category', '')).strip()
+            if not name:
+                skipped += 1
+                continue
+
+            try:
+                current_app.db.client.table('product_costs').update({
+                    'sales_category': cat,
+                }).eq('product_name', name).execute()
+                updated += 1
+            except Exception as e:
+                errors.append(f'{name}: {e}')
+                if len(errors) > 10:
+                    break
+
+        _log_action('bulk_update_sales_category',
+                     detail=f'일괄 분류 업데이트: {updated}건 반영, {skipped}건 스킵')
+
+        return jsonify({
+            'success': True,
+            'updated': updated,
+            'skipped': skipped,
+            'errors': errors[:10],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ── API: 생산대상 품목 목록 + 현재 설정 ──
 
 @planning_bp.route('/api/targets')
