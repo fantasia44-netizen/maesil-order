@@ -57,6 +57,13 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
     stock = _load_stock_snapshot(db, location)
     shortage = []
 
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import validate
+        _validate_date(date_str)
+    except ImportError:
+        pass  # core 미설치 시 기존 동작 유지
+
     for _, row in df.iterrows():
         name = str(row['품목명']).strip()
         req_qty = abs(safe_int(row[qty_col]))

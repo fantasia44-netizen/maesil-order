@@ -81,7 +81,7 @@ PAGE_REGISTRY = [
     ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin']),
     ('admin_perms',    '권한 설정',      'bi-shield-lock',        '/admin/permissions',   ['admin']),
     ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin']),
-    ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager']),
+    ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/admin/integrity',     ['admin','manager']),
 ]
 
 
