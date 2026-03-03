@@ -377,8 +377,12 @@ class OrderProcessor:
                     # 1차: 정확 매칭 (우선)
                     match = next((o for o in opt_list if c_k == o['Key']), None)
                     # 2차: 부분 매칭 (가장 긴 Key 우선 → 오트밀가루 > 오트밀)
+                    # — Key 최소 4자 + 품목명 비어있지 않은 항목만 (쓰레기 매칭 방지)
                     if not match:
-                        candidates = [o for o in opt_list if o['Key'] in c_k]
+                        candidates = [o for o in opt_list
+                                      if len(o['Key']) >= 4
+                                      and o.get('품목명', '').strip()
+                                      and o['Key'] in c_k]
                         if candidates:
                             match = max(candidates, key=lambda o: len(o['Key']))
 
