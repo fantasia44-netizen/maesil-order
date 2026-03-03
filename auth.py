@@ -282,6 +282,9 @@ def login():
             # 모바일 접속 시 모바일 홈으로
             if '/m/' in (next_page or ''):
                 return redirect(next_page)
+            # CEO 역할은 모바일 대시보드로 자동 이동
+            if user.role == 'ceo':
+                return redirect(next_page or url_for('mobile.ceo_dashboard'))
             return redirect(next_page or url_for('main.dashboard'))
         else:
             # 로그인 실패 — IP 시도 기록

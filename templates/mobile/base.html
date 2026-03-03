@@ -200,9 +200,15 @@
 
     <!-- 하단 탭바 -->
     <nav class="m-tabbar">
+        {% if current_user.role == 'ceo' %}
+        <a href="{{ url_for('mobile.ceo_dashboard') }}" class="{% if request.endpoint == 'mobile.ceo_dashboard' %}active{% endif %}">
+            <i class="bi bi-speedometer2"></i>대시보드
+        </a>
+        {% else %}
         <a href="{{ url_for('mobile.home') }}" class="{% if request.endpoint == 'mobile.home' %}active{% endif %}">
             <i class="bi bi-house-fill"></i>홈
         </a>
+        {% endif %}
         <a href="{{ url_for('mobile.stock') }}" class="{% if request.endpoint == 'mobile.stock' %}active{% endif %}">
             <i class="bi bi-box-seam-fill"></i>재고
         </a>

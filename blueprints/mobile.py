@@ -8,6 +8,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from models import INV_TYPE_LABELS, REVENUE_CATEGORIES
+from auth import role_required
 
 mobile_bp = Blueprint('mobile', __name__, url_prefix='/m')
 
@@ -156,3 +157,45 @@ def history():
                            locations=locations,
                            type_labels=INV_TYPE_LABELS,
                            records=results, searched=searched)
+
+
+@mobile_bp.route('/ceo')
+@role_required('admin', 'ceo')
+def ceo_dashboard():
+    """CEO 모바일 대시보드 — 매출 그래프 + KPI"""
+    from db_supabase import today_kst, days_ago_kst
+
+    db = current_app.db
+    today = today_kst()
+
+    # 오늘 매출 KPI
+    today_rev = db.sum_revenue_by_date(today)
+
+    # 이번 달 시작일
+    month_start = today[:8] + '01'
+
+    # 월 매출 (order_transactions 합산)
+    month_channel = db.query_orders_by_channel(date_from=month_start, date_to=today)
+    month_total = sum(c.get('amount', 0) for c in month_channel)
+    month_count = sum(c.get('count', 0) for c in month_channel)
+
+    # 30일 매출 추이
+    revenue_trend = db.query_revenue_trend(days=30)
+
+    # TOP 10 상품
+    top_products = db.query_top_products_by_revenue(days=30, limit=10)
+
+    # 재고 요약
+    stock_summary = db.query_stock_summary_by_location()
+    total_stock_items = sum(s.get('product_count', 0) for s in stock_summary)
+
+    return render_template('mobile/ceo_dashboard.html',
+                           today=today,
+                           today_rev=today_rev,
+                           month_total=month_total,
+                           month_count=month_count,
+                           month_channel=month_channel,
+                           revenue_trend=revenue_trend,
+                           top_products=top_products,
+                           stock_summary=stock_summary,
+                           total_stock_items=total_stock_items)

@@ -1,0 +1,200 @@
+{% extends "mobile/base.html" %}
+{% block title %}CEO 대시보드 - 배마마{% endblock %}
+
+{% block content %}
+<!-- 날짜 표시 -->
+<div class="text-center mb-2">
+    <small class="text-muted">{{ today }} 기준</small>
+</div>
+
+<!-- KPI 카드 2x2 -->
+<div class="row g-2 mb-3">
+    <div class="col-6">
+        <div class="m-card" style="background:linear-gradient(135deg,#3498db,#2980b9);color:#fff;">
+            <div class="m-stat">
+                <div class="desc" style="color:rgba(255,255,255,0.8);">오늘 매출</div>
+                <div class="num" style="color:#fff;font-size:1.2rem;">{{ '{:,.0f}'.format(today_rev.total_amount|default(0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="m-card" style="background:linear-gradient(135deg,#27ae60,#219a52);color:#fff;">
+            <div class="m-stat">
+                <div class="desc" style="color:rgba(255,255,255,0.8);">오늘 수량</div>
+                <div class="num" style="color:#fff;font-size:1.2rem;">{{ '{:,}'.format(today_rev.qty|default(0)) }}건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="m-card" style="background:linear-gradient(135deg,#e67e22,#d35400);color:#fff;">
+            <div class="m-stat">
+                <div class="desc" style="color:rgba(255,255,255,0.8);">월 매출</div>
+                <div class="num" style="color:#fff;font-size:1.2rem;">{{ '{:,.0f}'.format(month_total|default(0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="m-card" style="background:linear-gradient(135deg,#9b59b6,#8e44ad);color:#fff;">
+            <div class="m-stat">
+                <div class="desc" style="color:rgba(255,255,255,0.8);">재고 품목</div>
+                <div class="num" style="color:#fff;font-size:1.2rem;">{{ total_stock_items|default(0) }}종</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 매출 추이 차트 (30일) -->
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-graph-up"></i> 30일 매출 추이</div>
+    <div style="position:relative;height:220px;">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+<!-- 채널별 매출 (도넛) -->
+{% if month_channel %}
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-pie-chart"></i> 이번달 채널별 매출</div>
+    <div style="position:relative;height:220px;">
+        <canvas id="channelChart"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<!-- TOP 10 상품 -->
+{% if top_products %}
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-trophy"></i> TOP 10 매출 상품 (30일)</div>
+    {% for p in top_products %}
+    <div class="m-list-item" style="display:flex;justify-content:space-between;align-items:center;{% if not loop.last %}border-bottom:1px solid #f5f5f5;{% endif %}margin-bottom:0;border-radius:0;">
+        <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span class="badge {% if loop.index <= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}" style="font-size:0.7rem;min-width:22px;">{{ loop.index }}</span>
+                <span class="item-title text-truncate" style="display:block;">{{ p.product_name }}</span>
+            </div>
+            <div class="item-sub">수량 {{ '{:,}'.format(p.qty|default(0)) }}개</div>
+        </div>
+        <div class="text-end" style="white-space:nowrap;margin-left:8px;">
+            <span class="fw-bold text-primary" style="font-size:0.85rem;">{{ '{:,.0f}'.format(p.revenue|default(0)) }}원</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- 창고별 재고 요약 -->
+{% if stock_summary %}
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-box-seam"></i> 창고별 재고</div>
+    {% for s in stock_summary %}
+    <div class="m-row">
+        <span class="label">{{ s.location }}</span>
+        <span class="value">{{ s.product_count }}종 / {{ '{:,.0f}'.format(s.total_qty) }}개</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- PC 버전 이동 -->
+<div class="m-card">
+    <div class="m-row">
+        <span class="label">PC 버전으로 이동</span>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-display"></i> PC 버전
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    // 매출 추이 라인 차트
+    const trendData = {{ revenue_trend|tojson }};
+    if (trendData.length > 0) {
+        const labels = trendData.map(d => {
+            const parts = d.date.split('-');
+            return parts[1] + '/' + parts[2];
+        });
+        const totals = trendData.map(d => d.total || 0);
+
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '매출',
+                    data: totals,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52,152,219,0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 6,
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.parsed.y.toLocaleString() + '원'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { font: { size: 9 }, maxRotation: 45, maxTicksLimit: 10 },
+                        grid: { display: false }
+                    },
+                    y: {
+                        ticks: {
+                            font: { size: 9 },
+                            callback: v => (v >= 10000 ? (v/10000).toFixed(0) + '만' : v.toLocaleString())
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    }
+                }
+            }
+        });
+    }
+
+    // 채널별 도넛 차트
+    const channelData = {{ month_channel|tojson }};
+    if (channelData.length > 0) {
+        const colors = ['#3498db','#e74c3c','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c','#95a5a6'];
+        new Chart(document.getElementById('channelChart'), {
+            type: 'doughnut',
+            data: {
+                labels: channelData.map(c => c.channel),
+                datasets: [{
+                    data: channelData.map(c => c.amount || 0),
+                    backgroundColor: colors.slice(0, channelData.length),
+                    borderWidth: 1,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 10 }, padding: 8, usePointStyle: true }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.label + ': ' + ctx.parsed.toLocaleString() + '원'
+                        }
+                    }
+                }
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

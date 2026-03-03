@@ -377,7 +377,7 @@ class SupabaseDB(DBBase):
             def dr_builder(table):
                 q = self.client.table(table).select(
                     "revenue_date,product_name,category,channel,"
-                    "qty,unit_price,revenue,settlement,commission"
+                    "qty,unit_price,revenue"
                 ).order("revenue_date", desc=True)
                 if date_from:
                     q = q.gte("revenue_date", date_from)

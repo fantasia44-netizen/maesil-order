@@ -46,6 +46,18 @@
     </div>
 </div>
 
+{% if current_user.role in ('ceo', 'admin') %}
+<div class="m-card mt-3">
+    <a href="{{ url_for('mobile.ceo_dashboard') }}" class="text-decoration-none d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-speedometer2 text-primary" style="font-size:1.3rem;"></i>
+            <span class="fw-bold ms-2">매출 대시보드</span>
+        </div>
+        <i class="bi bi-chevron-right text-muted"></i>
+    </a>
+</div>
+{% endif %}
+
 <div class="m-card mt-3">
     <div class="m-row">
         <span class="label">PC 버전으로 이동</span>
