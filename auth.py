@@ -139,15 +139,31 @@ def role_required(*roles):
             # 하드코딩 역할에 포함되면 바로 허용
             if user_role in roles:
                 return f(*args, **kwargs)
-            # DB 권한 체크: 블루프린트 이름을 page_key로 사용
+            # DB 권한 체크: URL → page_key 매칭 (PAGE_REGISTRY 기반)
             try:
+                db = current_app.db
+                perms = db.query_role_permissions()
+                role_perms = perms.get(user_role, {})
+
+                # 1차: URL로 정확한 page_key 찾기 (PAGE_REGISTRY)
+                from models import PAGE_REGISTRY
+                req_path = request.path.rstrip('/')
+                matched_key = None
+                # 긴 URL 우선 매칭 (예: /orders/n-delivery > /orders)
+                for pk, _name, _icon, url, _roles in sorted(
+                    PAGE_REGISTRY, key=lambda x: len(x[3]), reverse=True
+                ):
+                    if req_path == url.rstrip('/') or req_path.startswith(url.rstrip('/') + '/'):
+                        matched_key = pk
+                        break
+
+                if matched_key and role_perms.get(matched_key, False):
+                    return f(*args, **kwargs)
+
+                # 2차: 블루프린트 이름으로 폴백
                 bp_name = getattr(request, 'blueprint', '') or ''
-                if bp_name:
-                    db = current_app.db
-                    perms = db.query_role_permissions()
-                    role_perms = perms.get(user_role, {})
-                    if role_perms.get(bp_name, False):
-                        return f(*args, **kwargs)
+                if bp_name and role_perms.get(bp_name, False):
+                    return f(*args, **kwargs)
             except Exception as e:
                 import traceback
                 current_app.logger.warning(f'role_required DB 권한 체크 오류: {e}\n{traceback.format_exc()}')
