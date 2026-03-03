@@ -18,6 +18,33 @@ def index():
     return render_template('planning/index.html')
 
 
+@planning_bp.route('/sales')
+@role_required('admin', 'ceo', 'manager', 'production')
+def sales_analysis():
+    """월간 판매분석 페이지"""
+    return render_template('planning/sales.html')
+
+
+# ── API: 월간 판매분석 ──
+
+@planning_bp.route('/api/sales-analysis')
+@role_required('admin', 'ceo', 'manager', 'production')
+def api_sales_analysis():
+    """월간 판매분석 데이터"""
+    try:
+        from services.sales_analysis_service import get_monthly_sales_analysis
+
+        year = request.args.get('year', type=int)
+        month = request.args.get('month', type=int)
+
+        result = get_monthly_sales_analysis(
+            current_app.db, year=year, month=month,
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': f'판매분석 오류: {e}'}), 500
+
+
 # ── API: 생산계획 계산 실행 ──
 
 @planning_bp.route('/api/calculate', methods=['POST'])
@@ -110,6 +137,28 @@ def api_update_config():
                          detail=str(data))
             return jsonify({'success': True})
         return jsonify({'error': '수정 실패'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── API: 품목 sales_category 일괄 설정 ──
+
+@planning_bp.route('/api/sales-category', methods=['POST'])
+@role_required('admin', 'manager')
+def api_update_sales_category():
+    """품목별 판매분류(sales_category) 수정"""
+    try:
+        data = request.get_json(silent=True) or {}
+        product_name = data.get('product_name', '').strip()
+        category = data.get('sales_category', '').strip()
+        if not product_name:
+            return jsonify({'error': '품목명 필수'}), 400
+
+        current_app.db.client.table('product_costs').update({
+            'sales_category': category,
+        }).eq('product_name', product_name).execute()
+
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

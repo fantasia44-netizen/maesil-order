@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}월간 판매분석{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> 월간 판매분석</h5>
+        <div class="d-flex gap-2 align-items-center">
+            <select id="yearSel" class="form-select form-select-sm" style="width:auto"></select>
+            <select id="monthSel" class="form-select form-select-sm" style="width:auto"></select>
+            <button id="loadBtn" class="btn btn-primary btn-sm">
+                <i class="bi bi-arrow-clockwise"></i> 조회
+            </button>
+            <a href="/planning" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-clipboard-data"></i> 생산계획
+            </a>
+        </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div id="summaryArea" class="d-none">
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-3">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body py-2 text-center">
+                        <div class="text-muted small" id="curLabel">이번달</div>
+                        <div class="fw-bold fs-5" id="curQty">-</div>
+                        <div class="text-muted small" id="curAmt"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body py-2 text-center">
+                        <div class="text-muted small" id="prevLabel">전월</div>
+                        <div class="fw-bold fs-5" id="prevQty">-</div>
+                        <div class="text-muted small" id="prevAmt"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card border-0 shadow-sm bg-primary bg-opacity-10">
+                    <div class="card-body py-2 text-center">
+                        <div class="text-primary small">일평균 달성율</div>
+                        <div class="fw-bold fs-5 text-primary" id="achRate">-</div>
+                        <div class="text-muted small" id="achDetail"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body py-2 text-center">
+                        <div class="text-muted small">경과일</div>
+                        <div class="fw-bold fs-5" id="elapsedInfo">-</div>
+                        <div class="text-muted small" id="monthProg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 카테고리별 소계 -->
+        <div class="mb-3" id="catArea">
+            <div class="row g-2" id="catCards"></div>
+        </div>
+
+        <!-- 필터 -->
+        <div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
+            <select id="catFilter" class="form-select form-select-sm" style="width:auto">
+                <option value="">전체 분류</option>
+            </select>
+            <select id="chFilter" class="form-select form-select-sm" style="width:auto">
+                <option value="">전체 채널</option>
+                <option value="qty">수량 기준</option>
+                <option value="amount">금액 기준</option>
+            </select>
+            <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="품목 검색..." style="width:180px">
+            <label class="form-check-label small">
+                <input type="checkbox" id="hideZero" class="form-check-input" checked> 미판매 숨김
+            </label>
+            <span class="text-muted small ms-auto" id="rowCount"></span>
+        </div>
+
+        <!-- 테이블 -->
+        <div class="table-responsive">
+            <table class="table table-sm table-hover table-bordered" style="font-size:0.82rem">
+                <thead class="table-light" id="tableHead"></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+        <div class="text-muted small mt-1" id="genTime"></div>
+    </div>
+
+    <!-- 로딩/빈 상태 -->
+    <div id="emptyState" class="text-center text-muted py-5">
+        <i class="bi bi-graph-up-arrow" style="font-size:2rem"></i>
+        <p class="mt-2">월을 선택하고 '조회' 버튼을 클릭하세요</p>
+    </div>
+</div>
+
+<script>
+const csrf_token = document.querySelector('meta[name="csrf-token"]').content;
+let allData = null;
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function n(v) { return v!=null ? Number(v).toLocaleString('ko-KR') : '-'; }
+function nf(v, d) { return v!=null ? Number(v).toLocaleString('ko-KR',{maximumFractionDigits:d||0}) : '-'; }
+function pct(v) { return v!=null ? `${v>0?'+':''}${v}%` : '-'; }
+function achBadge(v) {
+    if(v==null) return '<span class="text-muted">-</span>';
+    const cls = v>=100?'text-success':v>=80?'text-warning':'text-danger';
+    return `<span class="${cls} fw-bold">${v}%</span>`;
+}
+
+// 월 선택 초기화
+(function(){
+    const now = new Date();
+    const ys = document.getElementById('yearSel');
+    const ms = document.getElementById('monthSel');
+    for(let y=now.getFullYear(); y>=2024; y--) {
+        const o = document.createElement('option');
+        o.value=y; o.text=y+'년'; ys.appendChild(o);
+    }
+    for(let m=1; m<=12; m++) {
+        const o = document.createElement('option');
+        o.value=m; o.text=m+'월'; ms.appendChild(o);
+    }
+    ms.value = now.getMonth()+1;
+})();
+
+// 조회
+document.getElementById('loadBtn').addEventListener('click', load);
+async function load() {
+    const btn = document.getElementById('loadBtn');
+    btn.disabled=true; btn.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
+    try {
+        const y = document.getElementById('yearSel').value;
+        const m = document.getElementById('monthSel').value;
+        const res = await fetch(`/planning/api/sales-analysis?year=${y}&month=${m}`);
+        const ct = res.headers.get('content-type')||'';
+        if(!ct.includes('json')){alert('세션 만료');return;}
+        const data = await res.json();
+        if(data.error){alert(data.error);return;}
+        allData = data;
+        renderAll(data);
+        document.getElementById('summaryArea').classList.remove('d-none');
+        document.getElementById('emptyState').classList.add('d-none');
+    } catch(e){alert(e.message);}
+    finally { btn.disabled=false; btn.innerHTML='<i class="bi bi-arrow-clockwise"></i> 조회'; }
+}
+
+function renderAll(data) {
+    const t = data.totals, cm = data.current_month, pm = data.prev_month;
+
+    // 요약
+    document.getElementById('curLabel').textContent = cm.label + ` (${cm.elapsed_days}일)`;
+    document.getElementById('curQty').textContent = n(t.cur_qty) + '개';
+    document.getElementById('curAmt').textContent = n(t.cur_amount) + '원';
+    document.getElementById('prevLabel').textContent = pm.label + ` (${pm.days}일)`;
+    document.getElementById('prevQty').textContent = n(t.prev_qty) + '개';
+    document.getElementById('prevAmt').textContent = n(t.prev_amount) + '원';
+    document.getElementById('achRate').textContent = t.achievement_rate!=null ? t.achievement_rate+'%' : '-';
+    document.getElementById('achDetail').textContent =
+        `일평균 ${nf(t.daily_avg_cur,1)} vs ${nf(t.daily_avg_prev,1)}`;
+    document.getElementById('elapsedInfo').textContent =
+        `${cm.elapsed_days} / ${cm.days}일`;
+    const prog = Math.round(cm.elapsed_days/cm.days*100);
+    document.getElementById('monthProg').innerHTML =
+        `<div class="progress" style="height:6px"><div class="progress-bar" style="width:${prog}%"></div></div>`;
+
+    // 카테고리 카드
+    renderCatCards(data.category_totals);
+
+    // 필터 옵션
+    const catSel = document.getElementById('catFilter');
+    catSel.innerHTML = '<option value="">전체 분류</option>';
+    data.category_totals.forEach(c => {
+        const o = document.createElement('option');
+        o.value=c.category; o.text=`${c.category} (${c.count})`;
+        catSel.appendChild(o);
+    });
+
+    renderTable(data.items);
+    document.getElementById('genTime').textContent = data.generated_at
+        ? '조회: ' + new Date(data.generated_at).toLocaleString('ko-KR') : '';
+}
+
+function renderCatCards(cats) {
+    const div = document.getElementById('catCards');
+    div.innerHTML = cats.map(c => `
+        <div class="col-6 col-md-2">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body py-2 px-2">
+                    <div class="d-flex justify-content-between">
+                        <span class="small fw-bold">${esc(c.category)}</span>
+                        <span class="small">${achBadge(c.achievement_rate)}</span>
+                    </div>
+                    <div class="d-flex justify-content-between small text-muted mt-1">
+                        <span>이번달 ${n(c.cur_qty)}</span>
+                        <span>전월 ${n(c.prev_qty)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderTable(items) {
+    const cat = document.getElementById('catFilter').value;
+    const mode = document.getElementById('chFilter').value;
+    const search = document.getElementById('searchInput').value.trim().toLowerCase();
+    const hideZero = document.getElementById('hideZero').checked;
+
+    let filtered = items;
+    if(cat) filtered = filtered.filter(i=>i.sales_category===cat);
+    if(search) filtered = filtered.filter(i=>i.product_name.toLowerCase().includes(search));
+    if(hideZero) filtered = filtered.filter(i=>i.cur_qty>0||i.prev_qty>0);
+
+    // 정렬: 이번달 수량 내림차순
+    filtered.sort((a,b)=>b.cur_qty-a.cur_qty);
+
+    const isAmt = (mode==='amount');
+    const cm = allData.current_month, pm = allData.prev_month;
+
+    // 헤더
+    document.getElementById('tableHead').innerHTML = `<tr>
+        <th style="width:30px">#</th>
+        <th>품목명</th>
+        <th class="text-center" style="width:60px">분류</th>
+        <th class="text-end" style="width:75px">${cm.label}<br><small>네이버</small></th>
+        <th class="text-end" style="width:75px">${cm.label}<br><small>쿠팡</small></th>
+        <th class="text-end" style="width:75px">${cm.label}<br><small class="fw-bold">합계</small></th>
+        <th class="text-end" style="width:75px">${pm.label}<br><small>합계</small></th>
+        <th class="text-end" style="width:60px">일평균<br><small>이번달</small></th>
+        <th class="text-end" style="width:60px">일평균<br><small>전월</small></th>
+        <th class="text-center" style="width:70px">달성율</th>
+        <th class="text-end" style="width:55px">비중</th>
+    </tr>`;
+
+    if(!filtered.length) {
+        document.getElementById('tableBody').innerHTML =
+            '<tr><td colspan="11" class="text-center text-muted py-3">데이터 없음</td></tr>';
+        document.getElementById('rowCount').textContent = '';
+        return;
+    }
+
+    document.getElementById('rowCount').textContent =
+        filtered.length < items.length ? `${filtered.length}/${items.length}건` : `${items.length}건`;
+
+    let html = '';
+    filtered.forEach((item,idx) => {
+        const curN = isAmt ? item.cur_naver_amount : item.cur_naver_qty;
+        const curC = isAmt ? item.cur_coupang_amount : item.cur_coupang_qty;
+        const curT = isAmt ? item.cur_amount : item.cur_qty;
+        const prevT = isAmt ? item.prev_amount : item.prev_qty;
+
+        const ach = item.achievement_rate;
+        const rowCls = ach!=null && ach<80 ? 'table-danger' :
+                       ach!=null && ach>=120 ? 'table-success' : '';
+
+        html += `<tr class="${rowCls}">
+            <td class="text-muted small">${idx+1}</td>
+            <td>${esc(item.product_name)}</td>
+            <td class="text-center small">${esc(item.sales_category)}</td>
+            <td class="text-end">${n(curN)}</td>
+            <td class="text-end">${n(curC)}</td>
+            <td class="text-end fw-bold">${n(curT)}</td>
+            <td class="text-end">${n(prevT)}</td>
+            <td class="text-end">${nf(item.daily_avg_cur,1)}</td>
+            <td class="text-end">${nf(item.daily_avg_prev,1)}</td>
+            <td class="text-center">${achBadge(ach)}</td>
+            <td class="text-end small">${item.share_pct}%</td>
+        </tr>`;
+    });
+    document.getElementById('tableBody').innerHTML = html;
+}
+
+// 필터 이벤트
+['catFilter','chFilter','searchInput','hideZero'].forEach(id => {
+    document.getElementById(id).addEventListener(
+        id==='searchInput'?'input':'change',
+        () => { if(allData) renderTable(allData.items); }
+    );
+});
+
+// 페이지 로드 시 자동 조회
+window.addEventListener('DOMContentLoaded', load);
+</script>
+{% endblock %}

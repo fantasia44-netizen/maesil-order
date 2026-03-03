@@ -77,6 +77,7 @@ PAGE_REGISTRY = [
     ('bom_cost',       'BOM 원가',       'bi-piggy-bank',         '/bom-cost',            ['admin','manager']),
     ('yield_mgmt',     '수율 관리',      'bi-graph-up',           '/yield',               ['admin','manager','production']),
     ('planning',       '생산계획',       'bi-clipboard-data',     '/planning',            ['admin','ceo','manager','production']),
+    ('sales_analysis', '판매분석',       'bi-graph-up-arrow',     '/planning/sales',      ['admin','ceo','manager','production']),
     ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager']),
     ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin']),
     ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin']),

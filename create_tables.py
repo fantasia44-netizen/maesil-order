@@ -444,6 +444,9 @@ ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS is_production_target BOOLEAN 
 -- NULL = 자동 판별 (cost_type='생산' or material_type='완제품' → 대상)
 -- TRUE = 강제 포함, FALSE = 강제 제외
 
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS sales_category TEXT DEFAULT '';
+-- 큐브, 세트, oem, pack, 해미애찬 등 관리자 엑셀 '구분'
+
 -- 28) production_plan (생산계획 결과)
 CREATE TABLE IF NOT EXISTS production_plan (
     id                       BIGSERIAL PRIMARY KEY,
