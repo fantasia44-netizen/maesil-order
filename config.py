@@ -32,6 +32,9 @@ class Config:
     # 세션 비활동 타임아웃 (분)
     SESSION_INACTIVITY_TIMEOUT = 60    # 60분 비활동 시 자동 로그아웃
 
+    # 일일 마감 설정
+    DAILY_CUTOFF_TIME = '15:05'   # 기본 매출마감·재고출고마감 시각 (오후 3시 5분)
+
     # 파일 업로드
     UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
     OUTPUT_FOLDER = os.path.join(basedir, 'output')

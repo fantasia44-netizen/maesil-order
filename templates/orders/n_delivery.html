@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}N배송 수동입력 - 배마마 통합시스템{% endblock %}
+{% block page_title %}N배송 수동입력{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <i class="bi bi-pencil-square"></i> N배송 매출 수동입력
+        <small class="text-muted ms-2">(전날 5시 마감 기준, 별도 집계)</small>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">매출일자 <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" id="orderDate">
+            </div>
+            <div class="col-md-9 d-flex align-items-end">
+                <small class="text-muted">스마트스토어 N배송 주문의 실제 매출일(전날)을 입력하세요.</small>
+            </div>
+        </div>
+
+        <table class="table table-sm" id="itemsTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:50%">품목명</th>
+                    <th style="width:20%">수량</th>
+                    <th style="width:20%"></th>
+                    <th style="width:10%"></th>
+                </tr>
+            </thead>
+            <tbody id="itemsBody">
+                <tr>
+                    <td>
+                        <select class="form-select form-select-sm product-select" onchange="onProductSelect(this)">
+                            <option value="">-- 품목 선택 --</option>
+                            {% for p in products %}
+                            <option value="{{ p.name }}" data-barcode="{{ p.barcode }}" data-linecode="{{ p.line_code }}" data-sort="{{ p.sort_order }}">{{ p.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="number" class="form-control form-control-sm qty-input" min="1" value="1"></td>
+                    <td><small class="text-muted barcode-display"></small></td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-x"></i></button></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="d-flex justify-content-between">
+            <button class="btn btn-sm btn-outline-secondary" onclick="addRow()">
+                <i class="bi bi-plus"></i> 행 추가
+            </button>
+            <button class="btn btn-primary" onclick="submitNDelivery()" id="btnSubmit">
+                <i class="bi bi-save"></i> 저장
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="resultArea" style="display:none">
+    <div class="alert" id="resultAlert"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 어제 날짜 기본값
+document.addEventListener('DOMContentLoaded', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    document.getElementById('orderDate').value = yesterday.toISOString().split('T')[0];
+});
+
+function addRow() {
+    const tbody = document.getElementById('itemsBody');
+    const firstRow = tbody.querySelector('tr');
+    const newRow = firstRow.cloneNode(true);
+    newRow.querySelector('.product-select').value = '';
+    newRow.querySelector('.qty-input').value = 1;
+    newRow.querySelector('.barcode-display').textContent = '';
+    tbody.appendChild(newRow);
+}
+
+function removeRow(btn) {
+    const tbody = document.getElementById('itemsBody');
+    if (tbody.rows.length > 1) {
+        btn.closest('tr').remove();
+    }
+}
+
+function onProductSelect(select) {
+    const opt = select.options[select.selectedIndex];
+    const barcodeEl = select.closest('tr').querySelector('.barcode-display');
+    barcodeEl.textContent = opt.dataset.barcode || '';
+}
+
+function submitNDelivery() {
+    const orderDate = document.getElementById('orderDate').value;
+    if (!orderDate) { alert('매출일자를 입력하세요'); return; }
+
+    const rows = document.querySelectorAll('#itemsBody tr');
+    const items = [];
+    rows.forEach(row => {
+        const select = row.querySelector('.product-select');
+        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
+        const opt = select.options[select.selectedIndex];
+        if (select.value && qty > 0) {
+            items.push({
+                product_name: select.value,
+                qty: qty,
+                barcode: opt.dataset.barcode || '',
+                line_code: opt.dataset.linecode || '0',
+                sort_order: opt.dataset.sort || '999',
+            });
+        }
+    });
+
+    if (!items.length) { alert('하나 이상의 품목을 입력하세요'); return; }
+
+    const btn = document.getElementById('btnSubmit');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 저장 중...';
+
+    fetch('{{ url_for("orders.api_n_delivery") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({ order_date: orderDate, items })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const area = document.getElementById('resultArea');
+        const alert = document.getElementById('resultAlert');
+        area.style.display = 'block';
+
+        if (data.success) {
+            alert.className = 'alert alert-success';
+            alert.innerHTML = `<i class="bi bi-check-circle"></i> ${data.message}`;
+        } else {
+            alert.className = 'alert alert-danger';
+            alert.innerHTML = `<i class="bi bi-x-circle"></i> ${data.error || '저장 실패'}`;
+        }
+    })
+    .catch(e => {
+        alert('오류: ' + e.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-save"></i> 저장';
+    });
+}
+</script>
+{% endblock %}

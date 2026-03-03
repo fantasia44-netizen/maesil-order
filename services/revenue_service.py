@@ -111,6 +111,9 @@ def get_revenue_stats(db, date_from=None, date_to=None, category=None):
         'daily_totals': _calc_daily_totals(raw),
         'monthly_totals': _calc_monthly_totals(raw),
         'category_breakdown': _calc_category_breakdown(raw),
+        'channel_breakdown': _calc_channel_breakdown(raw),
+        'daily_channel_totals': _calc_daily_channel_totals(raw),
+        'monthly_channel_totals': _calc_monthly_channel_totals(raw),
         'top_products': _calc_top_products(raw, limit=15),
     }
 
@@ -158,6 +161,120 @@ def _calc_category_breakdown(raw):
         by_cat[cat] = by_cat.get(cat, 0) + r.get('revenue', 0)
     return [{'category': k, 'total': v}
             for k, v in sorted(by_cat.items(), key=lambda x: -x[1])]
+
+
+def _resolve_channel(r):
+    """레코드에서 채널명 추출. channel이 없으면 category로 폴백."""
+    raw_ch = r.get('channel', '') or ''
+    if not raw_ch or raw_ch in ('None', 'none', 'null'):
+        return r.get('category', '기타') or '기타'
+    return raw_ch
+
+
+def _calc_channel_breakdown(raw):
+    """채널별 매출 비중 리스트 반환 (내림차순)."""
+    by_ch = {}
+    for r in raw:
+        ch = _resolve_channel(r)
+        by_ch[ch] = by_ch.get(ch, 0) + r.get('revenue', 0)
+    return [{'channel': k, 'total': v}
+            for k, v in sorted(by_ch.items(), key=lambda x: -x[1])]
+
+
+def _calc_daily_channel_totals(raw):
+    """일별 × 채널별 매출 테이블 데이터.
+
+    Returns:
+        dict: {
+            'channels': ['스마트스토어', '쿠팡', ...],  # 채널 목록 (매출 내림차순)
+            'rows': [
+                {'date': '2025-02-27', 'channels': {'스마트스토어': 100000, ...}, 'total': 150000},
+                ...
+            ],
+            'totals': {'스마트스토어': 500000, ...},  # 채널별 총합
+            'grand_total': 1500000
+        }
+    """
+    by_date_ch = {}   # {date: {channel: revenue}}
+    ch_totals = {}    # {channel: total_revenue}
+
+    for r in raw:
+        d = r.get('revenue_date', '')
+        ch = _resolve_channel(r)
+        rev = r.get('revenue', 0)
+        if not d:
+            continue
+        if d not in by_date_ch:
+            by_date_ch[d] = {}
+        by_date_ch[d][ch] = by_date_ch[d].get(ch, 0) + rev
+        ch_totals[ch] = ch_totals.get(ch, 0) + rev
+
+    # 채널 목록: 총 매출 내림차순
+    channels = [k for k, v in sorted(ch_totals.items(), key=lambda x: -x[1])]
+
+    rows = []
+    for d in sorted(by_date_ch.keys()):
+        ch_data = by_date_ch[d]
+        rows.append({
+            'date': d,
+            'channels': ch_data,
+            'total': sum(ch_data.values()),
+        })
+
+    return {
+        'channels': channels,
+        'rows': rows,
+        'totals': ch_totals,
+        'grand_total': sum(ch_totals.values()),
+    }
+
+
+def _calc_monthly_channel_totals(raw):
+    """월별 × 채널별 매출 테이블 데이터.
+
+    Returns:
+        dict: {
+            'channels': ['스마트스토어', '쿠팡', ...],
+            'rows': [
+                {'month': '2025-02', 'channels': {'스마트스토어': 100000, ...}, 'total': 150000},
+                ...
+            ],
+            'totals': {'스마트스토어': 500000, ...},
+            'grand_total': 1500000
+        }
+    """
+    by_month_ch = {}  # {month: {channel: revenue}}
+    ch_totals = {}
+
+    for r in raw:
+        d = r.get('revenue_date', '')
+        ch = _resolve_channel(r)
+        rev = r.get('revenue', 0)
+        if not d or len(d) < 7:
+            continue
+        m = d[:7]
+        if m not in by_month_ch:
+            by_month_ch[m] = {}
+        by_month_ch[m][ch] = by_month_ch[m].get(ch, 0) + rev
+        ch_totals[ch] = ch_totals.get(ch, 0) + rev
+
+    channels = [k for k, v in sorted(ch_totals.items(), key=lambda x: -x[1])]
+
+    rows = []
+    for m in sorted(by_month_ch.keys()):
+        ch_data = by_month_ch[m]
+        rows.append({
+            'month': m,
+            'channels': ch_data,
+            'total': sum(ch_data.values()),
+        })
+
+    return {
+        'channels': channels,
+        'rows': rows,
+        'totals': ch_totals,
+        'grand_total': sum(ch_totals.values()),
+    }
 
 
 def _calc_top_products(raw, limit=15):

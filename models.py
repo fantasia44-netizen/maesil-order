@@ -14,7 +14,8 @@ VERSION_DATE = "2026-02-20"
 
 INV_TYPE_LABELS = {
     "INBOUND": "입고", "PRODUCTION": "생산", "PROD_OUT": "생산출고",
-    "SALES_OUT": "판매출고", "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고",
+    "SALES_OUT": "판매출고", "SALES_RETURN": "판매반품",
+    "MOVE_OUT": "이동출고", "MOVE_IN": "이동입고",
     "INIT": "기초재고", "REPACK_OUT": "소분투입", "REPACK_IN": "소분산출",
     "SET_OUT": "세트투입", "SET_IN": "세트산출",
     "ETC_OUT": "기타출고",
@@ -53,7 +54,10 @@ PAGE_REGISTRY = [
     ('dashboard',      '대시보드',       'bi-house',              '/',                    ['admin','manager','sales','logistics','production','general']),
     ('stock',          '재고 현황',      'bi-box',                '/stock',               ['admin','manager','sales','logistics','production','general']),
     ('orders',         '온라인주문처리',  'bi-cart',               '/orders',              ['admin','manager','sales']),
+    ('order_manage',   '주문 관리',      'bi-clipboard-data',     '/orders/manage',       ['admin','manager','sales']),
+    ('n_delivery',     'N배송 수동입력',  'bi-pencil-square',      '/orders/n-delivery',   ['admin','manager','sales']),
     ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales']),
+    ('closing',        '일일마감',       'bi-calendar-check',     '/closing',             ['admin','manager','sales','logistics']),
     ('price',          '판매관리',       'bi-tags',               '/price',               ['admin','manager','sales','general']),
     ('trade',          '거래처 관리',    'bi-building',           '/trade',               ['admin','manager','sales','general']),
     ('outbound',       '거래처주문처리',  'bi-truck',              '/outbound',            ['admin','manager','sales','general']),

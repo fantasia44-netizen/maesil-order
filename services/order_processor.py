@@ -1,7 +1,13 @@
-import os, io, re, warnings, gc, unicodedata
+import os, io, re, warnings, gc, unicodedata, hashlib, json
 from datetime import datetime
 import pandas as pd
 import msoffcrypto
+
+from services.channel_config import (
+    build_column_map, detect_channel, validate_required_columns,
+    get_field_label, is_encrypted, get_password, get_header_row, is_csv,
+    MONEY_FIELDS,
+)
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -39,7 +45,13 @@ class OrderProcessor:
 
     def log(self, msg):
         t = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
-        print(t)
+        try:
+            print(t)
+        except (UnicodeEncodeError, UnicodeDecodeError, OSError):
+            try:
+                print(t.encode('ascii', errors='replace').decode('ascii'))
+            except Exception:
+                pass
         self.logs.append(t)
 
     def get_safe_val(self, row, idx):
@@ -50,6 +62,29 @@ class OrderProcessor:
             return ""
         except:
             return ""
+
+    def _parse_money(self, row, col_idx):
+        """금액 컬럼 값을 숫자로 파싱 (쉼표/공백 제거)"""
+        if col_idx is None:
+            return 0
+        raw = self.get_safe_val(row, col_idx)
+        if not raw:
+            return 0
+        cleaned = re.sub(r'[^\d.\-]', '', raw)
+        try:
+            return float(cleaned) if cleaned else 0
+        except ValueError:
+            return 0
+
+    def _compute_file_hash(self, file_input):
+        """파일 SHA256 해시 계산"""
+        try:
+            buf = self._open_as_bytesio(file_input)
+            content = buf.read()
+            buf.seek(0)
+            return hashlib.sha256(content).hexdigest()
+        except Exception:
+            return None
 
     def _open_as_bytesio(self, file_input):
         """파일 경로 또는 file-like 객체를 BytesIO로 반환"""
@@ -147,9 +182,9 @@ class OrderProcessor:
             return None
 
     def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir,
-            db=None, option_source='file'):
+            db=None, option_source='file', save_to_db=False, uploaded_by=None):
         """
-        mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'|'11번가'
+        mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'|'11번가'|'카카오'
         order_file: file-like object or path
         option_file: file-like object or path (optional if option_source='db')
         invoice_file: file-like object or path (optional, for 리얼패킹/외부일괄)
@@ -157,13 +192,16 @@ class OrderProcessor:
         output_dir: directory for output files
         db: SupabaseDB instance (for option_source='db')
         option_source: 'file' or 'db'
+        save_to_db: True면 주문을 DB에 저장 (Phase 1)
+        uploaded_by: 업로드한 사용자명
 
         returns: {
             'success': bool,
             'files': [list of output file paths],
             'logs': [list of log messages],
             'error': str or None,
-            'unmatched': list (미매칭 항목, 있을 때만)
+            'unmatched': list (미매칭 항목, 있을 때만),
+            'db_result': dict (DB 저장 결과, save_to_db=True일 때)
         }
         """
         self.logs = []
@@ -178,7 +216,7 @@ class OrderProcessor:
             os.makedirs(output_dir)
 
         try:
-            self.log(f"🚀 v16.10 [{mode}] {target_type} 가동")
+            self.log(f"🚀 v17.0 [{mode}] {target_type} 가동")
 
             # [1] 옵션지 분석 (DB 또는 파일)
             if option_source == 'db' and db is not None:
@@ -239,66 +277,63 @@ class OrderProcessor:
             else:
                 pass  # Key already set above
 
-            # [2] 플랫폼별 독립 엔진 (v16.10 필터링 보강)
+            # [2] 파일 로드 + 컬럼 자동 인식 (v17 통합)
             res = []
             df = None
+
             if mode == "스마트스토어":
                 df = self.load_smart_store_memory(order_file)
                 if df is None or df.empty:
                     result['error'] = "스마트스토어 파일 읽기 실패"
                     return result
+            else:
+                header = get_header_row(mode)
+                df = self.load_generic(order_file, header=header)
 
-                # 컬럼명 정규화 맵 (정확 매칭 + 부분 매칭)
-                norm_cols = {}
-                for i, c in enumerate(df.columns):
-                    normalized = unicodedata.normalize('NFC', str(c)).strip().replace(" ", "")
-                    norm_cols[normalized] = i
+            if df is None or df.empty:
+                result['error'] = f"[{mode}] 주문 파일 읽기 실패"
+                return result
 
-                def find_col(*candidates):
-                    """컬럼명 후보에서 매칭 인덱스 반환 (정확→부분 순서)"""
-                    for name in candidates:
-                        n = unicodedata.normalize('NFC', name).replace(" ", "")
-                        if n in norm_cols:
-                            return norm_cols[n]
-                    for name in candidates:
-                        n = unicodedata.normalize('NFC', name).replace(" ", "")
-                        for col_name, idx in norm_cols.items():
-                            if n in col_name:
-                                return idx
-                    return None
+            # 컬럼 자동 인식 (channel_config 엔진)
+            col_map = build_column_map(df, mode)
 
-                m = {
-                    'n': find_col('수취인명', '수하인명'),
-                    'a': find_col('기본배송지'),
-                    'a2': find_col('상세배송지'),
-                    'p1': find_col('수취인연락처1'),
-                    'p2': find_col('수취인연락처2'),
-                    'msg': find_col('배송메세지'),
-                    'opt': find_col('옵션정보'),
-                    'prod': find_col('상품명'),
-                    'qty': find_col('수량'),
-                    'st': find_col('주문상태'),
-                    'date': find_col('주문일시', '결제일'),
-                    'no': find_col('상품주문번호', '주문번호'),
-                }
+            # 기존 호환 매핑 (m 딕셔너리)
+            m = {
+                'n': col_map.get('name'),
+                'a': col_map.get('address'),
+                'a2': col_map.get('address2'),
+                'p1': col_map.get('phone'),
+                'p2': col_map.get('phone2'),
+                'msg': col_map.get('memo'),
+                'opt': col_map.get('option'),
+                'prod': col_map.get('product'),
+                'qty': col_map.get('qty'),
+                'st': col_map.get('status'),
+                'date': col_map.get('order_date'),
+                'no': col_map.get('order_no'),
+            }
 
-                # 필수 컬럼 검증
-                field_labels = {'n': '수취인명', 'a': '기본배송지', 'p1': '수취인연락처1',
-                                'opt': '옵션정보', 'prod': '상품명', 'qty': '수량',
-                                'st': '주문상태', 'no': '주문번호'}
-                missing = [field_labels[k] for k in field_labels if m.get(k) is None]
-                if missing:
-                    result['error'] = f"스마트스토어 파일에서 필수 컬럼을 찾을 수 없습니다:\n{', '.join(missing)}"
-                    return result
+            # 필수 컬럼 검증
+            is_valid, missing_fields = validate_required_columns(col_map, mode)
+            if not is_valid:
+                missing_labels = [get_field_label(f) for f in missing_fields]
+                result['error'] = f"[{mode}] 필수 컬럼을 찾을 수 없습니다:\n{', '.join(missing_labels)}"
+                return result
 
-                self.log(f"📋 컬럼 자동 매핑 ({len(df.columns)}열): "
-                         f"수취인=[{m['n']}] 상품명=[{m['prod']}] 옵션=[{m['opt']}] 수량=[{m['qty']}]")
+            self.log(f"📋 컬럼 자동 매핑 ({len(df.columns)}열): "
+                     + " ".join(f"{get_field_label(k)}=[{v}]" for k, v in
+                               [('order_no', m['no']), ('name', m['n']),
+                                ('product', m['prod']), ('option', m['opt']), ('qty', m['qty'])]
+                               if v is not None))
 
-                # 1차 필터링 (취소/반품 제외)
-                target = df[~df.iloc[:, m['st']].astype(str).str.contains('취소|반품', na=False)].copy()
+            # 필터링
+            target = df.copy()
+            if m.get('st') is not None:
+                target = target[~target.iloc[:, m['st']].astype(str).str.contains('취소|반품', na=False)].copy()
 
-                # N배송 필터링 (배송속성 컬럼 — 위치 무관)
-                n_ship_idx = find_col('배송속성')
+            # N배송 필터링 (스마트스토어)
+            if mode == "스마트스토어":
+                n_ship_idx = col_map.get('n_ship')
                 if n_ship_idx is not None:
                     n_ship_col = target.iloc[:, n_ship_idx].astype(str)
                     n_excluded = n_ship_col.str.contains('N배송', na=False).sum()
@@ -306,44 +341,37 @@ class OrderProcessor:
                         target = target[~n_ship_col.str.contains('N배송', na=False)].copy()
                         self.log(f"🚫 N배송 상품 {n_excluded}건 자동 제외 (잔여: {len(target)}건)")
 
-            elif mode == "자사몰":
-                df = self.load_generic(order_file, header=0)
-                m = {'n': 13, 'a': 15, 'p1': 18, 'msg': 19, 'opt': 6, 'prod': 4, 'qty': 12, 'p2': 17, 'date': 3, 'no': 2}
-                target = df.copy()
-
-            elif mode == "쿠팡":
-                df = self.load_generic(order_file, header=0)
-                m = {'n': 26, 'a': 29, 'p1': 27, 'msg': 30, 'opt': 11, 'prod': 10, 'qty': 22, 'p2': 25, 'date': 9, 'no': 2}
-                target = df.copy()
-
-            elif mode == "옥션/G마켓":
-                df = self.load_generic(order_file, header=0)
-                m = {'n': 10, 'a': 31, 'p1': 27, 'msg': 32, 'opt': 17, 'prod': 4, 'qty': 16, 'p2': 28, 'date': 9, 'no': 1}
-                target = df.copy()
-
-            elif mode == "오아시스":
-                df = self.load_generic(order_file, header=0)
-                m = {'n': 31, 'a': 36, 'p1': 32, 'msg': 37, 'opt': 10, 'prod': 10, 'qty': 14, 'p2': 32, 'date': 1, 'no': 2}
-                target = df.copy()
-
-            elif mode == "11번가":
-                df = self.load_generic(order_file, header=2)
-                m = {'n': 12, 'a': 31, 'p1': 28, 'msg': 32, 'opt': 6, 'prod': 6, 'qty': 10, 'p2': 29, 'date': 4, 'no': 2}
-                target = df.copy()
-
             # [3] 매칭 프로세스
+            # "옵션 없음" 판별용 키워드 — 이 값이 option에 있으면 상품명으로 폴백
+            _NO_OPT = {'단일상품', '옵션없음', '옵션 없음', '기본', '해당없음',
+                        '없음', '-', 'noption', 'none', 'n/a', '상품정보참조'}
+
+            def _is_no_option(val):
+                """option 값이 실질적으로 '없음'인지 판별"""
+                if not val:
+                    return True
+                v = val.strip()
+                if not v:
+                    return True
+                return v in _NO_OPT or any(nk in v for nk in ('단일상품',))
+
             unmatched = []  # 매칭 실패 항목 수집
             matched_keys = set()  # 매칭 성공한 Key 수집 (last_matched_at 갱신용)
             for i, r in target.iterrows():
                 try:
+                    v_opt = self.get_safe_val(r, m['opt'])   # 옵션값
+                    v_prod = self.get_safe_val(r, m['prod'])  # 상품명
+
                     if mode == "쿠팡":
-                        v_r, v_e = self.get_safe_val(r, m['opt']), self.get_safe_val(r, m['prod'])
-                        k = v_e if "단일상품" in v_r or v_r == '' else v_e + v_r
+                        # 쿠팡: 단일상품/빈옵션 → 상품명만, 아니면 상품명+옵션
+                        k = v_prod if _is_no_option(v_opt) else v_prod + v_opt
                     elif mode == "옥션/G마켓":
-                        v_r = self.get_safe_val(r, m['opt'])
-                        k = v_r.split('/')[0].strip() if v_r else self.get_safe_val(r, m['prod'])
+                        # 옥션/G마켓: 옵션에서 '/' 앞부분 사용, 없으면 상품명
+                        k = v_opt.split('/')[0].strip() if v_opt and not _is_no_option(v_opt) else v_prod
                     else:
-                        k = self.get_safe_val(r, m['opt']) if self.get_safe_val(r, m['opt']) != '' else self.get_safe_val(r, m['prod'])
+                        # 스마트스토어/자사몰/오아시스/11번가/카카오 등
+                        # 옵션이 유효하면 옵션 사용, 단일상품/빈값이면 상품명 폴백
+                        k = v_opt if v_opt and not _is_no_option(v_opt) else v_prod
 
                     c_k = k.replace(" ", "").upper()
                     # 1차: 정확 매칭 (우선)
@@ -356,26 +384,51 @@ class OrderProcessor:
 
                     if match:
                         matched_keys.add(match['Key'])
-                        # 스마트스토어: AH(앞주소) + AI(상세주소) 합산
-                        addr_front = self.get_safe_val(r, m['a'])
-                        addr_detail = self.get_safe_val(r, m.get('a2', m['a'])) if 'a2' in m else ''
+                        # 주소 합산 (스마트스토어: 기본+상세, 기타: 단일)
+                        addr_front = self.get_safe_val(r, m['a']) if m.get('a') is not None else ''
+                        addr_detail = self.get_safe_val(r, m['a2']) if m.get('a2') is not None else ''
                         full_addr = f"{addr_front} {addr_detail}".strip() if addr_detail else addr_front
                         clean_addr = re.sub(r'\s+', '', full_addr)
-                        res.append({
-                            'name': self.get_safe_val(r, m['n']),
+
+                        qty_val = pd.to_numeric(self.get_safe_val(r, m['qty']), errors='coerce')
+                        qty_int = int(qty_val) if not pd.isna(qty_val) else 1
+
+                        line_code_val = pd.to_numeric(match['라인코드'], errors='coerce')
+                        line_code_int = int(line_code_val) if not pd.isna(line_code_val) else 0
+
+                        row_data = {
+                            'name': self.get_safe_val(r, m['n']) if m.get('n') is not None else '',
                             'addr': full_addr,
                             'clean_addr': clean_addr,
-                            'p1': re.sub(r'[^0-9]', '', self.get_safe_val(r, m['p1'])),
-                            'qty': int(v) if not pd.isna(v := pd.to_numeric(self.get_safe_val(r, m['qty']), errors='coerce')) else 1,
+                            'p1': re.sub(r'[^0-9]', '', self.get_safe_val(r, m['p1'])) if m.get('p1') is not None else '',
+                            'qty': qty_int,
                             'display_nm': match['품목명'],
                             'barcode': match['바코드'],
-                            'code': int(v) if not pd.isna(v := pd.to_numeric(match['라인코드'], errors='coerce')) else 0,
-                            'msg': self.get_safe_val(r, m['msg']),
-                            'p2': self.get_safe_val(r, m.get('p2', m['p1'])),
+                            'code': line_code_int,
+                            'msg': self.get_safe_val(r, m['msg']) if m.get('msg') is not None else '',
+                            'p2': self.get_safe_val(r, m.get('p2', m.get('p1'))) if m.get('p2') is not None or m.get('p1') is not None else '',
                             'sort': match['출력순서'],
-                            'order_date': self.get_safe_val(r, m['date']),
-                            'order_no': self.get_safe_val(r, m['no'])
-                        })
+                            'order_date': self.get_safe_val(r, m['date']) if m.get('date') is not None else '',
+                            'order_no': self.get_safe_val(r, m['no']) if m.get('no') is not None else '',
+                        }
+
+                        # 금액 데이터 추출 (col_map에서)
+                        row_data['_unit_price'] = self._parse_money(r, col_map.get('unit_price'))
+                        row_data['_total_amount'] = self._parse_money(r, col_map.get('total'))
+                        row_data['_discount'] = self._parse_money(r, col_map.get('discount'))
+                        row_data['_settlement'] = self._parse_money(r, col_map.get('settlement'))
+                        row_data['_commission'] = self._parse_money(r, col_map.get('commission'))
+
+                        # 원본 옵션/상품명
+                        row_data['_original_option'] = self.get_safe_val(r, m['opt']) if m.get('opt') is not None else ''
+                        row_data['_original_product'] = self.get_safe_val(r, m['prod']) if m.get('prod') is not None else ''
+
+                        # raw_data (전체 행 원본 → JSONB)
+                        raw_dict = {str(df.columns[ci]): str(r.iloc[ci]) for ci in range(len(r)) if str(r.iloc[ci]).strip()}
+                        row_data['_raw_data'] = raw_dict
+                        row_data['_raw_hash'] = hashlib.sha256(json.dumps(raw_dict, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+                        res.append(row_data)
                     else:
                         # 매칭 실패 → 실제 매칭 키(k) 수집 (옵션리스트 A열에 넣을 값)
                         if k and k not in unmatched:
@@ -407,6 +460,22 @@ class OrderProcessor:
                 self.log("❌ 매칭 데이터 0건")
                 result['error'] = "매칭 데이터 0건"
                 return result
+
+            # ─── [Phase 1] DB 저장 (실패해도 송장 생성은 계속) ───
+            if save_to_db and db is not None:
+                try:
+                    db_result = self._save_orders_to_db(
+                        db, mode, res, order_file, uploaded_by, len(target)
+                    )
+                    result['db_result'] = db_result
+                    self.log(f"DB 저장: 신규 {db_result.get('inserted', 0)}건, "
+                             f"변경 {db_result.get('updated', 0)}건, "
+                             f"스킵 {db_result.get('skipped', 0)}건, "
+                             f"실패 {db_result.get('failed', 0)}건")
+                except Exception as db_err:
+                    self.log(f"DB 저장 중 예외 발생 (송장은 계속): {db_err}")
+                    result['db_result'] = {"inserted": 0, "updated": 0, "skipped": 0,
+                                           "failed": len(res), "error": str(db_err)}
 
             res_df = pd.DataFrame(res)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -654,3 +723,158 @@ class OrderProcessor:
             gc.collect()
 
         return result
+
+    # ─── Phase 1: DB 저장 헬퍼 ───
+
+    @staticmethod
+    def _safe_int(val, default=0):
+        """안전한 int 변환 (None/NaN/문자열/float 모두 처리)"""
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            return default if f != f else int(f)  # NaN 체크: NaN != NaN
+        except (ValueError, TypeError):
+            return default
+
+    @staticmethod
+    def _safe_float(val, default=0):
+        """안전한 float 변환 (None/NaN/문자열 모두 처리)"""
+        if val is None:
+            return default
+        try:
+            f = float(val)
+            return default if f != f else f  # NaN 체크
+        except (ValueError, TypeError):
+            return default
+
+    def _save_orders_to_db(self, db, channel, matched_rows, order_file, uploaded_by, total_rows):
+        """매칭 완료된 주문을 DB에 저장 (import_runs + upsert_order_batch)."""
+        # 1. import_runs 생성
+        file_hash = self._compute_file_hash(order_file)
+        filename = self._get_filename(order_file)
+        import_run_id, err = db.create_import_run(
+            channel=channel,
+            filename=os.path.basename(filename) if filename else '',
+            file_hash=file_hash,
+            uploaded_by=uploaded_by or '',
+            total_rows=total_rows,
+        )
+        if not import_run_id:
+            self.log(f"import_runs 생성 실패: {err}")
+            return {"inserted": 0, "updated": 0, "skipped": 0, "failed": len(matched_rows)}
+
+        self.log(f"import_run #{import_run_id} 생성 OK")
+
+        # 2. 주문 배열 구성 (transaction + shipping 분리)
+        orders = []
+        line_counter = {}  # (channel, order_no) → line_no 카운터
+
+        for row in matched_rows:
+            order_no = str(row.get('order_no', '')).strip()
+            key = (channel, order_no)
+            line_counter[key] = line_counter.get(key, 0) + 1
+            line_no = line_counter[key]
+
+            # 주문일 파싱
+            order_date_str = row.get('order_date', '')
+            order_date = self._parse_date(order_date_str)
+
+            transaction = {
+                "channel": channel,
+                "order_date": order_date,
+                "order_no": order_no,
+                "line_no": line_no,
+                "original_option": str(row.get('_original_option', ''))[:500],
+                "original_product": str(row.get('_original_product', ''))[:500],
+                "raw_data": row.get('_raw_data', {}),
+                "raw_hash": str(row.get('_raw_hash', '')),
+                "parser_version": "1.0",
+                "product_name": str(row.get('display_nm', '')),
+                "barcode": str(row.get('barcode', '')),
+                "line_code": self._safe_int(row.get('code'), 0),
+                "sort_order": self._safe_int(row.get('sort'), 999),
+                "qty": self._safe_int(row.get('qty'), 1),
+                "unit_price": self._safe_float(row.get('_unit_price'), 0),
+                "total_amount": self._safe_float(row.get('_total_amount'), 0),
+                "discount_amount": self._safe_float(row.get('_discount'), 0),
+                "settlement": self._safe_float(row.get('_settlement'), 0),
+                "commission": self._safe_float(row.get('_commission'), 0),
+            }
+
+            # 개인정보 분리 (카카오는 배송정보 없음)
+            shipping = None
+            if row.get('name'):
+                shipping = {
+                    "name": str(row.get('name', '')),
+                    "phone": str(row.get('p1', '')),
+                    "phone2": str(row.get('p2', '')),
+                    "address": str(row.get('addr', '')),
+                    "memo": str(row.get('msg', '')),
+                }
+
+            orders.append({"transaction": transaction, "shipping": shipping})
+
+        # 3. DB upsert (RPC 또는 fallback)
+        self.log(f"DB upsert 시작: {len(orders)}건...")
+        db_result = db.upsert_order_batch(import_run_id, orders)
+
+        # RPC 에러 로깅 (있을 경우)
+        if db_result.get('rpc_error'):
+            self.log(f"RPC fallback 사용: {db_result['rpc_error'][:150]}")
+
+        # 개별 에러 로깅 (첫 3건만)
+        if db_result.get('errors'):
+            for e in db_result['errors'][:3]:
+                self.log(f"  Row {e.get('row')}: {str(e.get('error', ''))[:120]}")
+            if len(db_result['errors']) > 3:
+                self.log(f"  ... 외 {len(db_result['errors']) - 3}건 에러")
+
+        # ── 실시간 출고+매출 처리 (주문 수집 즉시 재고차감+매출기록) ──
+        if db_result.get('inserted', 0) + db_result.get('updated', 0) > 0:
+            try:
+                from services.order_to_stock_service import process_realtime_outbound
+                rt = process_realtime_outbound(db, import_run_id)
+                db_result['realtime'] = rt
+                oc = rt.get('outbound_count', 0)
+                rc = rt.get('revenue_count', 0)
+                rt_total = rt.get('revenue_total', 0)
+                self.log(f"✅ 실시간 출고: {oc}건, 매출: {rc}건 ({rt_total:,}원)")
+                if rt.get('errors'):
+                    for re_err in rt['errors'][:3]:
+                        self.log(f"  ⚠️ {re_err}")
+            except Exception as rt_err:
+                self.log(f"⚠️ 실시간 처리 실패 (주문관리에서 수동처리 필요): {rt_err}")
+                db_result['realtime_error'] = str(rt_err)
+
+        return db_result
+
+    def _parse_date(self, date_str):
+        """주문일 문자열 → YYYY-MM-DD 형식으로 파싱"""
+        if not date_str:
+            return datetime.now().strftime('%Y-%m-%d')
+
+        date_str = str(date_str).strip()
+
+        # 다양한 날짜 형식 시도
+        formats = [
+            '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d',
+            '%Y/%m/%d %H:%M:%S', '%Y/%m/%d',
+            '%Y.%m.%d %H:%M:%S', '%Y.%m.%d',
+            '%m/%d/%Y', '%d/%m/%Y',
+        ]
+        for fmt in formats:
+            try:
+                return datetime.strptime(date_str, fmt).strftime('%Y-%m-%d')
+            except ValueError:
+                continue
+
+        # 숫자만 추출 시도 (20260209 형식)
+        digits = re.sub(r'[^\d]', '', date_str)
+        if len(digits) >= 8:
+            try:
+                return datetime.strptime(digits[:8], '%Y%m%d').strftime('%Y-%m-%d')
+            except ValueError:
+                pass
+
+        return datetime.now().strftime('%Y-%m-%d')

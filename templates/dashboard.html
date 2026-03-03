@@ -3,45 +3,306 @@
 {% block page_title %}대시보드{% endblock %}
 
 {% block content %}
-<div class="row g-4">
-    {% for menu in sidebar_menus %}
-    {% if menu.url != '/' %}
-    <div class="col-md-4 col-lg-3">
-        <a href="{{ menu.url }}" class="text-decoration-none">
-            <div class="card h-100 border-0 shadow-sm" style="transition: transform 0.2s;"
-                 onmouseenter="this.style.transform='translateY(-4px)'"
-                 onmouseleave="this.style.transform='translateY(0)'">
-                <div class="card-body text-center py-4">
-                    <i class="bi {{ menu.icon }}" style="font-size: 2.5rem; color: #3498db;"></i>
-                    <h6 class="mt-3 mb-0 fw-bold text-dark">{{ menu.name }}</h6>
-                </div>
-            </div>
-        </a>
-    </div>
-    {% endif %}
-    {% endfor %}
-</div>
+{% set show_dashboard = current_user.role in ('admin', 'manager', 'sales', 'general') %}
+{% if show_dashboard %}
+<!-- ============================================================ -->
+<!-- KPI + 차트 + 테이블 (관리자/총괄/영업/총무) -->
+<!-- ============================================================ -->
 
-{% if current_user.is_admin() %}
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-bell"></i> 알림</span>
+<!-- KPI 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-cart-check text-primary" style="font-size:1.8rem;"></i>
+                <div class="fs-3 fw-bold mt-2">{{ data.kpi.today_orders|default(0) }}</div>
+                <small class="text-muted">오늘 주문</small>
             </div>
-            <div class="card-body">
-                {% if pending_users %}
-                <div class="alert alert-warning mb-0">
-                    <i class="bi bi-person-exclamation"></i>
-                    승인 대기 중인 사용자가 <strong>{{ pending_users }}명</strong> 있습니다.
-                    <a href="{{ url_for('admin.user_list') }}" class="alert-link">확인하기</a>
-                </div>
-                {% else %}
-                <p class="text-muted mb-0">새로운 알림이 없습니다.</p>
-                {% endif %}
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-cash-stack text-success" style="font-size:1.8rem;"></i>
+                <div class="fs-3 fw-bold mt-2">{{ "{:,.0f}".format(data.kpi.today_revenue|default(0)) }}</div>
+                <small class="text-muted">오늘 매출 (원)</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-hourglass-split text-warning" style="font-size:1.8rem;"></i>
+                <div class="fs-3 fw-bold mt-2">{{ data.kpi.pending_outbound|default(0) }}</div>
+                <small class="text-muted">미처리 출고</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+                <i class="bi bi-box-seam text-info" style="font-size:1.8rem;"></i>
+                <div class="fs-3 fw-bold mt-2">{{ data.kpi.stock_products|default(0) }}</div>
+                <small class="text-muted">재고 품목</small>
             </div>
         </div>
     </div>
 </div>
+
+<!-- 이번 달 매출 배너 -->
+<div class="alert alert-light border mb-4 d-flex justify-content-between align-items-center">
+    <span>
+        <i class="bi bi-calendar3"></i>
+        <strong>이번 달 매출:</strong>
+        <span class="text-success fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_revenue|default(0)) }}원</span>
+    </span>
+    <span class="text-muted small">
+        출고 완료: {{ data.kpi.done_outbound|default(0) }}건
+    </span>
+</div>
+
+<!-- 차트 영역 -->
+<div class="row g-3 mb-4">
+    <!-- 매출 추이 -->
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-graph-up"></i> 매출 추이 (최근 30일)</span>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary active" onclick="loadRevChart(30)">30일</button>
+                    <button class="btn btn-outline-secondary" onclick="loadRevChart(7)">7일</button>
+                    <button class="btn btn-outline-secondary" onclick="loadRevChart(90)">90일</button>
+                </div>
+            </div>
+            <div class="card-body" style="height:300px;">
+                <canvas id="revenueChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <!-- 채널별 분포 -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-pie-chart"></i> 채널별 주문 (이번 달)
+            </div>
+            <div class="card-body" style="height:300px;">
+                <canvas id="channelChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 하단 정보 -->
+<div class="row g-3 mb-4">
+    <!-- 창고별 재고 -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-building"></i> 창고별 재고
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr><th>창고</th><th class="text-end">품목수</th><th class="text-end">총수량</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for w in data.warehouse_stock|default([]) %}
+                        <tr>
+                            <td>{{ w.location }}</td>
+                            <td class="text-end">{{ w.product_count }}종</td>
+                            <td class="text-end">{{ "{:,.0f}".format(w.total_qty) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-muted text-center py-3">재고 데이터 없음</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOP 10 상품 -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-trophy"></i> TOP 10 매출 상품 (30일)
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr><th>#</th><th>상품명</th><th class="text-end">매출</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for p in data.top_products|default([]) %}
+                        <tr>
+                            <td class="text-muted">{{ loop.index }}</td>
+                            <td class="text-truncate" style="max-width:180px;" title="{{ p.product_name }}">{{ p.product_name }}</td>
+                            <td class="text-end">{{ "{:,.0f}".format(p.revenue) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="text-muted text-center py-3">매출 데이터 없음</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 최근 활동 -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-clock-history"></i> 최근 활동
+            </div>
+            <div class="card-body p-0" style="max-height:320px; overflow-y:auto;">
+                <div class="list-group list-group-flush">
+                    {% for a in data.recent_activity|default([]) %}
+                    <div class="list-group-item py-2 px-3" style="font-size:0.85rem;">
+                        <span class="badge {{ 'bg-primary' if a.type == 'order' else 'bg-secondary' }} me-1">
+                            {{ '주문' if a.type == 'order' else '재고' }}
+                        </span>
+                        <span class="text-truncate d-inline-block" style="max-width:200px;" title="{{ a.desc }}">{{ a.desc }}</span>
+                        <br><small class="text-muted">{{ a.date[:10] if a.date else '' }}</small>
+                    </div>
+                    {% else %}
+                    <div class="list-group-item text-muted text-center py-3">활동 없음</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 관리자 알림 -->
+{% if pending_users %}
+<div class="alert alert-warning mb-4">
+    <i class="bi bi-person-exclamation"></i>
+    승인 대기 중인 사용자가 <strong>{{ pending_users }}명</strong> 있습니다.
+    <a href="{{ url_for('admin.user_list') }}" class="alert-link">확인하기</a>
+</div>
+{% endif %}
+
+{% endif %}
+<!-- ============================================================ -->
+<!-- 전체 사용자: 메뉴 바로가기 (관리자는 접이식, 일반직원은 바로 표시) -->
+<!-- ============================================================ -->
+<div class="card border-0 shadow-sm">
+    {% if show_dashboard %}
+    <div class="card-header bg-white" data-bs-toggle="collapse" data-bs-target="#menuGrid"
+         style="cursor:pointer;">
+        <i class="bi bi-grid-3x3-gap"></i> 메뉴 바로가기
+        <i class="bi bi-chevron-down float-end"></i>
+    </div>
+    <div class="collapse" id="menuGrid">
+    {% else %}
+    <div class="card-header bg-white">
+        <i class="bi bi-grid-3x3-gap"></i> 메뉴 바로가기
+    </div>
+    <div id="menuGrid">
+    {% endif %}
+        <div class="card-body">
+            <div class="row g-3">
+                {% for menu in sidebar_menus %}
+                {% if menu.url != '/' %}
+                <div class="col-md-3 col-lg-2">
+                    <a href="{{ menu.url }}" class="text-decoration-none">
+                        <div class="text-center py-3 rounded border" style="transition: background 0.2s;"
+                             onmouseenter="this.style.background='#f0f4ff'"
+                             onmouseleave="this.style.background=''">
+                            <i class="bi {{ menu.icon }}" style="font-size:1.5rem; color:#3498db;"></i>
+                            <div class="mt-1 small fw-bold text-dark">{{ menu.name }}</div>
+                        </div>
+                    </a>
+                </div>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if current_user.role in ('admin', 'manager', 'sales', 'general') %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+    // ── 매출 추이 차트 ──
+    const revCtx = document.getElementById('revenueChart').getContext('2d');
+    const revData = {{ data.revenue_trend|default([])|tojson }};
+
+    const labels = revData.map(d => d.date ? d.date.slice(5) : '');
+    const totals = revData.map(d => d.total || 0);
+
+    const revenueChart = new Chart(revCtx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '총 매출',
+                data: totals,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52,152,219,0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(v) {
+                            return v >= 10000 ? (v/10000).toFixed(0) + '만' : v.toLocaleString();
+                        }
+                    }
+                },
+                x: { ticks: { maxTicksLimit: 10 } }
+            }
+        }
+    });
+
+    window.loadRevChart = function(days) {
+        fetch('/api/dashboard/revenue-chart?days=' + days)
+            .then(r => r.json())
+            .then(data => {
+                revenueChart.data.labels = data.map(d => d.date ? d.date.slice(5) : '');
+                revenueChart.data.datasets[0].data = data.map(d => d.total || 0);
+                revenueChart.update();
+                document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+                event.target.classList.add('active');
+            })
+            .catch(e => console.error('Revenue chart error:', e));
+    };
+
+    // ── 채널 분포 파이차트 ──
+    const chCtx = document.getElementById('channelChart').getContext('2d');
+    const chData = {{ data.channel_breakdown|default([])|tojson }};
+
+    const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22'];
+
+    new Chart(chCtx, {
+        type: 'doughnut',
+        data: {
+            labels: chData.map(c => c.channel),
+            datasets: [{
+                data: chData.map(c => c.count),
+                backgroundColor: colors.slice(0, chData.length),
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom', labels: { font: { size: 11 } } }
+            }
+        }
+    });
+})();
+</script>
 {% endif %}
 {% endblock %}

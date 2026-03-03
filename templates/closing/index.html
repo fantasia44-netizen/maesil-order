@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}일일마감 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}일일마감 관리{% endblock %}
+
+{% block content %}
+<!-- 설명 -->
+<div class="alert alert-info d-flex align-items-center mb-3">
+    <i class="bi bi-info-circle me-2"></i>
+    <div>
+        매출마감: <strong>영업부</strong>가 실행 · 수정 &nbsp;|&nbsp;
+        재고출고마감: <strong>물류팀</strong>이 실행 · 수정 &nbsp;|&nbsp;
+        기본 마감시각: <strong>{{ cutoff_time }}</strong>
+    </div>
+</div>
+
+<!-- 오늘 빠른 마감 -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-bold">
+        <i class="bi bi-calendar-check me-1"></i> 오늘 ({{ today }}) 빠른 마감
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <!-- 매출마감 -->
+            <div class="col-md-6">
+                <div class="card h-100" id="today-revenue-card">
+                    <div class="card-body text-center">
+                        <h5 class="mb-2"><i class="bi bi-currency-won"></i> 매출마감</h5>
+                        <div id="today-revenue-status" class="mb-3">
+                            <span class="badge bg-secondary">확인 중...</span>
+                        </div>
+                        <input type="text" id="revenue-memo" class="form-control form-control-sm mb-2" placeholder="메모 (선택)">
+                        {% if user_role in ('admin', 'manager', 'sales') %}
+                        <button class="btn btn-danger btn-sm me-1" onclick="closeDay('{{ today }}', 'revenue')">
+                            <i class="bi bi-lock"></i> 매출마감
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="reopenDay('{{ today }}', 'revenue')">
+                            <i class="bi bi-unlock"></i> 마감해제
+                        </button>
+                        {% else %}
+                        <small class="text-muted">영업부 권한 필요</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <!-- 재고마감 -->
+            <div class="col-md-6">
+                <div class="card h-100" id="today-stock-card">
+                    <div class="card-body text-center">
+                        <h5 class="mb-2"><i class="bi bi-box-seam"></i> 재고출고마감</h5>
+                        <div id="today-stock-status" class="mb-3">
+                            <span class="badge bg-secondary">확인 중...</span>
+                        </div>
+                        <input type="text" id="stock-memo" class="form-control form-control-sm mb-2" placeholder="메모 (선택)">
+                        {% if user_role in ('admin', 'manager', 'logistics') %}
+                        <button class="btn btn-danger btn-sm me-1" onclick="closeDay('{{ today }}', 'stock')">
+                            <i class="bi bi-lock"></i> 재고마감
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="reopenDay('{{ today }}', 'stock')">
+                            <i class="bi bi-unlock"></i> 마감해제
+                        </button>
+                        {% else %}
+                        <small class="text-muted">물류팀 권한 필요</small>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 기간 조회 -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white fw-bold">
+        <i class="bi bi-clock-history me-1"></i> 마감 이력
+    </div>
+    <div class="card-body">
+        <form method="get" class="row g-2 mb-3">
+            <div class="col-auto">
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+            </div>
+            <div class="col-auto">~</div>
+            <div class="col-auto">
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+            </div>
+            <div class="col-auto">
+                <button class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 조회</button>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>날짜</th>
+                        <th class="text-center">매출마감</th>
+                        <th>마감자 / 시각</th>
+                        <th class="text-center">재고마감</th>
+                        <th>마감자 / 시각</th>
+                        <th>조치</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in closing_dates %}
+                    <tr>
+                        <td class="fw-bold">{{ row.date }}</td>
+
+                        <!-- 매출마감 -->
+                        {% if row.revenue and row.revenue.status == 'closed' %}
+                        <td class="text-center"><span class="badge bg-danger">마감</span></td>
+                        <td><small>{{ row.revenue.closed_by }} · {{ row.revenue.closed_at[:16] if row.revenue.closed_at else '' }}</small></td>
+                        {% else %}
+                        <td class="text-center"><span class="badge bg-success">미마감</span></td>
+                        <td><small class="text-muted">-</small></td>
+                        {% endif %}
+
+                        <!-- 재고마감 -->
+                        {% if row.stock and row.stock.status == 'closed' %}
+                        <td class="text-center"><span class="badge bg-danger">마감</span></td>
+                        <td><small>{{ row.stock.closed_by }} · {{ row.stock.closed_at[:16] if row.stock.closed_at else '' }}</small></td>
+                        {% else %}
+                        <td class="text-center"><span class="badge bg-success">미마감</span></td>
+                        <td><small class="text-muted">-</small></td>
+                        {% endif %}
+
+                        <td>
+                            {% if user_role in ('admin', 'manager', 'sales') %}
+                            {% if row.revenue and row.revenue.status == 'closed' %}
+                            <button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="reopenDay('{{ row.date }}', 'revenue')" title="매출마감 해제">
+                                <i class="bi bi-unlock"></i>매출
+                            </button>
+                            {% else %}
+                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="closeDay('{{ row.date }}', 'revenue')" title="매출마감">
+                                <i class="bi bi-lock"></i>매출
+                            </button>
+                            {% endif %}
+                            {% endif %}
+
+                            {% if user_role in ('admin', 'manager', 'logistics') %}
+                            {% if row.stock and row.stock.status == 'closed' %}
+                            <button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="reopenDay('{{ row.date }}', 'stock')" title="재고마감 해제">
+                                <i class="bi bi-unlock"></i>재고
+                            </button>
+                            {% else %}
+                            <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="closeDay('{{ row.date }}', 'stock')" title="재고마감">
+                                <i class="bi bi-lock"></i>재고
+                            </button>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted">마감 이력 없음</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+// 오늘 상태 로드
+document.addEventListener('DOMContentLoaded', () => {
+    fetch('/closing/api/status?date={{ today }}')
+        .then(r => r.json())
+        .then(d => {
+            updateStatusBadge('today-revenue-status', d.revenue.closed, d.revenue.closed_by);
+            updateStatusBadge('today-stock-status', d.stock.closed, d.stock.closed_by);
+            updateCardBorder('today-revenue-card', d.revenue.closed);
+            updateCardBorder('today-stock-card', d.stock.closed);
+        });
+});
+
+function updateStatusBadge(elId, closed, by) {
+    const el = document.getElementById(elId);
+    if (closed) {
+        el.innerHTML = `<span class="badge bg-danger fs-6">🔒 마감완료</span><br><small class="text-muted">${by || ''}</small>`;
+    } else {
+        el.innerHTML = `<span class="badge bg-success fs-6">🔓 미마감</span>`;
+    }
+}
+
+function updateCardBorder(cardId, closed) {
+    const el = document.getElementById(cardId);
+    el.style.borderColor = closed ? '#dc3545' : '#198754';
+    el.style.borderWidth = '2px';
+}
+
+function closeDay(date, type) {
+    const label = type === 'revenue' ? '매출마감' : '재고출고마감';
+    if (!confirm(`${date} ${label}을 실행합니다.\n마감 후 해당 날짜의 처리가 차단됩니다.\n\n계속하시겠습니까?`)) return;
+
+    const memoId = type === 'revenue' ? 'revenue-memo' : 'stock-memo';
+    const memoEl = document.getElementById(memoId);
+    const memo = memoEl ? memoEl.value : '';
+
+    fetch('/closing/api/close', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({date, type, memo})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            alert(d.message);
+            location.reload();
+        } else {
+            alert(d.error || '오류 발생');
+        }
+    });
+}
+
+function reopenDay(date, type) {
+    const label = type === 'revenue' ? '매출마감' : '재고출고마감';
+    if (!confirm(`${date} ${label}을 해제합니다.\n\n계속하시겠습니까?`)) return;
+
+    fetch('/closing/api/reopen', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+        body: JSON.stringify({date, type, memo: '마감 해제'})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            alert(d.message);
+            location.reload();
+        } else {
+            alert(d.error || '오류 발생');
+        }
+    });
+}
+</script>
+{% endblock %}

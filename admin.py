@@ -573,3 +573,19 @@ def permissions_reset():
 
     except Exception as e:
         return jsonify({'error': f'초기화 중 오류: {str(e)}'}), 500
+
+
+# ================================================================
+# 개인정보 익명화 (6개월 경과 배송정보)
+# ================================================================
+
+@admin_bp.route('/anonymize-shipping', methods=['POST'])
+@role_required('admin')
+def anonymize_shipping():
+    """만료된 배송 개인정보 익명화 실행"""
+    try:
+        count = current_app.db.anonymize_expired_shipping()
+        _log_action('anonymize_shipping', detail=f'{count}건 익명화 처리')
+        return jsonify({'success': True, 'count': count, 'message': f'{count}건 익명화 완료'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

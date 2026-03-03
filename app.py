@@ -130,6 +130,10 @@ def create_app(config_class=None):
     def handle_404(e):
         if _is_api_request():
             return jsonify({'error': '요청한 리소스를 찾을 수 없습니다.'}), 404
+        # favicon 등 정적 리소스 요청은 flash 없이 조용히 처리
+        req_path = request.path or ''
+        if req_path.endswith(('.ico', '.png', '.jpg', '.css', '.js', '.map', '.woff', '.woff2')):
+            return '', 404
         flash('페이지를 찾을 수 없습니다.', 'warning')
         return redirect(url_for('main.dashboard'))
 
@@ -189,13 +193,15 @@ def create_app(config_class=None):
     from blueprints.yield_mgmt import yield_bp
     from blueprints.price_mgmt import price_mgmt_bp
     from blueprints.promotions import promotions_bp
+    from blueprints.closing import closing_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
                outbound_bp, transfer_bp, base_data_bp, history_bp, revenue_bp,
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
-               mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp]:
+               mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
+               closing_bp]:
         app.register_blueprint(bp)
 
     # ── Jinja2 커스텀 필터 ──
@@ -248,4 +254,5 @@ if __name__ == '__main__':
     print(f'\n  배마마 통합시스템 서버 시작: http://localhost:{port}')
     print(f'  종료: Ctrl+C\n')
 
+    app.config['TEMPLATES_AUTO_RELOAD'] = True
     app.run(host='127.0.0.1', port=port, debug=False, threaded=True)

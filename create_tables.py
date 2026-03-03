@@ -23,20 +23,39 @@ def table_exists(table_name):
 # → Supabase 대시보드 SQL Editor에서 실행해야 합니다.
 
 SQL = """
--- 1) daily_revenue (일일매출)
+-- 1) daily_revenue (일일매출) — channel 컬럼 추가
 CREATE TABLE IF NOT EXISTS daily_revenue (
     id            BIGSERIAL PRIMARY KEY,
     revenue_date  DATE NOT NULL,
     product_name  TEXT NOT NULL,
     category      TEXT NOT NULL,
+    channel       TEXT NOT NULL DEFAULT '',
     qty           INTEGER NOT NULL DEFAULT 0,
     unit_price    INTEGER NOT NULL DEFAULT 0,
     revenue       INTEGER NOT NULL DEFAULT 0,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(revenue_date, product_name, category)
+    UNIQUE(revenue_date, product_name, category, channel)
 );
 CREATE INDEX IF NOT EXISTS idx_daily_revenue_date ON daily_revenue(revenue_date);
 CREATE INDEX IF NOT EXISTS idx_daily_revenue_product ON daily_revenue(product_name);
+CREATE INDEX IF NOT EXISTS idx_daily_revenue_channel ON daily_revenue(channel);
+
+-- 1-b) daily_closing (일일마감)
+CREATE TABLE IF NOT EXISTS daily_closing (
+    id              BIGSERIAL PRIMARY KEY,
+    closing_date    DATE NOT NULL,
+    closing_type    TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'open',
+    cutoff_time     TIME NOT NULL DEFAULT '15:05',
+    closed_by       TEXT,
+    closed_at       TIMESTAMPTZ,
+    reopened_by     TEXT,
+    reopened_at     TIMESTAMPTZ,
+    memo            TEXT DEFAULT '',
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(closing_date, closing_type)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_closing_date ON daily_closing(closing_date);
 
 -- 2) product_master (옵션마스터)
 CREATE TABLE IF NOT EXISTS product_master (
@@ -215,6 +234,148 @@ CREATE INDEX IF NOT EXISTS idx_stock_ledger_food_type ON stock_ledger(food_type)
 
 -- 18) stock_ledger qty 소수점 지원 (kg 단위 소수점 수량)
 ALTER TABLE stock_ledger ALTER COLUMN qty TYPE NUMERIC USING qty::NUMERIC;
+
+-- ============================================================
+-- Phase 1: 주문 수집 파이프라인 테이블 (2026-03)
+-- ============================================================
+
+-- 19) import_runs (업로드 감사/증거)
+CREATE TABLE IF NOT EXISTS import_runs (
+    id            BIGSERIAL PRIMARY KEY,
+    channel       TEXT NOT NULL,
+    filename      TEXT,
+    file_hash     TEXT,                        -- SHA256 (중복 파일 감지)
+    uploaded_by   TEXT,
+    total_rows    INT DEFAULT 0,
+    success_count INT DEFAULT 0,
+    changed_count INT DEFAULT 0,               -- upsert 시 변경된 건수
+    fail_count    INT DEFAULT 0,
+    error_summary JSONB,                       -- [{row: 5, error: '옵션매칭실패'}, ...]
+    status        TEXT DEFAULT 'processing',   -- processing/completed/partial/failed
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_import_runs_channel ON import_runs(channel);
+CREATE INDEX IF NOT EXISTS idx_import_runs_created ON import_runs(created_at);
+
+-- 20) order_transactions (거래 데이터 - 영구)
+CREATE TABLE IF NOT EXISTS order_transactions (
+    id               BIGSERIAL PRIMARY KEY,
+    import_run_id    BIGINT REFERENCES import_runs(id),
+    channel          TEXT NOT NULL,
+    order_date       DATE NOT NULL,
+    order_no         TEXT NOT NULL,
+    line_no          INT NOT NULL DEFAULT 1,
+
+    -- 원본 보존
+    original_option  TEXT,
+    original_product TEXT,
+    raw_data         JSONB,                    -- 해당 행 전체 원본
+    raw_hash         TEXT,                     -- 행 데이터 해시 (변경 감지)
+    parser_version   TEXT DEFAULT '1.0',
+
+    -- 매칭 결과
+    product_name     TEXT,
+    barcode          TEXT,
+    line_code        INT,
+    sort_order       INT,
+
+    -- 금액
+    qty              INT NOT NULL DEFAULT 1,
+    unit_price       NUMERIC DEFAULT 0,
+    total_amount     NUMERIC DEFAULT 0,
+    discount_amount  NUMERIC DEFAULT 0,
+    settlement       NUMERIC DEFAULT 0,
+    commission       NUMERIC DEFAULT 0,
+
+    -- 상태
+    status           TEXT DEFAULT '정상',      -- 정상/취소/환불
+    status_reason    TEXT,
+    status_changed_at TIMESTAMPTZ,
+
+    processed_at     TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE(channel, order_no, line_no)
+);
+CREATE INDEX IF NOT EXISTS idx_ot_order_date ON order_transactions(order_date);
+CREATE INDEX IF NOT EXISTS idx_ot_channel ON order_transactions(channel);
+CREATE INDEX IF NOT EXISTS idx_ot_product ON order_transactions(product_name);
+CREATE INDEX IF NOT EXISTS idx_ot_status ON order_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_ot_import_run ON order_transactions(import_run_id);
+
+-- 21) order_shipping (개인정보 - 6개월 후 익명화)
+CREATE TABLE IF NOT EXISTS order_shipping (
+    id               BIGSERIAL PRIMARY KEY,
+    channel          TEXT NOT NULL,
+    order_no         TEXT NOT NULL,
+
+    -- PII
+    name             TEXT,
+    phone            TEXT,
+    phone2           TEXT,
+    address          TEXT,
+    memo             TEXT,
+
+    -- 배송 처리
+    invoice_no       TEXT,
+    courier          TEXT,
+    shipping_status  TEXT DEFAULT '대기',       -- 대기/발송/완료/취소
+
+    -- 보관 정책
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    expires_at       TIMESTAMPTZ,              -- created_at + 6개월
+    is_anonymized    BOOLEAN DEFAULT false,
+    anonymized_at    TIMESTAMPTZ,
+
+    UNIQUE(channel, order_no)
+);
+CREATE INDEX IF NOT EXISTS idx_os_expires ON order_shipping(expires_at);
+CREATE INDEX IF NOT EXISTS idx_os_status ON order_shipping(shipping_status);
+
+-- 22) order_change_log (변경 이력)
+CREATE TABLE IF NOT EXISTS order_change_log (
+    id                    BIGSERIAL PRIMARY KEY,
+    order_transaction_id  BIGINT REFERENCES order_transactions(id),
+    import_run_id         BIGINT,              -- upsert 변경 시 어느 업로드에서 발생
+    channel               TEXT,
+    order_no              TEXT,
+    field_name            TEXT,
+    before_value          TEXT,
+    after_value           TEXT,
+    change_type           TEXT,                -- upsert_변경/수정/취소/환불
+    change_reason         TEXT,
+    changed_by            TEXT,
+    changed_at            TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ocl_order ON order_change_log(order_transaction_id);
+CREATE INDEX IF NOT EXISTS idx_ocl_changed ON order_change_log(changed_at);
+
+-- ============================================================
+-- Phase 2: order_transactions 확장 (출고/매출 자동처리용)
+-- ============================================================
+ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
+    is_outbound_done BOOLEAN DEFAULT false;
+ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
+    outbound_date DATE;
+ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
+    revenue_category TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_ot_outbound_done ON order_transactions(is_outbound_done);
+
+-- ============================================================
+-- Phase 3: stock_ledger 중복 방지 + 역분개 추적 (2026-03)
+-- ============================================================
+
+-- event_uid: 재고 이벤트 고유 식별자 (중복 차감 방지)
+-- 형식: "SO:{order_transaction_id}:{product_name}" 또는 "IN:{날짜}:{product}"
+ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS event_uid TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_ledger_event_uid
+    ON stock_ledger(event_uid) WHERE event_uid IS NOT NULL;
+
+-- ref_event_uid: 역분개 시 원본 이벤트 참조
+-- SALES_RETURN의 ref_event_uid → 원본 SALES_OUT의 event_uid
+ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS ref_event_uid TEXT;
+CREATE INDEX IF NOT EXISTS idx_stock_ledger_ref_event ON stock_ledger(ref_event_uid)
+    WHERE ref_event_uid IS NOT NULL;
 """
 
 print("=" * 60)
@@ -229,7 +390,8 @@ print("=" * 60)
 
 # 현재 테이블 상태 확인
 print("\n📊 현재 테이블 상태:")
-for t in ["daily_revenue", "product_master", "price_master", "bom_master", "product_costs", "channel_costs"]:
+for t in ["daily_revenue", "daily_closing", "product_master", "price_master", "bom_master", "product_costs", "channel_costs",
+          "import_runs", "order_transactions", "order_shipping", "order_change_log"]:
     exists = table_exists(t)
     status = "✅ 존재" if exists else "❌ 없음 (생성 필요)"
     print(f"  {t}: {status}")

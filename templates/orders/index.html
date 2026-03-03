@@ -37,6 +37,10 @@
                     <input class="form-check-input" type="radio" name="platform" id="platform_11st" value="11번가">
                     <label class="form-check-label" for="platform_11st">11번가</label>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="platform" id="platform_kakao" value="카카오">
+                    <label class="form-check-label" for="platform_kakao">카카오</label>
+                </div>
             </div>
         </div>
     </div>
@@ -99,9 +103,39 @@
         {% if result.logs %}
         <div class="bg-dark text-light p-3 rounded mb-3" style="max-height: 300px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.85rem;">
             {% for log in result.logs %}
-            <div>{{ log }}</div>
+            <div class="{% if '실패' in log or '오류' in log or '예외' in log or 'ERROR' in log %}text-danger{% elif '경고' in log or 'fallback' in log or 'WARNING' in log %}text-warning{% elif 'OK' in log or '완료' in log or '신규' in log %}text-success{% endif %}">{{ log }}</div>
             {% endfor %}
         </div>
+        {% endif %}
+
+        {% if result.db_result %}
+        <h6><i class="bi bi-database-check"></i> DB 저장 결과</h6>
+        <div class="row text-center mb-3">
+            <div class="col"><span class="fs-5 fw-bold text-success">{{ result.db_result.get('inserted', 0) }}</span><br><small class="text-muted">신규</small></div>
+            <div class="col"><span class="fs-5 fw-bold text-warning">{{ result.db_result.get('updated', 0) }}</span><br><small class="text-muted">변경</small></div>
+            <div class="col"><span class="fs-5 fw-bold text-secondary">{{ result.db_result.get('skipped', 0) }}</span><br><small class="text-muted">스킵</small></div>
+            <div class="col"><span class="fs-5 fw-bold text-danger">{{ result.db_result.get('failed', 0) }}</span><br><small class="text-muted">실패</small></div>
+        </div>
+        {% if result.db_result.get('rpc_error') %}
+        <div class="alert alert-warning py-2" style="font-size:0.85rem;">
+            <i class="bi bi-exclamation-triangle"></i> <strong>RPC fallback:</strong> {{ result.db_result.get('rpc_error', '')[:200] }}
+        </div>
+        {% endif %}
+        {% if result.db_result.get('errors') %}
+        <details>
+            <summary class="text-danger" style="cursor:pointer; font-size:0.85rem;">
+                <i class="bi bi-bug"></i> DB 에러 상세 ({{ result.db_result.get('errors', [])|length }}건)
+            </summary>
+            <div class="mt-1" style="max-height:150px; overflow-y:auto; font-size:0.8rem;">
+                {% for e in result.db_result.get('errors', [])[:10] %}
+                <div class="text-muted">Row {{ e.get('row') }} ({{ e.get('order_no', '') }}): {{ e.get('error', '')[:120] }}</div>
+                {% endfor %}
+                {% if result.db_result.get('errors', [])|length > 10 %}
+                <div class="text-muted">... 외 {{ result.db_result.get('errors', [])|length - 10 }}건</div>
+                {% endif %}
+            </div>
+        </details>
+        {% endif %}
         {% endif %}
 
         {% if result.downloads %}

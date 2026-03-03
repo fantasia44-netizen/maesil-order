@@ -3,60 +3,99 @@
 {% block page_title %}통합 집계{% endblock %}
 
 {% block content %}
-<form method="POST" action="{{ url_for('aggregation.process') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-    <!-- 파일 입력 -->
-    <div class="card mb-4">
-        <div class="card-header">
-            <i class="bi bi-file-earmark-excel"></i> 파일 업로드
-        </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label fw-semibold">집계표 <span class="text-danger">*</span></label>
-                    <input type="file" name="agg_files" class="form-control" accept=".xlsx,.xls,.csv" multiple required>
-                    <div class="form-text">집계표 파일 (복수 선택 가능, 필수)</div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label fw-semibold">세트옵션BOM <span class="text-danger">*</span></label>
-                    <input type="file" name="bom_file" class="form-control" accept=".xlsx,.xls,.csv" required>
-                    <div class="form-text">세트옵션 BOM 파일 (필수)</div>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label fw-semibold">옵션리스트</label>
-                    <input type="file" name="option_file" class="form-control" accept=".xlsx,.xls,.csv">
-                    <div class="form-text">옵션리스트 파일 (선택, 정렬+출고지+매출)</div>
+<!-- DB 보고서 생성 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-database"></i> 통합 집계 (DB 기반)
+        <small class="text-muted ms-2">stock_ledger + daily_revenue에서 조회 → 엑셀 다운로드</small>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" class="form-control" id="dateFrom">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" class="form-control" id="dateTo">
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-outline-primary w-100" onclick="loadSummary()">
+                    <i class="bi bi-search"></i> 요약 조회
+                </button>
+            </div>
+            <div class="col-md-3">
+                <form method="POST" action="{{ url_for('aggregation.generate_report') }}" id="generateForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="date_from" id="generateDateFrom">
+                    <input type="hidden" name="date_to" id="generateDateTo">
+                    <button type="submit" class="btn btn-primary w-100" id="btnGenerate" disabled>
+                        <i class="bi bi-file-earmark-excel"></i> 보고서 생성 (엑셀)
+                    </button>
+                </form>
+            </div>
+            <div class="col-md-3">
+                <div class="btn-group w-100">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="setDateRange('today')">오늘</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="setDateRange('yesterday')">어제</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="setDateRange('weekend')">주말(토~일)</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="setDateRange('week')">최근7일</button>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- 처리 버튼 -->
-    <div class="text-center mb-4">
-        <button type="submit" class="btn btn-primary btn-lg">
-            <i class="bi bi-calculator"></i> 집계 처리
-        </button>
+        <!-- 요약 정보 -->
+        <div id="summaryArea" class="mt-3" style="display:none;">
+            <hr class="my-2">
+            <div class="row g-2">
+                <div class="col">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-5 fw-bold text-primary" id="sumOutItems">0</div>
+                        <small class="text-muted">출고 품목</small>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-5 fw-bold text-primary" id="sumOutQty">0</div>
+                        <small class="text-muted">출고 수량</small>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-5 fw-bold text-info" id="sumInbound">0</div>
+                        <small class="text-muted">입고</small>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-5 fw-bold text-secondary" id="sumProduction">0</div>
+                        <small class="text-muted">생산</small>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="border rounded p-2 text-center">
+                        <div class="fs-5 fw-bold text-success" id="sumRevenue">0</div>
+                        <small class="text-muted">매출합계</small>
+                    </div>
+                </div>
+            </div>
+            <!-- 창고별/매출유형별 상세 -->
+            <div class="row g-2 mt-1">
+                <div class="col-md-6" id="locationDetail"></div>
+                <div class="col-md-6" id="revenueDetail"></div>
+            </div>
+        </div>
     </div>
-</form>
+</div>
 
 <!-- 결과 영역 -->
 {% if result is defined and result %}
 <div class="card mb-4">
     <div class="card-header">
-        <i class="bi bi-check-circle"></i> 집계 결과
+        <i class="bi bi-check-circle text-success"></i> 생성 결과
     </div>
     <div class="card-body">
-        {% if result.logs %}
-        <div class="bg-dark text-light p-3 rounded mb-3" style="max-height: 300px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 0.85rem;">
-            {% for log in result.logs %}
-            <div>{{ log }}</div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
         {% if result.downloads %}
-        <h6><i class="bi bi-download"></i> 다운로드</h6>
         <div class="list-group">
             {% for dl in result.downloads %}
             <a href="{{ dl.url }}" class="list-group-item list-group-item-action">
@@ -69,142 +108,62 @@
 </div>
 {% endif %}
 
-<!-- 파일 업로드 (외부 파일) -->
-<div class="card mb-4">
-    <div class="card-header">
-        <i class="bi bi-cloud-upload"></i> 파일 업로드 (외부 파일 추가)
-    </div>
-    <div class="card-body">
-        <form method="POST" action="{{ url_for('aggregation.upload_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-8">
-                <input type="file" name="upload_files" class="form-control form-control-sm" multiple required>
-                <div class="form-text">통합시스템 외부에서 만든 집계/출고/매출 파일을 업로드합니다.</div>
-            </div>
-            <div class="col-md-4">
-                <button type="submit" class="btn btn-sm btn-outline-primary w-100">
-                    <i class="bi bi-upload"></i> 업로드
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- 출고/매출 반영 -->
+<!-- 파일 목록 -->
 {% if result_files is defined and result_files %}
-<div class="row g-4">
-    <!-- 최근 처리 결과 + 파일 선택 -->
-    <div class="col-lg-8">
-        <div class="card h-100">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-folder"></i> 최근 처리 결과 ({{ result_files|length }}건)</span>
-                <button type="button" class="btn btn-sm btn-outline-danger" id="deleteFilesBtn" disabled
-                        onclick="document.getElementById('deleteForm').submit();">
-                    <i class="bi bi-trash"></i> 선택 삭제
-                </button>
-            </div>
-            <div class="card-body p-0">
-                <!-- 삭제 폼 (숨김) -->
-                <form id="deleteForm" method="POST" action="{{ url_for('aggregation.delete_file') }}"
-                      onsubmit="return confirm('선택한 파일을 삭제하시겠습니까?');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div id="deleteHiddenFiles"></div>
-                </form>
-
-                <div style="max-height: 400px; overflow-y: auto;">
-                    <table class="table table-hover table-sm mb-0">
-                        <thead class="table-light sticky-top">
-                            <tr>
-                                <th style="width: 40px" class="text-center">
-                                    <input type="checkbox" id="checkAll" class="form-check-input">
-                                </th>
-                                <th>파일명</th>
-                                <th style="width: 80px" class="text-center">구분</th>
-                                <th style="width: 60px" class="text-center">다운</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for f in result_files %}
-                            <tr>
-                                <td class="text-center">
-                                    <input type="checkbox" class="form-check-input file-check"
-                                           value="{{ f }}" data-type="{% if f.startswith('통합출고') %}outbound{% elif f.startswith('일일매출') %}revenue{% else %}info{% endif %}"
-                                           {% if f.startswith('통합출고') or f.startswith('일일매출') %}checked{% endif %}>
-                                </td>
-                                <td class="small">{{ f }}</td>
-                                <td class="text-center">
-                                    {% if f.startswith('통합출고') %}
-                                    <span class="badge bg-primary">출고</span>
-                                    {% elif f.startswith('일일매출') %}
-                                    <span class="badge bg-success">매출</span>
-                                    {% else %}
-                                    <span class="badge bg-secondary">집계</span>
-                                    {% endif %}
-                                </td>
-                                <td class="text-center">
-                                    <a href="{{ url_for('aggregation.download', filename=f) }}" class="btn btn-sm btn-outline-secondary py-0 px-1">
-                                        <i class="bi bi-download"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-folder"></i> 파일 목록 ({{ result_files|length }}건)</span>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="deleteFilesBtn" disabled
+                onclick="submitDelete()">
+            <i class="bi bi-trash"></i> 선택 삭제
+        </button>
     </div>
+    <div class="card-body p-0">
+        <form id="deleteForm" method="POST" action="{{ url_for('aggregation.delete_file') }}"
+              onsubmit="return confirm('선택한 파일을 삭제하시겠습니까?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div id="deleteHiddenFiles"></div>
+        </form>
 
-    <!-- 반영 설정 -->
-    <div class="col-lg-4">
-        <div class="card h-100">
-            <div class="card-header bg-warning bg-opacity-25">
-                <i class="bi bi-arrow-right-circle"></i> 출고/매출 반영
-            </div>
-            <div class="card-body">
-                <form id="applyForm" method="POST" action="{{ url_for('aggregation.apply_results') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-
-                    <!-- 선택된 파일 요약 -->
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">선택된 파일</label>
-                        <div id="selectedSummary" class="small text-muted">
-                            선택된 파일이 없습니다.
-                        </div>
-                    </div>
-
-                    <!-- 숨은 파일 필드 (JS로 동적 생성) -->
-                    <div id="hiddenFiles"></div>
-
-                    <button type="submit" class="btn btn-warning w-100" id="applyBtn" disabled>
-                        <i class="bi bi-arrow-right-circle"></i> 출고/매출 반영
-                    </button>
-                </form>
-
-                <div class="mt-3">
-                    <div class="small text-muted">
-                        <i class="bi bi-info-circle"></i>
-                        <strong>통합출고</strong> 파일 → 재고 차감 (FIFO)<br>
-                        <i class="bi bi-info-circle"></i>
-                        <strong>일일매출</strong> 파일 → 매출 등록<br>
-                        <i class="bi bi-info-circle"></i>
-                        <strong>수정입력</strong> → 해당일 기존 출고/매출 삭제 후 재입력
-                    </div>
-                </div>
-            </div>
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width: 40px" class="text-center">
+                            <input type="checkbox" id="checkAll" class="form-check-input">
+                        </th>
+                        <th>파일명</th>
+                        <th style="width: 80px" class="text-center">구분</th>
+                        <th style="width: 60px" class="text-center">다운</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in result_files %}
+                    <tr>
+                        <td class="text-center">
+                            <input type="checkbox" class="form-check-input file-check" value="{{ f }}">
+                        </td>
+                        <td class="small">{{ f }}</td>
+                        <td class="text-center">
+                            {% if f.startswith('통합출고') %}
+                            <span class="badge bg-primary">출고</span>
+                            {% elif f.startswith('일일매출') %}
+                            <span class="badge bg-success">매출</span>
+                            {% elif f.startswith('통합집계') %}
+                            <span class="badge bg-info">집계</span>
+                            {% else %}
+                            <span class="badge bg-secondary">기타</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ url_for('aggregation.download', filename=f) }}" class="btn btn-sm btn-outline-secondary py-0 px-1">
+                                <i class="bi bi-download"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
@@ -213,94 +172,124 @@
 
 {% block extra_js %}
 <script>
+document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('dateTo').value = today;
+    document.getElementById('dateFrom').value = today;
+});
+
+function setDateRange(type) {
+    const today = new Date();
+    let from = new Date(today);
+    let to = new Date(today);
+
+    if (type === 'yesterday') {
+        from.setDate(from.getDate() - 1);
+        to.setDate(to.getDate() - 1);
+    } else if (type === 'weekend') {
+        // 직전 주말 (토~일)
+        const day = today.getDay(); // 0=일, 6=토
+        if (day === 0) { // 일요일 → 어제토+오늘일
+            from.setDate(from.getDate() - 1);
+        } else if (day === 6) { // 토요일 → 오늘토+내일일
+            to.setDate(to.getDate() + 1);
+        } else { // 평일 → 직전 토~일
+            from.setDate(from.getDate() - day - 1); // 직전 토요일
+            to.setDate(to.getDate() - day);          // 직전 일요일
+        }
+    } else if (type === 'week') {
+        from.setDate(from.getDate() - 6);
+    }
+
+    document.getElementById('dateFrom').value = from.toISOString().split('T')[0];
+    document.getElementById('dateTo').value = to.toISOString().split('T')[0];
+}
+
+function loadSummary() {
+    const dateFrom = document.getElementById('dateFrom').value;
+    const dateTo = document.getElementById('dateTo').value;
+    if (!dateFrom || !dateTo) { alert('날짜를 선택하세요'); return; }
+
+    const area = document.getElementById('summaryArea');
+    area.style.display = 'none';
+
+    fetch(`{{ url_for('aggregation.api_summary') }}?date_from=${dateFrom}&date_to=${dateTo}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { alert(data.error); return; }
+
+            area.style.display = 'block';
+            document.getElementById('sumOutItems').textContent = (data.outbound_items || 0).toLocaleString() + '종';
+            document.getElementById('sumOutQty').textContent = (data.outbound_qty || 0).toLocaleString() + '개';
+            document.getElementById('sumInbound').textContent = (data.inbound_count || 0) + '건';
+            document.getElementById('sumProduction').textContent = (data.production_count || 0) + '건';
+            document.getElementById('sumRevenue').textContent = (data.revenue_total || 0).toLocaleString() + '원';
+
+            // 창고별
+            const locs = data.locations || {};
+            const locKeys = Object.keys(locs);
+            if (locKeys.length) {
+                let html = '<small class="text-muted">출고 창고:</small> ';
+                locKeys.forEach(loc => {
+                    html += `<span class="badge bg-primary me-1">${loc}: ${locs[loc]}건</span>`;
+                });
+                document.getElementById('locationDetail').innerHTML = html;
+            }
+
+            // 매출유형별
+            const cats = data.category_revenue || {};
+            const catKeys = Object.keys(cats);
+            if (catKeys.length) {
+                let html = '<small class="text-muted">매출유형:</small> ';
+                catKeys.forEach(cat => {
+                    html += `<span class="badge bg-success me-1">${cat}: ${cats[cat].toLocaleString()}원</span>`;
+                });
+                document.getElementById('revenueDetail').innerHTML = html;
+            }
+
+            // 보고서 생성 버튼 활성화
+            if ((data.outbound_count || 0) > 0 || (data.revenue_count || 0) > 0) {
+                document.getElementById('btnGenerate').disabled = false;
+                document.getElementById('generateDateFrom').value = dateFrom;
+                document.getElementById('generateDateTo').value = dateTo;
+            } else {
+                document.getElementById('btnGenerate').disabled = true;
+            }
+        })
+        .catch(e => alert('요약 조회 오류: ' + e.message));
+}
+
+// 파일 체크박스
 (function() {
     const checkAll = document.getElementById('checkAll');
     const fileChecks = document.querySelectorAll('.file-check');
-    const applyBtn = document.getElementById('applyBtn');
-    const hiddenFiles = document.getElementById('hiddenFiles');
-    const selectedSummary = document.getElementById('selectedSummary');
-
-    if (!checkAll) return;
-
     const deleteFilesBtn = document.getElementById('deleteFilesBtn');
     const deleteHiddenFiles = document.getElementById('deleteHiddenFiles');
+    if (!checkAll || !fileChecks.length) return;
 
     function updateSelection() {
-        // 숨은 필드 초기화
-        hiddenFiles.innerHTML = '';
         if (deleteHiddenFiles) deleteHiddenFiles.innerHTML = '';
-
-        let outCount = 0, revCount = 0, totalCount = 0;
-
+        let cnt = 0;
         fileChecks.forEach(cb => {
             if (cb.checked) {
-                totalCount++;
-                const inp = document.createElement('input');
-                inp.type = 'hidden';
-                inp.name = 'apply_files';
-                inp.value = cb.value;
-                hiddenFiles.appendChild(inp);
-
-                // 삭제 폼에도 추가
+                cnt++;
                 if (deleteHiddenFiles) {
-                    const dinp = document.createElement('input');
-                    dinp.type = 'hidden';
-                    dinp.name = 'delete_files';
-                    dinp.value = cb.value;
-                    deleteHiddenFiles.appendChild(dinp);
+                    const inp = document.createElement('input');
+                    inp.type = 'hidden'; inp.name = 'delete_files'; inp.value = cb.value;
+                    deleteHiddenFiles.appendChild(inp);
                 }
-
-                if (cb.dataset.type === 'outbound') outCount++;
-                if (cb.dataset.type === 'revenue') revCount++;
             }
         });
-
-        // 삭제 버튼 활성화
-        if (deleteFilesBtn) deleteFilesBtn.disabled = totalCount === 0;
-
-        // 요약 업데이트
-        if (totalCount === 0) {
-            selectedSummary.innerHTML = '선택된 파일이 없습니다.';
-            applyBtn.disabled = true;
-        } else {
-            let parts = [];
-            if (outCount > 0) parts.push(`<span class="badge bg-primary">출고 ${outCount}건</span>`);
-            if (revCount > 0) parts.push(`<span class="badge bg-success">매출 ${revCount}건</span>`);
-            if (totalCount - outCount - revCount > 0) parts.push(`<span class="badge bg-secondary">기타 ${totalCount - outCount - revCount}건</span>`);
-            selectedSummary.innerHTML = parts.join(' ');
-            applyBtn.disabled = false;
-        }
+        if (deleteFilesBtn) deleteFilesBtn.disabled = cnt === 0;
     }
-
-    // 전체 선택/해제
     checkAll.addEventListener('change', function() {
         fileChecks.forEach(cb => { cb.checked = this.checked; });
         updateSelection();
     });
-
-    // 개별 체크박스
-    fileChecks.forEach(cb => {
-        cb.addEventListener('change', updateSelection);
-    });
-
-    // 폼 제출 확인
-    const applyForm = document.getElementById('applyForm');
-    if (applyForm) {
-        applyForm.addEventListener('submit', function(e) {
-            const checked = document.querySelectorAll('.file-check:checked');
-            if (checked.length === 0) {
-                e.preventDefault();
-                alert('반영할 파일을 선택하세요.');
-                return;
-            }
-            if (!confirm('선택된 파일을 출고/매출에 반영하시겠습니까?')) {
-                e.preventDefault();
-            }
-        });
-    }
-
-    // 초기 상태
+    fileChecks.forEach(cb => cb.addEventListener('change', updateSelection));
     updateSelection();
 })();
+
+function submitDelete() { document.getElementById('deleteForm').submit(); }
 </script>
 {% endblock %}

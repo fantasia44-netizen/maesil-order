@@ -1,0 +1,679 @@
+{% extends "base.html" %}
+{% block title %}주문 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}주문 관리{% endblock %}
+
+{% block content %}
+<!-- 필터 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label small mb-0">시작일</label>
+                <input type="date" class="form-control form-control-sm" id="filterDateFrom">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">종료일</label>
+                <input type="date" class="form-control form-control-sm" id="filterDateTo">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">채널</label>
+                <select class="form-select form-select-sm" id="filterChannel">
+                    <option value="">전체</option>
+                    <option value="스마트스토어">스마트스토어</option>
+                    <option value="쿠팡">쿠팡</option>
+                    <option value="옥션/G마켓">옥션/G마켓</option>
+                    <option value="자사몰">자사몰</option>
+                    <option value="오아시스">오아시스</option>
+                    <option value="11번가">11번가</option>
+                    <option value="카카오">카카오</option>
+                </select>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small mb-0">상태</label>
+                <select class="form-select form-select-sm" id="filterStatus">
+                    <option value="">전체</option>
+                    <option value="정상">정상</option>
+                    <option value="취소">취소</option>
+                    <option value="환불">환불</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">검색대상</label>
+                <select class="form-select form-select-sm" id="filterSearchField">
+                    <option value="all">전체</option>
+                    <option value="order_no">주문번호</option>
+                    <option value="product">상품명</option>
+                    <option value="invoice">송장번호</option>
+                    <option value="recipient">수취인명</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-0">검색어</label>
+                <input type="text" class="form-control form-control-sm" id="filterSearch"
+                       placeholder="검색어 입력" onkeydown="if(event.key==='Enter')loadOrders()">
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-primary btn-sm w-100" onclick="loadOrders()">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭: 주문목록 / 업로드이력 -->
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabOrders">
+            <i class="bi bi-list-ul"></i> 주문 목록
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabImports" onclick="loadImportRuns()">
+            <i class="bi bi-clock-history"></i> 업로드 이력
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- 주문 목록 탭 -->
+    <div class="tab-pane fade show active" id="tabOrders">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover" id="ordersTable">
+                <thead class="table-light">
+                    <tr>
+                        <th>주문일</th>
+                        <th>채널</th>
+                        <th>주문번호</th>
+                        <th>수취인</th>
+                        <th>상품명</th>
+                        <th class="text-end">수량</th>
+                        <th class="text-end">주문금액</th>
+                        <th>송장번호</th>
+                        <th>출고</th>
+                        <th>상태</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="ordersBody">
+                    <tr><td colspan="11" class="text-center text-muted py-4">조회 버튼을 눌러 주문을 검색하세요</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+            <small class="text-muted" id="ordersCount"></small>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary" id="btnPrev" onclick="changePage(-1)" disabled>이전</button>
+                <span class="mx-2 small" id="pageInfo"></span>
+                <button class="btn btn-sm btn-outline-secondary" id="btnNext" onclick="changePage(1)" disabled>다음</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 업로드 이력 탭 -->
+    <div class="tab-pane fade" id="tabImports">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>일시</th>
+                        <th>채널</th>
+                        <th>파일명</th>
+                        <th>업로더</th>
+                        <th class="text-end">전체</th>
+                        <th class="text-end">성공</th>
+                        <th class="text-end">변경</th>
+                        <th class="text-end">실패</th>
+                        <th>상태</th>
+                    </tr>
+                </thead>
+                <tbody id="importsBody">
+                    <tr><td colspan="9" class="text-center text-muted py-4">로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 주문 상세 모달 -->
+<div class="modal fade" id="orderDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">주문 상세</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="orderDetailBody">
+                <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 취소/환불 모달 -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">주문 취소/환불</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cancelOrderId">
+                <div class="mb-3">
+                    <label class="form-label">유형</label>
+                    <select class="form-select" id="cancelType">
+                        <option value="취소">취소</option>
+                        <option value="환불">환불</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">사유 <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="취소/환불 사유를 입력하세요"></textarea>
+                </div>
+                <div id="cancelOutboundInfo" class="alert alert-warning py-2" style="display:none;">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    출고 처리된 주문입니다. 취소 시 <strong>재고 복원(SALES_RETURN)</strong> 및 <strong>매출 삭제</strong>가 자동으로 처리됩니다.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-danger" onclick="submitCancel()">확인</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">주문 수정</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editOrderId">
+                <input type="hidden" id="editOldQty">
+                <div class="mb-3">
+                    <label class="form-label">수량</label>
+                    <input type="number" class="form-control" id="editQty" min="1">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">변경 사유 <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="editReason" rows="2" placeholder="변경 사유를 입력하세요"></textarea>
+                </div>
+                <div id="editReprocessInfo" class="alert alert-info py-2" style="display:none;">
+                    <i class="bi bi-info-circle"></i>
+                    출고 처리된 주문의 수량 변경 시 <strong>재고 역분개 + 재처리</strong>가 자동으로 진행됩니다.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-primary" onclick="submitEdit()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 송장 입력 모달 -->
+<div class="modal fade" id="invoiceModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">송장번호 입력</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="invoiceChannel">
+                <input type="hidden" id="invoiceOrderNo">
+                <div class="mb-3">
+                    <label class="form-label">택배사</label>
+                    <select class="form-select" id="invoiceCourier">
+                        <option value="">선택</option>
+                        <option value="CJ대한통운">CJ대한통운</option>
+                        <option value="한진택배">한진택배</option>
+                        <option value="로젠택배">로젠택배</option>
+                        <option value="우체국택배">우체국택배</option>
+                        <option value="롯데택배">롯데택배</option>
+                        <option value="경동택배">경동택배</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">송장번호 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="invoiceNo" placeholder="송장번호 입력">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-primary" onclick="submitInvoice()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentPage = 1;
+const perPage = 50;
+
+// 오늘 날짜 기본값
+document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('filterDateTo').value = today;
+    const week = new Date(); week.setDate(week.getDate() - 7);
+    document.getElementById('filterDateFrom').value = week.toISOString().split('T')[0];
+
+    // 검색대상 변경 시 placeholder 업데이트
+    document.getElementById('filterSearchField').addEventListener('change', function() {
+        const ph = {
+            all: '주문번호/상품명',
+            order_no: '주문번호',
+            product_name: '상품명',
+            invoice: '송장번호',
+            recipient: '수취인명',
+        };
+        document.getElementById('filterSearch').placeholder = ph[this.value] || '검색어 입력';
+    });
+});
+
+function loadOrders() {
+    const searchField = document.getElementById('filterSearchField').value;
+    const params = new URLSearchParams({
+        date_from: document.getElementById('filterDateFrom').value,
+        date_to: document.getElementById('filterDateTo').value,
+        channel: document.getElementById('filterChannel').value,
+        status: document.getElementById('filterStatus').value,
+        search: document.getElementById('filterSearch').value,
+        search_field: searchField,
+        page: currentPage,
+        per_page: perPage,
+    });
+
+    const tbody = document.getElementById('ordersBody');
+    tbody.innerHTML = '<tr><td colspan="11" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> 조회 중...</td></tr>';
+
+    fetch(`{{ url_for('orders.api_orders') }}?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            const orders = data.orders || [];
+            if (!orders.length) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">조회 결과 없음</td></tr>';
+                document.getElementById('ordersCount').textContent = '';
+                document.getElementById('pageInfo').textContent = '';
+                document.getElementById('btnPrev').disabled = true;
+                document.getElementById('btnNext').disabled = true;
+                return;
+            }
+
+            tbody.innerHTML = orders.map(o => {
+                const statusBadge = o.status === '정상' ? 'bg-success' :
+                                    o.status === '취소' ? 'bg-danger' : 'bg-warning';
+                const invoiceNo = o.invoice_no || '';
+                const outboundBadge = invoiceNo
+                    ? '<span class="badge bg-success">완료</span>'
+                    : '<span class="badge bg-secondary">미출고</span>';
+                const recipientName = o.recipient_name || '';
+                return `<tr>
+                    <td>${o.order_date || ''}</td>
+                    <td><span class="badge bg-secondary">${o.channel || ''}</span></td>
+                    <td class="text-truncate" style="max-width:140px" title="${o.order_no}">${o.order_no || ''}</td>
+                    <td class="small">${recipientName}</td>
+                    <td class="text-truncate" style="max-width:180px" title="${o.product_name}">${o.product_name || ''}</td>
+                    <td class="text-end">${o.qty || 0}</td>
+                    <td class="text-end">${Number(o.total_amount || 0).toLocaleString()}</td>
+                    <td class="small text-truncate" style="max-width:120px" title="${invoiceNo}">${invoiceNo || '<span class="text-muted">-</span>'}</td>
+                    <td>${outboundBadge}</td>
+                    <td><span class="badge ${statusBadge}">${o.status}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="showDetail(${o.id})" title="상세">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('ordersCount').textContent = `${orders.length}건 표시`;
+            document.getElementById('pageInfo').textContent = `${currentPage} 페이지`;
+            document.getElementById('btnPrev').disabled = currentPage <= 1;
+            document.getElementById('btnNext').disabled = orders.length < perPage;
+        })
+        .catch(e => {
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-4">조회 오류: ${e.message}</td></tr>`;
+        });
+}
+
+function changePage(delta) {
+    currentPage = Math.max(1, currentPage + delta);
+    loadOrders();
+}
+
+// ================================================================
+// 주문 상세
+// ================================================================
+
+function showDetail(orderId) {
+    const modal = new bootstrap.Modal(document.getElementById('orderDetailModal'));
+    const body = document.getElementById('orderDetailBody');
+    body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+    modal.show();
+
+    fetch(`{{ url_for('orders.api_orders') }}/${orderId}`)
+        .then(r => r.json())
+        .then(data => {
+            const t = data.transaction || {};
+            const s = data.shipping || {};
+            const logs = data.change_log || [];
+
+            let html = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6><i class="bi bi-receipt"></i> 주문 정보</h6>
+                    <table class="table table-sm">
+                        <tr><th class="w-40">채널</th><td>${t.channel}</td></tr>
+                        <tr><th>주문번호</th><td>${t.order_no}</td></tr>
+                        <tr><th>주문일</th><td>${t.order_date}</td></tr>
+                        <tr><th>상품명</th><td>${t.product_name}</td></tr>
+                        <tr><th>원본 옵션</th><td class="small">${t.original_option || '-'}</td></tr>
+                        <tr><th>수량</th><td><strong>${t.qty}</strong></td></tr>
+                        <tr><th>판매단가</th><td>${Number(t.unit_price||0).toLocaleString()}</td></tr>
+                        <tr><th>주문금액</th><td>${Number(t.total_amount||0).toLocaleString()}</td></tr>
+                        <tr><th>할인액</th><td>${Number(t.discount_amount||0).toLocaleString()}</td></tr>
+                        <tr><th>정산금액</th><td>${Number(t.settlement||0).toLocaleString()}</td></tr>
+                        <tr><th>상태</th><td><span class="badge ${t.status==='정상'?'bg-success':'bg-danger'}">${t.status}</span></td></tr>
+                        ${t.status_reason ? `<tr><th>사유</th><td>${t.status_reason}</td></tr>` : ''}
+                        <tr><th>출고처리</th><td>${t.is_outbound_done ? '<span class="badge bg-success">완료</span> ' + (t.outbound_date || '') : '<span class="badge bg-warning text-dark">미처리</span>'}</td></tr>
+                        ${t.revenue_category ? `<tr><th>매출유형</th><td>${t.revenue_category}</td></tr>` : ''}
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6><i class="bi bi-truck"></i> 배송 정보</h6>`;
+
+            if (s && !s.is_anonymized) {
+                html += `<table class="table table-sm">
+                    <tr><th class="w-40">수취인</th><td>${s.name || '-'}</td></tr>
+                    <tr><th>연락처</th><td>${s.phone || '-'}</td></tr>
+                    <tr><th>주소</th><td class="small">${s.address || '-'}</td></tr>
+                    <tr><th>배송메모</th><td>${s.memo || '-'}</td></tr>
+                    <tr>
+                        <th>송장번호</th>
+                        <td>
+                            <span id="detailInvoice">${s.invoice_no || '<span class="text-muted">미입력</span>'}</span>
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1"
+                                    onclick="openInvoiceModal('${t.channel}','${t.order_no}','${s.invoice_no||''}','${s.courier||''}')"
+                                    title="송장 입력/수정">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <tr><th>택배사</th><td>${s.courier || '-'}</td></tr>
+                    <tr><th>배송상태</th><td>${s.shipping_status || '-'}</td></tr>
+                </table>`;
+            } else if (s && s.is_anonymized) {
+                html += `<div class="alert alert-secondary py-2">
+                    <i class="bi bi-shield-check"></i> 개인정보 익명화 완료 (${s.anonymized_at ? s.anonymized_at.split('T')[0] : ''})
+                </div>`;
+            } else {
+                html += `<div class="text-muted">배송정보 없음</div>`;
+            }
+
+            html += `</div></div>`;
+
+            // 변경 이력
+            if (logs.length) {
+                html += `<hr><h6><i class="bi bi-clock-history"></i> 변경 이력</h6>
+                <div class="table-responsive" style="max-height:200px;overflow-y:auto">
+                <table class="table table-sm small">
+                    <thead><tr><th>일시</th><th>유형</th><th>필드</th><th>이전</th><th>이후</th><th>사유</th><th>처리자</th></tr></thead>
+                    <tbody>`;
+                logs.forEach(l => {
+                    html += `<tr>
+                        <td>${l.changed_at ? l.changed_at.replace('T',' ').substring(0,19) : ''}</td>
+                        <td>${l.change_type}</td>
+                        <td>${l.field_name || '-'}</td>
+                        <td>${l.before_value || '-'}</td>
+                        <td>${l.after_value || '-'}</td>
+                        <td>${l.change_reason || '-'}</td>
+                        <td>${l.changed_by || '-'}</td>
+                    </tr>`;
+                });
+                html += `</tbody></table></div>`;
+            }
+
+            // 액션 버튼
+            if (t.status === '정상') {
+                html += `<hr><div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${t.id}, ${t.qty}, ${t.is_outbound_done ? 'true' : 'false'})">
+                        <i class="bi bi-pencil-square"></i> 수량 정정
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="openCancel(${t.id}, ${t.is_outbound_done ? 'true' : 'false'})">
+                        <i class="bi bi-x-circle"></i> 취소/환불
+                    </button>
+                </div>`;
+            }
+
+            body.innerHTML = html;
+        })
+        .catch(e => {
+            body.innerHTML = `<div class="alert alert-danger">오류: ${e.message}</div>`;
+        });
+}
+
+// ================================================================
+// 취소/환불
+// ================================================================
+
+function openCancel(orderId, isOutboundDone) {
+    bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
+    document.getElementById('cancelOrderId').value = orderId;
+    document.getElementById('cancelReason').value = '';
+    document.getElementById('cancelOutboundInfo').style.display = isOutboundDone ? 'block' : 'none';
+    new bootstrap.Modal(document.getElementById('cancelModal')).show();
+}
+
+function submitCancel() {
+    const orderId = document.getElementById('cancelOrderId').value;
+    const type = document.getElementById('cancelType').value;
+    const reason = document.getElementById('cancelReason').value.trim();
+
+    if (!reason) { alert('사유를 입력하세요'); return; }
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '처리 중...';
+
+    fetch(`{{ url_for('orders.api_orders') }}/${orderId}/cancel`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({ type, reason })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = '확인';
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('cancelModal')).hide();
+            let msg = `${type} 처리 완료`;
+            if (data.reversal) {
+                const rv = data.reversal;
+                msg += `\n\n[재고/매출 역분개]\n`;
+                msg += `- 재고 복원: ${rv.stock_reversed || 0}건 (SALES_RETURN)\n`;
+                msg += `- 매출 삭제: ${rv.revenue_reversed || 0}건`;
+                if (rv.errors && rv.errors.length) {
+                    msg += `\n- 경고: ${rv.errors.join(', ')}`;
+                }
+            }
+            alert(msg);
+            loadOrders();
+        } else {
+            alert(data.error || '처리 실패');
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.textContent = '확인';
+        alert('오류: ' + e.message);
+    });
+}
+
+// ================================================================
+// 수량 정정
+// ================================================================
+
+function openEdit(orderId, currentQty, isOutboundDone) {
+    bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
+    document.getElementById('editOrderId').value = orderId;
+    document.getElementById('editOldQty').value = currentQty;
+    document.getElementById('editQty').value = currentQty;
+    document.getElementById('editReason').value = '';
+    document.getElementById('editReprocessInfo').style.display = isOutboundDone ? 'block' : 'none';
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function submitEdit() {
+    const orderId = document.getElementById('editOrderId').value;
+    const oldQty = parseInt(document.getElementById('editOldQty').value);
+    const newQty = parseInt(document.getElementById('editQty').value);
+    const reason = document.getElementById('editReason').value.trim();
+
+    if (!reason) { alert('변경 사유를 입력하세요'); return; }
+    if (newQty <= 0) { alert('수량은 1 이상이어야 합니다'); return; }
+    if (newQty === oldQty) { alert('수량이 변경되지 않았습니다'); return; }
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '저장 중...';
+
+    fetch(`{{ url_for('orders.api_orders') }}/${orderId}/edit`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({
+            payload: { qty: newQty },
+            reason: reason
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = '저장';
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            let msg = `수량 정정 완료 (${oldQty} → ${newQty})`;
+            if (data.reversal) {
+                msg += `\n\n[재고 역분개 + 재처리 완료]`;
+                msg += `\n- 복원: ${data.reversal.stock_reversed || 0}건`;
+            }
+            if (data.reprocess) {
+                msg += `\n- 재출고: ${data.reprocess.outbound_count || 0}건`;
+            }
+            alert(msg);
+            loadOrders();
+        } else {
+            alert(data.error || '수정 실패');
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.textContent = '저장';
+        alert('오류: ' + e.message);
+    });
+}
+
+// ================================================================
+// 송장번호 입력/수정
+// ================================================================
+
+function openInvoiceModal(channel, orderNo, currentInvoice, currentCourier) {
+    document.getElementById('invoiceChannel').value = channel;
+    document.getElementById('invoiceOrderNo').value = orderNo;
+    document.getElementById('invoiceNo').value = currentInvoice || '';
+    document.getElementById('invoiceCourier').value = currentCourier || '';
+    new bootstrap.Modal(document.getElementById('invoiceModal')).show();
+}
+
+function submitInvoice() {
+    const channel = document.getElementById('invoiceChannel').value;
+    const orderNo = document.getElementById('invoiceOrderNo').value;
+    const invoiceNo = document.getElementById('invoiceNo').value.trim();
+    const courier = document.getElementById('invoiceCourier').value;
+
+    if (!invoiceNo) { alert('송장번호를 입력하세요'); return; }
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '저장 중...';
+
+    fetch('{{ url_for("orders.api_update_invoice") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({ channel, order_no: orderNo, invoice_no: invoiceNo, courier })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = '저장';
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('invoiceModal')).hide();
+            // 상세 모달의 송장번호도 갱신
+            const detailInvoice = document.getElementById('detailInvoice');
+            if (detailInvoice) detailInvoice.textContent = invoiceNo;
+            alert('송장번호 저장 완료');
+        } else {
+            alert(data.error || '저장 실패');
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.textContent = '저장';
+        alert('오류: ' + e.message);
+    });
+}
+
+// ================================================================
+// 업로드 이력
+// ================================================================
+
+function loadImportRuns() {
+    fetch('{{ url_for("orders.api_import_runs") }}')
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('importsBody');
+            const runs = data.runs || [];
+            if (!runs.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">업로드 이력 없음</td></tr>';
+                return;
+            }
+            tbody.innerHTML = runs.map(r => {
+                const statusBadge = r.status === 'completed' ? 'bg-success' :
+                                    r.status === 'partial' ? 'bg-warning' :
+                                    r.status === 'failed' ? 'bg-danger' : 'bg-info';
+                const statusLabel = r.status === 'completed' ? '완료' :
+                                    r.status === 'partial' ? '부분' :
+                                    r.status === 'failed' ? '실패' : '처리중';
+                return `<tr>
+                    <td>${r.created_at ? r.created_at.replace('T',' ').substring(0,19) : ''}</td>
+                    <td><span class="badge bg-secondary">${r.channel}</span></td>
+                    <td class="text-truncate small" style="max-width:200px" title="${r.filename}">${r.filename || '-'}</td>
+                    <td>${r.uploaded_by || '-'}</td>
+                    <td class="text-end">${r.total_rows || 0}</td>
+                    <td class="text-end text-success">${r.success_count || 0}</td>
+                    <td class="text-end text-warning">${r.changed_count || 0}</td>
+                    <td class="text-end text-danger">${r.fail_count || 0}</td>
+                    <td><span class="badge ${statusBadge}">${statusLabel}</span></td>
+                </tr>`;
+            }).join('');
+        })
+        .catch(e => console.error(e));
+}
+</script>
+{% endblock %}

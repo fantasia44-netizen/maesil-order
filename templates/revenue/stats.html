@@ -80,7 +80,7 @@
     </div>
 </div>
 
-<!-- 그래프 영역: 일별 추이 + 카테고리 비중 -->
+<!-- 그래프 영역: 일별 추이 + 채널별 비중 -->
 <div class="row g-4 mb-4">
     <div class="col-lg-8">
         <div class="card h-100">
@@ -95,23 +95,142 @@
     <div class="col-lg-4">
         <div class="card h-100">
             <div class="card-header">
-                <i class="bi bi-pie-chart"></i> 카테고리별 비중
+                <i class="bi bi-pie-chart"></i> 채널별 매출 비중
             </div>
             <div class="card-body d-flex align-items-center justify-content-center">
-                <canvas id="categoryChart"></canvas>
+                <canvas id="channelChart"></canvas>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 월별 매출 막대차트 -->
-{% if stats.monthly_totals|length > 1 %}
+<!-- ══════════════════════════════════════════════ -->
+<!-- 일일매출 테이블 (채널별 구분) -->
+<!-- ══════════════════════════════════════════════ -->
+{% if stats.daily_channel_totals and stats.daily_channel_totals.rows %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar-day"></i> 일일매출 (채널별)</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#dailyTableCollapse">
+            <i class="bi bi-chevron-expand"></i> 접기/펼치기
+        </button>
+    </div>
+    <div class="collapse show" id="dailyTableCollapse">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="sticky-top bg-light" style="min-width:100px">날짜</th>
+                            {% for ch in stats.daily_channel_totals.channels %}
+                            <th class="text-end sticky-top bg-light" style="min-width:90px">{{ ch }}</th>
+                            {% endfor %}
+                            <th class="text-end sticky-top bg-light fw-bold" style="min-width:100px">합계</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in stats.daily_channel_totals.rows %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.date }}</td>
+                            {% for ch in stats.daily_channel_totals.channels %}
+                            <td class="text-end">
+                                {% set val = row.channels.get(ch, 0) %}
+                                {% if val > 0 %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="text-muted">-</span>{% endif %}
+                            </td>
+                            {% endfor %}
+                            <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.total) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-warning">
+                        <tr class="fw-bold">
+                            <td>합계</td>
+                            {% for ch in stats.daily_channel_totals.channels %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.daily_channel_totals.totals.get(ch, 0)) }}</td>
+                            {% endfor %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.daily_channel_totals.grand_total) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- 월별매출 (채널별 스택 바차트 + 테이블) -->
+<!-- ══════════════════════════════════════════════ -->
+{% if stats.monthly_channel_totals and stats.monthly_channel_totals.rows %}
 <div class="card mb-4">
     <div class="card-header">
-        <i class="bi bi-bar-chart-fill"></i> 월별 매출 합계
+        <i class="bi bi-bar-chart-fill"></i> 월별매출 (채널별)
     </div>
     <div class="card-body">
         <canvas id="monthlyChart" style="max-height:300px"></canvas>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-table"></i> 월별매출 상세
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width:80px">월</th>
+                        {% for ch in stats.monthly_channel_totals.channels %}
+                        <th class="text-end" style="min-width:90px">{{ ch }}</th>
+                        {% endfor %}
+                        <th class="text-end fw-bold" style="min-width:100px">합계</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in stats.monthly_channel_totals.rows %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.month }}</td>
+                        {% for ch in stats.monthly_channel_totals.channels %}
+                        <td class="text-end">
+                            {% set val = row.channels.get(ch, 0) %}
+                            {% if val > 0 %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-warning">
+                    <tr class="fw-bold">
+                        <td>합계</td>
+                        {% for ch in stats.monthly_channel_totals.channels %}
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.monthly_channel_totals.totals.get(ch, 0)) }}</td>
+                        {% endfor %}
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.monthly_channel_totals.grand_total) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 카테고리별 비중 (기존) -->
+{% if stats.category_breakdown and stats.category_breakdown|length > 1 %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-diagram-3"></i> 매출유형별 비중
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for cat in stats.category_breakdown %}
+            <div class="col-auto mb-2">
+                {% set pct = (cat.total / stats.summary.total_revenue * 100) if stats.summary.total_revenue > 0 else 0 %}
+                <span class="badge bg-primary fs-6 px-3 py-2">{{ cat.category }} {{ '{:,.0f}'.format(cat.total) }}원 ({{ '{:.1f}'.format(pct) }}%)</span>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 </div>
 {% endif %}
@@ -176,22 +295,35 @@
 <script>
 (function() {
     const statsData = {{ stats_json|safe }};
-    if (!statsData || !statsData.daily_totals) return;
+    if (!statsData) return;
 
     // 숫자 포맷 헬퍼
     function formatKRW(val) {
         return new Intl.NumberFormat('ko-KR').format(Math.round(val)) + '원';
     }
 
-    // 색상 팔레트
-    const COLORS = [
+    // 채널별 고정 색상
+    const CH_COLORS = {
+        '스마트스토어': '#03C75A',
+        '쿠팡':         '#E53238',
+        '11번가':       '#FF5722',
+        '옥션/G마켓':   '#FF9800',
+        '오아시스':     '#4CAF50',
+        '자사몰':       '#2196F3',
+        '카카오':       '#FEE500',
+        'N배송_수동':   '#9C27B0',
+    };
+    const FALLBACK_COLORS = [
         '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
         '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'
     ];
+    function getColor(ch, idx) {
+        return CH_COLORS[ch] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+    }
 
-    // 1) 일별 매출 추이 (Line)
+    // ── 1) 일별 매출 추이 (Line) ──
     const dailyCtx = document.getElementById('dailyChart');
-    if (dailyCtx && statsData.daily_totals.length > 0) {
+    if (dailyCtx && statsData.daily_totals && statsData.daily_totals.length > 0) {
         new Chart(dailyCtx, {
             type: 'line',
             data: {
@@ -219,12 +351,7 @@
                     }
                 },
                 scales: {
-                    x: {
-                        ticks: {
-                            maxTicksLimit: 15,
-                            maxRotation: 45,
-                        }
-                    },
+                    x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
                     y: {
                         ticks: {
                             callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
@@ -235,16 +362,20 @@
         });
     }
 
-    // 2) 카테고리별 비중 (Doughnut)
-    const catCtx = document.getElementById('categoryChart');
-    if (catCtx && statsData.category_breakdown.length > 0) {
-        new Chart(catCtx, {
+    // ── 2) 채널별 매출 비중 (Doughnut) ──
+    const chCtx = document.getElementById('channelChart');
+    if (chCtx && statsData.channel_breakdown && statsData.channel_breakdown.length > 0) {
+        const chLabels = statsData.channel_breakdown.map(c => c.channel);
+        const chData = statsData.channel_breakdown.map(c => c.total);
+        const chColors = chLabels.map((ch, i) => getColor(ch, i));
+
+        new Chart(chCtx, {
             type: 'doughnut',
             data: {
-                labels: statsData.category_breakdown.map(c => c.category),
+                labels: chLabels,
                 datasets: [{
-                    data: statsData.category_breakdown.map(c => c.total),
-                    backgroundColor: COLORS.slice(0, statsData.category_breakdown.length),
+                    data: chData,
+                    backgroundColor: chColors,
                     borderWidth: 2,
                 }]
             },
@@ -270,33 +401,39 @@
         });
     }
 
-    // 3) 월별 매출 (Bar) — 2개월 이상일 때만 표시
+    // ── 3) 월별 매출 스택 바차트 (채널별) ──
     const monthCtx = document.getElementById('monthlyChart');
-    if (monthCtx && statsData.monthly_totals && statsData.monthly_totals.length > 1) {
+    if (monthCtx && statsData.monthly_channel_totals && statsData.monthly_channel_totals.rows.length > 0) {
+        const mct = statsData.monthly_channel_totals;
+        const months = mct.rows.map(r => r.month);
+        const datasets = mct.channels.map((ch, i) => ({
+            label: ch,
+            data: mct.rows.map(r => r.channels[ch] || 0),
+            backgroundColor: getColor(ch, i),
+            borderRadius: 2,
+        }));
+
         new Chart(monthCtx, {
             type: 'bar',
-            data: {
-                labels: statsData.monthly_totals.map(m => m.month),
-                datasets: [{
-                    label: '월별 매출',
-                    data: statsData.monthly_totals.map(m => m.total),
-                    backgroundColor: '#59a14f',
-                    borderRadius: 4,
-                }]
-            },
+            data: { labels: months, datasets: datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
                 plugins: {
-                    legend: { display: false },
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 11 } }
+                    },
                     tooltip: {
                         callbacks: {
-                            label: ctx => formatKRW(ctx.parsed.y)
+                            label: ctx => ctx.dataset.label + ': ' + formatKRW(ctx.parsed.y)
                         }
                     }
                 },
                 scales: {
+                    x: { stacked: true },
                     y: {
+                        stacked: true,
                         ticks: {
                             callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
                         }
