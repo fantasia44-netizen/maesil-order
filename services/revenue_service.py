@@ -121,11 +121,15 @@ def get_revenue_stats(db, date_from=None, date_to=None, category=None):
 def _calc_summary(raw):
     """총 매출, 건수, 일수, 일평균 매출 산출."""
     total = sum(r.get('revenue', 0) for r in raw)
+    settlement = sum(r.get('settlement', 0) for r in raw)
+    commission = sum(r.get('commission', 0) for r in raw)
     count = len(raw)
     dates = set(r.get('revenue_date', '') for r in raw if r.get('revenue_date'))
     days = len(dates) or 1
     return {
         'total_revenue': total,
+        'total_settlement': settlement,
+        'total_commission': commission,
         'total_count': count,
         'days': days,
         'daily_avg': total / days,

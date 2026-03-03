@@ -37,15 +37,19 @@ def get_dashboard_data(db, date=None):
 
 
 def _get_kpi(db, date, month_start):
-    """KPI 카드 데이터."""
+    """KPI 카드 데이터.
+    매출은 order_transactions 기반: 총매출(total_amount), 순매출(settlement).
+    """
     today_orders = db.count_orders_by_date(date)
-    today_revenue = db.sum_revenue_by_date(date)
+    today_rev = db.sum_revenue_by_date(date)  # dict
 
     # 이번 달 매출 합계
-    month_revenue = 0
+    month_total = 0
+    month_settlement = 0
     try:
         rev_data = db.query_revenue(date_from=month_start, date_to=date)
-        month_revenue = sum(r.get("revenue", 0) or 0 for r in (rev_data or []))
+        month_total = sum(r.get("revenue", 0) or 0 for r in (rev_data or []))
+        month_settlement = sum(r.get("settlement", 0) or 0 for r in (rev_data or []))
     except Exception:
         pass
 
@@ -58,8 +62,11 @@ def _get_kpi(db, date, month_start):
 
     return {
         "today_orders": today_orders,
-        "today_revenue": today_revenue,
-        "month_revenue": month_revenue,
+        "today_revenue": today_rev.get("total_amount", 0),
+        "today_settlement": today_rev.get("settlement", 0),
+        "today_commission": today_rev.get("commission", 0),
+        "month_revenue": month_total,
+        "month_settlement": month_settlement,
         "pending_outbound": outbound_summary.get("pending", 0),
         "done_outbound": outbound_summary.get("done", 0),
         "stock_products": total_products,

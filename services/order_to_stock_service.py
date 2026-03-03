@@ -1,14 +1,14 @@
 """
-order_to_stock_service.py — 주문 → 출고+매출 자동처리 서비스 (Phase 2).
+order_to_stock_service.py — 주문 → 출고 자동처리 서비스 (Phase 2).
 
 order_transactions에서 미처리 주문을 가져와:
 1. BOM 분해 (세트 → 개별 자재)
 2. 창고 라우팅 (라인코드 기반)
 3. FIFO 재고 차감 (stock_ledger SALES_OUT)
-4. 매출 기록 (daily_revenue upsert)
-5. order_transactions.is_outbound_done = True 업데이트
+4. order_transactions.is_outbound_done = True 업데이트
 
-기존 수동 흐름(통합집계→출고→매출)과 독립적으로 동작.
+매출은 order_transactions에 이미 저장된 금액(total_amount, settlement, commission)을
+조회 시 집계하므로 별도 매출 기록(daily_revenue)을 하지 않습니다.
 """
 import unicodedata
 from datetime import datetime
@@ -17,7 +17,7 @@ try:
 except ImportError:
     from backports.zoneinfo import ZoneInfo
 
-from services.channel_config import CHANNEL_REVENUE_MAP, CATEGORY_PRICE_COL
+from services.channel_config import CHANNEL_REVENUE_MAP
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -30,14 +30,6 @@ def _now_kst():
 def _norm(text):
     """NFC 정규화 + strip"""
     return unicodedata.normalize('NFC', str(text).strip())
-
-
-def _revenue_date(order_date_str):
-    """매출 반영일: 주문일시(엑셀 기록)의 날짜 그대로 사용 (회계 기준).
-    0시 이전 주문 → 해당 일자, 0시 이후 주문 → 다음 일자.
-    엑셀에서 이미 날짜 파트만 넘어오므로 그대로 반환.
-    """
-    return order_date_str
 
 
 def _stock_date():
@@ -107,84 +99,6 @@ def _get_warehouse(name, opt_map):
     return "넥스원"
 
 
-def _preload_promotions(db):
-    """활성 행사 전체를 한번에 로드 → {(product_name, category): promo_row}."""
-    try:
-        res = db.client.table("promotions").select("*") \
-            .eq("is_active", True).execute()
-        pmap = {}
-        for r in (res.data or []):
-            key = (_norm(r.get('product_name', '')), r.get('category', ''))
-            # 같은 키에 여러 행사 → 최신 등록 우선 (created_at 내림차순)
-            if key not in pmap:
-                pmap[key] = r
-        return pmap
-    except Exception:
-        return {}
-
-
-def _preload_coupons(db):
-    """활성 쿠폰 전체를 한번에 로드 → {(product_name, category): coupon_row}."""
-    try:
-        res = db.client.table("coupons").select("*") \
-            .eq("is_active", True).execute()
-        cmap = {}
-        for r in (res.data or []):
-            key = (_norm(r.get('product_name', '')), r.get('category', ''))
-            if key not in cmap:
-                cmap[key] = r
-        return cmap
-    except Exception:
-        return {}
-
-
-def _resolve_price_cached(product_name, category, target_date, price_map,
-                           promo_map, coupon_map):
-    """캐시된 행사/쿠폰 맵으로 단가 결정 (DB 호출 0회).
-    Returns: (unit_price, source)
-    """
-    _CATEGORY_PRICE_COL = {
-        "일반매출": "네이버판매가",
-        "쿠팡매출": "쿠팡판매가",
-        "로켓": "로켓판매가",
-        "N배송(용인)": "네이버판매가",
-    }
-
-    key = (product_name, category)
-
-    # 1) 행사가 확인
-    promo = promo_map.get(key)
-    if promo:
-        sd = promo.get('start_date', '')
-        ed = promo.get('end_date', '')
-        if sd <= target_date <= ed:
-            return float(promo['promo_price']), 'promotion'
-
-    # 2) 쿠폰 확인
-    coupon = coupon_map.get(key)
-    if coupon:
-        sd = coupon.get('start_date', '')
-        ed = coupon.get('end_date', '')
-        if sd <= target_date <= ed:
-            price_col = _CATEGORY_PRICE_COL.get(category)
-            base_price = float((price_map.get(product_name) or {}).get(price_col, 0) or 0)
-            if base_price > 0:
-                if coupon.get('discount_type') == '%':
-                    discount = base_price * float(coupon['discount_value']) / 100
-                else:
-                    discount = float(coupon['discount_value'])
-                return max(0, base_price - discount), 'coupon'
-
-    # 3) 기본 판매가
-    price_col = _CATEGORY_PRICE_COL.get(category)
-    if price_map and price_col:
-        base_price = float((price_map.get(product_name) or {}).get(price_col, 0) or 0)
-        if base_price > 0:
-            return base_price, 'master'
-
-    return 0, 'none'
-
-
 def _decompose(name, qty, current_bom, fallback_bom=None):
     """재귀 세트 분해. aggregator.py의 decompose()와 동일 로직."""
     n = _norm(name)
@@ -204,7 +118,10 @@ def _decompose(name, qty, current_bom, fallback_bom=None):
 
 def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
                              force_shortage=False):
-    """미처리 주문 → 출고+매출 자동 처리.
+    """미처리 주문 → 출고 자동 처리.
+
+    매출은 order_transactions에 이미 저장되어 있으므로 별도 기록하지 않음.
+    재고차감(SALES_OUT) + 주문완료표시(is_outbound_done)만 수행.
 
     Args:
         db: SupabaseDB instance
@@ -217,8 +134,6 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         dict: {
             success: bool,
             outbound_count: int,    # 재고 차감 건수
-            revenue_count: int,     # 매출 기록 건수
-            revenue_total: int,     # 총 매출액
             processed_orders: int,  # 처리된 주문 건수
             shortage: list,         # 재고 부족 목록
             errors: list,           # 에러 메시지
@@ -237,7 +152,7 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         except (UnicodeEncodeError, UnicodeDecodeError, OSError):
             pass
 
-    log("자동처리 시작: 주문 → 출고+매출")
+    log("자동처리 시작: 주문 → 출고")
 
     # 재고차감일 = 오늘(파일 처리일 = 실제 출고일)
     today_date = _stock_date()
@@ -260,8 +175,6 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         return {
             'success': True,
             'outbound_count': 0,
-            'revenue_count': 0,
-            'revenue_total': 0,
             'processed_orders': 0,
             'shortage': [],
             'errors': [],
@@ -272,24 +185,17 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     # 2. 마스터 데이터 로드
     bom_map = _load_bom_map(db)
     opt_map = _load_option_map(db)
-    price_map = db.query_price_table()
-
-    # 행사/쿠폰 프리로드 (주문건별 개별 DB 조회 N+1 방지)
-    promo_map = _preload_promotions(db)
-    coupon_map = _preload_coupons(db)
 
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
     log(f"BOM 로드: 모든채널 {len(bom_all)}종, 쿠팡전용 {len(bom_coupang)}종")
-    log(f"옵션마스터: {len(opt_map)}종, 가격표: {len(price_map)}종")
+    log(f"옵션마스터: {len(opt_map)}종")
 
     # 3. 주문별 처리
-    #    - 같은 날짜의 주문들을 모아서 한꺼번에 처리 (출고/매출 효율)
     from services.excel_io import build_stock_snapshot, snapshot_lookup
 
     # 날짜+창고별 출고 그룹핑
     outbound_groups = {}  # { (date, warehouse): [{"product_name": ..., "qty": ...}, ...] }
-    revenue_batch = []     # daily_revenue upsert용 배열
     order_ids_done = []    # 처리 완료된 order_transaction id 목록
     order_revenue_cats = {}  # order_id → revenue_category
     skipped_closed = 0     # 마감으로 스킵된 주문 수
@@ -306,14 +212,11 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         if not product_name or orig_qty <= 0:
             continue
 
-        # 매출일 = 주문일(회계기준), 재고차감일 = 오늘(출고기준)
-        rev_date = _revenue_date(order_date)
         stk_date = today_date
 
-        # 마감 체크: 각각의 날짜 기준
-        rev_closed_for_date = _is_date_closed(rev_date, 'revenue')
+        # 마감 체크
         stk_closed_for_date = _is_date_closed(stk_date, 'stock')
-        if rev_closed_for_date and stk_closed_for_date:
+        if stk_closed_for_date:
             skipped_closed += 1
             continue
 
@@ -334,46 +237,19 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
                 decomposed = _decompose(product_name, orig_qty,
                                          bom_all, None)
 
-        # 분해된 품목별 창고 라우팅 + 출고 그룹 축적 (재고차감일 기준)
-        if not stk_closed_for_date:
-            for item_name, item_qty in decomposed.items():
-                wh = _get_warehouse(item_name, opt_map)
-                # N배송은 CJ용인
-                if is_n_delivery:
-                    wh = "CJ용인"
-                key = (stk_date, wh)
-                if key not in outbound_groups:
-                    outbound_groups[key] = []
-                outbound_groups[key].append({
-                    'product_name': item_name,
-                    'qty': item_qty,
-                    'order_id': order_id,
-                })
-
-        # 매출 기록 준비 (세트 미분해 원본 기준, 매출일 = 주문일)
-        # 우선순위: ① 주문서 실매출(total_amount) → ② 마스터 가격표 — 프리로드 사용
-        price_col = CATEGORY_PRICE_COL.get(rev_cat)
-        if price_col and not rev_closed_for_date:
-            order_total = float(order.get('total_amount', 0) or 0)
-            if order_total > 0:
-                # ① 주문서 실매출 사용 (옵션가+상품가-할인 등 최종금액)
-                revenue = order_total
-                unit_price = revenue / orig_qty if orig_qty else 0
-            else:
-                # ② 마스터 가격표 폴백 (N배송 등 금액 없는 채널)
-                unit_price, _src = _resolve_price_cached(
-                    _norm(product_name), rev_cat, order_date, price_map, promo_map, coupon_map)
-                revenue = orig_qty * unit_price
-            if revenue > 0:
-                revenue_batch.append({
-                    'revenue_date': rev_date,
-                    'product_name': _norm(product_name),
-                    'category': rev_cat,
-                    'channel': ch,
-                    'qty': orig_qty,
-                    'unit_price': int(unit_price),
-                    'revenue': int(revenue),
-                })
+        # 분해된 품목별 창고 라우팅 + 출고 그룹 축적
+        for item_name, item_qty in decomposed.items():
+            wh = _get_warehouse(item_name, opt_map)
+            if is_n_delivery:
+                wh = "CJ용인"
+            key = (stk_date, wh)
+            if key not in outbound_groups:
+                outbound_groups[key] = []
+            outbound_groups[key].append({
+                'product_name': item_name,
+                'qty': item_qty,
+                'order_id': order_id,
+            })
 
         order_ids_done.append(order_id)
         order_revenue_cats[order_id] = rev_cat
@@ -381,7 +257,6 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     if skipped_closed:
         log(f"⚠ 마감된 날짜로 인해 {skipped_closed}건 스킵됨")
     log(f"출고 그룹: {len(outbound_groups)}개 (반영일+창고)")
-    log(f"매출 데이터: {len(revenue_batch)}건")
 
     # 4. FIFO 재고 차감 (출고 그룹별, event_uid로 중복 방지)
     total_outbound = 0
@@ -477,28 +352,13 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     if total_skipped:
         log(f"⚠ 총 {total_skipped}건 중복 스킵됨 (idempotency)")
 
-    # 5. 매출 기록 (daily_revenue upsert)
-    revenue_total = 0
-    revenue_count = 0
-    if revenue_batch:
-        try:
-            db.upsert_revenue(revenue_batch)
-            revenue_count = len(revenue_batch)
-            revenue_total = sum(r.get('revenue', 0) for r in revenue_batch)
-            log(f"매출 기록: {revenue_count}건, 총 {revenue_total:,}원")
-        except Exception as e:
-            errors.append(f"daily_revenue upsert 실패: {e}")
-
-    # 6. 주문 처리 완료 표시
+    # 5. 주문 처리 완료 표시
     if order_ids_done:
         outbound_date = date_to or today_str
-        # 매출 유형별로 그룹핑하여 업데이트
         cat_groups = {}
         for oid in order_ids_done:
             cat = order_revenue_cats.get(oid, '일반매출')
-            if cat not in cat_groups:
-                cat_groups[cat] = []
-            cat_groups[cat].append(oid)
+            cat_groups.setdefault(cat, []).append(oid)
 
         for cat, ids in cat_groups.items():
             try:
@@ -510,14 +370,11 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
     success = len(errors) == 0
     log(f"자동처리 {'완료' if success else '완료 (일부 오류)'}:"
-        f" 출고 {total_outbound}건, 매출 {revenue_count}건({revenue_total:,}원),"
-        f" 주문 {len(order_ids_done)}건 처리")
+        f" 출고 {total_outbound}건, 주문 {len(order_ids_done)}건 처리")
 
     return {
         'success': success,
         'outbound_count': total_outbound,
-        'revenue_count': revenue_count,
-        'revenue_total': revenue_total,
         'processed_orders': len(order_ids_done),
         'shortage': shortage_warnings,
         'errors': errors,
@@ -526,17 +383,17 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
 
 # ================================================================
-# 실시간 처리: 주문 수집 직후 자동 출고+매출
+# 실시간 처리: 주문 수집 직후 자동 출고
 # ================================================================
 
 def process_realtime_outbound(db, import_run_id):
-    """주문 수집(송장생성) 직후 호출 — 해당 import_run의 미처리 주문을 즉시 출고+매출 처리.
+    """주문 수집(송장생성) 직후 호출 — 해당 import_run의 미처리 주문을 즉시 출고 처리.
 
-    기존 process_orders_to_stock()과 동일한 BOM분해→FIFO→매출 로직이지만,
-    import_run_id 기준으로 방금 수집된 주문만 처리.
+    BOM분해→FIFO 재고차감→주문완료표시.
+    매출은 order_transactions에 이미 저장되어 있으므로 별도 기록하지 않음.
 
     Returns:
-        dict: {outbound_count, revenue_count, revenue_total, errors, logs}
+        dict: {outbound_count, processed_orders, errors, logs}
     """
     logs = []
     errors = []
@@ -551,28 +408,22 @@ def process_realtime_outbound(db, import_run_id):
     pending = db.query_orders_by_import_run(import_run_id, outbound_done=False)
     if not pending:
         log("처리할 미출고 주문 없음")
-        return {'outbound_count': 0, 'revenue_count': 0, 'revenue_total': 0,
+        return {'outbound_count': 0, 'processed_orders': 0,
                 'errors': [], 'logs': logs}
 
     log(f"미처리 주문 {len(pending)}건")
 
-    # 2. 마스터 데이터 로드 (기존 헬퍼 재활용)
+    # 2. 마스터 데이터 로드
     bom_map = _load_bom_map(db)
     opt_map = _load_option_map(db)
-    price_map = db.query_price_table()
-
-    # 행사/쿠폰 프리로드 (주문건별 개별 DB 조회 N+1 방지)
-    promo_map = _preload_promotions(db)
-    coupon_map = _preload_coupons(db)
 
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
 
-    # 3. 주문별 분해 → 출고 그룹 + 매출 배치 구성
+    # 3. 주문별 분해 → 출고 그룹 구성
     from services.excel_io import build_stock_snapshot, snapshot_lookup
 
-    outbound_groups = {}   # (date, warehouse): [{product_name, qty}, ...]
-    revenue_batch = []
+    outbound_groups = {}   # (date, warehouse): [{product_name, qty, order_id}, ...]
     order_ids_done = []
     order_cats = {}
     today_str = _stock_date()  # 재고차감일 = 오늘(실제 출고일)
@@ -587,10 +438,7 @@ def process_realtime_outbound(db, import_run_id):
         if not pname or qty <= 0:
             continue
 
-        # 매출일 = 주문일(회계기준), 재고차감일 = 오늘(출고기준)
-        rev_date = _revenue_date(odate)
         stk_date = today_str
-
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
         is_n = (ch == 'N배송_수동' or rev_cat == 'N배송(용인)')
 
@@ -602,33 +450,13 @@ def process_realtime_outbound(db, import_run_id):
         else:
             decomposed = _decompose(pname, qty, bom_all, None)
 
-        # 출고 그룹 축적 (재고차감일 기준, order_id 포함)
+        # 출고 그룹 축적
         for item, iqty in decomposed.items():
             wh = "CJ용인" if is_n else _get_warehouse(item, opt_map)
             key = (stk_date, wh)
             if key not in outbound_groups:
                 outbound_groups[key] = []
             outbound_groups[key].append({'product_name': item, 'qty': iqty, 'order_id': oid})
-
-        # 매출 준비 (매출일 = 주문일)
-        # 우선순위: ① 주문서 실매출(total_amount) → ② 마스터 가격표
-        price_col = CATEGORY_PRICE_COL.get(rev_cat)
-        if price_col:
-            order_total = float(order.get('total_amount', 0) or 0)
-            if order_total > 0:
-                rev = order_total
-                up = rev / qty if qty else 0
-            else:
-                up, _ = _resolve_price_cached(
-                    _norm(pname), rev_cat, odate, price_map, promo_map, coupon_map
-                )
-                rev = qty * up
-            if rev > 0:
-                revenue_batch.append({
-                    'revenue_date': rev_date, 'product_name': _norm(pname),
-                    'category': rev_cat, 'channel': ch, 'qty': qty,
-                    'unit_price': int(up), 'revenue': int(rev),
-                })
 
         order_ids_done.append(oid)
         order_cats[oid] = rev_cat
@@ -700,39 +528,7 @@ def process_realtime_outbound(db, import_run_id):
             except Exception as e:
                 errors.append(f"[{warehouse}] stock_ledger 오류: {e}")
 
-    # 5. 매출 기록 (동일 날짜+상품+카테고리는 합산 후 배치 upsert)
-    revenue_total = 0
-    revenue_count = 0
-    if revenue_batch:
-        # 5a. 동일 키(날짜+상품+카테고리+채널) 합산
-        agg = {}
-        for r in revenue_batch:
-            key = (r['revenue_date'], r['product_name'], r['category'], r.get('channel', ''))
-            if key not in agg:
-                agg[key] = {'revenue_date': r['revenue_date'],
-                            'product_name': r['product_name'],
-                            'category': r['category'],
-                            'channel': r.get('channel', ''),
-                            'qty': 0, 'unit_price': r['unit_price'], 'revenue': 0}
-            agg[key]['qty'] += r['qty']
-            agg[key]['revenue'] += r['revenue']
-        merged_rev = list(agg.values())
-        log(f"매출 배치: 원본 {len(revenue_batch)}건 → 합산 {len(merged_rev)}건")
-
-        # 5b. 50건씩 배치 upsert
-        BATCH = 50
-        for i in range(0, len(merged_rev), BATCH):
-            batch = merged_rev[i:i+BATCH]
-            try:
-                db.upsert_revenue(batch)
-                revenue_count += len(batch)
-                revenue_total += sum(r['revenue'] for r in batch)
-            except Exception as e:
-                errors.append(f"매출 기록 오류 (batch {i//BATCH+1}): {e}")
-                log(f"⚠️ 매출 upsert 실패 batch#{i//BATCH+1}: {e}")
-        log(f"매출 기록: {revenue_count}건, {revenue_total:,}원")
-
-    # 6. 주문 처리 완료 표시
+    # 5. 주문 처리 완료 표시
     if order_ids_done:
         odate_mark = today_str
         cat_groups = {}
@@ -745,12 +541,10 @@ def process_realtime_outbound(db, import_run_id):
             except Exception as e:
                 errors.append(f"mark_done 오류 ({cat}): {e}")
 
-    log(f"실시간 처리 완료: 출고 {total_outbound}건, 매출 {revenue_count}건({revenue_total:,}원)")
+    log(f"실시간 처리 완료: 출고 {total_outbound}건, 주문 {len(order_ids_done)}건")
 
     return {
         'outbound_count': total_outbound,
-        'revenue_count': revenue_count,
-        'revenue_total': revenue_total,
         'processed_orders': len(order_ids_done),
         'errors': errors,
         'logs': logs,
@@ -758,118 +552,11 @@ def process_realtime_outbound(db, import_run_id):
 
 
 # ================================================================
-# 매출 재처리: 출고 완료됐지만 매출 누락된 주문 복구
-# ================================================================
-
-def reprocess_revenue_only(db, date_from=None, date_to=None):
-    """출고 처리(is_outbound_done=True)됐지만 매출이 누락된 주문의 매출만 재생성.
-    재고(SALES_OUT)는 건드리지 않음.
-
-    Returns:
-        dict: {revenue_count, revenue_total, processed_orders, errors, logs}
-    """
-    logs = []
-    errors = []
-
-    def log(msg):
-        t = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
-        logs.append(t)
-
-    log("매출 재처리 시작")
-
-    # 출고 완료된 주문 조회
-    q = db.client.table("order_transactions").select("*") \
-        .eq("is_outbound_done", True).eq("status", "정상")
-    if date_from:
-        q = q.gte("order_date", date_from)
-    if date_to:
-        q = q.lte("order_date", date_to)
-    res = q.order("order_date", desc=True).limit(5000).execute()
-    orders = res.data or []
-
-    if not orders:
-        log("대상 주문 없음")
-        return {'revenue_count': 0, 'revenue_total': 0,
-                'processed_orders': 0, 'errors': [], 'logs': logs}
-
-    log(f"대상 주문 {len(orders)}건")
-
-    price_map = db.query_price_table()
-    promo_map = _preload_promotions(db)
-    coupon_map = _preload_coupons(db)
-    revenue_raw = []
-
-    for o in orders:
-        ch = o.get('channel', '')
-        pname = o.get('product_name', '')
-        qty = int(o.get('qty', 0) or 0)
-        odate = o.get('order_date', '')
-
-        if not pname or qty <= 0:
-            continue
-
-        rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
-        price_col = CATEGORY_PRICE_COL.get(rev_cat)
-        if not price_col:
-            continue
-
-        up, _ = _resolve_price_cached(_norm(pname), rev_cat, odate, price_map, promo_map, coupon_map)
-        rev = qty * up
-        if rev > 0:
-            revenue_raw.append({
-                'revenue_date': odate, 'product_name': _norm(pname),
-                'category': rev_cat, 'channel': ch, 'qty': qty,
-                'unit_price': int(up), 'revenue': int(rev),
-            })
-
-    if not revenue_raw:
-        log("매출 생성 대상 없음 (단가 0)")
-        return {'revenue_count': 0, 'revenue_total': 0,
-                'processed_orders': len(orders), 'errors': errors, 'logs': logs}
-
-    # 합산 (채널별로 분리)
-    agg = {}
-    for r in revenue_raw:
-        key = (r['revenue_date'], r['product_name'], r['category'], r.get('channel', ''))
-        if key not in agg:
-            agg[key] = dict(r)
-            agg[key]['qty'] = 0
-            agg[key]['revenue'] = 0
-        agg[key]['qty'] += r['qty']
-        agg[key]['revenue'] += r['revenue']
-    merged = list(agg.values())
-    log(f"원본 {len(revenue_raw)}건 → 합산 {len(merged)}건")
-
-    # 배치 upsert
-    revenue_count = 0
-    revenue_total = 0
-    BATCH = 50
-    for i in range(0, len(merged), BATCH):
-        batch = merged[i:i+BATCH]
-        try:
-            db.upsert_revenue(batch)
-            revenue_count += len(batch)
-            revenue_total += sum(r['revenue'] for r in batch)
-        except Exception as e:
-            errors.append(f"매출 upsert 오류 (batch {i//BATCH+1}): {e}")
-
-    log(f"매출 재처리 완료: {revenue_count}건, {revenue_total:,}원")
-
-    return {
-        'revenue_count': revenue_count,
-        'revenue_total': revenue_total,
-        'processed_orders': len(orders),
-        'errors': errors,
-        'logs': logs,
-    }
-
-
-# ================================================================
-# 역분개: 주문 취소/환불 시 재고 복원 + 매출 삭제
+# 역분개: 주문 취소/환불 시 재고 복원
 # ================================================================
 
 def reverse_order_stock(db, order_id):
-    """주문 취소/환불 시 재고 복원(SALES_RETURN) + 매출 삭제.
+    """주문 취소/환불 시 재고 복원(SALES_RETURN).
 
     감사추적을 위해 원본 SALES_OUT은 유지하고,
     SALES_RETURN(+qty)을 추가하여 재고를 복원합니다.
@@ -879,29 +566,25 @@ def reverse_order_stock(db, order_id):
         order_id: order_transactions.id
 
     Returns:
-        dict: {stock_reversed, revenue_reversed, errors}
+        dict: {stock_reversed, errors}
     """
     errors = []
 
     # 1. 주문 조회
     order = db.query_order_transaction_by_id(order_id)
     if not order:
-        return {'stock_reversed': 0, 'revenue_reversed': 0,
-                'errors': ['주문을 찾을 수 없습니다']}
+        return {'stock_reversed': 0, 'errors': ['주문을 찾을 수 없습니다']}
 
     if not order.get('is_outbound_done'):
-        # 출고 처리되지 않은 주문 — 역분개 불필요
-        return {'stock_reversed': 0, 'revenue_reversed': 0, 'errors': []}
+        return {'stock_reversed': 0, 'errors': []}
 
     pname = order.get('product_name', '')
     qty = int(order.get('qty', 0) or 0)
-    odate = order.get('order_date', '')
     rev_cat = order.get('revenue_category', '')
     ch = order.get('channel', '')
 
     if not pname or qty <= 0:
-        return {'stock_reversed': 0, 'revenue_reversed': 0,
-                'errors': ['주문 데이터 부족']}
+        return {'stock_reversed': 0, 'errors': ['주문 데이터 부족']}
 
     # 2. BOM 분해 (출고 시와 동일 로직)
     bom_map = _load_bom_map(db)
@@ -945,17 +628,7 @@ def reverse_order_stock(db, order_id):
         except Exception as e:
             errors.append(f"SALES_RETURN 오류 ({item}): {e}")
 
-    # 4. 매출 삭제 (매출일 = 주문일 기준)
-    rev_date = _revenue_date(odate)
-    revenue_reversed = 0
-    if rev_cat:
-        try:
-            cnt = db.delete_revenue_specific(rev_date, _norm(pname), rev_cat)
-            revenue_reversed = cnt
-        except Exception as e:
-            errors.append(f"매출 삭제 오류: {e}")
-
-    # 5. is_outbound_done 초기화
+    # 4. is_outbound_done 초기화
     try:
         db.reset_order_outbound(order_id)
     except Exception as e:
@@ -963,7 +636,6 @@ def reverse_order_stock(db, order_id):
 
     return {
         'stock_reversed': stock_reversed,
-        'revenue_reversed': revenue_reversed,
         'errors': errors,
     }
 
@@ -971,11 +643,12 @@ def reverse_order_stock(db, order_id):
 def process_single_order_realtime(db, order_id):
     """단일 주문 실시간 재처리 (수량 정정 후 호출).
 
-    order_id의 현재 데이터로 출고+매출 처리.
+    order_id의 현재 데이터로 출고 처리.
+    매출은 order_transactions에 이미 저장되어 있으므로 별도 기록 없음.
     """
     order = db.query_order_transaction_by_id(order_id)
     if not order or order.get('is_outbound_done'):
-        return {'outbound_count': 0, 'revenue_count': 0, 'errors': []}
+        return {'outbound_count': 0, 'errors': []}
 
     errors = []
     ch = order.get('channel', '')
@@ -984,10 +657,8 @@ def process_single_order_realtime(db, order_id):
     odate = order.get('order_date', '')
 
     if not pname or qty <= 0:
-        return {'outbound_count': 0, 'revenue_count': 0, 'errors': ['데이터 부족']}
+        return {'outbound_count': 0, 'errors': ['데이터 부족']}
 
-    # 매출일 = 주문일(회계기준), 재고차감일 = 오늘(출고기준)
-    rev_date = _revenue_date(odate)
     stk_date = _stock_date()
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
@@ -996,9 +667,6 @@ def process_single_order_realtime(db, order_id):
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)
     opt_map = _load_option_map(db)
-    price_map = db.query_price_table()
-    promo_map = _preload_promotions(db)
-    coupon_map = _preload_coupons(db)
 
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
@@ -1058,27 +726,10 @@ def process_single_order_realtime(db, order_id):
         except Exception as e:
             errors.append(f"출고 오류 ({item}): {e}")
 
-    # 매출 기록 (매출일 = 주문일) — 프리로드 사용
-    revenue_count = 0
-    price_col = CATEGORY_PRICE_COL.get(rev_cat)
-    if price_col:
-        up, _ = _resolve_price_cached(_norm(pname), rev_cat, odate, price_map, promo_map, coupon_map)
-        rev = qty * up
-        if rev > 0:
-            try:
-                db.upsert_revenue([{
-                    'revenue_date': rev_date, 'product_name': _norm(pname),
-                    'category': rev_cat, 'channel': ch, 'qty': qty,
-                    'unit_price': int(up), 'revenue': int(rev),
-                }])
-                revenue_count = 1
-            except Exception as e:
-                errors.append(f"매출 오류: {e}")
-
     # 완료 표시
     try:
         db.mark_orders_outbound_done([order_id], odate, rev_cat)
     except Exception as e:
         errors.append(f"mark_done 오류: {e}")
 
-    return {'outbound_count': outbound_count, 'revenue_count': revenue_count, 'errors': errors}
+    return {'outbound_count': outbound_count, 'errors': errors}

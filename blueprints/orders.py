@@ -619,14 +619,14 @@ def api_update_invoice():
 @orders_bp.route('/api/reprocess-revenue', methods=['POST'])
 @role_required('admin')
 def api_reprocess_revenue():
-    """출고 완료됐지만 매출 누락된 주문의 매출만 재생성"""
-    data = request.get_json() or {}
-    date_from = data.get('date_from')
-    date_to = data.get('date_to')
-
-    from services.order_to_stock_service import reprocess_revenue_only
-    result = reprocess_revenue_only(current_app.db, date_from=date_from, date_to=date_to)
-    return jsonify(result)
+    """매출 재처리 — 더 이상 daily_revenue 사전계산을 하지 않으므로 비활성화.
+    매출은 order_transactions에서 실시간 조회합니다."""
+    return jsonify({
+        'success': True,
+        'message': '매출은 order_transactions에서 실시간 집계됩니다. 별도 재처리 불필요.',
+        'revenue_count': 0, 'revenue_total': 0, 'processed_orders': 0,
+        'errors': [], 'logs': [],
+    })
 
 
 @orders_bp.route('/api/import-runs')
@@ -788,7 +788,7 @@ def api_n_delivery():
 
     result = db.upsert_order_batch(import_run_id, orders)
 
-    # 실시간 출고+매출 처리 (재고차감 + 매출기록)
+    # 실시간 출고 처리 (재고차감)
     rt_msg = ''
     if result.get('inserted', 0) + result.get('updated', 0) > 0:
         try:
@@ -796,12 +796,10 @@ def api_n_delivery():
             rt = process_realtime_outbound(db, import_run_id)
             result['realtime'] = rt
             oc = rt.get('outbound_count', 0)
-            rc = rt.get('revenue_count', 0)
-            rt_total = rt.get('revenue_total', 0)
-            rt_msg = f' (출고 {oc}건, 매출 {rc}건 {rt_total:,}원)'
+            rt_msg = f' (출고 {oc}건)'
         except Exception as rt_err:
             result['realtime_error'] = str(rt_err)
-            rt_msg = f' (⚠️ 출고/매출 자동처리 실패: {rt_err})'
+            rt_msg = f' (⚠️ 출고 자동처리 실패: {rt_err})'
 
     return jsonify({
         'success': True,

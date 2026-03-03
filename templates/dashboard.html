@@ -25,7 +25,10 @@
             <div class="card-body text-center">
                 <i class="bi bi-cash-stack text-success" style="font-size:1.8rem;"></i>
                 <div class="fs-3 fw-bold mt-2">{{ "{:,.0f}".format(data.kpi.today_revenue|default(0)) }}</div>
-                <small class="text-muted">오늘 매출 (원)</small>
+                <small class="text-muted">오늘 총매출 (원)</small>
+                {% if data.kpi.today_settlement|default(0) > 0 %}
+                <div class="small text-success mt-1">순매출 {{ "{:,.0f}".format(data.kpi.today_settlement) }}원</div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -54,7 +57,12 @@
     <span>
         <i class="bi bi-calendar3"></i>
         <strong>이번 달 매출:</strong>
-        <span class="text-success fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_revenue|default(0)) }}원</span>
+        <span class="text-primary fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_revenue|default(0)) }}원</span>
+        {% if data.kpi.month_settlement|default(0) > 0 %}
+        <span class="text-muted mx-2">|</span>
+        <span class="text-muted">순매출</span>
+        <span class="text-success fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_settlement) }}원</span>
+        {% endif %}
     </span>
     <span class="text-muted small">
         출고 완료: {{ data.kpi.done_outbound|default(0) }}건

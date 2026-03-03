@@ -35,10 +35,11 @@ def index():
         # 현재 데이터 건수 요약
         all_data = db.query_stock_ledger(date_to='9999-12-31')
         stats['stock_count'] = len(all_data) if all_data else 0
-        rev_data = db.query_revenue()
-        stats['revenue_count'] = len(rev_data) if rev_data else 0
+        # order_transactions 건수
+        order_res = db.client.table("order_transactions").select("id", count="exact").execute()
+        stats['order_count'] = order_res.count if order_res.count is not None else len(order_res.data or [])
     except Exception:
-        stats = {'stock_count': '조회 실패', 'revenue_count': '조회 실패'}
+        stats = {'stock_count': '조회 실패', 'order_count': '조회 실패'}
 
     return render_template('base_data/index.html', stats=stats)
 

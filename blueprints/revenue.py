@@ -32,7 +32,7 @@ def _allowed(filename):
 @revenue_bp.route('/')
 @role_required('admin', 'manager', 'sales', 'general')
 def index():
-    """매출 조회"""
+    """매출 조회 (order_transactions 기반)"""
     db = current_app.db
 
     date_from = request.args.get('date_from', '')
@@ -41,6 +41,8 @@ def index():
 
     data = []
     total_revenue = 0
+    total_settlement = 0
+    total_commission = 0
 
     try:
         data = db.query_revenue(
@@ -49,11 +51,16 @@ def index():
             category=category if category != '전체' else None,
         )
         total_revenue = sum(r.get('revenue', 0) for r in data)
+        total_settlement = sum(r.get('settlement', 0) for r in data)
+        total_commission = sum(r.get('commission', 0) for r in data)
     except Exception as e:
         flash(f'매출 조회 중 오류: {e}', 'danger')
 
     return render_template('revenue/index.html',
-                           revenues=data, total_revenue=total_revenue,
+                           revenues=data,
+                           total_revenue=total_revenue,
+                           total_settlement=total_settlement,
+                           total_commission=total_commission,
                            date_from=date_from, date_to=date_to,
                            category=category,
                            categories=REVENUE_CATEGORIES)
@@ -130,11 +137,15 @@ def export():
         # 컬럼 정리
         col_map = {
             'revenue_date': '매출일자',
+            'channel': '채널',
             'product_name': '품목명',
             'category': '매출구분',
             'qty': '수량',
-            'unit_price': '단가',
-            'revenue': '매출액',
+            'revenue': '총매출',
+            'settlement': '순매출(정산)',
+            'commission': '수수료',
+            'discount_amount': '할인액',
+            'shipping_fee': '배송비',
         }
         export_cols = [c for c in col_map.keys() if c in df.columns]
         df = df[export_cols].rename(columns=col_map)

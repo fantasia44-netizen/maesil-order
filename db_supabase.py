@@ -300,18 +300,58 @@ class SupabaseDB(DBBase):
         ).execute()
 
     def query_revenue(self, date_from=None, date_to=None, category=None, channel=None):
+        """매출 조회 (order_transactions 기반).
+        일별+채널별+품목별로 집계하여 반환.
+        기존 daily_revenue 호환 형식: revenue_date, product_name, category,
+            channel, qty, unit_price, revenue(=total_amount), settlement, commission
+        """
         def builder(table):
-            q = self.client.table(table).select("*").order("revenue_date", desc=True)
+            q = self.client.table(table).select(
+                "order_date,channel,product_name,qty,unit_price,"
+                "total_amount,settlement,commission,discount_amount,shipping_fee"
+            ).eq("status", "정상").order("order_date", desc=True)
             if date_from:
-                q = q.gte("revenue_date", date_from)
+                q = q.gte("order_date", date_from)
             if date_to:
-                q = q.lte("revenue_date", date_to)
-            if category and category != "전체":
-                q = q.eq("category", category)
+                q = q.lte("order_date", date_to)
             if channel and channel != "전체":
                 q = q.eq("channel", channel)
             return q
-        return self._paginate_query("daily_revenue", builder)
+
+        rows = self._paginate_query("order_transactions", builder)
+
+        # 일별+채널+품목 집계
+        from services.channel_config import CHANNEL_REVENUE_MAP
+        agg = {}
+        for r in rows:
+            ch = r.get("channel", "")
+            cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출") if not category or category == "전체" else category
+            if category and category != "전체":
+                # 카테고리 필터링
+                actual_cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출")
+                if actual_cat != category:
+                    continue
+
+            key = (r.get("order_date", ""), r.get("product_name", ""), ch)
+            if key not in agg:
+                actual_cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출")
+                agg[key] = {
+                    "revenue_date": r.get("order_date", ""),
+                    "product_name": r.get("product_name", ""),
+                    "category": actual_cat,
+                    "channel": ch,
+                    "qty": 0, "revenue": 0, "settlement": 0,
+                    "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                }
+            agg[key]["qty"] += (r.get("qty") or 0)
+            agg[key]["revenue"] += (r.get("total_amount") or 0)
+            agg[key]["settlement"] += (r.get("settlement") or 0)
+            agg[key]["commission"] += (r.get("commission") or 0)
+            agg[key]["discount_amount"] += (r.get("discount_amount") or 0)
+            agg[key]["shipping_fee"] += (r.get("shipping_fee") or 0)
+
+        result = sorted(agg.values(), key=lambda x: x["revenue_date"], reverse=True)
+        return result
 
     def delete_revenue_all(self):
         res = self.client.table("daily_revenue").delete().neq("id", 0).execute()
@@ -1731,32 +1771,47 @@ class SupabaseDB(DBBase):
             return 0
 
     def sum_revenue_by_date(self, date_str):
-        """특정 날짜의 총 매출액."""
+        """특정 날짜의 매출 합계 (order_transactions 기반).
+        Returns: dict {total_amount, settlement, commission, qty}
+        """
         try:
-            res = self.client.table("daily_revenue").select("revenue") \
-                .eq("revenue_date", date_str).execute()
-            return sum(r.get("revenue", 0) or 0 for r in (res.data or []))
+            res = self.client.table("order_transactions") \
+                .select("total_amount,settlement,commission,qty") \
+                .eq("order_date", date_str) \
+                .eq("status", "정상").execute()
+            total_amount = sum(r.get("total_amount", 0) or 0 for r in (res.data or []))
+            settlement = sum(r.get("settlement", 0) or 0 for r in (res.data or []))
+            commission = sum(r.get("commission", 0) or 0 for r in (res.data or []))
+            qty = sum(r.get("qty", 0) or 0 for r in (res.data or []))
+            return {
+                'total_amount': total_amount,
+                'settlement': settlement,
+                'commission': commission,
+                'qty': qty,
+            }
         except Exception:
-            return 0
+            return {'total_amount': 0, 'settlement': 0, 'commission': 0, 'qty': 0}
 
     def query_revenue_trend(self, days=30):
-        """최근 N일 매출 추이 (일별 합계)."""
+        """최근 N일 매출 추이 (order_transactions 기반, 일별 합계)."""
         try:
             date_from = days_ago_kst(days)
-            res = self.client.table("daily_revenue") \
-                .select("revenue_date,category,revenue") \
-                .gte("revenue_date", date_from) \
-                .order("revenue_date").execute()
-            # 일별 + 카테고리별 합산
+            res = self.client.table("order_transactions") \
+                .select("order_date,channel,total_amount,settlement,commission") \
+                .gte("order_date", date_from) \
+                .eq("status", "정상") \
+                .order("order_date").execute()
             daily = {}
             for r in (res.data or []):
-                d = r.get("revenue_date", "")
-                cat = r.get("category", "기타")
-                rev = r.get("revenue", 0) or 0
+                d = r.get("order_date", "")
+                ch = r.get("channel", "기타")
+                ta = r.get("total_amount", 0) or 0
+                st = r.get("settlement", 0) or 0
                 if d not in daily:
-                    daily[d] = {"date": d, "total": 0}
-                daily[d]["total"] += rev
-                daily[d][cat] = daily[d].get(cat, 0) + rev
+                    daily[d] = {"date": d, "total": 0, "settlement": 0}
+                daily[d]["total"] += ta
+                daily[d]["settlement"] += st
+                daily[d][ch] = daily[d].get(ch, 0) + ta
             return sorted(daily.values(), key=lambda x: x["date"])
         except Exception:
             return []
@@ -1809,19 +1864,22 @@ class SupabaseDB(DBBase):
             return []
 
     def query_top_products_by_revenue(self, days=30, limit=10):
-        """매출 TOP N 상품 (최근 N일)."""
+        """매출 TOP N 상품 (order_transactions 기반, 최근 N일)."""
         try:
             date_from = days_ago_kst(days)
-            res = self.client.table("daily_revenue") \
-                .select("product_name,qty,revenue") \
-                .gte("revenue_date", date_from).execute()
+            res = self.client.table("order_transactions") \
+                .select("product_name,qty,total_amount,settlement") \
+                .gte("order_date", date_from) \
+                .eq("status", "정상").execute()
             products = {}
             for r in (res.data or []):
                 pn = r.get("product_name", "")
                 if pn not in products:
-                    products[pn] = {"product_name": pn, "qty": 0, "revenue": 0}
+                    products[pn] = {"product_name": pn, "qty": 0,
+                                    "revenue": 0, "settlement": 0}
                 products[pn]["qty"] += (r.get("qty") or 0)
-                products[pn]["revenue"] += (r.get("revenue") or 0)
+                products[pn]["revenue"] += (r.get("total_amount") or 0)
+                products[pn]["settlement"] += (r.get("settlement") or 0)
             ranked = sorted(products.values(), key=lambda x: x["revenue"], reverse=True)
             return ranked[:limit]
         except Exception:

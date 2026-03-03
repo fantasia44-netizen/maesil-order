@@ -50,7 +50,7 @@
     <div class="col-lg-8">
         <div class="card h-100">
             <div class="card-header">
-                <i class="bi bi-funnel"></i> 매출 조회
+                <i class="bi bi-funnel"></i> 매출 조회 (주문서 기반)
             </div>
             <div class="card-body">
                 <form method="GET" action="{{ url_for('revenue.index') }}" class="row g-3 align-items-end">
@@ -82,6 +82,35 @@
     </div>
 </div>
 
+<!-- 매출 합계 KPI -->
+{% if revenues is defined and revenues %}
+<div class="row g-3 mt-3">
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">총매출</div>
+                <div class="fs-4 fw-bold text-primary">{{ '{:,.0f}'.format(total_revenue|default(0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-success">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">순매출 (정산액)</div>
+                <div class="fs-4 fw-bold text-success">{{ '{:,.0f}'.format(total_settlement|default(0)) }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-warning">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">수수료</div>
+                <div class="fs-4 fw-bold text-warning">{{ '{:,.0f}'.format(total_commission|default(0)) }}원</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- 매출 테이블 -->
 {% if revenues is defined and revenues %}
@@ -89,9 +118,6 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-currency-won"></i> 매출 내역 ({{ revenues|length }}건)</span>
         <div class="d-flex gap-2 align-items-center">
-            {% if current_user.role == 'manager' %}
-            <button class="edit-mode-toggle view-mode" id="btnEditModeToggle" onclick="toggleEditMode()">🔒 보기모드</button>
-            {% endif %}
             <a href="{{ url_for('revenue.export', date_from=date_from|default(''), date_to=date_to|default(''), category=category|default('')) }}"
                class="btn btn-sm btn-outline-success">
                 <i class="bi bi-download"></i> 엑셀 다운로드
@@ -104,48 +130,33 @@
                 <thead class="table-light">
                     <tr>
                         <th><i class="bi bi-calendar-event"></i> 매출일</th>
+                        <th><i class="bi bi-shop"></i> 채널</th>
                         <th><i class="bi bi-box-seam"></i> 품목명</th>
-                        <th><i class="bi bi-tag"></i> 카테고리</th>
                         <th class="text-end"><i class="bi bi-hash"></i> 수량</th>
-                        <th class="text-end"><i class="bi bi-coin"></i> 단가</th>
-                        <th class="text-end"><i class="bi bi-cash-stack"></i> 매출액</th>
-                        {% if current_user.role in ['admin', 'manager'] %}
-                        <th style="width:60px" class="text-center">관리</th>
-                        {% endif %}
+                        <th class="text-end"><i class="bi bi-cash-stack"></i> 총매출</th>
+                        <th class="text-end"><i class="bi bi-cash-coin"></i> 순매출</th>
+                        <th class="text-end"><i class="bi bi-percent"></i> 수수료</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% set total_revenue = namespace(val=0) %}
                     {% for rev in revenues %}
                     <tr>
                         <td>{{ rev.revenue_date|default('-') }}</td>
+                        <td>{{ rev.channel|default('-') }}</td>
                         <td>{{ rev.product_name }}</td>
-                        <td>{{ rev.category|default('-') }}</td>
                         <td class="text-end">{{ rev.qty|fmt_qty }}</td>
-                        <td class="text-end">{{ '{:,.0f}'.format(rev.unit_price|default(0)) }}</td>
                         <td class="text-end fw-bold">{{ '{:,.0f}'.format(rev.revenue|default(0)) }}</td>
-                        {% if current_user.role in ['admin', 'manager'] %}
-                        <td class="text-center">
-                            <form method="POST" action="{{ url_for('revenue.delete_revenue', revenue_id=rev.id) }}" class="d-inline rev-delete-btn"
-                                  onsubmit="return confirm('이 매출을 삭제하시겠습니까?\n{{ rev.product_name }} / {{ '{:,.0f}'.format(rev.revenue|default(0)) }}원')">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="date_from" value="{{ date_from|default('') }}">
-                                <input type="hidden" name="date_to" value="{{ date_to|default('') }}">
-                                <input type="hidden" name="category" value="{{ category|default('') }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="삭제">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
-                        </td>
-                        {% endif %}
+                        <td class="text-end text-success">{{ '{:,.0f}'.format(rev.settlement|default(0)) }}</td>
+                        <td class="text-end text-warning">{{ '{:,.0f}'.format(rev.commission|default(0)) }}</td>
                     </tr>
-                    {% set total_revenue.val = total_revenue.val + (rev.revenue|default(0)) %}
                     {% endfor %}
                 </tbody>
                 <tfoot class="table-light">
                     <tr>
-                        <th colspan="{% if current_user.role in ['admin', 'manager'] %}6{% else %}5{% endif %}" class="text-end">합계</th>
-                        <th class="text-end">{{ '{:,.0f}'.format(total_revenue.val) }}</th>
+                        <th colspan="4" class="text-end">합계</th>
+                        <th class="text-end">{{ '{:,.0f}'.format(total_revenue|default(0)) }}</th>
+                        <th class="text-end text-success">{{ '{:,.0f}'.format(total_settlement|default(0)) }}</th>
+                        <th class="text-end text-warning">{{ '{:,.0f}'.format(total_commission|default(0)) }}</th>
                     </tr>
                 </tfoot>
             </table>
@@ -156,28 +167,5 @@
 <div class="alert alert-info mt-4">
     <i class="bi bi-info-circle"></i> 해당 조건의 매출 데이터가 없습니다.
 </div>
-{% endif %}
-
-{% if current_user.role in ['admin', 'manager'] %}
-<script>
-const isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};
-let editMode = isAdmin;
-
-function toggleEditMode() {
-    editMode = !editMode;
-    const btn = document.getElementById('btnEditModeToggle');
-    if(btn){
-        btn.className = editMode ? 'edit-mode-toggle edit-mode' : 'edit-mode-toggle view-mode';
-        btn.innerHTML = editMode ? '✏️ 수정모드' : '🔒 보기모드';
-    }
-    applyEditMode();
-}
-function applyEditMode() {
-    document.querySelectorAll('.rev-delete-btn').forEach(el => el.style.display = editMode ? '' : 'none');
-    document.querySelectorAll('.rev-manage-section').forEach(el => el.style.display = editMode ? '' : 'none');
-}
-document.addEventListener('DOMContentLoaded', applyEditMode);
-
-</script>
 {% endif %}
 {% endblock %}
