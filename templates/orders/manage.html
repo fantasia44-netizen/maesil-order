@@ -295,7 +295,7 @@ function loadOrders() {
     tbody.innerHTML = '<tr><td colspan="11" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> 조회 중...</td></tr>';
 
     fetch(`{{ url_for('orders.api_orders') }}?${params}`)
-        .then(r => r.json())
+        .then(parseJsonSafe)
         .then(data => {
             const orders = data.orders || [];
             if (!orders.length) {
@@ -360,7 +360,7 @@ function showDetail(orderId) {
     modal.show();
 
     fetch(`{{ url_for('orders.api_orders') }}/${orderId}`)
-        .then(r => r.json())
+        .then(parseJsonSafe)
         .then(data => {
             const t = data.transaction || {};
             const s = data.shipping || {};
@@ -491,7 +491,7 @@ function submitCancel() {
         },
         body: JSON.stringify({ type, reason })
     })
-    .then(r => r.json())
+    .then(parseJsonSafe)
     .then(data => {
         btn.disabled = false;
         btn.textContent = '확인';
@@ -559,7 +559,7 @@ function submitEdit() {
             reason: reason
         })
     })
-    .then(r => r.json())
+    .then(parseJsonSafe)
     .then(data => {
         btn.disabled = false;
         btn.textContent = '저장';
@@ -618,7 +618,7 @@ function submitInvoice() {
         },
         body: JSON.stringify({ channel, order_no: orderNo, invoice_no: invoiceNo, courier })
     })
-    .then(r => r.json())
+    .then(parseJsonSafe)
     .then(data => {
         btn.disabled = false;
         btn.textContent = '저장';
@@ -645,7 +645,7 @@ function submitInvoice() {
 
 function loadImportRuns() {
     fetch('{{ url_for("orders.api_import_runs") }}')
-        .then(r => r.json())
+        .then(parseJsonSafe)
         .then(data => {
             const tbody = document.getElementById('importsBody');
             const runs = data.runs || [];

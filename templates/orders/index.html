@@ -277,6 +277,19 @@
 {% block extra_js %}
 <script>
 (function() {
+
+    function parseJsonSafe(res) {
+        const ct = (res.headers && res.headers.get('content-type')) ? res.headers.get('content-type') : '';
+        if (ct && ct.indexOf('application/json') !== -1) {
+            return res.json();
+        }
+        return res.text().then(function(t) {
+            const snippet = (t || '').slice(0, 300);
+            throw new Error(`Unexpected non-JSON response (${res.status}). Possibly session expired/CSRF/Server error. Response: ${snippet}`);
+        });
+    }
+
+
     const csrfToken = '{{ csrf_token() }}';
     let unmatchedItems = {{ unmatched_items|default([])|tojson }};
     let registeredCount = 0;
@@ -369,7 +382,7 @@
         }
         searchTimeout = setTimeout(function() {
             fetch('/orders/api/option-search?q=' + encodeURIComponent(q))
-                .then(function(res) { return res.json(); })
+                .then(parseJsonSafe)
                 .then(function(data) {
                     var idx = parseInt(document.getElementById('mappingIdx').value);
                     renderSearchResults(data, idx);
@@ -444,7 +457,7 @@
                 barcode: barcode || ''
             })
         })
-        .then(function(res) { return res.json(); })
+        .then(parseJsonSafe)
         .then(function(data) {
             if (data.success) {
                 markAsRegistered(idx, productName);
@@ -468,7 +481,7 @@
                 'X-CSRFToken': csrfToken
             }
         })
-        .then(function(res) { return res.json(); })
+        .then(parseJsonSafe)
         .then(function(data) {
             if (data.success) {
                 bootstrap.Modal.getInstance(document.getElementById('unmatchedModal')).hide();

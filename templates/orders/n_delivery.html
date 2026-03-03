@@ -115,7 +115,7 @@ function submitNDelivery() {
         },
         body: JSON.stringify({ order_date: orderDate, items })
     })
-    .then(r => r.json())
+    .then(parseJsonSafe)
     .then(data => {
         const area = document.getElementById('resultArea');
         const alert = document.getElementById('resultAlert');
