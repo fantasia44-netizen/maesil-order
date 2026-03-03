@@ -72,6 +72,18 @@
                     </div>
                 </div>
 
+                <!-- 이력번호/등급 (선택) -->
+                <div class="row g-2 mb-2">
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">이력번호 <small class="text-muted">(선택)</small></label>
+                        <input type="text" id="lotInput" class="form-control form-control-sm" placeholder="이력번호">
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">등급 <small class="text-muted">(선택)</small></label>
+                        <input type="text" id="gradeInput" class="form-control form-control-sm" placeholder="등급">
+                    </div>
+                </div>
+
                 <!-- 등록 대기 목록 테이블 -->
                 <div class="table-responsive mt-3" style="max-height:350px; overflow-y:auto;">
                     <table class="table table-sm table-hover table-bordered mb-0" id="pendingTable">
@@ -198,6 +210,8 @@
     const clearAllBtn = document.getElementById('clearAllBtn');
     const itemCountBadge = document.getElementById('itemCountBadge');
     const submitCount = document.getElementById('submitCount');
+    const lotInput = document.getElementById('lotInput');
+    const gradeInput = document.getElementById('gradeInput');
     const dateInput = document.getElementById('transferDate');
     const modeSelect = document.getElementById('transferMode');
     const resultCard = document.getElementById('resultCard');
@@ -318,11 +332,15 @@
             to_location: toLoc,
             stock_qty: stockQty,
             unit: unit,
+            lot_number: lotInput.value.trim(),
+            grade: gradeInput.value.trim(),
         });
 
         // 입력 필드 초기화 (위치는 유지)
         productInput.value = '';
         qtyInput.value = '';
+        lotInput.value = '';
+        gradeInput.value = '';
         stockInfo.textContent = '';
         selectedProduct = null;
         productInput.focus();
@@ -342,11 +360,13 @@
         } else {
             pendingItems.forEach((item, idx) => {
                 const isShort = (typeof item.stock_qty === 'number' && item.qty > item.stock_qty);
+                const lotBadge = item.lot_number ? ` <span class="badge bg-info small">${escapeHtml(item.lot_number)}</span>` : '';
+                const gradeBadge = item.grade ? ` <span class="badge bg-secondary small">${escapeHtml(item.grade)}</span>` : '';
                 const tr = document.createElement('tr');
                 if (isShort) tr.className = 'table-warning';
                 tr.innerHTML = `
                     <td class="text-muted small">${idx + 1}</td>
-                    <td class="small" title="${escapeHtml(item.product_name)}">${escapeHtml(item.product_name)}</td>
+                    <td class="small" title="${escapeHtml(item.product_name)}">${escapeHtml(item.product_name)}${lotBadge}${gradeBadge}</td>
                     <td class="small">${escapeHtml(item.from_location)}</td>
                     <td class="small">${escapeHtml(item.to_location)}</td>
                     <td class="text-end small fw-semibold">${item.qty.toLocaleString()}</td>
@@ -405,6 +425,8 @@
                     qty: item.qty,
                     from_location: item.from_location,
                     to_location: item.to_location,
+                    lot_number: item.lot_number || '',
+                    grade: item.grade || '',
                 })),
             };
 

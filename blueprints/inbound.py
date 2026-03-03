@@ -108,7 +108,7 @@ def api_update(record_id):
     if not data:
         return jsonify({'error': '수정 데이터가 없습니다.'}), 400
     allowed = {'product_name', 'qty', 'location', 'category', 'unit',
-               'expiry_date', 'storage_method', 'manufacture_date', 'origin', 'lot_number'}
+               'expiry_date', 'storage_method', 'manufacture_date', 'origin', 'lot_number', 'grade'}
     update_data = {k: v for k, v in data.items() if k in allowed}
     if 'qty' in update_data:
         try:

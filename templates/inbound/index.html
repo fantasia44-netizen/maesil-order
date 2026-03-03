@@ -109,6 +109,10 @@
                         <label class="form-label small mb-1">이력번호</label>
                         <input type="text" id="lotInput" class="form-control form-control-sm" placeholder="선택">
                     </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small mb-1">등급</label>
+                        <input type="text" id="gradeInput" class="form-control form-control-sm" placeholder="선택">
+                    </div>
                 </div>
 
                 <!-- 대기 목록 -->
@@ -315,6 +319,7 @@
     const expiryInput = document.getElementById('expiryInput');
     const originInput = document.getElementById('originInput');
     const lotInput = document.getElementById('lotInput');
+    const gradeInput = document.getElementById('gradeInput');
     const acList = document.getElementById('acList');
     const addBtn = document.getElementById('addItemBtn');
     const pendingBody = document.getElementById('pendingBody');
@@ -399,6 +404,7 @@
             expiry_date: expiryInput.value || '',
             origin: originInput.value.trim(),
             lot_number: lotInput.value.trim(),
+            grade: gradeInput.value.trim(),
         });
 
         productInput.value = ''; qtyInput.value = '';

@@ -82,11 +82,15 @@ def manual():
         flash('출발 창고와 도착 창고가 같습니다.', 'danger')
         return redirect(url_for('transfer.index'))
 
+    lot_number = request.form.get('lot_number', '').strip() or None
+    grade = request.form.get('grade', '').strip() or None
+
     try:
         from services.transfer_service import process_manual_transfer
         result = process_manual_transfer(
             current_app.db, product_name, qty,
             from_location, to_location, date_str, mode,
+            lot_number=lot_number, grade=grade,
         )
 
         if result.get('warnings'):
@@ -136,26 +140,36 @@ def batch():
         if from_loc == to_loc:
             return jsonify({'error': f'{i+1}번째 항목 ({name}): 출발/도착 창고가 같습니다.'}), 400
 
-    # DataFrame 으로 변환하여 기존 process_transfer_excel 재활용
-    rows = []
-    for item in items:
-        rows.append({
-            '품목명': str(item['product_name']).strip(),
-            '현재창고위치': str(item['from_location']).strip(),
-            '이동창고위치': str(item['to_location']).strip(),
-            '수량입력': float(item['qty']) if float(item['qty']) != int(float(item['qty'])) else int(float(item['qty'])),
-        })
-    df = pd.DataFrame(rows)
-
     try:
-        from services.transfer_service import process_transfer_excel
-        result = process_transfer_excel(current_app.db, df, date_str, mode)
+        from services.transfer_service import process_manual_transfer
+
+        total_count = 0
+        all_warnings = []
+        deleted_count = 0
+
+        for i, item in enumerate(items):
+            # 수정입력은 첫 항목에서만 적용 (한 번만 삭제)
+            item_mode = mode if i == 0 else '신규입력'
+            result = process_manual_transfer(
+                current_app.db,
+                str(item['product_name']).strip(),
+                float(item['qty']),
+                str(item['from_location']).strip(),
+                str(item['to_location']).strip(),
+                date_str,
+                item_mode,
+                lot_number=str(item.get('lot_number', '')).strip() or None,
+                grade=str(item.get('grade', '')).strip() or None,
+            )
+            total_count += result.get('moved_count', 0)
+            all_warnings.extend(result.get('warnings', []))
+            deleted_count += result.get('deleted_count', 0)
 
         return jsonify({
             'success': True,
-            'count': result.get('count', 0),
-            'warnings': result.get('warnings', []),
-            'deleted_count': result.get('deleted_count', 0),
+            'count': total_count,
+            'warnings': all_warnings,
+            'deleted_count': deleted_count,
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400

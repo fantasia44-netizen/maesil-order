@@ -329,6 +329,8 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                         "unit": g.get('unit', '개'),
                         "origin": g.get('origin', '') or mat_origin,
                         "manufacture_date": g.get('manufacture_date', ''),
+                        "lot_number": g.get('lot_number', '') or None,
+                        "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
                     })
                     g['qty'] -= deduct
@@ -437,6 +439,8 @@ def process_production_batch(db, date_str, mode, location, items):
             "unit": prod_unit,
             "manufacture_date": safe_date(item.get('manufacture_date', '')),
             "food_type": str(item.get('food_type', '')).strip(),
+            "lot_number": str(item.get('lot_number', '')).strip() or None,
+            "grade": str(item.get('grade', '')).strip() or None,
             "batch_id": batch_id,
         })
         prod_count += 1
@@ -496,6 +500,8 @@ def process_production_batch(db, date_str, mode, location, items):
                         "storage_method": g['storage_method'],
                         "unit": g.get('unit', '개'),
                         "manufacture_date": g.get('manufacture_date', ''),
+                        "lot_number": g.get('lot_number', '') or None,
+                        "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
                     })
                     g['qty'] -= deduct
@@ -522,6 +528,8 @@ def process_production_batch(db, date_str, mode, location, items):
                         "storage_method": g['storage_method'],
                         "unit": g.get('unit', '개'),
                         "manufacture_date": g.get('manufacture_date', ''),
+                        "lot_number": g.get('lot_number', '') or None,
+                        "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
                     })
                     g['qty'] -= deduct
