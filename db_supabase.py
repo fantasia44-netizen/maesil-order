@@ -464,9 +464,11 @@ class SupabaseDB(DBBase):
             nm = _n(r.get('품목명', '') or r.get('product_name', ''))
             if not nm:
                 continue
+            naver = float(r.get('네이버판매가', r.get('naver_price', 0)) or 0)
             price_map[nm] = {
                 'SKU': str(r.get('SKU', r.get('sku', ''))),
-                '네이버판매가': float(r.get('네이버판매가', r.get('naver_price', 0)) or 0),
+                '네이버판매가': naver,
+                '자사몰판매가': float(r.get('자사몰판매가', r.get('jasa_price', 0)) or 0) or naver,
                 '쿠팡판매가': float(r.get('쿠팡판매가', r.get('coupang_price', 0)) or 0),
                 '로켓판매가': float(r.get('로켓판매가', r.get('rocket_price', 0)) or 0),
             }
@@ -1287,8 +1289,10 @@ class SupabaseDB(DBBase):
         import unicodedata
         _CATEGORY_PRICE_COL = {
             "일반매출": "네이버판매가",
+            "자사몰매출": "자사몰판매가",
             "쿠팡매출": "쿠팡판매가",
             "로켓": "로켓판매가",
+            "N배송": "네이버판매가",
             "N배송(용인)": "네이버판매가",
         }
 

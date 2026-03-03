@@ -11,16 +11,20 @@ CATEGORY_RULES = [
     ("클레임", "클레임"),
     ("기타출고", "기타출고"),
     ("무상매출", "무상매출"),
+    ("자사몰", "자사몰매출"),
     ("용인", "N배송(용인)"),
+    ("N배송", "N배송"),
     ("쿠팡", "쿠팡매출"),
 ]
-ALL_CATEGORIES = ["일반매출", "쿠팡매출", "오배송", "클레임", "기타출고", "무상매출", "N배송(용인)", "로켓"]
+ALL_CATEGORIES = ["일반매출", "자사몰매출", "쿠팡매출", "오배송", "클레임", "기타출고", "무상매출", "N배송(용인)", "N배송", "로켓"]
 
 # 매출 대상 카테고리 → 가격표 컬럼 매핑 (오배송/클레임/기타출고/무상매출 = 매출 제외)
 REVENUE_CATEGORIES = {
     "일반매출": "네이버판매가",
+    "자사몰매출": "자사몰판매가",
     "쿠팡매출": "쿠팡판매가",
     "로켓": "로켓판매가",
+    "N배송": "네이버판매가",
     "N배송(용인)": "네이버판매가",
 }
 
@@ -280,9 +284,11 @@ class Aggregator:
                 nm = _norm(row.get(_norm('품목명'), ''))
                 if not nm:
                     continue
+                naver = float(row.get(_norm('네이버판매가'), 0))
                 self.price_map[nm] = {
                     'SKU': str(row.get('SKU', '')),
-                    '네이버판매가': float(row.get(_norm('네이버판매가'), 0)),
+                    '네이버판매가': naver,
+                    '자사몰판매가': float(row.get(_norm('자사몰판매가'), 0)) or naver,
                     '쿠팡판매가': float(row.get(_norm('쿠팡판매가'), 0)),
                     '로켓판매가': float(row.get(_norm('로켓판매가'), 0))
                 }
@@ -437,7 +443,7 @@ class Aggregator:
                     rev_data[rev_key][cat] += qty
 
                     # === 출고용: 세트 분해 (N배송은 세트 그대로) ===
-                    if cat == "N배송(용인)":
+                    if cat in ("N배송(용인)", "N배송"):
                         # N배송은 세트 상태로 출고 → 분해하지 않음
                         key = (name, row_wh)
                         if key not in data:

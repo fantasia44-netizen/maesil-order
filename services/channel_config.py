@@ -398,7 +398,7 @@ def get_field_label(field):
 # order_transactions 자동 처리 시 channel → daily_revenue.category 결정
 CHANNEL_REVENUE_MAP = {
     "스마트스토어": "일반매출",
-    "자사몰":       "일반매출",
+    "자사몰":       "자사몰매출",
     "옥션/G마켓":   "일반매출",
     "오아시스":     "일반매출",
     "11번가":       "일반매출",
@@ -414,8 +414,10 @@ SIMPLE_INVOICE_CHANNELS = {"해미애찬"}
 # 매출 유형 → 가격표 컬럼 매핑 (resolve_unit_price에서도 사용)
 CATEGORY_PRICE_COL = {
     "일반매출":     "네이버판매가",
+    "자사몰매출":   "자사몰판매가",
     "쿠팡매출":     "쿠팡판매가",
     "로켓":         "로켓판매가",
+    "N배송":        "네이버판매가",
     "N배송(용인)":  "네이버판매가",
 }
 

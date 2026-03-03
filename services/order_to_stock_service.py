@@ -224,7 +224,7 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
 
         # N배송 주문인 경우 분해하지 않음
-        is_n_delivery = (ch == 'N배송_수동' or rev_cat == 'N배송(용인)')
+        is_n_delivery = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
 
         # BOM 분해 (쿠팡 채널은 쿠팡전용 BOM 우선)
         if is_n_delivery:
@@ -440,7 +440,7 @@ def process_realtime_outbound(db, import_run_id):
 
         stk_date = today_str
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
-        is_n = (ch == 'N배송_수동' or rev_cat == 'N배송(용인)')
+        is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
 
         # BOM 분해
         if is_n:
@@ -593,7 +593,7 @@ def reverse_order_stock(db, order_id):
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
 
-    is_n = (ch == 'N배송_수동' or rev_cat == 'N배송(용인)')
+    is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
 
     if is_n:
         decomposed = {pname: qty}
@@ -662,7 +662,7 @@ def process_single_order_realtime(db, order_id):
     stk_date = _stock_date()
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
-    is_n = (ch == 'N배송_수동' or rev_cat == 'N배송(용인)')
+    is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
 
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)
