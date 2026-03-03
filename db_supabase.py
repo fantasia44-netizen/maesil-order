@@ -13,14 +13,21 @@ _option_cache = {
     'data': None,         # 전체 옵션 목록
     'data_list': None,    # OrderProcessor 호환 dict list
     'ts': 0,              # 마지막 로드 시간
-    'ttl': 300,           # 5분 캐시 (초)
+    'ttl': 1800,          # 30분 캐시 (초) — 옵션마스터는 자주 안 바뀜
 }
 
 # 권한 메모리 캐시 (TTL 기반)
 _perm_cache = {
     'data': None,         # {role: {page_key: bool}}
     'ts': 0,
-    'ttl': 300,
+    'ttl': 600,           # 10분 캐시 (초)
+}
+
+# 가격표 메모리 캐시 (TTL 기반)
+_price_cache = {
+    'data': None,         # {product_name: {SKU, 네이버판매가, 쿠팡판매가, 로켓판매가}}
+    'ts': 0,
+    'ttl': 1800,          # 30분 캐시 (초)
 }
 
 
@@ -401,9 +408,13 @@ class SupabaseDB(DBBase):
         except:
             return -1
 
-    def query_price_table(self):
-        """가격표(master_prices) 전체 조회 → aggregator.price_map 호환 dict 반환."""
+    def query_price_table(self, use_cache=True):
+        """가격표(master_prices) 전체 조회 → aggregator.price_map 호환 dict 반환. (캐시 적용)"""
         import unicodedata
+        now = time.time()
+        if use_cache and _price_cache['data'] is not None and (now - _price_cache['ts']) < _price_cache['ttl']:
+            return _price_cache['data']
+
         def _n(t): return unicodedata.normalize('NFC', str(t).strip())
 
         rows = self.query_master_table('master_prices')
@@ -418,6 +429,9 @@ class SupabaseDB(DBBase):
                 '쿠팡판매가': float(r.get('쿠팡판매가', r.get('coupang_price', 0)) or 0),
                 '로켓판매가': float(r.get('로켓판매가', r.get('rocket_price', 0)) or 0),
             }
+
+        _price_cache['data'] = price_map
+        _price_cache['ts'] = now
         return price_map
 
     # --- product_costs (품목별 단가: 매입/생산 구분) ---
@@ -1340,61 +1354,119 @@ class SupabaseDB(DBBase):
             return result
 
     def _upsert_order_batch_fallback(self, import_run_id, orders):
-        """RPC 실패 시 REST API로 개별 upsert (트랜잭션 보호 없음, 비상용)."""
+        """RPC 실패 시 REST API 배치 upsert (최적화: 50건씩 배치 처리)."""
         inserted, updated, skipped, failed = 0, 0, 0, 0
         errors = []
-        for i, order in enumerate(orders):
-            txn = order.get("transaction", {})
-            ship = order.get("shipping", {})
-            try:
-                # 기존 주문 조회
-                existing = self.client.table("order_transactions").select("id,raw_hash,status") \
-                    .eq("channel", txn.get("channel", "")) \
-                    .eq("order_no", txn.get("order_no", "")) \
-                    .eq("line_no", txn.get("line_no", 1)).execute()
+        from datetime import datetime, timedelta, timezone
 
-                if existing.data:
-                    rec = existing.data[0]
+        BATCH = 50
+        for batch_start in range(0, len(orders), BATCH):
+            batch = orders[batch_start:batch_start + BATCH]
+
+            # 1단계: 배치 내 기존 주문 한번에 조회 (채널별 .in_() 사용)
+            by_channel = {}
+            for order in batch:
+                txn = order.get("transaction", {})
+                ch = txn.get("channel", "")
+                ono = txn.get("order_no", "")
+                by_channel.setdefault(ch, set()).add(ono)
+
+            existing_map = {}  # (channel, order_no, line_no) → {id, raw_hash, status}
+            for ch, order_nos in by_channel.items():
+                try:
+                    res = self.client.table("order_transactions") \
+                        .select("id,channel,order_no,line_no,raw_hash,status") \
+                        .eq("channel", ch) \
+                        .in_("order_no", list(order_nos)) \
+                        .execute()
+                    for rec in (res.data or []):
+                        key = (rec.get('channel', ''), rec.get('order_no', ''), rec.get('line_no', 1))
+                        existing_map[key] = rec
+                except Exception as e:
+                    print(f"[DB] fallback batch lookup error: {e}")
+
+            # 2단계: 분류 (insert / update / skip)
+            to_insert = []
+            to_update = []  # (id, txn_update)
+            ship_batch = []
+
+            for i, order in enumerate(batch, batch_start + 1):
+                txn = order.get("transaction", {})
+                ship = order.get("shipping", {})
+                key = (txn.get("channel", ""), txn.get("order_no", ""), txn.get("line_no", 1))
+                rec = existing_map.get(key)
+
+                if rec:
                     if rec.get("status") in ("취소", "환불"):
                         skipped += 1
                         continue
                     if rec.get("raw_hash") and rec.get("raw_hash") == txn.get("raw_hash"):
                         skipped += 1
                         continue
-                    # UPDATE
+                    # UPDATE 대상
                     txn_update = {k: v for k, v in txn.items() if k != "raw_data"}
                     txn_update["import_run_id"] = import_run_id
                     if "raw_data" in txn:
                         txn_update["raw_data"] = txn["raw_data"]
-                    self.client.table("order_transactions").update(txn_update) \
-                        .eq("id", rec["id"]).execute()
-                    updated += 1
+                    to_update.append((rec["id"], txn_update, i))
                 else:
-                    # INSERT
+                    # INSERT 대상
                     txn["import_run_id"] = import_run_id
-                    self.client.table("order_transactions").insert(txn).execute()
-                    inserted += 1
+                    to_insert.append((txn, i))
 
-                # shipping upsert
+                # shipping 수집
                 if ship and ship.get("name"):
                     ship_data = {
                         "channel": txn.get("channel", ""),
                         "order_no": txn.get("order_no", ""),
                         **{k: v for k, v in ship.items() if k not in ("channel", "order_no")},
+                        "expires_at": (datetime.now(timezone.utc) + timedelta(days=180)).isoformat(),
                     }
-                    from datetime import datetime, timedelta, timezone
-                    ship_data["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=180)).isoformat()
-                    self.client.table("order_shipping").upsert(
-                        ship_data, on_conflict="channel,order_no"
-                    ).execute()
+                    ship_batch.append(ship_data)
 
-            except Exception as e:
-                failed += 1
-                err_msg = str(e)
-                errors.append({"row": i + 1, "order_no": txn.get("order_no", ""), "error": err_msg})
-                # 첫 3건 에러만 상세 출력 (디버깅용)
-                if failed <= 3:
-                    print(f"[DB] fallback row {i+1} ({txn.get('order_no', '?')}): {err_msg[:200]}")
+            # 3단계: 배치 INSERT
+            if to_insert:
+                try:
+                    rows = [t[0] for t in to_insert]
+                    self.client.table("order_transactions").insert(rows).execute()
+                    inserted += len(rows)
+                except Exception as e:
+                    # 배치 실패 시 개별 재시도
+                    for txn_data, row_i in to_insert:
+                        try:
+                            self.client.table("order_transactions").insert(txn_data).execute()
+                            inserted += 1
+                        except Exception as e2:
+                            failed += 1
+                            errors.append({"row": row_i, "order_no": txn_data.get("order_no", ""), "error": str(e2)})
+
+            # 4단계: UPDATE (개별 — id 기반이라 배치 불가)
+            for rec_id, txn_update, row_i in to_update:
+                try:
+                    self.client.table("order_transactions").update(txn_update) \
+                        .eq("id", rec_id).execute()
+                    updated += 1
+                except Exception as e:
+                    failed += 1
+                    errors.append({"row": row_i, "order_no": txn_update.get("order_no", ""), "error": str(e)})
+                    if failed <= 3:
+                        print(f"[DB] fallback update row {row_i}: {str(e)[:200]}")
+
+            # 5단계: shipping 배치 upsert
+            if ship_batch:
+                try:
+                    self.client.table("order_shipping").upsert(
+                        ship_batch, on_conflict="channel,order_no"
+                    ).execute()
+                except Exception:
+                    # 배치 실패 시 개별 재시도
+                    for sd in ship_batch:
+                        try:
+                            self.client.table("order_shipping").upsert(
+                                sd, on_conflict="channel,order_no"
+                            ).execute()
+                        except Exception:
+                            pass
 
         # import_runs 결과 갱신
         status = "completed" if failed == 0 else ("partial" if inserted + updated > 0 else "failed")
@@ -1869,11 +1941,44 @@ class SupabaseDB(DBBase):
                 count += 1
         return count
 
+    def _batch_query_orders_by_keys(self, order_keys, date_from=None, date_to=None,
+                                      channel_filter=None, status=None, limit=200):
+        """(channel, order_no) 쌍 목록으로 order_transactions 배치 조회.
+        채널별 .in_() 사용하여 N+1 제거.
+        """
+        by_channel = {}
+        for ch, ono in order_keys:
+            by_channel.setdefault(ch, set()).add(ono)
+
+        results = []
+        for ch, order_nos in by_channel.items():
+            if channel_filter and ch != channel_filter:
+                continue
+            for i in range(0, len(order_nos), 200):
+                batch_nos = list(order_nos)[i:i+200]
+                try:
+                    q = self.client.table("order_transactions").select("*") \
+                        .eq("channel", ch).in_("order_no", batch_nos)
+                    if date_from:
+                        q = q.gte("order_date", date_from)
+                    if date_to:
+                        q = q.lte("order_date", date_to)
+                    if status:
+                        q = q.eq("status", status)
+                    res = q.execute()
+                    if res.data:
+                        results.extend(res.data)
+                except Exception:
+                    pass
+        results.sort(key=lambda x: x.get('order_date', ''), reverse=True)
+        return results[:limit]
+
     def query_order_transactions_extended(self, date_from=None, date_to=None,
                                            channel=None, status=None,
                                            search=None, search_field=None,
                                            limit=100, offset=0):
         """주문 확장 검색 (송장번호/수취인명 검색 포함).
+        최적화: 채널별 배치 .in_() 조회 (N+1 제거).
 
         search_field: 'all'(기본), 'order_no', 'product', 'invoice', 'recipient'
         """
@@ -1884,24 +1989,10 @@ class SupabaseDB(DBBase):
                 shipping = self.search_order_shipping(search, field=sf)
                 if not shipping:
                     return []
-                # (channel, order_no) 쌍으로 필터
                 order_keys = [(s['channel'], s['order_no']) for s in shipping]
-                # 최대 50개까지 검색
-                results = []
-                for ch_key, ono in order_keys[:50]:
-                    q = self.client.table("order_transactions").select("*") \
-                        .eq("channel", ch_key).eq("order_no", ono)
-                    if date_from:
-                        q = q.gte("order_date", date_from)
-                    if date_to:
-                        q = q.lte("order_date", date_to)
-                    if status:
-                        q = q.eq("status", status)
-                    res = q.execute()
-                    if res.data:
-                        results.extend(res.data)
-                results.sort(key=lambda x: x.get('order_date', ''), reverse=True)
-                results = results[:limit]
+                results = self._batch_query_orders_by_keys(
+                    order_keys[:200], date_from, date_to, channel, status, limit
+                )
                 if results:
                     self._merge_invoice_no(results)
                 return results
@@ -1931,29 +2022,20 @@ class SupabaseDB(DBBase):
             res = q.execute()
             results = res.data or []
 
-            # "전체" 검색이면 수취인명 검색 결과도 병합
+            # "전체" 검색이면 수취인명 검색 결과도 병합 (배치 조회)
             if search and search_field in ('all', '', None):
                 try:
                     shipping = self.search_order_shipping(search, field='name')
                     if shipping:
                         existing_ids = {r['id'] for r in results}
                         order_keys = [(s['channel'], s['order_no']) for s in shipping]
-                        for ch_key, ono in order_keys[:30]:
-                            sq = self.client.table("order_transactions").select("*") \
-                                .eq("channel", ch_key).eq("order_no", ono)
-                            if date_from:
-                                sq = sq.gte("order_date", date_from)
-                            if date_to:
-                                sq = sq.lte("order_date", date_to)
-                            if channel:
-                                sq = sq.eq("channel", channel)
-                            if status:
-                                sq = sq.eq("status", status)
-                            sr = sq.execute()
-                            for row in (sr.data or []):
-                                if row['id'] not in existing_ids:
-                                    results.append(row)
-                                    existing_ids.add(row['id'])
+                        extra = self._batch_query_orders_by_keys(
+                            order_keys[:100], date_from, date_to, channel, status, limit
+                        )
+                        for row in extra:
+                            if row['id'] not in existing_ids:
+                                results.append(row)
+                                existing_ids.add(row['id'])
                         results.sort(key=lambda x: x.get('order_date', ''), reverse=True)
                         results = results[:limit]
                 except Exception:
@@ -1968,29 +2050,37 @@ class SupabaseDB(DBBase):
             return []
 
     def _merge_invoice_no(self, orders):
-        """주문 목록에 order_shipping의 invoice_no, courier, name 병합 (in-place)."""
+        """주문 목록에 order_shipping의 invoice_no, courier, name 병합 (in-place).
+        최적화: 채널별 order_no 배치 .in_() 조회 (N+1 제거).
+        """
         try:
-            # (channel, order_no) 쌍으로 배치 조회
             keys = list({(o.get('channel', ''), o.get('order_no', '')) for o in orders})
             shipping_map = {}  # (channel, order_no) → {invoice_no, courier, name}
-            # 배치 크기 50개씩
-            for i in range(0, len(keys), 50):
-                batch = keys[i:i+50]
-                for ch, ono in batch:
+
+            # 채널별로 그룹화하여 .in_() 배치 조회
+            by_channel = {}
+            for ch, ono in keys:
+                by_channel.setdefault(ch, []).append(ono)
+
+            for ch, order_nos in by_channel.items():
+                # 200개씩 배치 (Supabase .in_() 제한 고려)
+                for i in range(0, len(order_nos), 200):
+                    batch_nos = order_nos[i:i+200]
                     try:
                         res = self.client.table("order_shipping") \
                             .select("channel,order_no,invoice_no,courier,name") \
-                            .eq("channel", ch).eq("order_no", ono) \
-                            .limit(1).execute()
-                        if res.data:
-                            s = res.data[0]
-                            shipping_map[(ch, ono)] = {
+                            .eq("channel", ch) \
+                            .in_("order_no", batch_nos) \
+                            .execute()
+                        for s in (res.data or []):
+                            shipping_map[(s.get('channel', ''), s.get('order_no', ''))] = {
                                 'invoice_no': s.get('invoice_no', ''),
                                 'courier': s.get('courier', ''),
                                 'name': s.get('name', ''),
                             }
                     except Exception:
                         pass
+
             # 병합
             for o in orders:
                 key = (o.get('channel', ''), o.get('order_no', ''))
@@ -2004,5 +2094,4 @@ class SupabaseDB(DBBase):
             for o in orders:
                 o.setdefault('invoice_no', '')
                 o.setdefault('courier', '')
-                o.setdefault('recipient_name', '')
                 o.setdefault('recipient_name', '')

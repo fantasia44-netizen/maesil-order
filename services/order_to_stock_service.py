@@ -107,6 +107,84 @@ def _get_warehouse(name, opt_map):
     return "넥스원"
 
 
+def _preload_promotions(db):
+    """활성 행사 전체를 한번에 로드 → {(product_name, category): promo_row}."""
+    try:
+        res = db.client.table("promotions").select("*") \
+            .eq("is_active", True).execute()
+        pmap = {}
+        for r in (res.data or []):
+            key = (_norm(r.get('product_name', '')), r.get('category', ''))
+            # 같은 키에 여러 행사 → 최신 등록 우선 (created_at 내림차순)
+            if key not in pmap:
+                pmap[key] = r
+        return pmap
+    except Exception:
+        return {}
+
+
+def _preload_coupons(db):
+    """활성 쿠폰 전체를 한번에 로드 → {(product_name, category): coupon_row}."""
+    try:
+        res = db.client.table("coupons").select("*") \
+            .eq("is_active", True).execute()
+        cmap = {}
+        for r in (res.data or []):
+            key = (_norm(r.get('product_name', '')), r.get('category', ''))
+            if key not in cmap:
+                cmap[key] = r
+        return cmap
+    except Exception:
+        return {}
+
+
+def _resolve_price_cached(product_name, category, target_date, price_map,
+                           promo_map, coupon_map):
+    """캐시된 행사/쿠폰 맵으로 단가 결정 (DB 호출 0회).
+    Returns: (unit_price, source)
+    """
+    _CATEGORY_PRICE_COL = {
+        "일반매출": "네이버판매가",
+        "쿠팡매출": "쿠팡판매가",
+        "로켓": "로켓판매가",
+        "N배송(용인)": "네이버판매가",
+    }
+
+    key = (product_name, category)
+
+    # 1) 행사가 확인
+    promo = promo_map.get(key)
+    if promo:
+        sd = promo.get('start_date', '')
+        ed = promo.get('end_date', '')
+        if sd <= target_date <= ed:
+            return float(promo['promo_price']), 'promotion'
+
+    # 2) 쿠폰 확인
+    coupon = coupon_map.get(key)
+    if coupon:
+        sd = coupon.get('start_date', '')
+        ed = coupon.get('end_date', '')
+        if sd <= target_date <= ed:
+            price_col = _CATEGORY_PRICE_COL.get(category)
+            base_price = float((price_map.get(product_name) or {}).get(price_col, 0) or 0)
+            if base_price > 0:
+                if coupon.get('discount_type') == '%':
+                    discount = base_price * float(coupon['discount_value']) / 100
+                else:
+                    discount = float(coupon['discount_value'])
+                return max(0, base_price - discount), 'coupon'
+
+    # 3) 기본 판매가
+    price_col = _CATEGORY_PRICE_COL.get(category)
+    if price_map and price_col:
+        base_price = float((price_map.get(product_name) or {}).get(price_col, 0) or 0)
+        if base_price > 0:
+            return base_price, 'master'
+
+    return 0, 'none'
+
+
 def _decompose(name, qty, current_bom, fallback_bom=None):
     """재귀 세트 분해. aggregator.py의 decompose()와 동일 로직."""
     n = _norm(name)
@@ -196,6 +274,10 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     opt_map = _load_option_map(db)
     price_map = db.query_price_table()
 
+    # 행사/쿠폰 프리로드 (주문건별 개별 DB 조회 N+1 방지)
+    promo_map = _preload_promotions(db)
+    coupon_map = _preload_coupons(db)
+
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
     log(f"BOM 로드: 모든채널 {len(bom_all)}종, 쿠팡전용 {len(bom_coupang)}종")
@@ -268,11 +350,11 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
                     'order_id': order_id,
                 })
 
-        # 매출 기록 준비 (세트 미분해 원본 기준, 매출일 = 주문일)
+        # 매출 기록 준비 (세트 미분해 원본 기준, 매출일 = 주문일) — 프리로드 사용
         price_col = CATEGORY_PRICE_COL.get(rev_cat)
         if price_col and not rev_closed_for_date:
-            unit_price, _src = db.resolve_unit_price(
-                _norm(product_name), rev_cat, order_date, price_map)
+            unit_price, _src = _resolve_price_cached(
+                _norm(product_name), rev_cat, order_date, price_map, promo_map, coupon_map)
             revenue = orig_qty * unit_price
             if revenue > 0:
                 revenue_batch.append({
@@ -471,6 +553,10 @@ def process_realtime_outbound(db, import_run_id):
     opt_map = _load_option_map(db)
     price_map = db.query_price_table()
 
+    # 행사/쿠폰 프리로드 (주문건별 개별 DB 조회 N+1 방지)
+    promo_map = _preload_promotions(db)
+    coupon_map = _preload_coupons(db)
+
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
 
@@ -516,10 +602,12 @@ def process_realtime_outbound(db, import_run_id):
                 outbound_groups[key] = []
             outbound_groups[key].append({'product_name': item, 'qty': iqty, 'order_id': oid})
 
-        # 매출 준비 (매출일 = 주문일)
+        # 매출 준비 (매출일 = 주문일) — 프리로드된 행사/쿠폰 사용
         price_col = CATEGORY_PRICE_COL.get(rev_cat)
         if price_col:
-            up, _ = db.resolve_unit_price(_norm(pname), rev_cat, odate, price_map)
+            up, _ = _resolve_price_cached(
+                _norm(pname), rev_cat, odate, price_map, promo_map, coupon_map
+            )
             rev = qty * up
             if rev > 0:
                 revenue_batch.append({
@@ -693,6 +781,8 @@ def reprocess_revenue_only(db, date_from=None, date_to=None):
     log(f"대상 주문 {len(orders)}건")
 
     price_map = db.query_price_table()
+    promo_map = _preload_promotions(db)
+    coupon_map = _preload_coupons(db)
     revenue_raw = []
 
     for o in orders:
@@ -709,7 +799,7 @@ def reprocess_revenue_only(db, date_from=None, date_to=None):
         if not price_col:
             continue
 
-        up, _ = db.resolve_unit_price(_norm(pname), rev_cat, odate, price_map)
+        up, _ = _resolve_price_cached(_norm(pname), rev_cat, odate, price_map, promo_map, coupon_map)
         rev = qty * up
         if rev > 0:
             revenue_raw.append({
@@ -893,6 +983,8 @@ def process_single_order_realtime(db, order_id):
     bom_map = _load_bom_map(db)
     opt_map = _load_option_map(db)
     price_map = db.query_price_table()
+    promo_map = _preload_promotions(db)
+    coupon_map = _preload_coupons(db)
 
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
@@ -952,11 +1044,11 @@ def process_single_order_realtime(db, order_id):
         except Exception as e:
             errors.append(f"출고 오류 ({item}): {e}")
 
-    # 매출 기록 (매출일 = 주문일)
+    # 매출 기록 (매출일 = 주문일) — 프리로드 사용
     revenue_count = 0
     price_col = CATEGORY_PRICE_COL.get(rev_cat)
     if price_col:
-        up, _ = db.resolve_unit_price(_norm(pname), rev_cat, odate, price_map)
+        up, _ = _resolve_price_cached(_norm(pname), rev_cat, odate, price_map, promo_map, coupon_map)
         rev = qty * up
         if rev > 0:
             try:
