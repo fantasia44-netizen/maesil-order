@@ -30,7 +30,7 @@ def _load_stock_snapshot(db, location):
 
 
 def process_manual_transfer(db, product_name, qty, from_location, to_location,
-                            date_str, mode="신규입력"):
+                            date_str, mode="신규입력", lot_number=None, grade=None):
     """수동 창고 이동 (FIFO 자동 상속).
 
     Args:
@@ -81,20 +81,32 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
             f"[{src}] {name}: 재고 {total}{u} / 이동요청 {remain}{u} — 재고 부족 상태에서 이동 처리됨"
         )
 
+    # 이력번호/등급 지정 시 해당 lot만 필터링
+    req_lot = str(lot_number).strip() if lot_number else ''
+    req_grade = str(grade).strip() if grade else ''
+
     payload = []
     if not groups:
         # 재고 그룹 없음 — 빈 속성으로 이동
         payload.append({
             "transaction_date": date_str, "type": "MOVE_OUT",
             "product_name": name, "qty": -remain, "location": src,
-            "manufacture_date": ''
+            "manufacture_date": '',
+            "lot_number": req_lot or None, "grade": req_grade or None,
         })
         payload.append({
             "transaction_date": date_str, "type": "MOVE_IN",
             "product_name": name, "qty": remain, "location": dst,
-            "manufacture_date": ''
+            "manufacture_date": '',
+            "lot_number": req_lot or None, "grade": req_grade or None,
         })
     else:
+        # 이력번호 지정 시 해당 lot 그룹만 대상
+        if req_lot:
+            groups = [g for g in groups if g.get('lot_number', '') == req_lot]
+            if not groups:
+                warnings.append(f"[{src}] {name}: 이력번호 '{req_lot}' 에 해당하는 재고 없음")
+
         # FIFO 순서로 그룹별 이동 (속성 상속)
         for g in groups:
             if remain <= 0:
@@ -107,7 +119,11 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "category": g['category'], "expiry_date": g['expiry_date'],
                 "storage_method": g['storage_method'],
                 "unit": g.get('unit', '개'),
-                "manufacture_date": g.get('manufacture_date', '')
+                "origin": g.get('origin', ''),
+                "manufacture_date": g.get('manufacture_date', ''),
+                "food_type": g.get('food_type', ''),
+                "lot_number": g.get('lot_number', '') or None,
+                "grade": g.get('grade', '') or None,
             })
             payload.append({
                 "transaction_date": date_str, "type": "MOVE_IN",
@@ -116,7 +132,11 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "category": g['category'], "expiry_date": g['expiry_date'],
                 "storage_method": g['storage_method'],
                 "unit": g.get('unit', '개'),
-                "manufacture_date": g.get('manufacture_date', '')
+                "origin": g.get('origin', ''),
+                "manufacture_date": g.get('manufacture_date', ''),
+                "food_type": g.get('food_type', ''),
+                "lot_number": g.get('lot_number', '') or None,
+                "grade": g.get('grade', '') or None,
             })
             remain -= deduct
 
@@ -215,7 +235,11 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
                     "category": g['category'], "expiry_date": g['expiry_date'],
                     "storage_method": g['storage_method'],
                     "unit": g.get('unit', '개'),
-                    "manufacture_date": g.get('manufacture_date', '')
+                    "origin": g.get('origin', ''),
+                    "manufacture_date": g.get('manufacture_date', ''),
+                    "food_type": g.get('food_type', ''),
+                    "lot_number": g.get('lot_number', '') or None,
+                    "grade": g.get('grade', '') or None,
                 })
                 payload.append({
                     "transaction_date": date_str, "type": "MOVE_IN",
@@ -224,7 +248,11 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
                     "category": g['category'], "expiry_date": g['expiry_date'],
                     "storage_method": g['storage_method'],
                     "unit": g.get('unit', '개'),
-                    "manufacture_date": g.get('manufacture_date', '')
+                    "origin": g.get('origin', ''),
+                    "manufacture_date": g.get('manufacture_date', ''),
+                    "food_type": g.get('food_type', ''),
+                    "lot_number": g.get('lot_number', '') or None,
+                    "grade": g.get('grade', '') or None,
                 })
                 remain -= deduct
 

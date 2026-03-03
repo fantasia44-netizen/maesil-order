@@ -238,7 +238,7 @@ def build_stock_snapshot(all_data):
     if not all_data:
         return {}
     df = pd.DataFrame(all_data)
-    for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit', 'food_type']:
+    for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit', 'food_type', 'lot_number', 'grade']:
         if col not in df.columns:
             df[col] = ''
     df['origin'] = df['origin'].fillna('')
@@ -247,8 +247,11 @@ def build_stock_snapshot(all_data):
     df['category'] = df['category'].fillna('')
     df['unit'] = df['unit'].fillna('개')
     df['food_type'] = df['food_type'].fillna('')
+    df['lot_number'] = df['lot_number'].fillna('')
+    df['grade'] = df['grade'].fillna('')
     group_cols = ['product_name', 'category', 'expiry_date',
-                  'storage_method', 'unit', 'origin', 'manufacture_date', 'food_type']
+                  'storage_method', 'unit', 'origin', 'manufacture_date', 'food_type',
+                  'lot_number', 'grade']
     summary = df.groupby(group_cols, dropna=False)['qty'].sum().reset_index()
 
     # ── 필터 전: 모든 품목의 메타 정보 수집 (재고 0인 품목 포함) ──
@@ -288,6 +291,8 @@ def build_stock_snapshot(all_data):
             'origin': r['origin'] if pd.notna(r.get('origin')) else '',
             'manufacture_date': r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else '',
             'food_type': r['food_type'] if pd.notna(r.get('food_type')) else '',
+            'lot_number': r['lot_number'] if pd.notna(r.get('lot_number')) else '',
+            'grade': r['grade'] if pd.notna(r.get('grade')) else '',
             'qty': _snap_qty(r['qty'], unit_val)
         })
         stock[name]['total'] += _snap_qty(r['qty'], unit_val)

@@ -283,7 +283,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
         "qty": qty,
         "location": location,
         "category": "완제품",
-        "unit": "세트",
+        "unit": "개",
         "memo": f"세트작업 ({channel}), 구성품 {len(final_items)}종{sub_memo}",
     })
     set_in_count = 1

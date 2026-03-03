@@ -426,6 +426,20 @@ class OrderProcessor:
                         row_data['_commission'] = self._parse_money(r, col_map.get('commission'))
                         row_data['_shipping_fee'] = self._parse_money(r, col_map.get('shipping_fee'))
 
+                        # 추가 금액 필드 (item_price, option_price 등)
+                        _item_price = self._parse_money(r, col_map.get('item_price'))
+                        _option_price = self._parse_money(r, col_map.get('option_price'))
+                        _seller_discount = self._parse_money(r, col_map.get('seller_discount'))
+
+                        # unit_price fallback: item_price + option_price
+                        if not row_data['_unit_price'] and (_item_price or _option_price):
+                            row_data['_unit_price'] = _item_price + _option_price - _seller_discount
+
+                        # total_amount fallback: unit_price * qty
+                        if not row_data['_total_amount'] and row_data['_unit_price']:
+                            _qty = row_data.get('qty', 1) or 1
+                            row_data['_total_amount'] = row_data['_unit_price'] * _qty
+
                         # 원본 옵션/상품명
                         row_data['_original_option'] = self.get_safe_val(r, m['opt']) if m.get('opt') is not None else ''
                         row_data['_original_product'] = self.get_safe_val(r, m['prod']) if m.get('prod') is not None else ''
