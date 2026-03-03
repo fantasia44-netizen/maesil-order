@@ -196,8 +196,12 @@ def process():
                 detected = detect_channel(_det_df)
 
             if detected and detected != mode:
-                flash(f'⚠️ 선택: [{mode}] → 파일 감지: [{detected}] — [{detected}]로 자동 교정합니다.', 'warning')
-                mode = detected
+                # 해미애찬은 스마트스토어와 동일 포맷이므로 자동감지 시 교정하지 않음
+                if mode == '해미애찬' and detected == '스마트스토어':
+                    pass  # 사용자 선택 유지
+                else:
+                    flash(f'⚠️ 선택: [{mode}] → 파일 감지: [{detected}] — [{detected}]로 자동 교정합니다.', 'warning')
+                    mode = detected
         except Exception:
             pass  # 감지 실패해도 처리는 계속
 

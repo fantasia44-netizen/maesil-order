@@ -167,6 +167,30 @@ CHANNEL_COLUMN_MAP = {
         "courier":     ["택배사"],
         "invoice_no":  ["송장번호"],
     },
+
+    "해미애찬": {
+        # 스마트스토어와 동일 포맷 (암호화 엑셀, 동일 컬럼)
+        # _signature 없음 → 자동감지 불가, 수동 선택 전용
+        "_encrypted":  True,
+        "_password":   "1111",
+        "_simple_invoice": True,   # 송장 생성 시 단(段) 구분 없이 품목명만 표시
+        # 채널 고유 키워드 (스마트스토어와 동일)
+        "order_no":    ["상품주문번호"],
+        "order_date":  ["주문일시", "결제일"],
+        "option":      ["옵션정보"],
+        "status":      ["주문상태"],
+        "address":     ["기본배송지"],
+        "address2":    ["상세배송지"],
+        "phone":       ["수취인연락처1"],
+        "phone2":      ["수취인연락처2"],
+        "memo":        ["배송메세지"],
+        "unit_price":  ["옵션가격", "상품가격"],
+        "total":       ["최종 상품별 총 주문금액"],
+        "discount":    ["최종 상품별 할인액"],
+        "settlement":  ["정산예정금액"],
+        "commission":  ["네이버페이 주문관리 수수료"],
+        "n_ship":      ["배송속성"],
+    },
 }
 
 # 금액 관련 필드 목록 (order_transactions에 저장할 때 사용)
@@ -368,9 +392,13 @@ CHANNEL_REVENUE_MAP = {
     "오아시스":     "일반매출",
     "11번가":       "일반매출",
     "카카오":       "일반매출",
+    "해미애찬":     "일반매출",
     "쿠팡":         "쿠팡매출",
     "N배송_수동":   "N배송(용인)",
 }
+
+# 단순 송장 채널 (합포장 시 단(段) 구분 없이 품목명만 표시)
+SIMPLE_INVOICE_CHANNELS = {"해미애찬"}
 
 # 매출 유형 → 가격표 컬럼 매핑 (resolve_unit_price에서도 사용)
 CATEGORY_PRICE_COL = {

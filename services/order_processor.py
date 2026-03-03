@@ -6,7 +6,7 @@ import msoffcrypto
 from services.channel_config import (
     build_column_map, detect_channel, validate_required_columns,
     get_field_label, is_encrypted, get_password, get_header_row, is_csv,
-    MONEY_FIELDS,
+    MONEY_FIELDS, SIMPLE_INVOICE_CHANNELS,
 )
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -281,10 +281,10 @@ class OrderProcessor:
             res = []
             df = None
 
-            if mode == "스마트스토어":
+            if mode in ("스마트스토어", "해미애찬"):
                 df = self.load_smart_store_memory(order_file)
                 if df is None or df.empty:
-                    result['error'] = "스마트스토어 파일 읽기 실패"
+                    result['error'] = f"[{mode}] 파일 읽기 실패"
                     return result
             else:
                 header = get_header_row(mode)
@@ -499,19 +499,28 @@ class OrderProcessor:
                 rosen = res_df[res_df['code'] != 5]
                 ext = res_df[res_df['code'] == 5]
                 s_nms = {0: "단없음", 1: "1단", 2: "2단", 3: "3단", 4: "기타", 5: "외부"}
+                _is_simple = mode in SIMPLE_INVOICE_CHANNELS
                 for d, nt in [(rosen, ""), (ext, "_외부")]:
                     if not d.empty:
                         inv = []
                         for a_c, gp in d.groupby(['clean_addr'], sort=False):
-                            stg = {}
-                            for _, rd in gp.iterrows():
-                                c = rd['code']
-                                if c not in stg:
-                                    stg[c] = []
-                                stg[c].append(f"{rd['display_nm']}x{rd['qty']}")
-                            item_str = " ".join(
-                                [f"{s_nms.get(k, f'{k}라인')}({', '.join(v)})" for k, v in sorted(stg.items()) if v]
-                            ) + f" 총{gp['qty'].sum()}개"
+                            if _is_simple:
+                                # 단순 채널: 단(段) 구분 없이 품목명만 나열
+                                items = []
+                                for _, rd in gp.iterrows():
+                                    items.append(f"{rd['display_nm']}x{rd['qty']}")
+                                item_str = ", ".join(items) + f" 총{gp['qty'].sum()}개"
+                            else:
+                                # 배마마: 단별 그룹핑 (1단/2단/3단)
+                                stg = {}
+                                for _, rd in gp.iterrows():
+                                    c = rd['code']
+                                    if c not in stg:
+                                        stg[c] = []
+                                    stg[c].append(f"{rd['display_nm']}x{rd['qty']}")
+                                item_str = " ".join(
+                                    [f"{s_nms.get(k, f'{k}라인')}({', '.join(v)})" for k, v in sorted(stg.items()) if v]
+                                ) + f" 총{gp['qty'].sum()}개"
                             rep = gp.iloc[0]
                             inv.append([
                                 rep['name'], "", rep['addr'], rep['p1'], rep['p2'],
