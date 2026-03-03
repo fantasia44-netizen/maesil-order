@@ -350,12 +350,20 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
                     'order_id': order_id,
                 })
 
-        # 매출 기록 준비 (세트 미분해 원본 기준, 매출일 = 주문일) — 프리로드 사용
+        # 매출 기록 준비 (세트 미분해 원본 기준, 매출일 = 주문일)
+        # 우선순위: ① 주문서 실매출(total_amount) → ② 마스터 가격표 — 프리로드 사용
         price_col = CATEGORY_PRICE_COL.get(rev_cat)
         if price_col and not rev_closed_for_date:
-            unit_price, _src = _resolve_price_cached(
-                _norm(product_name), rev_cat, order_date, price_map, promo_map, coupon_map)
-            revenue = orig_qty * unit_price
+            order_total = float(order.get('total_amount', 0) or 0)
+            if order_total > 0:
+                # ① 주문서 실매출 사용 (옵션가+상품가-할인 등 최종금액)
+                revenue = order_total
+                unit_price = revenue / orig_qty if orig_qty else 0
+            else:
+                # ② 마스터 가격표 폴백 (N배송 등 금액 없는 채널)
+                unit_price, _src = _resolve_price_cached(
+                    _norm(product_name), rev_cat, order_date, price_map, promo_map, coupon_map)
+                revenue = orig_qty * unit_price
             if revenue > 0:
                 revenue_batch.append({
                     'revenue_date': rev_date,
@@ -602,13 +610,19 @@ def process_realtime_outbound(db, import_run_id):
                 outbound_groups[key] = []
             outbound_groups[key].append({'product_name': item, 'qty': iqty, 'order_id': oid})
 
-        # 매출 준비 (매출일 = 주문일) — 프리로드된 행사/쿠폰 사용
+        # 매출 준비 (매출일 = 주문일)
+        # 우선순위: ① 주문서 실매출(total_amount) → ② 마스터 가격표
         price_col = CATEGORY_PRICE_COL.get(rev_cat)
         if price_col:
-            up, _ = _resolve_price_cached(
-                _norm(pname), rev_cat, odate, price_map, promo_map, coupon_map
-            )
-            rev = qty * up
+            order_total = float(order.get('total_amount', 0) or 0)
+            if order_total > 0:
+                rev = order_total
+                up = rev / qty if qty else 0
+            else:
+                up, _ = _resolve_price_cached(
+                    _norm(pname), rev_cat, odate, price_map, promo_map, coupon_map
+                )
+                rev = qty * up
             if rev > 0:
                 revenue_batch.append({
                     'revenue_date': rev_date, 'product_name': _norm(pname),

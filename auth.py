@@ -149,12 +149,20 @@ def role_required(*roles):
                 from models import PAGE_REGISTRY
                 req_path = request.path.rstrip('/')
                 matched_key = None
+                # API 경로도 매칭 (/orders/api/n-delivery → /orders/n-delivery)
+                check_paths = [req_path]
+                if '/api/' in req_path:
+                    check_paths.append(req_path.replace('/api/', '/', 1))
                 # 긴 URL 우선 매칭 (예: /orders/n-delivery > /orders)
                 for pk, _name, _icon, url, _roles in sorted(
                     PAGE_REGISTRY, key=lambda x: len(x[3]), reverse=True
                 ):
-                    if req_path == url.rstrip('/') or req_path.startswith(url.rstrip('/') + '/'):
-                        matched_key = pk
+                    url_stripped = url.rstrip('/')
+                    for cp in check_paths:
+                        if cp == url_stripped or cp.startswith(url_stripped + '/'):
+                            matched_key = pk
+                            break
+                    if matched_key:
                         break
 
                 if matched_key and role_perms.get(matched_key, False):

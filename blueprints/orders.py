@@ -791,8 +791,24 @@ def api_n_delivery():
         return jsonify({'error': '유효한 입력 항목이 없습니다'}), 400
 
     result = db.upsert_order_batch(import_run_id, orders)
+
+    # 실시간 출고+매출 처리 (재고차감 + 매출기록)
+    rt_msg = ''
+    if result.get('inserted', 0) + result.get('updated', 0) > 0:
+        try:
+            from services.order_to_stock_service import process_realtime_outbound
+            rt = process_realtime_outbound(db, import_run_id)
+            result['realtime'] = rt
+            oc = rt.get('outbound_count', 0)
+            rc = rt.get('revenue_count', 0)
+            rt_total = rt.get('revenue_total', 0)
+            rt_msg = f' (출고 {oc}건, 매출 {rc}건 {rt_total:,}원)'
+        except Exception as rt_err:
+            result['realtime_error'] = str(rt_err)
+            rt_msg = f' (⚠️ 출고/매출 자동처리 실패: {rt_err})'
+
     return jsonify({
         'success': True,
-        'message': f'N배송 {len(orders)}건 저장 완료',
+        'message': f'N배송 {len(orders)}건 저장 완료{rt_msg}',
         'result': result
     })

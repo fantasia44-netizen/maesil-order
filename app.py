@@ -84,6 +84,9 @@ def create_app(config_class=None):
             if now - last_active > timeout_min * 60:
                 logout_user()
                 session.clear()
+                from auth import _is_api_request
+                if _is_api_request():
+                    return jsonify({'error': '세션이 만료되었습니다. 페이지를 새로고침 해주세요.'}), 401
                 flash('장시간 미사용으로 자동 로그아웃되었습니다.', 'warning')
                 return redirect(url_for('auth.login'))
 
