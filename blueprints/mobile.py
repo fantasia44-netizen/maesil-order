@@ -3,7 +3,7 @@ mobile.py — 모바일 전용 조회 Blueprint.
 재고현황, 매출현황, 거래처목록, 이력조회 (읽기 전용).
 """
 from flask import (
-    Blueprint, render_template, request, current_app, flash,
+    Blueprint, render_template, request, current_app, flash, redirect, url_for,
 )
 from flask_login import login_required, current_user
 
@@ -16,7 +16,9 @@ mobile_bp = Blueprint('mobile', __name__, url_prefix='/m')
 @mobile_bp.route('/')
 @login_required
 def home():
-    """모바일 홈"""
+    """모바일 홈 — CEO는 대시보드로 자동 이동"""
+    if current_user.role == 'ceo':
+        return redirect(url_for('mobile.ceo_dashboard'))
     return render_template('mobile/home.html')
 
 
