@@ -747,14 +747,24 @@ def api_n_delivery():
     if not import_run_id:
         return jsonify({'error': 'import_runs 생성 실패'}), 500
 
-    # 주문 배열 구성
+    # 단가 테이블 로드 (매출 자동 반영)
     import hashlib, json
+    price_map = db.query_price_table()
+
+    # 주문 배열 구성
     orders = []
     for i, item in enumerate(items):
         product_name = item.get('product_name', '')
         qty = int(item.get('qty', 0))
         if not product_name or qty <= 0:
             continue
+
+        # 단가 조회: 네이버판매가 우선
+        import unicodedata
+        nm_key = unicodedata.normalize('NFC', product_name.strip())
+        prices = price_map.get(nm_key, {})
+        unit_price = prices.get('네이버판매가', 0)
+        total_amount = unit_price * qty
 
         order_no = f"NDEL_{order_date.replace('-', '')}_{i+1:03d}"
         raw_data = {"product_name": product_name, "qty": qty, "order_date": order_date, "source": "N배송_수동"}
@@ -775,10 +785,10 @@ def api_n_delivery():
             "line_code": int(item.get('line_code', 0)),
             "sort_order": int(item.get('sort_order', 999)),
             "qty": qty,
-            "unit_price": 0,
-            "total_amount": 0,
+            "unit_price": unit_price,
+            "total_amount": total_amount,
             "discount_amount": 0,
-            "settlement": 0,
+            "settlement": total_amount,
             "commission": 0,
         }
         orders.append({"transaction": transaction, "shipping": None})
