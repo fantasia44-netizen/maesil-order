@@ -2,10 +2,23 @@
 {% block title %}CEO 대시보드 - 배마마{% endblock %}
 
 {% block content %}
-<!-- 날짜 표시 -->
-<div class="text-center mb-2">
-    <small class="text-muted">{{ today }} 기준</small>
+<!-- 매출 추이 차트 (30일) — 첫 화면 -->
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-graph-up"></i> 30일 매출 추이 <small class="text-muted fw-normal ms-1">{{ today }} 기준</small></div>
+    <div style="position:relative;height:220px;">
+        <canvas id="trendChart"></canvas>
+    </div>
 </div>
+
+<!-- 채널별 매출 (도넛) -->
+{% if month_channel %}
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-pie-chart"></i> 이번달 채널별 매출</div>
+    <div style="position:relative;height:220px;">
+        <canvas id="channelChart"></canvas>
+    </div>
+</div>
+{% endif %}
 
 <!-- KPI 카드 2x2 -->
 <div class="row g-2 mb-3">
@@ -42,24 +55,6 @@
         </div>
     </div>
 </div>
-
-<!-- 매출 추이 차트 (30일) -->
-<div class="m-card mb-3">
-    <div class="m-card-header"><i class="bi bi-graph-up"></i> 30일 매출 추이</div>
-    <div style="position:relative;height:220px;">
-        <canvas id="trendChart"></canvas>
-    </div>
-</div>
-
-<!-- 채널별 매출 (도넛) -->
-{% if month_channel %}
-<div class="m-card mb-3">
-    <div class="m-card-header"><i class="bi bi-pie-chart"></i> 이번달 채널별 매출</div>
-    <div style="position:relative;height:220px;">
-        <canvas id="channelChart"></canvas>
-    </div>
-</div>
-{% endif %}
 
 <!-- TOP 10 상품 -->
 {% if top_products %}
