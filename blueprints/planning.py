@@ -32,9 +32,18 @@ def api_calculate():
         if window < 1 or window > 90:
             window = 7
 
+        critical_days = data.get('critical_days')
+        warning_days = data.get('warning_days')
+        if critical_days is not None:
+            critical_days = max(1, min(int(critical_days), 90))
+        if warning_days is not None:
+            warning_days = max(1, min(int(warning_days), 180))
+
         result = calculate_production_plan(
             current_app.db,
             sales_window=window,
+            critical_days=critical_days,
+            warning_days=warning_days,
             save=True,
         )
 

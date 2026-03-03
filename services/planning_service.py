@@ -143,12 +143,16 @@ def _get_current_stock(db):
 # 생산계획 계산
 # ═══════════════════════════════════════════════════════════════
 
-def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW, save=True):
+def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW,
+                              critical_days=None, warning_days=None,
+                              save=True):
     """생산계획 계산 메인 함수.
 
     Args:
         db: SupabaseDB instance
         sales_window: 평균 판매량 계산 기간 (일)
+        critical_days: '부족' 판정 기준일 (기본 3)
+        warning_days: '주의' 판정 기준일 (기본 7)
         save: True이면 production_plan 테이블에 저장
 
     Returns:
@@ -160,6 +164,14 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW, save=True):
             generated_at: str
         }
     """
+    if critical_days is None:
+        critical_days = STATUS_THRESHOLDS['critical']
+    if warning_days is None:
+        warning_days = STATUS_THRESHOLDS['warning']
+    # warning은 critical보다 커야 함
+    if warning_days <= critical_days:
+        warning_days = critical_days + 4
+
     # 1. 데이터 수집 (DB 호출 최소화 — 3회)
     targets = _get_production_targets(db)
     sales_data = _get_sales_data(db, days=sales_window)
@@ -193,12 +205,12 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW, save=True):
             if recommended < 0:
                 recommended = 0
 
-        # 상태 판정
+        # 상태 판정 (사용자 지정 기준일)
         if depletion_days is None:
             status = '미판매'
-        elif depletion_days <= STATUS_THRESHOLDS['critical']:
+        elif depletion_days <= critical_days:
             status = '부족'
-        elif depletion_days <= STATUS_THRESHOLDS['warning']:
+        elif depletion_days <= warning_days:
             status = '주의'
         else:
             status = '안정'
@@ -240,6 +252,8 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW, save=True):
         'stable': stable,
         'unsold': unsold,
         'sales_window': sales_window,
+        'critical_days': critical_days,
+        'warning_days': warning_days,
     }
 
     result = {

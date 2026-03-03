@@ -11,6 +11,16 @@
                 <option value="14">최근 14일</option>
                 <option value="30">최근 30일</option>
             </select>
+            <div class="input-group input-group-sm" style="width:auto">
+                <span class="input-group-text bg-danger text-white" style="font-size:0.75rem">부족</span>
+                <input type="number" id="criticalDays" class="form-control" value="3" min="1" max="90" style="width:55px" title="소진일수 이하 → 부족">
+                <span class="input-group-text" style="font-size:0.75rem">일</span>
+            </div>
+            <div class="input-group input-group-sm" style="width:auto">
+                <span class="input-group-text bg-warning text-dark" style="font-size:0.75rem">주의</span>
+                <input type="number" id="warningDays" class="form-control" value="7" min="1" max="180" style="width:55px" title="소진일수 이하 → 주의">
+                <span class="input-group-text" style="font-size:0.75rem">일</span>
+            </div>
             <button id="calcBtn" class="btn btn-primary btn-sm">
                 <i class="bi bi-calculator"></i> 계획 생성
             </button>
@@ -148,6 +158,7 @@
 <script>
 const csrf_token = document.querySelector('meta[name="csrf-token"]').content;
 let allItems = [];
+let currentThresholds = { critical: 3, warning: 7 };
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
 function fmt(v) { return v != null ? Number(v).toLocaleString('ko-KR', {maximumFractionDigits:1}) : '-'; }
@@ -162,7 +173,9 @@ document.getElementById('calcBtn').addEventListener('click', async function() {
             method: 'POST',
             headers: {'Content-Type':'application/json', 'X-CSRFToken': csrf_token},
             body: JSON.stringify({
-                sales_window: parseInt(document.getElementById('salesWindow').value)
+                sales_window: parseInt(document.getElementById('salesWindow').value),
+                critical_days: parseInt(document.getElementById('criticalDays').value) || 3,
+                warning_days: parseInt(document.getElementById('warningDays').value) || 7,
             })
         });
         const ct = res.headers.get('content-type') || '';
@@ -171,11 +184,18 @@ document.getElementById('calcBtn').addEventListener('click', async function() {
         if (data.error) { alert(data.error); return; }
 
         allItems = data.items || [];
+        currentThresholds = {
+            critical: data.summary.critical_days || 3,
+            warning: data.summary.warning_days || 7,
+        };
         renderSummary(data.summary);
         renderTable(allItems);
 
         const dt = data.generated_at ? new Date(data.generated_at).toLocaleString('ko-KR') : '';
-        document.getElementById('genTime').textContent = dt ? `생성: ${dt} (${data.summary.sales_window}일 기준)` : '';
+        const s = data.summary;
+        document.getElementById('genTime').textContent = dt
+            ? `생성: ${dt} | 판매기준 ${s.sales_window}일 | 부족 ≤${s.critical_days}일 | 주의 ≤${s.warning_days}일`
+            : '';
     } catch(e) {
         alert(e.message);
     } finally {
@@ -220,7 +240,7 @@ function renderTable(items) {
                       '<span class="badge bg-secondary">미판매</span>';
 
         const depDays = item.depletion_days != null
-            ? `<span class="${item.depletion_days <= 3 ? 'text-danger fw-bold' : item.depletion_days <= 7 ? 'text-warning fw-bold' : ''}">${fmt(item.depletion_days)}일</span>`
+            ? `<span class="${item.depletion_days <= currentThresholds.critical ? 'text-danger fw-bold' : item.depletion_days <= currentThresholds.warning ? 'text-warning fw-bold' : ''}">${fmt(item.depletion_days)}일</span>`
             : '<span class="text-muted">-</span>';
 
         const recProd = item.recommended_production > 0
@@ -243,6 +263,18 @@ function renderTable(items) {
     });
     tbody.innerHTML = html;
 }
+
+// 기준일 입력 연동: 부족 < 주의 보장
+document.getElementById('criticalDays').addEventListener('change', function() {
+    const c = parseInt(this.value) || 3;
+    const w = parseInt(document.getElementById('warningDays').value) || 7;
+    if (w <= c) document.getElementById('warningDays').value = c + 4;
+});
+document.getElementById('warningDays').addEventListener('change', function() {
+    const w = parseInt(this.value) || 7;
+    const c = parseInt(document.getElementById('criticalDays').value) || 3;
+    if (w <= c) this.value = c + 4;
+});
 
 // 필터
 document.getElementById('statusFilter').addEventListener('change', () => renderTable(allItems));
