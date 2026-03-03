@@ -22,24 +22,22 @@
         <table class="table table-sm" id="itemsTable">
             <thead class="table-light">
                 <tr>
-                    <th style="width:50%">품목명</th>
-                    <th style="width:20%">수량</th>
-                    <th style="width:20%"></th>
-                    <th style="width:10%"></th>
+                    <th style="width:60%">세트옵션</th>
+                    <th style="width:25%">수량</th>
+                    <th style="width:15%"></th>
                 </tr>
             </thead>
             <tbody id="itemsBody">
                 <tr>
                     <td>
-                        <select class="form-select form-select-sm product-select" onchange="onProductSelect(this)">
-                            <option value="">-- 품목 선택 --</option>
+                        <select class="form-select form-select-sm product-select">
+                            <option value="">-- 세트옵션 선택 --</option>
                             {% for p in products %}
-                            <option value="{{ p.name }}" data-barcode="{{ p.barcode }}" data-linecode="{{ p.line_code }}" data-sort="{{ p.sort_order }}">{{ p.name }}</option>
+                            <option value="{{ p.name }}">{{ p.name }}</option>
                             {% endfor %}
                         </select>
                     </td>
                     <td><input type="number" class="form-control form-control-sm qty-input" min="1" value="1"></td>
-                    <td><small class="text-muted barcode-display"></small></td>
                     <td><button class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-x"></i></button></td>
                 </tr>
             </tbody>
@@ -76,7 +74,6 @@ function addRow() {
     const newRow = firstRow.cloneNode(true);
     newRow.querySelector('.product-select').value = '';
     newRow.querySelector('.qty-input').value = 1;
-    newRow.querySelector('.barcode-display').textContent = '';
     tbody.appendChild(newRow);
 }
 
@@ -85,12 +82,6 @@ function removeRow(btn) {
     if (tbody.rows.length > 1) {
         btn.closest('tr').remove();
     }
-}
-
-function onProductSelect(select) {
-    const opt = select.options[select.selectedIndex];
-    const barcodeEl = select.closest('tr').querySelector('.barcode-display');
-    barcodeEl.textContent = opt.dataset.barcode || '';
 }
 
 function submitNDelivery() {
@@ -102,14 +93,10 @@ function submitNDelivery() {
     rows.forEach(row => {
         const select = row.querySelector('.product-select');
         const qty = parseInt(row.querySelector('.qty-input').value) || 0;
-        const opt = select.options[select.selectedIndex];
         if (select.value && qty > 0) {
             items.push({
                 product_name: select.value,
                 qty: qty,
-                barcode: opt.dataset.barcode || '',
-                line_code: opt.dataset.linecode || '0',
-                sort_order: opt.dataset.sort || '999',
             });
         }
     });

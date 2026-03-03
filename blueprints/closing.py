@@ -3,6 +3,7 @@ closing.py — 일일마감 관리 Blueprint.
 매출마감(영업부) / 재고출고마감(물류팀) 분리 운영.
 """
 from datetime import datetime
+from services.tz_utils import today_kst, days_ago_kst
 from flask import (
     Blueprint, render_template, request, current_app,
     flash, redirect, url_for, jsonify,
@@ -26,8 +27,8 @@ def index():
 
     # 기본: 최근 14일
     from datetime import timedelta
-    today = datetime.now().strftime('%Y-%m-%d')
-    two_weeks_ago = (datetime.now() - timedelta(days=14)).strftime('%Y-%m-%d')
+    today = today_kst()
+    two_weeks_ago = days_ago_kst(14)
 
     date_from = request.args.get('date_from', two_weeks_ago)
     date_to = request.args.get('date_to', today)
@@ -144,7 +145,7 @@ def api_reopen():
 def api_status():
     """특정 날짜의 마감 상태 조회"""
     db = current_app.db
-    closing_date = request.args.get('date', datetime.now().strftime('%Y-%m-%d'))
+    closing_date = request.args.get('date', today_kst())
 
     revenue_status = db.get_closing_status(closing_date, 'revenue')
     stock_status = db.get_closing_status(closing_date, 'stock')

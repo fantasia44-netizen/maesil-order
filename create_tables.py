@@ -376,6 +376,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_ledger_event_uid
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS ref_event_uid TEXT;
 CREATE INDEX IF NOT EXISTS idx_stock_ledger_ref_event ON stock_ledger(ref_event_uid)
     WHERE ref_event_uid IS NOT NULL;
+
+-- ============================================================
+-- Phase 3b: order_transactions 추가 컬럼 (2026-03)
+-- ============================================================
+
+-- order_datetime: 원본 주문일시 보존 (시간 포함, 채널별 주문일시/결제일시)
+ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
+    order_datetime TEXT;
+
+-- shipping_fee: 배송비 (주문서 원본 금액)
+ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
+    shipping_fee NUMERIC DEFAULT 0;
 """
 
 print("=" * 60)

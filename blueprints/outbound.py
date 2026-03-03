@@ -7,6 +7,7 @@ import json
 import os
 import uuid
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -123,7 +124,7 @@ def single():
         flash('이미 처리된 요청이거나 세션이 만료되었습니다. 다시 시도하세요.', 'warning')
         return redirect(url_for('outbound.index'))
 
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     location = request.form.get('location', '')
     partner_name = request.form.get('partner_name', '')
     my_biz_id = request.form.get('my_biz_id', '')
@@ -495,7 +496,7 @@ def batch():
         flash('엑셀 파일을 하나 이상 선택하세요.', 'danger')
         return redirect(url_for('outbound.index'))
 
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     mode = request.form.get('mode', '신규입력')
 
     upload_dir = current_app.config['UPLOAD_FOLDER']

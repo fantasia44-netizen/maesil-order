@@ -5,6 +5,7 @@ BOM 기반 세트 조립: 단품 FIFO 차감 → 세트 산출, 부재료 차감
 import io
 import json
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -101,7 +102,7 @@ def api_products():
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def process():
     """세트작업 처리"""
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     set_name = request.form.get('set_name', '').strip()
     channel = request.form.get('channel', '').strip()
     location = request.form.get('location', '').strip()

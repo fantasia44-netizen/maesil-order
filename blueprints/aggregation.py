@@ -7,6 +7,7 @@ import os
 import re
 import unicodedata
 from datetime import datetime
+from services.tz_utils import now_kst
 
 
 def _sanitize_filename(name: str) -> str:
@@ -235,7 +236,7 @@ def generate_report():
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = now_kst().strftime("%Y%m%d_%H%M%S")
         generated_files = []
         date_file = date_from if date_from == date_to else f"{date_from}_{date_to}"
 

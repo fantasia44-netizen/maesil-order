@@ -4,6 +4,7 @@ transfer.py — 창고 이동 관리 Blueprint.
 """
 import os
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -70,7 +71,7 @@ def manual():
     qty = request.form.get('qty', 0, type=int)
     from_location = request.form.get('from_location', '').strip()
     to_location = request.form.get('to_location', '').strip()
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     mode = request.form.get('mode', '신규입력')
 
     if not product_name or qty <= 0 or not from_location or not to_location:
@@ -112,7 +113,7 @@ def batch():
         return jsonify({'error': '요청 데이터가 없습니다.'}), 400
 
     items = data.get('items', [])
-    date_str = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = data.get('date', today_kst())
     mode = data.get('mode', '신규입력')
 
     if not items:
@@ -171,7 +172,7 @@ def excel():
         flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
         return redirect(url_for('transfer.index'))
 
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     mode = request.form.get('mode', '신규입력')
 
     upload_dir = current_app.config['UPLOAD_FOLDER']

@@ -3,6 +3,7 @@ adjustment.py — 재고 조정 Blueprint.
 양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
 """
 from datetime import datetime
+from services.tz_utils import today_kst
 
 from flask import (
     Blueprint, render_template, request, current_app,
@@ -146,7 +147,7 @@ def batch():
         return jsonify({'error': '요청 데이터가 없습니다.'}), 400
 
     items = data.get('items', [])
-    date_str = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = data.get('date', today_kst())
 
     if not items:
         return jsonify({'error': '조정 항목이 없습니다.'}), 400

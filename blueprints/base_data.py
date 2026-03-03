@@ -4,6 +4,7 @@ base_data.py — 기초 데이터 초기화 Blueprint.
 """
 import os
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -72,7 +73,7 @@ def reset_base():
                 from services.excel_io import parse_base_data_payload, flexible_column_rename
                 df = pd.read_excel(filepath)
                 df = flexible_column_rename(df)
-                today = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+                today = request.form.get('date', today_kst())
                 payload = parse_base_data_payload(df, today)
 
                 if payload:

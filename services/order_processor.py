@@ -8,6 +8,7 @@ from services.channel_config import (
     get_field_label, is_encrypted, get_password, get_header_row, is_csv,
     MONEY_FIELDS, SIMPLE_INVOICE_CHANNELS,
 )
+from services.tz_utils import today_kst
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -814,10 +815,12 @@ class OrderProcessor:
             # 주문일 파싱
             order_date_str = row.get('order_date', '')
             order_date = self._parse_date(order_date_str)
+            order_datetime = self._parse_datetime(order_date_str)
 
             transaction = {
                 "channel": channel,
                 "order_date": order_date,
+                "order_datetime": order_datetime,  # 원본 주문일시 (시간 포함)
                 "order_no": order_no,
                 "line_no": line_no,
                 "original_option": str(row.get('_original_option', ''))[:500],
@@ -886,9 +889,9 @@ class OrderProcessor:
         return db_result
 
     def _parse_date(self, date_str):
-        """주문일 문자열 → YYYY-MM-DD 형식으로 파싱"""
-        if not date_str:
-            return datetime.now().strftime('%Y-%m-%d')
+        """주문일 문자열 → YYYY-MM-DD 형식으로 파싱 (KST 기준)"""
+        if not date_str or str(date_str).strip().lower() in ('nan', 'nat', 'none', ''):
+            return today_kst()
 
         date_str = str(date_str).strip()
 
@@ -913,4 +916,32 @@ class OrderProcessor:
             except ValueError:
                 pass
 
-        return datetime.now().strftime('%Y-%m-%d')
+        return today_kst()
+
+    def _parse_datetime(self, date_str):
+        """주문일 문자열 → YYYY-MM-DD HH:MM:SS 형식으로 파싱 (시간 보존).
+        시간 정보 없으면 00:00:00 추가.
+        """
+        if not date_str or str(date_str).strip().lower() in ('nan', 'nat', 'none', ''):
+            return None
+
+        date_str = str(date_str).strip()
+
+        # 시간 포함 형식 우선 시도
+        datetime_formats = [
+            ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'),
+            ('%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:00'),
+            ('%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'),
+            ('%Y.%m.%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'),
+            ('%Y-%m-%d', '%Y-%m-%d'),
+            ('%Y/%m/%d', '%Y-%m-%d'),
+            ('%Y.%m.%d', '%Y-%m-%d'),
+        ]
+        for in_fmt, out_fmt in datetime_formats:
+            try:
+                dt = datetime.strptime(date_str, in_fmt)
+                return dt.strftime(out_fmt)
+            except ValueError:
+                continue
+
+        return None

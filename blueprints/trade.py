@@ -6,6 +6,7 @@ import os
 import io
 import json
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -333,7 +334,7 @@ def add_trade():
     """수동 거래 등록"""
     partner_id = request.form.get('partner_id', '').strip()
     product_name = request.form.get('product_name', '').strip()
-    trade_date = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    trade_date = request.form.get('date', today_kst())
 
     # partner_id로 거래처명 조회
     partner_name = ''
@@ -441,8 +442,7 @@ def api_products():
     """재고 품목 목록 JSON 반환 (자동완성용, 전체 창고 합산)"""
     try:
         from services.stock_service import query_stock_snapshot
-        from datetime import datetime
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = today_kst()
         snapshot = query_stock_snapshot(current_app.db, today)
         # 품목별 합산 (여러 창고 동일 품목 합산)
         agg = {}
@@ -641,7 +641,7 @@ def generate_purchase_order():
         # 발주 정보
         delivery_note = request.form.get('delivery_note', '').strip()
         caution_text = request.form.get('caution_text', '').strip()
-        order_date = request.form.get('order_date', datetime.now().strftime('%Y-%m-%d'))
+        order_date = request.form.get('order_date', today_kst())
         request_date = request.form.get('request_date', '').strip()
         order_manager = request.form.get('order_manager', '').strip()
         invoice_manager = request.form.get('invoice_manager', '').strip()

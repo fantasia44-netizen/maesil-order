@@ -655,22 +655,18 @@ def api_import_run_detail(run_id):
 @role_required('admin', 'manager', 'sales')
 def n_delivery():
     """N배송 수동입력 페이지"""
-    # 옵션마스터에서 품목 목록 로드
+    # BOM 세트옵션만 로드 (전체 품목 X)
     products = []
     try:
-        opt_list = current_app.db.query_option_master_as_list()
-        if opt_list:
+        bom_list = current_app.db.query_bom_master_all()
+        if bom_list:
             seen = set()
-            for o in opt_list:
-                name = str(o.get('품목명', '')).strip()
-                if name and name.lower() not in ('standard_name', 'product_name', '품목명') and name not in seen:
+            for b in bom_list:
+                name = str(b.get('set_name', '')).strip()
+                if name and name not in seen:
                     seen.add(name)
-                    products.append({
-                        'name': name,
-                        'barcode': o.get('바코드', ''),
-                        'line_code': o.get('라인코드', 0),
-                        'sort_order': o.get('출력순서', 999),
-                    })
+                    products.append({'name': name})
+            products.sort(key=lambda x: x['name'])
     except Exception:
         pass
 

@@ -6,6 +6,7 @@ import os
 import io
 import tempfile
 from datetime import datetime
+from services.tz_utils import today_kst, now_kst
 
 import pandas as pd
 from flask import (
@@ -143,7 +144,7 @@ def batch():
         return jsonify({'error': '요청 데이터가 없습니다.'}), 400
 
     items = data.get('items', [])
-    date_str = data.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = data.get('date', today_kst())
     mode = data.get('mode', '신규입력')
 
     if not items:
@@ -188,13 +189,13 @@ def excel():
         flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
         return redirect(url_for('inbound.index'))
 
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     mode = request.form.get('mode', '신규입력')
 
     upload_dir = current_app.config['UPLOAD_FOLDER']
     os.makedirs(upload_dir, exist_ok=True)
     ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'xlsx'
-    fname = f"inbound_{datetime.now().strftime('%H%M%S%f')}.{ext}"
+    fname = f"inbound_{now_kst().strftime('%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, fname)
     file.save(filepath)
 

@@ -4,6 +4,7 @@ etc_outbound.py — 기타출고 관리 Blueprint.
 """
 import io
 from datetime import datetime
+from services.tz_utils import today_kst
 
 import pandas as pd
 from flask import (
@@ -86,7 +87,7 @@ def api_products():
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def process():
     """기타출고 처리"""
-    date_str = request.form.get('date', datetime.now().strftime('%Y-%m-%d'))
+    date_str = request.form.get('date', today_kst())
     location = request.form.get('location', '').strip()
 
     if not location:

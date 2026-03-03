@@ -7,6 +7,7 @@ import pandas as pd
 from supabase import create_client, Client
 from db_base import DBBase
 from config import SUPABASE_URL, SUPABASE_KEY
+from services.tz_utils import today_kst, days_ago_kst
 
 # 옵션마스터 메모리 캐시 (TTL 기반)
 _option_cache = {
@@ -1740,9 +1741,8 @@ class SupabaseDB(DBBase):
 
     def query_revenue_trend(self, days=30):
         """최근 N일 매출 추이 (일별 합계)."""
-        from datetime import datetime, timedelta
         try:
-            date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            date_from = days_ago_kst(days)
             res = self.client.table("daily_revenue") \
                 .select("revenue_date,category,revenue") \
                 .gte("revenue_date", date_from) \
@@ -1786,9 +1786,8 @@ class SupabaseDB(DBBase):
 
     def query_stock_summary_by_location(self):
         """창고별 재고 품목 수 요약 (양수 재고만)."""
-        from datetime import datetime
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = today_kst()
             res = self.client.table("stock_ledger") \
                 .select("product_name,location,qty") \
                 .lte("transaction_date", today).execute()
@@ -1811,9 +1810,8 @@ class SupabaseDB(DBBase):
 
     def query_top_products_by_revenue(self, days=30, limit=10):
         """매출 TOP N 상품 (최근 N일)."""
-        from datetime import datetime, timedelta
         try:
-            date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+            date_from = days_ago_kst(days)
             res = self.client.table("daily_revenue") \
                 .select("product_name,qty,revenue") \
                 .gte("revenue_date", date_from).execute()

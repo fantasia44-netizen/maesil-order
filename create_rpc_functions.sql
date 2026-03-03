@@ -34,10 +34,10 @@ DECLARE
     v_old_val      TEXT;
     v_new_val      TEXT;
     v_fields       TEXT[] := ARRAY[
-        'order_date', 'original_option', 'original_product',
+        'order_date', 'order_datetime', 'original_option', 'original_product',
         'product_name', 'barcode', 'line_code', 'sort_order',
         'qty', 'unit_price', 'total_amount', 'discount_amount',
-        'settlement', 'commission'
+        'settlement', 'commission', 'shipping_fee'
     ];
 BEGIN
     FOR v_order IN SELECT * FROM jsonb_array_elements(p_orders)
@@ -90,6 +90,8 @@ BEGIN
                             WHEN 'discount_amount'   THEN ot.discount_amount::TEXT
                             WHEN 'settlement'        THEN ot.settlement::TEXT
                             WHEN 'commission'        THEN ot.commission::TEXT
+                        WHEN 'shipping_fee'      THEN ot.shipping_fee::TEXT
+                        WHEN 'order_datetime'    THEN ot.order_datetime
                         END
                     INTO v_old_val
                     FROM order_transactions ot
@@ -115,6 +117,7 @@ BEGIN
                 UPDATE order_transactions SET
                     import_run_id    = p_import_run_id,
                     order_date       = (v_txn->>'order_date')::DATE,
+                    order_datetime   = v_txn->>'order_datetime',
                     original_option  = v_txn->>'original_option',
                     original_product = v_txn->>'original_product',
                     raw_data         = (v_txn->'raw_data'),
@@ -130,6 +133,7 @@ BEGIN
                     discount_amount  = COALESCE((v_txn->>'discount_amount')::NUMERIC, 0),
                     settlement       = COALESCE((v_txn->>'settlement')::NUMERIC, 0),
                     commission       = COALESCE((v_txn->>'commission')::NUMERIC, 0),
+                    shipping_fee     = COALESCE((v_txn->>'shipping_fee')::NUMERIC, 0),
                     processed_at     = now()
                 WHERE id = v_txn_id;
 
@@ -137,16 +141,17 @@ BEGIN
             ELSE
                 -- 새 주문 INSERT
                 INSERT INTO order_transactions (
-                    import_run_id, channel, order_date, order_no, line_no,
+                    import_run_id, channel, order_date, order_datetime, order_no, line_no,
                     original_option, original_product,
                     raw_data, raw_hash, parser_version,
                     product_name, barcode, line_code, sort_order,
                     qty, unit_price, total_amount, discount_amount,
-                    settlement, commission
+                    settlement, commission, shipping_fee
                 ) VALUES (
                     p_import_run_id,
                     v_txn->>'channel',
                     (v_txn->>'order_date')::DATE,
+                    v_txn->>'order_datetime',
                     v_txn->>'order_no',
                     COALESCE((v_txn->>'line_no')::INT, 1),
                     v_txn->>'original_option',
@@ -163,7 +168,8 @@ BEGIN
                     COALESCE((v_txn->>'total_amount')::NUMERIC, 0),
                     COALESCE((v_txn->>'discount_amount')::NUMERIC, 0),
                     COALESCE((v_txn->>'settlement')::NUMERIC, 0),
-                    COALESCE((v_txn->>'commission')::NUMERIC, 0)
+                    COALESCE((v_txn->>'commission')::NUMERIC, 0),
+                    COALESCE((v_txn->>'shipping_fee')::NUMERIC, 0)
                 );
 
                 v_inserted := v_inserted + 1;

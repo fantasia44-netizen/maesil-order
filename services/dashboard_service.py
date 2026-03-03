@@ -3,6 +3,7 @@ dashboard_service.py — 대시보드 데이터 오케스트레이터.
 기존 revenue_service, stock 쿼리를 조합하여 대시보드 KPI/차트 데이터 제공.
 """
 from datetime import datetime, timedelta
+from services.tz_utils import today_kst
 
 
 def get_dashboard_data(db, date=None):
@@ -10,14 +11,14 @@ def get_dashboard_data(db, date=None):
 
     Args:
         db: SupabaseDB instance
-        date: 기준일 (YYYY-MM-DD), None이면 오늘
+        date: 기준일 (YYYY-MM-DD), None이면 오늘 (KST)
 
     Returns:
         dict: kpi, revenue_trend, channel_breakdown, warehouse_stock,
               top_products, recent_activity
     """
     if date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
+        date = today_kst()
 
     # 이번 달 범위
     today = datetime.strptime(date, '%Y-%m-%d')
