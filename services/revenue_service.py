@@ -168,11 +168,14 @@ def _calc_category_breakdown(raw):
 
 
 def _resolve_channel(r):
-    """레코드에서 채널명 추출. channel이 없으면 category로 폴백."""
+    """레코드에서 채널명 추출. channel이 없으면 category로 폴백. 표시명 정규화."""
+    from services.channel_config import normalize_channel_display
     raw_ch = r.get('channel', '') or ''
     if not raw_ch or raw_ch in ('None', 'none', 'null'):
-        return r.get('category', '기타') or '기타'
-    return raw_ch
+        ch = r.get('category', '기타') or '기타'
+    else:
+        ch = raw_ch
+    return normalize_channel_display(ch)
 
 
 def _calc_channel_breakdown(raw):

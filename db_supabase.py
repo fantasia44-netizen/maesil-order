@@ -303,55 +303,109 @@ class SupabaseDB(DBBase):
         ).execute()
 
     def query_revenue(self, date_from=None, date_to=None, category=None, channel=None):
-        """매출 조회 (order_transactions 기반).
-        일별+채널별+품목별로 집계하여 반환.
-        기존 daily_revenue 호환 형식: revenue_date, product_name, category,
-            channel, qty, unit_price, revenue(=total_amount), settlement, commission
+        """매출 조회 (order_transactions + daily_revenue 합산).
+
+        - order_transactions: 온라인 채널 매출 (스마트스토어, 쿠팡, 자사몰, 카카오 등)
+        - daily_revenue: 거래처매출, 로켓 등 order_transactions에 없는 매출
+
+        반환 형식: revenue_date, product_name, category,
+            channel, qty, unit_price, revenue, settlement, commission
         """
-        def builder(table):
-            q = self.client.table(table).select(
-                "order_date,channel,product_name,qty,unit_price,"
-                "total_amount,settlement,commission,discount_amount,shipping_fee"
-            ).eq("status", "정상").order("order_date", desc=True)
-            if date_from:
-                q = q.gte("order_date", date_from)
-            if date_to:
-                q = q.lte("order_date", date_to)
-            if channel and channel != "전체":
-                q = q.eq("channel", channel)
-            return q
+        from services.channel_config import (
+            CHANNEL_REVENUE_MAP, normalize_channel_display,
+            DAILY_REVENUE_ONLY_CATEGORIES,
+        )
 
-        rows = self._paginate_query("order_transactions", builder)
-
-        # 일별+채널+품목 집계
-        from services.channel_config import CHANNEL_REVENUE_MAP
         agg = {}
-        for r in rows:
-            ch = r.get("channel", "")
-            cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출") if not category or category == "전체" else category
-            if category and category != "전체":
-                # 카테고리 필터링
+
+        # ── 1. order_transactions (온라인 채널 매출) ──
+        # daily_revenue 전용 카테고리 필터 시에는 order_transactions 스킵
+        skip_ot = (category and category != "전체"
+                   and category in DAILY_REVENUE_ONLY_CATEGORIES)
+
+        if not skip_ot:
+            def ot_builder(table):
+                q = self.client.table(table).select(
+                    "order_date,channel,product_name,qty,unit_price,"
+                    "total_amount,settlement,commission,discount_amount,shipping_fee"
+                ).eq("status", "정상").order("order_date", desc=True)
+                if date_from:
+                    q = q.gte("order_date", date_from)
+                if date_to:
+                    q = q.lte("order_date", date_to)
+                if channel and channel != "전체":
+                    q = q.eq("channel", channel)
+                return q
+
+            ot_rows = self._paginate_query("order_transactions", ot_builder)
+
+            for r in ot_rows:
+                ch = normalize_channel_display(r.get("channel", ""))
                 actual_cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출")
-                if actual_cat != category:
+                if category and category != "전체" and actual_cat != category:
                     continue
 
-            key = (r.get("order_date", ""), r.get("product_name", ""), ch)
-            if key not in agg:
-                actual_cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출")
-                agg[key] = {
-                    "revenue_date": r.get("order_date", ""),
-                    "product_name": r.get("product_name", ""),
-                    "category": actual_cat,
-                    "channel": ch,
-                    "qty": 0, "revenue": 0, "settlement": 0,
-                    "commission": 0, "discount_amount": 0, "shipping_fee": 0,
-                }
-            agg[key]["qty"] += (r.get("qty") or 0)
-            agg[key]["revenue"] += (r.get("total_amount") or 0)
-            agg[key]["settlement"] += (r.get("settlement") or 0)
-            agg[key]["commission"] += (r.get("commission") or 0)
-            agg[key]["discount_amount"] += (r.get("discount_amount") or 0)
-            agg[key]["shipping_fee"] += (r.get("shipping_fee") or 0)
+                key = (r.get("order_date", ""), r.get("product_name", ""), ch)
+                if key not in agg:
+                    agg[key] = {
+                        "revenue_date": r.get("order_date", ""),
+                        "product_name": r.get("product_name", ""),
+                        "category": actual_cat,
+                        "channel": ch,
+                        "qty": 0, "revenue": 0, "settlement": 0,
+                        "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                    }
+                agg[key]["qty"] += (r.get("qty") or 0)
+                agg[key]["revenue"] += (r.get("total_amount") or 0)
+                agg[key]["settlement"] += (r.get("settlement") or 0)
+                agg[key]["commission"] += (r.get("commission") or 0)
+                agg[key]["discount_amount"] += (r.get("discount_amount") or 0)
+                agg[key]["shipping_fee"] += (r.get("shipping_fee") or 0)
+
+        # ── 2. daily_revenue (거래처매출, 로켓 등 전용 카테고리) ──
+        dr_cats = DAILY_REVENUE_ONLY_CATEGORIES
+        if category and category != "전체":
+            if category not in dr_cats:
+                dr_cats = set()  # 온라인 카테고리 필터 시 daily_revenue 스킵
+            else:
+                dr_cats = {category}
+
+        if dr_cats:
+            def dr_builder(table):
+                q = self.client.table(table).select(
+                    "revenue_date,product_name,category,channel,"
+                    "qty,unit_price,revenue,settlement,commission"
+                ).order("revenue_date", desc=True)
+                if date_from:
+                    q = q.gte("revenue_date", date_from)
+                if date_to:
+                    q = q.lte("revenue_date", date_to)
+                # 전용 카테고리만 필터
+                if len(dr_cats) == 1:
+                    q = q.eq("category", list(dr_cats)[0])
+                else:
+                    q = q.in_("category", list(dr_cats))
+                return q
+
+            dr_rows = self._paginate_query("daily_revenue", dr_builder)
+
+            for r in dr_rows:
+                cat = r.get("category", "기타")
+                ch = normalize_channel_display(r.get("channel", "") or cat)
+                key = (r.get("revenue_date", ""), r.get("product_name", ""), ch)
+                if key not in agg:
+                    agg[key] = {
+                        "revenue_date": r.get("revenue_date", ""),
+                        "product_name": r.get("product_name", ""),
+                        "category": cat,
+                        "channel": ch,
+                        "qty": 0, "revenue": 0, "settlement": 0,
+                        "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                    }
+                agg[key]["qty"] += (r.get("qty") or 0)
+                agg[key]["revenue"] += (r.get("revenue") or 0)
+                agg[key]["settlement"] += (r.get("settlement") or 0)
+                agg[key]["commission"] += (r.get("commission") or 0)
 
         result = sorted(agg.values(), key=lambda x: x["revenue_date"], reverse=True)
         return result

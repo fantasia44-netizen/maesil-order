@@ -484,6 +484,7 @@ def generate_report():
             ch_totals = {}    # {channel: total_revenue}
             by_date_ch = {}   # {date: {channel: revenue}}
 
+            from services.channel_config import normalize_channel_display
             for r in revenue:
                 d = r.get('revenue_date', '')
                 raw_ch = r.get('channel', '') or ''
@@ -492,6 +493,7 @@ def generate_report():
                     ch = r.get('category', '기타') or '기타'
                 else:
                     ch = raw_ch
+                ch = normalize_channel_display(ch)
                 rev = _safe_int(r.get('revenue', 0) or r.get('amount', 0) or 0)
                 if not d:
                     continue

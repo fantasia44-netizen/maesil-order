@@ -407,7 +407,24 @@ CHANNEL_REVENUE_MAP = {
     "해미애찬":     "일반매출",
     "쿠팡":         "쿠팡매출",
     "N배송_수동":   "N배송(용인)",
+    "N배송":        "N배송(용인)",
 }
+
+# DB 채널명 → 표시용 채널명 정규화
+# (order_transactions.channel 값이 다양한 형태로 저장될 수 있으므로 통일)
+CHANNEL_DISPLAY_MAP = {
+    "N배송_수동":   "N배송",
+    "N배송(용인)":  "N배송",
+    "카카오쇼핑":   "카카오",
+    "해미예찬":     "해미애찬",
+}
+
+
+def normalize_channel_display(ch):
+    """DB 채널명을 표시용으로 정규화."""
+    if not ch or ch in ('None', 'none', 'null'):
+        return '기타'
+    return CHANNEL_DISPLAY_MAP.get(ch, ch)
 
 # 단순 송장 채널 (합포장 시 단(段) 구분 없이 품목명만 표시)
 SIMPLE_INVOICE_CHANNELS = {"해미애찬"}
@@ -424,3 +441,7 @@ CATEGORY_PRICE_COL = {
 
 # 매출 계산 대상 카테고리 (이 리스트에 없으면 매출 기록 안 함)
 REVENUE_CATEGORIES = list(CATEGORY_PRICE_COL.keys())
+
+# daily_revenue 전용 카테고리 (order_transactions에 없고 daily_revenue에서만 관리)
+# query_revenue() 합산 시 이 카테고리만 daily_revenue에서 가져옴
+DAILY_REVENUE_ONLY_CATEGORIES = {"거래처매출", "로켓"}
