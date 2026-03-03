@@ -53,6 +53,14 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
         ValueError: 날짜 형식 오류 또는 유효성 검증 실패
         Exception: DB 오류
     """
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import validate, generate_transaction_id
+        validate.transfer(db, date_str, product_name, qty, from_location, to_location)
+        transfer_id = generate_transaction_id()
+    except ImportError:
+        transfer_id = None
+
     _validate_date(date_str)
 
     remain = int(qty)
@@ -93,12 +101,14 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
             "product_name": name, "qty": -remain, "location": src,
             "manufacture_date": '',
             "lot_number": req_lot or None, "grade": req_grade or None,
+            "transfer_id": transfer_id,
         })
         payload.append({
             "transaction_date": date_str, "type": "MOVE_IN",
             "product_name": name, "qty": remain, "location": dst,
             "manufacture_date": '',
             "lot_number": req_lot or None, "grade": req_grade or None,
+            "transfer_id": transfer_id,
         })
     else:
         # 이력번호 지정 시 해당 lot 그룹만 대상
@@ -124,6 +134,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "food_type": g.get('food_type', ''),
                 "lot_number": g.get('lot_number', '') or None,
                 "grade": g.get('grade', '') or None,
+                "transfer_id": transfer_id,
             })
             payload.append({
                 "transaction_date": date_str, "type": "MOVE_IN",
@@ -137,6 +148,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "food_type": g.get('food_type', ''),
                 "lot_number": g.get('lot_number', '') or None,
                 "grade": g.get('grade', '') or None,
+                "transfer_id": transfer_id,
             })
             remain -= deduct
 
@@ -176,6 +188,12 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
     warnings = []
     deleted_count = 0
 
+    # transfer_id 생성
+    try:
+        from core.validation_engine import generate_transaction_id
+    except ImportError:
+        generate_transaction_id = lambda: None
+
     # 수정입력: 해당 날짜의 기존 이동 기록 삭제
     if mode == "수정입력":
         del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT")
@@ -209,6 +227,7 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
         src = normalize_location(row['현재창고위치'])
         dst = normalize_location(row['이동창고위치'])
         remain = int(row['수량입력'])
+        tid = generate_transaction_id()
 
         groups = snapshot_lookup(snapshots[src], name).get('groups', [])
 
@@ -216,12 +235,12 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
             payload.append({
                 "transaction_date": date_str, "type": "MOVE_OUT",
                 "product_name": name, "qty": -remain, "location": src,
-                "manufacture_date": ''
+                "manufacture_date": '', "transfer_id": tid,
             })
             payload.append({
                 "transaction_date": date_str, "type": "MOVE_IN",
                 "product_name": name, "qty": remain, "location": dst,
-                "manufacture_date": ''
+                "manufacture_date": '', "transfer_id": tid,
             })
         else:
             for g in groups:
@@ -240,6 +259,7 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
                     "food_type": g.get('food_type', ''),
                     "lot_number": g.get('lot_number', '') or None,
                     "grade": g.get('grade', '') or None,
+                    "transfer_id": tid,
                 })
                 payload.append({
                     "transaction_date": date_str, "type": "MOVE_IN",
@@ -253,6 +273,7 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
                     "food_type": g.get('food_type', ''),
                     "lot_number": g.get('lot_number', '') or None,
                     "grade": g.get('grade', '') or None,
+                    "transfer_id": tid,
                 })
                 remain -= deduct
 

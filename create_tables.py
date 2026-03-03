@@ -388,6 +388,50 @@ ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
 -- shipping_fee: 배송비 (주문서 원본 금액)
 ALTER TABLE order_transactions ADD COLUMN IF NOT EXISTS
     shipping_fee NUMERIC DEFAULT 0;
+
+-- ============================================================
+-- Phase 4: 데이터 무결성 보호 계층 (2026-03)
+-- ============================================================
+
+-- 23) integrity_report (정합성 검사 결과)
+CREATE TABLE IF NOT EXISTS integrity_report (
+    id              BIGSERIAL PRIMARY KEY,
+    check_date      DATE NOT NULL,
+    passed          BOOLEAN NOT NULL DEFAULT TRUE,
+    critical_count  INTEGER DEFAULT 0,
+    warning_count   INTEGER DEFAULT 0,
+    info_count      INTEGER DEFAULT 0,
+    summary         TEXT DEFAULT '',
+    details         JSONB DEFAULT '[]',
+    run_by          TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_integrity_report_date
+    ON integrity_report(check_date);
+
+-- 24) stock_ledger 확장: transfer_id (이동 원자성 추적)
+ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS transfer_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_stock_ledger_transfer_id
+    ON stock_ledger(transfer_id) WHERE transfer_id IS NOT NULL;
+
+-- 25) import_runs file_hash 빠른 검색
+CREATE INDEX IF NOT EXISTS idx_import_runs_file_hash
+    ON import_runs(file_hash) WHERE file_hash IS NOT NULL;
+
+-- 26) validation_log (검증 실패 이력)
+CREATE TABLE IF NOT EXISTS validation_log (
+    id              BIGSERIAL PRIMARY KEY,
+    action          TEXT NOT NULL,
+    error_code      TEXT,
+    message         TEXT,
+    user_id         TEXT,
+    details         JSONB DEFAULT '{}',
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_validation_log_action
+    ON validation_log(action);
+CREATE INDEX IF NOT EXISTS idx_validation_log_created
+    ON validation_log(created_at);
 """
 
 print("=" * 60)

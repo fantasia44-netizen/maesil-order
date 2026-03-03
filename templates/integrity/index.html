@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}데이터 정합성 검사{% endblock %}
+{% block page_title %}데이터 정합성 검사{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-2">
+
+    <!-- 검사 실행 -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="row align-items-end g-2">
+                <div class="col-auto">
+                    <label class="form-label small mb-0">시작일</label>
+                    <input type="date" id="dateFrom" class="form-control form-control-sm">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">종료일</label>
+                    <input type="date" id="dateTo" class="form-control form-control-sm">
+                </div>
+                <div class="col-auto">
+                    <button id="runBtn" class="btn btn-primary btn-sm">
+                        <i class="bi bi-shield-check"></i> 정합성 검사 실행
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button id="quickBtn" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-lightning"></i> 빠른 점검
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 결과 요약 -->
+    <div id="summaryArea" class="mb-3" style="display:none;">
+        <div class="row g-2">
+            <div class="col-md-3">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body text-center py-2">
+                        <div id="statusIcon" class="fs-1"></div>
+                        <div id="statusText" class="fw-bold small"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-danger border-0 shadow-sm">
+                    <div class="card-body text-center py-2">
+                        <div class="text-danger fs-3 fw-bold" id="criticalCount">0</div>
+                        <div class="small text-muted">Critical</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-warning border-0 shadow-sm">
+                    <div class="card-body text-center py-2">
+                        <div class="text-warning fs-3 fw-bold" id="warningCount">0</div>
+                        <div class="small text-muted">Warning</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-info border-0 shadow-sm">
+                    <div class="card-body text-center py-2">
+                        <div class="text-info fs-3 fw-bold" id="infoCount">0</div>
+                        <div class="small text-muted">Info</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상세 이슈 -->
+    <div id="issuesArea" class="mb-3" style="display:none;">
+        <div class="card">
+            <div class="card-header py-2"><strong class="small">검사 상세 결과</strong></div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="small" style="width:100px">구분</th>
+                            <th class="small" style="width:120px">검사항목</th>
+                            <th class="small">내용</th>
+                        </tr>
+                    </thead>
+                    <tbody id="issuesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 이력 -->
+    <div class="card">
+        <div class="card-header py-2">
+            <strong class="small">검사 이력</strong>
+            <button id="loadHistBtn" class="btn btn-sm btn-outline-secondary float-end py-0 px-2">
+                <i class="bi bi-arrow-clockwise"></i> 조회
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="small">날짜</th>
+                        <th class="small">결과</th>
+                        <th class="small">Critical</th>
+                        <th class="small">Warning</th>
+                        <th class="small">요약</th>
+                    </tr>
+                </thead>
+                <tbody id="historyBody">
+                    <tr><td colspan="5" class="text-center text-muted small py-2">'조회' 클릭</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+const csrf_token = document.querySelector('meta[name="csrf-token"]').content;
+function escapeHtml(t) {
+    const d = document.createElement('div'); d.textContent = t; return d.innerHTML;
+}
+
+const sevBadge = {
+    critical: '<span class="badge bg-danger">Critical</span>',
+    warning: '<span class="badge bg-warning text-dark">Warning</span>',
+    info: '<span class="badge bg-info text-dark">Info</span>',
+};
+
+// 검사 실행
+document.getElementById('runBtn').addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 검사 중...';
+
+    try {
+        const res = await fetch('/integrity/api/run', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken': csrf_token},
+            body: JSON.stringify({
+                date_from: document.getElementById('dateFrom').value,
+                date_to: document.getElementById('dateTo').value,
+            }),
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+            alert('세션 만료. 새로고침 해주세요.');
+            return;
+        }
+        const data = await res.json();
+        if (data.error) { alert(data.error); return; }
+        showResult(data);
+    } catch(e) { alert(e.message); }
+    finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-shield-check"></i> 정합성 검사 실행';
+    }
+});
+
+// 빠른 점검
+document.getElementById('quickBtn').addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true;
+    try {
+        const res = await fetch('/integrity/api/quick-check');
+        const data = await res.json();
+        showResult({
+            passed: data.critical === 0,
+            critical_count: data.critical,
+            warning_count: data.warning,
+            info_count: 0,
+            issues: data.issues || [],
+        });
+    } catch(e) { alert(e.message); }
+    finally { btn.disabled = false; }
+});
+
+function showResult(data) {
+    document.getElementById('summaryArea').style.display = '';
+    document.getElementById('issuesArea').style.display = '';
+
+    document.getElementById('statusIcon').textContent = data.passed ? '✅' : '❌';
+    document.getElementById('statusText').textContent = data.passed ? '통과' : '이상 발견';
+    document.getElementById('criticalCount').textContent = data.critical_count;
+    document.getElementById('warningCount').textContent = data.warning_count;
+    document.getElementById('infoCount').textContent = data.info_count || 0;
+
+    const tbody = document.getElementById('issuesBody');
+    tbody.innerHTML = '';
+    (data.issues || []).forEach(i => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${sevBadge[i.severity] || i.severity}</td>
+            <td class="small">${escapeHtml(i.check_name)}</td>
+            <td class="small">${escapeHtml(i.message)}</td>`;
+        tbody.appendChild(tr);
+    });
+    if (!data.issues || !data.issues.length) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted small py-2">이슈 없음</td></tr>';
+    }
+}
+
+// 이력 조회
+document.getElementById('loadHistBtn').addEventListener('click', async function() {
+    try {
+        const res = await fetch('/integrity/api/reports');
+        const rows = await res.json();
+        const tbody = document.getElementById('historyBody');
+        tbody.innerHTML = '';
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted small py-2">이력 없음</td></tr>';
+            return;
+        }
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="small">${r.check_date || ''}</td>
+                <td>${r.passed ? '<span class="badge bg-success">통과</span>' : '<span class="badge bg-danger">이상</span>'}</td>
+                <td class="small text-danger fw-bold">${r.critical_count || 0}</td>
+                <td class="small text-warning">${r.warning_count || 0}</td>
+                <td class="small">${escapeHtml(r.summary || '')}</td>`;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error(e); }
+});
+
+// 기본 날짜 설정
+(function() {
+    const today = new Date().toISOString().slice(0, 10);
+    const d30 = new Date(Date.now() - 30*86400000).toISOString().slice(0, 10);
+    document.getElementById('dateFrom').value = d30;
+    document.getElementById('dateTo').value = today;
+})();
+</script>
+{% endblock %}

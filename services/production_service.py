@@ -377,6 +377,13 @@ def process_production_batch(db, date_str, mode, location, items):
     """
     from services.excel_io import normalize_location as norm_loc
 
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import validate
+        validate.production(db, date_str, location, items)
+    except ImportError:
+        pass  # core 미설치 시 기존 동작 유지
+
     _validate_date(date_str)
     loc = norm_loc(location) if location else ''
 

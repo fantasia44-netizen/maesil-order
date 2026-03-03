@@ -28,6 +28,14 @@ def process_inbound_batch(db, date_str, mode, items):
     Returns:
         dict: {count, warnings, deleted_count}
     """
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import validate
+        # 입고 payload 형식으로 변환하여 검증
+        validate.inbound(db, date_str, items)
+    except ImportError:
+        pass  # core 미설치 시 기존 동작 유지
+
     _validate_date(date_str)
 
     warnings = []
