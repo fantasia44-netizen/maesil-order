@@ -414,6 +414,7 @@ class OrderProcessor:
                             'sort': match['출력순서'],
                             'order_date': self.get_safe_val(r, m['date']) if m.get('date') is not None else '',
                             'order_no': self.get_safe_val(r, m['no']) if m.get('no') is not None else '',
+                            '_order_group': self.get_safe_val(r, col_map.get('order_group')) if col_map.get('order_group') is not None else '',
                         }
 
                         # 금액 데이터 추출 (col_map에서)
@@ -422,6 +423,7 @@ class OrderProcessor:
                         row_data['_discount'] = self._parse_money(r, col_map.get('discount'))
                         row_data['_settlement'] = self._parse_money(r, col_map.get('settlement'))
                         row_data['_commission'] = self._parse_money(r, col_map.get('commission'))
+                        row_data['_shipping_fee'] = self._parse_money(r, col_map.get('shipping_fee'))
 
                         # 원본 옵션/상품명
                         row_data['_original_option'] = self.get_safe_val(r, m['opt']) if m.get('opt') is not None else ''
@@ -464,6 +466,22 @@ class OrderProcessor:
                 self.log("❌ 매칭 데이터 0건")
                 result['error'] = "매칭 데이터 0건"
                 return result
+
+            # ─── 배송비 주문번호 기준 중복제거 ───
+            # 동일 주문에 배송비가 반복 기록됨 → 첫 행만 유지, 나머지 0
+            # order_group(주문번호) 우선, 없으면 order_no(상품주문번호) 사용
+            _ship_seen = set()
+            _ship_dedup_count = 0
+            for rd in res:
+                grp_key = rd.get('_order_group', '') or rd.get('order_no', '')
+                if grp_key in _ship_seen:
+                    if rd.get('_shipping_fee', 0) > 0:
+                        rd['_shipping_fee'] = 0
+                        _ship_dedup_count += 1
+                else:
+                    _ship_seen.add(grp_key)
+            if _ship_dedup_count:
+                self.log(f"📦 배송비 중복제거: {_ship_dedup_count}건 (동일주문 첫 행만 유지)")
 
             # ─── [Phase 1] DB 저장 (실패해도 송장 생성은 계속) ───
             if save_to_db and db is not None:
@@ -817,6 +835,7 @@ class OrderProcessor:
                 "discount_amount": self._safe_float(row.get('_discount'), 0),
                 "settlement": self._safe_float(row.get('_settlement'), 0),
                 "commission": self._safe_float(row.get('_commission'), 0),
+                "shipping_fee": self._safe_float(row.get('_shipping_fee'), 0),
             }
 
             # 개인정보 분리 (카카오는 배송정보 없음)

@@ -25,6 +25,7 @@ import unicodedata
 CHANNEL_COLUMN_MAP = {
     "_common": {
         "order_no":   ["주문번호", "상품주문번호"],
+        "order_group": ["주문번호"],   # 배송비 등 주문 단위 필드 그룹핑용
         "order_date": ["주문일시", "주문일", "결제일", "결제일시", "발주일"],
         "product":    ["상품명", "등록상품명", "주문상품명"],
         "option":     ["옵션정보", "옵션", "등록옵션명"],
@@ -42,6 +43,7 @@ CHANNEL_COLUMN_MAP = {
         "discount":   ["할인금액"],
         "settlement": ["정산예정금액", "정산기준금액"],
         "commission": ["서비스이용료"],
+        "shipping_fee": ["배송비", "배송비 합계", "배송비 금액"],
     },
 
     "스마트스토어": {
@@ -50,6 +52,7 @@ CHANNEL_COLUMN_MAP = {
         "_password":   "1111",
         # 채널 고유 키워드 (공통보다 우선)
         "order_no":    ["상품주문번호"],
+        "order_group": ["주문번호"],       # 배송비 그룹핑용 (상품주문번호 ≠ 주문번호)
         "order_date":  ["주문일시", "결제일"],
         "option":      ["옵션정보"],
         "status":      ["주문상태"],
@@ -67,6 +70,7 @@ CHANNEL_COLUMN_MAP = {
         "seller_discount": ["판매자 부담 할인액"],
         "n_ship":      ["배송속성"],
         "item_price":  ["상품가격"],
+        "shipping_fee": ["배송비 합계"],
     },
 
     "쿠팡": {
@@ -97,6 +101,7 @@ CHANNEL_COLUMN_MAP = {
         "unit_price":  ["판매단가"],
         "total":       ["판매금액"],
         "settlement":  ["정산예정금액"],
+        "shipping_fee": ["배송비 금액"],
         "commission":  ["서비스이용료"],
         "seller_coupon":  ["판매자쿠폰할인"],
         "buyer_coupon":   ["구매쿠폰적용금액"],
@@ -115,6 +120,7 @@ CHANNEL_COLUMN_MAP = {
         "memo":        ["비고"],
         "unit_price":  ["판매가"],
         "option_price": ["옵션추가 가격"],
+        "shipping_fee": ["배송비"],
     },
 
     "오아시스": {
@@ -132,6 +138,7 @@ CHANNEL_COLUMN_MAP = {
         "discount":    ["할인금액"],
         "coupon":      ["쿠폰 적용 금액"],
         "points":      ["사용적립금"],
+        "shipping_fee": ["배송비"],
     },
 
     "11번가": {
@@ -151,6 +158,7 @@ CHANNEL_COLUMN_MAP = {
         "extra_discount":   ["판매자 추가할인금액"],
         "commission":  ["서비스이용료"],
         "settlement":  ["정산예정금액"],
+        "shipping_fee": ["배송비"],
     },
 
     "카카오": {
@@ -166,6 +174,7 @@ CHANNEL_COLUMN_MAP = {
         "commission":  ["기본수수료"],
         "courier":     ["택배사"],
         "invoice_no":  ["송장번호"],
+        "shipping_fee": ["배송비"],
     },
 
     "해미애찬": {
@@ -176,6 +185,7 @@ CHANNEL_COLUMN_MAP = {
         "_simple_invoice": True,   # 송장 생성 시 단(段) 구분 없이 품목명만 표시
         # 채널 고유 키워드 (스마트스토어와 동일)
         "order_no":    ["상품주문번호"],
+        "order_group": ["주문번호"],       # 배송비 그룹핑용
         "order_date":  ["주문일시", "결제일"],
         "option":      ["옵션정보"],
         "status":      ["주문상태"],
@@ -190,6 +200,7 @@ CHANNEL_COLUMN_MAP = {
         "settlement":  ["정산예정금액"],
         "commission":  ["네이버페이 주문관리 수수료"],
         "n_ship":      ["배송속성"],
+        "shipping_fee": ["배송비 합계"],
     },
 }
 
