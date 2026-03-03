@@ -472,10 +472,14 @@ class OrderProcessor:
                         db, mode, res, order_file, uploaded_by, len(target)
                     )
                     result['db_result'] = db_result
+                    cross_skip = db_result.get('cross_channel_skipped', 0)
+                    cross_msg = f", 타채널중복 {cross_skip}건" if cross_skip else ""
                     self.log(f"DB 저장: 신규 {db_result.get('inserted', 0)}건, "
                              f"변경 {db_result.get('updated', 0)}건, "
                              f"스킵 {db_result.get('skipped', 0)}건, "
-                             f"실패 {db_result.get('failed', 0)}건")
+                             f"실패 {db_result.get('failed', 0)}건{cross_msg}")
+                    if cross_skip:
+                        self.log(f"⚠️ 다른 채널에 이미 등록된 주문 {cross_skip}건 스킵 (raw_hash 동일)")
                 except Exception as db_err:
                     self.log(f"DB 저장 중 예외 발생 (송장은 계속): {db_err}")
                     result['db_result'] = {"inserted": 0, "updated": 0, "skipped": 0,

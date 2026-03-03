@@ -1385,10 +1385,28 @@ class SupabaseDB(DBBase):
                 except Exception as e:
                     print(f"[DB] fallback batch lookup error: {e}")
 
+            # 1-b단계: 크로스 채널 raw_hash 중복 체크 (다른 채널에 같은 주문 존재 여부)
+            batch_hashes = [o.get("transaction", {}).get("raw_hash", "") for o in batch]
+            batch_hashes = [h for h in batch_hashes if h]
+            cross_channel_hashes = {}  # raw_hash → 기존 채널명
+            if batch_hashes:
+                for hi in range(0, len(batch_hashes), 200):
+                    h_chunk = batch_hashes[hi:hi + 200]
+                    try:
+                        xres = self.client.table("order_transactions") \
+                            .select("raw_hash,channel") \
+                            .in_("raw_hash", h_chunk) \
+                            .execute()
+                        for xr in (xres.data or []):
+                            cross_channel_hashes[xr["raw_hash"]] = xr.get("channel", "")
+                    except Exception:
+                        pass  # 조회 실패 시 기존 로직으로 진행
+
             # 2단계: 분류 (insert / update / skip)
             to_insert = []
             to_update = []  # (id, txn_update)
             ship_batch = []
+            cross_skipped = 0  # 크로스 채널 중복 스킵 카운트
 
             for i, order in enumerate(batch, batch_start + 1):
                 txn = order.get("transaction", {})
@@ -1410,6 +1428,13 @@ class SupabaseDB(DBBase):
                         txn_update["raw_data"] = txn["raw_data"]
                     to_update.append((rec["id"], txn_update, i))
                 else:
+                    # 크로스 채널 중복 체크: 같은 raw_hash가 다른 채널에 이미 존재
+                    t_hash = txn.get("raw_hash", "")
+                    existing_ch = cross_channel_hashes.get(t_hash)
+                    if t_hash and existing_ch and existing_ch != txn.get("channel", ""):
+                        cross_skipped += 1
+                        skipped += 1
+                        continue
                     # INSERT 대상
                     txn["import_run_id"] = import_run_id
                     to_insert.append((txn, i))
@@ -1477,7 +1502,10 @@ class SupabaseDB(DBBase):
             "error_summary": errors if errors else None,
             "status": status,
         })
-        return {"inserted": inserted, "updated": updated, "skipped": skipped, "failed": failed, "errors": errors}
+        result = {"inserted": inserted, "updated": updated, "skipped": skipped, "failed": failed, "errors": errors}
+        if cross_skipped > 0:
+            result["cross_channel_skipped"] = cross_skipped
+        return result
 
     def cancel_or_edit_order(self, order_id, change_type, payload, reason, user):
         """주문 수정/취소/환불 (RPC 호출).
