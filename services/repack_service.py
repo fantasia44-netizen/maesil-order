@@ -418,6 +418,14 @@ def process_repack_batch(db, date_str, mode, location, items):
     """
     _validate_date(date_str)
 
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import _validate_date as v_date, _validate_location as v_loc
+        v_date(date_str, '소분작업일자')
+        v_loc(location, '소분 위치')
+    except ImportError:
+        pass
+
     warnings = []
     if date_str < datetime.now().strftime('%Y-%m-%d'):
         warnings.append(f"작업일자가 과거입니다: {date_str}")

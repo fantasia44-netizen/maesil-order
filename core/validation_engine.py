@@ -69,7 +69,9 @@ class SimilarNameWarning:
 def _log_validation_failure(action, message, details=None):
     """검증 실패를 audit_logs에 기록. Flask 컨텍스트 없으면 스킵."""
     try:
-        from flask import current_app
+        from flask import current_app, has_app_context
+        if not has_app_context():
+            return
         db = current_app.db
         db.insert_audit_log({
             'action': f'validation_fail:{action}',

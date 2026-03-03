@@ -43,6 +43,14 @@ def process_etc_outbound(db, date_str, location, items):
     """
     _validate_date(date_str)
 
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import _validate_date as v_date, _validate_location as v_loc
+        v_date(date_str, '기타출고일자')
+        v_loc(location, '출고 위치')
+    except ImportError:
+        pass
+
     if not items:
         return {'success': False, 'warnings': ['출고할 품목이 없습니다.'],
                 'shortage': [], 'out_count': 0, 'in_count': 0}

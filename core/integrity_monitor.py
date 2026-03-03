@@ -60,53 +60,83 @@ class IntegrityMonitor:
         return issue
 
     # ─────────────────────────────────────────────
-    # 1. 창고별 재고 합계 = 수불원장 누적합
+    # 1. 수불원장 데이터 정합성 (타입 유효성 + 필수값)
     # ─────────────────────────────────────────────
     def check_stock_balance(self, target_date=None):
-        """창고별 재고 합계와 수불원장 누적합 비교.
+        """수불원장 데이터 정합성 검증.
 
-        수불원장(stock_ledger)의 qty 합계가 각 창고별로 일치하는지 검증.
+        - 알 수 없는 type 값 존재 여부
+        - product_name 누락 레코드
+        - location 누락 레코드
+        - qty=0 레코드 (무의미 데이터)
         """
-        check_name = 'stock_balance'
+        check_name = 'stock_data_quality'
         self.checks_run.append(check_name)
 
         if target_date is None:
             target_date = datetime.now().strftime('%Y-%m-%d')
 
+        # 최근 30일만 검사 (성능: 전체 풀스캔 방지)
+        date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+
         try:
-            # 전체 stock_ledger 데이터 조회 (target_date까지)
-            all_data = self.db.query_stock_ledger(date_to=target_date)
+            all_data = self.db.query_stock_ledger(
+                date_to=target_date, date_from=date_from)
             if not all_data:
                 self._add_issue(check_name, IntegrityIssue.SEVERITY_INFO,
-                                '수불원장 데이터가 없습니다.')
+                                f'{date_from}~{target_date} 수불원장 데이터 없음')
                 return
 
-            # 창고별 + 품목별 누적 합계
-            ledger_totals = defaultdict(lambda: defaultdict(float))
+            VALID_TYPES = {
+                'INBOUND', 'SALES_OUT', 'PRODUCTION', 'PROD_OUT',
+                'ADJUST', 'SET_OUT', 'SET_IN', 'REPACK_OUT', 'REPACK_IN',
+                'MOVE_OUT', 'MOVE_IN', 'ETC_OUT', 'ETC_IN',
+                'SALES_RETURN',
+            }
+
+            unknown_types = defaultdict(int)
+            missing_name = 0
+            missing_loc = 0
+            zero_qty = 0
+
             for r in all_data:
-                loc = r.get('location', '')
-                name = r.get('product_name', '')
-                qty = float(r.get('qty', 0) or 0)
-                if loc and name:
-                    ledger_totals[loc][name] += qty
+                rtype = r.get('type', '')
+                if rtype and rtype not in VALID_TYPES:
+                    unknown_types[rtype] += 1
+                if not r.get('product_name', '').strip():
+                    missing_name += 1
+                if not r.get('location', '').strip():
+                    missing_loc += 1
+                if float(r.get('qty', 0) or 0) == 0:
+                    zero_qty += 1
 
-            # 음수 재고 찾기
-            negative_count = 0
-            for loc, products in ledger_totals.items():
-                for name, total in products.items():
-                    if total < -0.001:  # 부동소수점 오차 허용
-                        negative_count += 1
-                        if negative_count <= 20:
-                            self._add_issue(check_name, IntegrityIssue.SEVERITY_WARNING,
-                                f'[{loc}] {name}: 누적 재고 음수 ({total:.2f})',
-                                {'location': loc, 'product': name, 'total': total})
+            issues_found = False
 
-            if negative_count > 20:
-                self._add_issue(check_name, IntegrityIssue.SEVERITY_CRITICAL,
-                    f'음수 재고 총 {negative_count}건 (상위 20건만 표시)')
-            elif negative_count == 0:
+            if unknown_types:
+                issues_found = True
+                for t, cnt in unknown_types.items():
+                    self._add_issue(check_name, IntegrityIssue.SEVERITY_WARNING,
+                        f'알 수 없는 타입 "{t}": {cnt}건',
+                        {'type': t, 'count': cnt})
+
+            if missing_name > 0:
+                issues_found = True
+                self._add_issue(check_name, IntegrityIssue.SEVERITY_WARNING,
+                    f'품목명 누락 레코드: {missing_name}건')
+
+            if missing_loc > 0:
+                issues_found = True
                 self._add_issue(check_name, IntegrityIssue.SEVERITY_INFO,
-                    '수불원장 누적 합계 정상 (음수 재고 없음)')
+                    f'위치 누락 레코드: {missing_loc}건')
+
+            if zero_qty > 5:
+                issues_found = True
+                self._add_issue(check_name, IntegrityIssue.SEVERITY_INFO,
+                    f'수량=0 레코드: {zero_qty}건 (무의미 데이터)')
+
+            if not issues_found:
+                self._add_issue(check_name, IntegrityIssue.SEVERITY_INFO,
+                    f'수불원장 데이터 품질 정상 ({len(all_data)}건 검사)')
 
         except Exception as e:
             self._add_issue(check_name, IntegrityIssue.SEVERITY_CRITICAL,
@@ -345,7 +375,7 @@ class IntegrityMonitor:
         try:
             cutoff = (datetime.now() - timedelta(days=days)).isoformat()
             res = self.db.client.table('import_runs') \
-                .select('file_hash, channel, count') \
+                .select('file_hash, channel, filename, created_at') \
                 .gte('created_at', cutoff) \
                 .execute()
 

@@ -123,6 +123,14 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
         sub_materials = []
     _validate_date(date_str)
 
+    # ── 1차 실시간 검증 (Validation Engine) ──
+    try:
+        from core.validation_engine import _validate_date as v_date, _validate_location as v_loc
+        v_date(date_str, '세트작업일자')
+        v_loc(location, '세트작업 위치')
+    except ImportError:
+        pass
+
     if qty <= 0:
         return {'success': False, 'warnings': ['수량은 1 이상이어야 합니다.'],
                 'shortage': [], 'set_out_count': 0, 'set_in_count': 0}

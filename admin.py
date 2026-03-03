@@ -593,42 +593,5 @@ def anonymize_shipping():
         return jsonify({'error': str(e)}), 500
 
 
-# ── 데이터 무결성 검사 (Integrity Monitor) ──
-
-@admin_bp.route('/integrity')
-@role_required('admin', 'manager')
-def integrity_index():
-    """정합성 검사 페이지"""
-    return render_template('admin/integrity.html')
-
-
-@admin_bp.route('/integrity/run', methods=['POST'])
-@role_required('admin', 'manager')
-def integrity_run():
-    """정합성 검사 실행 API"""
-    try:
-        from core.integrity_monitor import IntegrityMonitor
-        data = request.get_json(silent=True) or {}
-        date_from = data.get('date_from')
-        date_to = data.get('date_to')
-
-        monitor = IntegrityMonitor(current_app.db)
-        report = monitor.run_all_checks(date_from=date_from, date_to=date_to)
-
-        _log_action('integrity_check', detail=report.get('summary', ''))
-        return jsonify(report)
-    except Exception as e:
-        return jsonify({'error': f'정합성 검사 오류: {e}'}), 500
-
-
-@admin_bp.route('/integrity/reports')
-@role_required('admin', 'manager')
-def integrity_reports():
-    """최근 정합성 보고서 조회 API"""
-    try:
-        from core.integrity_monitor import IntegrityMonitor
-        monitor = IntegrityMonitor(current_app.db)
-        reports = monitor.get_recent_reports(limit=20)
-        return jsonify(reports)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+# ── 데이터 무결성 검사는 blueprints/integrity.py에서 처리 ──
+# URL: /integrity (integrity_bp)
