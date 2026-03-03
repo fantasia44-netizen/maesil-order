@@ -150,7 +150,10 @@ def process_inbound(db, excel_df, date_str, mode='신규입력'):
 
     deleted_count = 0
     if mode == '수정입력':
-        deleted_count = db.delete_stock_ledger_by(date_str, "INBOUND")
+        target_names = set(p['product_name'] for p in payload if p.get('product_name'))
+        if target_names:
+            deleted_count = db.delete_stock_ledger_by(
+                date_str, "INBOUND", product_names=target_names)
 
     db.insert_stock_ledger(payload)
 

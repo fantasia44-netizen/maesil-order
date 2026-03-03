@@ -142,11 +142,14 @@ class SupabaseDB(DBBase):
         res = self.client.table("stock_ledger").delete().neq("id", 0).execute()
         return len(res.data) if res.data else 0
 
-    def delete_stock_ledger_by(self, date_str, record_type, location=None):
+    def delete_stock_ledger_by(self, date_str, record_type, location=None,
+                               product_names=None):
         q = self.client.table("stock_ledger").delete() \
             .eq("transaction_date", date_str).eq("type", record_type)
         if location:
             q = q.eq("location", location)
+        if product_names:
+            q = q.in_("product_name", list(product_names))
         res = q.execute()
         return len(res.data) if res.data else 0
 

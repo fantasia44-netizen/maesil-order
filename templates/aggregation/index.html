@@ -145,12 +145,18 @@
                         </td>
                         <td class="small">{{ f }}</td>
                         <td class="text-center">
-                            {% if f.startswith('통합출고') %}
+                            {% if f.startswith('매출집계표') %}
+                            <span class="badge bg-warning text-dark">매출집계</span>
+                            {% elif f.startswith('출고집계표') %}
+                            <span class="badge bg-danger">출고집계</span>
+                            {% elif f.startswith('통합출고') %}
                             <span class="badge bg-primary">출고</span>
                             {% elif f.startswith('일일매출') %}
                             <span class="badge bg-success">매출</span>
                             {% elif f.startswith('통합집계') %}
                             <span class="badge bg-info">집계</span>
+                            {% elif f.startswith('일자별종합') %}
+                            <span class="badge bg-dark">종합</span>
                             {% else %}
                             <span class="badge bg-secondary">기타</span>
                             {% endif %}

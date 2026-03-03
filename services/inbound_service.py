@@ -33,9 +33,16 @@ def process_inbound_batch(db, date_str, mode, items):
     warnings = []
     deleted_count = 0
 
-    # 수정입력: 해당 날짜 입고 기록 삭제
+    # 수정입력: 올리는 품목만 삭제 (다른 품목은 유지)
     if mode == '수정입력':
-        deleted_count = db.delete_stock_ledger_by(date_str, "INBOUND")
+        target_names = set()
+        for item in items:
+            nm = str(item.get('product_name', '')).strip()
+            if nm:
+                target_names.add(nm)
+        if target_names:
+            deleted_count = db.delete_stock_ledger_by(
+                date_str, "INBOUND", product_names=target_names)
 
     payload = []
     for item in items:

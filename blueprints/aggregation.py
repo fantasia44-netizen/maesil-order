@@ -154,6 +154,158 @@ def _load_sort_order(db):
         return {}
 
 
+def _build_pivot_excel(data, sort_map, output_dir, date_file, ts,
+                       filename_prefix, date_key, sheets):
+    """품목(행) × 날짜(열) 피벗 엑셀 생성.
+
+    Args:
+        data: list of dicts (revenue rows or outbound rows)
+        sort_map: {product_name: sort_order}
+        sheets: [{'title', 'value_key', 'alt_key'?, 'abs_val'?, 'num_fmt'}]
+    Returns:
+        filepath or None
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    # 날짜/품목 수집 + 시트별 데이터 집계
+    dates = sorted(set(r.get(date_key, '') for r in data if r.get(date_key)))
+    if not dates:
+        return None
+
+    # 시트별 집계: {sheet_idx: {product: {date: value}}}
+    sheet_aggs = [{} for _ in sheets]
+    for r in data:
+        nm = _norm(r.get('product_name', ''))
+        d = r.get(date_key, '')
+        if not nm or not d:
+            continue
+        for si, sh in enumerate(sheets):
+            val = _safe_int(r.get(sh['value_key'], 0)
+                            or r.get(sh.get('alt_key', ''), 0) or 0)
+            if sh.get('abs_val'):
+                val = abs(val)
+            if nm not in sheet_aggs[si]:
+                sheet_aggs[si][nm] = {}
+            sheet_aggs[si][nm][d] = sheet_aggs[si][nm].get(d, 0) + val
+
+    # 품목 목록: sort_order 기준
+    all_products = set()
+    for sa in sheet_aggs:
+        all_products.update(sa.keys())
+    products = sorted(all_products,
+                      key=lambda x: (sort_map.get(x, 999), x))
+
+    if not products:
+        return None
+
+    # 스타일
+    header_fill = PatternFill(start_color="D6EAF8", fill_type="solid")
+    total_fill = PatternFill(start_color="FEF9E7", fill_type="solid")
+    bold = Font(bold=True)
+    right_align = Alignment(horizontal="right")
+    center_align = Alignment(horizontal="center")
+    thin_border = Border(bottom=Side(style="thin", color="CCCCCC"))
+
+    # 날짜 표시 (월/일)
+    def _short_date(d):
+        try:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+            return f"{dt.month}/{dt.day}"
+        except Exception:
+            return d
+
+    wb = Workbook()
+    first_sheet = True
+
+    for si, sh in enumerate(sheets):
+        if first_sheet:
+            ws = wb.active
+            ws.title = sh['title']
+            first_sheet = False
+        else:
+            ws = wb.create_sheet(title=sh['title'])
+
+        num_fmt = sh.get('num_fmt', '#,##0')
+        sa = sheet_aggs[si]
+
+        # 헤더: 품목명 | 날짜1 | 날짜2 | ... | 합계
+        ws.column_dimensions['A'].width = 30
+        c = ws.cell(row=1, column=1, value='품목명')
+        c.font = bold
+        c.fill = header_fill
+        c.alignment = center_align
+
+        for di, d in enumerate(dates):
+            col = di + 2
+            cl = get_column_letter(col)
+            ws.column_dimensions[cl].width = 12
+            c = ws.cell(row=1, column=col, value=_short_date(d))
+            c.font = bold
+            c.fill = header_fill
+            c.alignment = center_align
+
+        total_col = len(dates) + 2
+        cl = get_column_letter(total_col)
+        ws.column_dimensions[cl].width = 14
+        c = ws.cell(row=1, column=total_col, value='합계')
+        c.font = bold
+        c.fill = header_fill
+        c.alignment = center_align
+
+        # 데이터 행
+        row_num = 2
+        date_totals = {d: 0 for d in dates}
+        grand_total = 0
+
+        for nm in products:
+            product_data = sa.get(nm, {})
+            row_total = sum(product_data.values())
+            if row_total <= 0:
+                continue
+
+            ws.cell(row=row_num, column=1, value=nm).border = thin_border
+            for di, d in enumerate(dates):
+                val = product_data.get(d, 0)
+                c = ws.cell(row=row_num, column=di + 2,
+                            value=val if val else '')
+                c.border = thin_border
+                if val:
+                    c.number_format = num_fmt
+                    c.alignment = right_align
+                date_totals[d] += val
+
+            c = ws.cell(row=row_num, column=total_col, value=row_total)
+            c.number_format = num_fmt
+            c.alignment = right_align
+            c.font = bold
+            c.border = thin_border
+            grand_total += row_total
+            row_num += 1
+
+        # 합계 행
+        c = ws.cell(row=row_num, column=1, value='합계')
+        c.font = bold
+        c.fill = total_fill
+        for di, d in enumerate(dates):
+            c = ws.cell(row=row_num, column=di + 2, value=date_totals[d])
+            c.font = bold
+            c.fill = total_fill
+            c.number_format = num_fmt
+            c.alignment = right_align
+        c = ws.cell(row=row_num, column=total_col, value=grand_total)
+        c.font = bold
+        c.fill = total_fill
+        c.number_format = num_fmt
+        c.alignment = right_align
+
+    filepath = os.path.join(
+        output_dir, f"{filename_prefix}_{date_file}_{ts}.xlsx")
+    wb.save(filepath)
+    return filepath
+
+
 def _write_styled_excel(filepath, headers, data_rows, total_row=None,
                         col_widths=None, num_cols=None):
     """openpyxl로 스타일링된 엑셀 작성 (이전 통합집계 양식).
@@ -414,7 +566,40 @@ def generate_report():
                 generated_files.append(rev_path)
 
         # ══════════════════════════════════════════════
-        # 3. 일자별 종합 보고서 (출고+매출 날짜별 구분)
+        # 3. 매출집계표: 품목(행) × 날짜(열) 피벗 (판매수량 + 매출액)
+        # ══════════════════════════════════════════════
+        if revenue:
+            rev_path = _build_pivot_excel(
+                revenue, sort_map, output_dir, date_file, ts,
+                filename_prefix='매출집계표',
+                date_key='revenue_date',
+                sheets=[
+                    {'title': '판매수량', 'value_key': 'qty', 'num_fmt': '#,##0'},
+                    {'title': '매출액', 'value_key': 'revenue', 'alt_key': 'amount',
+                     'num_fmt': '#,##0'},
+                ],
+            )
+            if rev_path:
+                generated_files.append(rev_path)
+
+        # ══════════════════════════════════════════════
+        # 3-2. 출고집계표: 품목(행) × 날짜(열) 피벗 (출고수량)
+        # ══════════════════════════════════════════════
+        if outbound:
+            out_path = _build_pivot_excel(
+                outbound, sort_map, output_dir, date_file, ts,
+                filename_prefix='출고집계표',
+                date_key='transaction_date',
+                sheets=[
+                    {'title': '출고수량', 'value_key': 'qty', 'abs_val': True,
+                     'num_fmt': '#,##0'},
+                ],
+            )
+            if out_path:
+                generated_files.append(out_path)
+
+        # ══════════════════════════════════════════════
+        # 4. 일자별 종합 보고서 (출고+매출 날짜별 구분)
         # ══════════════════════════════════════════════
         try:
             from openpyxl import Workbook
