@@ -17,7 +17,7 @@ stock_bp = Blueprint('stock', __name__, url_prefix='/stock')
 
 
 @stock_bp.route('/')
-@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'logistics', 'production', 'general')
 def index():
     """재고 현황 조회"""
     date_str = request.args.get('date', '')
@@ -74,7 +74,7 @@ def index():
 
 
 @stock_bp.route('/pdf')
-@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'logistics', 'production', 'general')
 def pdf():
     """재고현황 PDF 다운로드"""
     import pandas as pd
@@ -156,7 +156,7 @@ def pdf():
 
 
 @stock_bp.route('/excel')
-@role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'logistics', 'production', 'general')
 def excel():
     """재고현황 엑셀 다운로드"""
     import pandas as pd

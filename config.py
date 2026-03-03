@@ -43,6 +43,7 @@ class Config:
     # 팀/권한 정의
     ROLES = {
         'admin': {'name': '관리자', 'level': 100},
+        'ceo': {'name': '대표', 'level': 90},
         'manager': {'name': '총괄책임자', 'level': 80},
         'sales': {'name': '영업부', 'level': 50},
         'logistics': {'name': '물류팀', 'level': 50},

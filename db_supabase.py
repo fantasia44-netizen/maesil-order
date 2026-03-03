@@ -340,16 +340,19 @@ class SupabaseDB(DBBase):
             ot_rows = self._paginate_query("order_transactions", ot_builder)
 
             for r in ot_rows:
+                pn = (r.get("product_name") or "").strip()
+                if not pn:
+                    continue  # 상품명 없는 레코드 제외
                 ch = normalize_channel_display(r.get("channel", ""))
                 actual_cat = CHANNEL_REVENUE_MAP.get(ch, "일반매출")
                 if category and category != "전체" and actual_cat != category:
                     continue
 
-                key = (r.get("order_date", ""), r.get("product_name", ""), ch)
+                key = (r.get("order_date", ""), pn, ch)
                 if key not in agg:
                     agg[key] = {
                         "revenue_date": r.get("order_date", ""),
-                        "product_name": r.get("product_name", ""),
+                        "product_name": pn,
                         "category": actual_cat,
                         "channel": ch,
                         "qty": 0, "revenue": 0, "settlement": 0,
@@ -390,13 +393,16 @@ class SupabaseDB(DBBase):
             dr_rows = self._paginate_query("daily_revenue", dr_builder)
 
             for r in dr_rows:
+                pn_dr = (r.get("product_name") or "").strip()
+                if not pn_dr:
+                    continue  # 상품명 없는 레코드 제외
                 cat = r.get("category", "기타")
                 ch = normalize_channel_display(r.get("channel", "") or cat)
-                key = (r.get("revenue_date", ""), r.get("product_name", ""), ch)
+                key = (r.get("revenue_date", ""), pn_dr, ch)
                 if key not in agg:
                     agg[key] = {
                         "revenue_date": r.get("revenue_date", ""),
-                        "product_name": r.get("product_name", ""),
+                        "product_name": pn_dr,
                         "category": cat,
                         "channel": ch,
                         "qty": 0, "revenue": 0, "settlement": 0,
@@ -1934,7 +1940,9 @@ class SupabaseDB(DBBase):
                 .eq("status", "정상").execute()
             products = {}
             for r in (res.data or []):
-                pn = r.get("product_name", "")
+                pn = (r.get("product_name") or "").strip()
+                if not pn:
+                    continue  # 상품명 없는 레코드 제외
                 if pn not in products:
                     products[pn] = {"product_name": pn, "qty": 0,
                                     "revenue": 0, "settlement": 0}

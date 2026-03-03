@@ -30,7 +30,7 @@ def _allowed(filename):
 
 
 @revenue_bp.route('/')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """매출 조회 (order_transactions 기반)"""
     db = current_app.db
@@ -67,7 +67,7 @@ def index():
 
 
 @revenue_bp.route('/import', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def import_revenue():
     """매출 엑셀 업로드"""
     file = request.files.get('file')
@@ -112,7 +112,7 @@ def import_revenue():
 
 
 @revenue_bp.route('/export')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def export():
     """매출 데이터 엑셀 다운로드"""
     db = current_app.db
@@ -194,7 +194,7 @@ def delete_revenue(revenue_id):
 
 
 @revenue_bp.route('/stats')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def stats():
     """매출 통계 + 그래프"""
     date_from = request.args.get('date_from', '')

@@ -197,6 +197,7 @@ def create_app(config_class=None):
     from blueprints.price_mgmt import price_mgmt_bp
     from blueprints.promotions import promotions_bp
     from blueprints.closing import closing_bp
+    from blueprints.shipment import shipment_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -204,7 +205,7 @@ def create_app(config_class=None):
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
-               closing_bp]:
+               closing_bp, shipment_bp]:
         app.register_blueprint(bp)
 
     # ── Jinja2 커스텀 필터 ──

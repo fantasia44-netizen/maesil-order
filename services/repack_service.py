@@ -193,12 +193,25 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     if date_str < datetime.now().strftime('%Y-%m-%d'):
         warnings.append(f"작업일자가 과거입니다: {date_str}")
 
-    # ── 수정입력: 기존 소분 데이터를 먼저 삭제 (재고 복원 후 부족 체크) ──
+    # ── 수정입력: 올리는 품목만 삭제 (입고/생산과 동일 패턴) ──
     deleted_count = 0
     if mode == "수정입력":
-        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT")
-        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN")
-        deleted_count = del1 + del2
+        # 엑셀에 있는 품목명만 수집 (산출+투입)
+        target_names = set()
+        for _, row in df.iterrows():
+            out_n = str(row.get('산출품목명', '')).strip()
+            inp_n = str(row.get('투입품목명', '')).strip()
+            sub_n = str(row.get('부자재명', '')).strip() if '부자재명' in cols else ''
+            if out_n:
+                target_names.add(out_n)
+            if inp_n:
+                target_names.add(inp_n)
+            if sub_n:
+                target_names.add(sub_n)
+        if target_names:
+            del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT", product_names=target_names)
+            del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN", product_names=target_names)
+            deleted_count = del1 + del2
 
     # ── 투입품 재고 부족 체크 ──
     input_demand = {}
@@ -435,12 +448,22 @@ def process_repack_batch(db, date_str, mode, location, items):
     if shortage:
         raise ValueError("투입품 재고 부족:\n" + "\n".join(shortage))
 
-    # ── 수정입력: 기존 삭제 (검증 통과 후에만 실행) ──
+    # ── 수정입력: 올리는 품목만 삭제 (입고/생산과 동일 패턴) ──
     deleted_count = 0
     if mode == "수정입력":
-        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT")
-        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN")
-        deleted_count = del1 + del2
+        target_names = set()
+        for item in items:
+            out_n = str(item.get('product_name', '')).strip()
+            if out_n:
+                target_names.add(out_n)
+            for mat in item.get('materials', []):
+                mat_n = str(mat.get('product_name', '')).strip()
+                if mat_n:
+                    target_names.add(mat_n)
+        if target_names:
+            del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT", product_names=target_names)
+            del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN", product_names=target_names)
+            deleted_count = del1 + del2
         # 수정입력 후 스냅샷 재로드
         snapshot = _load_stock_snapshot(db, loc) if loc else {}
 

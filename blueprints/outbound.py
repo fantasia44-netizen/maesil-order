@@ -29,7 +29,7 @@ def _allowed(filename):
 
 
 @outbound_bp.route('/')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """거래처주문처리 폼 + 거래 이력 조회"""
     db = current_app.db
@@ -81,7 +81,7 @@ def index():
 
 
 @outbound_bp.route('/api/products')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def api_products():
     """창고별 재고 품목 목록 JSON 반환"""
     location = request.args.get('location', '')
@@ -107,7 +107,7 @@ def api_products():
 
 
 @outbound_bp.route('/single', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def single():
     """단건 출고 — 폼 기반 (FIFO 재고차감 + 거래기록)"""
 
@@ -296,7 +296,7 @@ def single():
 
 
 @outbound_bp.route('/result')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def result():
     """단건 출고 결과 — 거래명세서 생성 버튼 포함 (DB 조회 없음)"""
     try:
@@ -330,7 +330,7 @@ def result():
 
 
 @outbound_bp.route('/invoice')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice():
     """단건 출고 거래명세서 PDF 생성"""
     result_data = session.get('outbound_result')
@@ -412,7 +412,7 @@ def invoice():
 
 
 @outbound_bp.route('/shipping-label')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def shipping_label():
     """출고 결과 기반 운송장 Excel 생성 (온라인주문처리와 동일한 형식)"""
     result_data = session.get('outbound_result')
@@ -488,7 +488,7 @@ def shipping_label():
 
 
 @outbound_bp.route('/batch', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def batch():
     """일괄 출고 — 여러 엑셀 파일 동시 업로드"""
     files = request.files.getlist('files')
@@ -597,7 +597,7 @@ def delete_trade(trade_id):
 
 
 @outbound_bp.route('/invoice-trade/<int:trade_id>')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_trade(trade_id):
     """거래명세서 PDF 생성 (단일 거래 기준)"""
     db = current_app.db
@@ -642,7 +642,7 @@ def invoice_trade(trade_id):
 
 
 @outbound_bp.route('/invoice-selected', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_selected():
     """선택한 거래 항목들을 합산한 거래명세서 PDF 생성"""
     db = current_app.db
@@ -700,7 +700,7 @@ def invoice_selected():
 
 
 @outbound_bp.route('/invoice-batch-trade')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_batch_trade():
     """거래명세서 PDF — 같은 거래처+날짜 묶어서 생성"""
     db = current_app.db

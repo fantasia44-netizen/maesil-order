@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}출고 관리 - 배마마 통합시스템{% endblock %}
+{% block page_title %}출고 관리{% endblock %}
+
+{% block content %}
+<!-- 조회 필터 -->
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-funnel"></i> 출고 내역 조회 (판매출고 기준)
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('shipment.index') }}" class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">창고</label>
+                <select name="location" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for loc in locations|default([]) %}
+                    <option value="{{ loc }}" {% if location|default('전체') == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">품목 검색</label>
+                <input type="text" name="product" class="form-control" placeholder="품목명 검색..." value="{{ product_filter|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 출고 합계 KPI -->
+{% if rows %}
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card border-primary">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">총 출고건수</div>
+                <div class="fs-4 fw-bold text-primary">{{ '{:,}'.format(stats.total_count|default(0)) }}건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-success">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">출고 품목수</div>
+                <div class="fs-4 fw-bold text-success">{{ '{:,}'.format(stats.total_items|default(0)) }}종</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-warning">
+            <div class="card-body text-center py-3">
+                <div class="text-muted small">총 출고수량</div>
+                <div class="fs-4 fw-bold text-warning">{{ stats.total_qty|fmt_qty }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 출고 테이블 -->
+{% if rows %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-box-arrow-right"></i> 출고 내역 ({{ rows|length }}건)</span>
+        <a href="{{ url_for('shipment.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체')) }}"
+           class="btn btn-sm btn-outline-success">
+            <i class="bi bi-download"></i> 엑셀 다운로드
+        </a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th><i class="bi bi-calendar-event"></i> 출고일</th>
+                        <th><i class="bi bi-box-seam"></i> 품목명</th>
+                        <th class="text-end"><i class="bi bi-hash"></i> 수량</th>
+                        <th>단위</th>
+                        <th><i class="bi bi-geo-alt"></i> 창고</th>
+                        <th>종류</th>
+                        <th>채널</th>
+                        <th>비고</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>{{ row.transaction_date }}</td>
+                        <td>{{ row.product_name }}</td>
+                        <td class="text-end fw-bold">{{ row.qty|fmt_qty }}</td>
+                        <td>{{ row.unit }}</td>
+                        <td>{{ row.location }}</td>
+                        <td>{{ row.category }}</td>
+                        <td>{{ row.channel }}</td>
+                        <td class="text-muted small">{{ row.memo }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% elif date_from or date_to %}
+<div class="alert alert-info mt-4">
+    <i class="bi bi-info-circle"></i> 해당 조건의 출고 데이터가 없습니다.
+</div>
+{% endif %}
+{% endblock %}

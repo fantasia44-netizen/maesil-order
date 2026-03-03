@@ -23,7 +23,7 @@ trade_bp = Blueprint('trade', __name__, url_prefix='/trade')
 # ── 거래처 관리 ──
 
 @trade_bp.route('/')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """거래처 목록 + 본사 사업장 관리"""
     db = current_app.db
@@ -48,7 +48,7 @@ def index():
 # ── 본사 사업장 관리 ──
 
 @trade_bp.route('/business/add', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def add_business():
     """본사 사업장 등록"""
     biz_name = request.form.get('business_name', '').strip()
@@ -78,7 +78,7 @@ def add_business():
 
 
 @trade_bp.route('/business/default/<int:biz_id>', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def set_default_business(biz_id):
     """기본 사업장 지정"""
     try:
@@ -111,7 +111,7 @@ def delete_business(biz_id):
 
 
 @trade_bp.route('/add', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def add_partner():
     """거래처 등록"""
     partner_name = request.form.get('name', '').strip()
@@ -144,7 +144,7 @@ def add_partner():
 
 
 @trade_bp.route('/upload-partners', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def upload_partners():
     """거래처 엑셀 일괄 등록"""
     f = request.files.get('file')
@@ -215,7 +215,7 @@ def upload_partners():
 
 
 @trade_bp.route('/download-partner-template')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def download_partner_template():
     """거래처 일괄등록 엑셀 양식 다운로드"""
     df = pd.DataFrame(columns=['업체명', '소재지', '대표자', '담당자', '연락처', '팩스번호', '이메일', '사업자등록번호', '유형', '비고'])
@@ -255,7 +255,7 @@ def delete_partner(partner_id):
 
 
 @trade_bp.route('/api/partner/<int:partner_id>', methods=['PUT'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def api_update_partner(partner_id):
     """거래처 정보 수정 API"""
     data = request.get_json()
@@ -288,7 +288,7 @@ def api_update_partner(partner_id):
 
 
 @trade_bp.route('/api/partners')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def api_partners():
     """거래처 목록 JSON"""
     try:
@@ -301,7 +301,7 @@ def api_partners():
 # ── 거래 관리 ──
 
 @trade_bp.route('/trades')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def trades():
     """거래 목록"""
     db = current_app.db
@@ -329,7 +329,7 @@ def trades():
 
 
 @trade_bp.route('/trades/add', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def add_trade():
     """수동 거래 등록"""
     partner_id = request.form.get('partner_id', '').strip()
@@ -437,7 +437,7 @@ def delete_trade(trade_id):
 
 
 @trade_bp.route('/api/products')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def api_products():
     """재고 품목 목록 JSON 반환 (자동완성용, 전체 창고 합산)"""
     try:
@@ -462,7 +462,7 @@ def api_products():
 # ── 거래명세서 PDF ──
 
 @trade_bp.route('/invoice/<int:trade_id>')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice(trade_id):
     """거래명세서 PDF 생성/다운로드 (단일 거래 기준)"""
     db = current_app.db
@@ -504,7 +504,7 @@ def invoice(trade_id):
 
 
 @trade_bp.route('/invoice-batch')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_batch():
     """거래명세서 PDF — 같은 거래처+날짜 묶어서 생성"""
     db = current_app.db
@@ -555,7 +555,7 @@ def invoice_batch():
 # ── 발주서 관리 ──
 
 @trade_bp.route('/purchase-order')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def purchase_order():
     """발주서 작성 + 이력 조회 페이지"""
     db = current_app.db
@@ -605,7 +605,7 @@ def purchase_order():
 
 
 @trade_bp.route('/purchase-order/generate', methods=['POST'])
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def generate_purchase_order():
     """발주서 PDF 생성/다운로드"""
     import json
@@ -721,7 +721,7 @@ def delete_purchase_order(po_id):
 
 
 @trade_bp.route('/purchase-order/redownload/<int:po_id>')
-@role_required('admin', 'manager', 'sales', 'general')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def redownload_purchase_order(po_id):
     """발주서 PDF 재다운로드 (저장된 이력으로 PDF 재생성)"""
     db = current_app.db

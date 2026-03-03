@@ -105,6 +105,7 @@ class RegisterForm(FlaskForm):
         ('production', '생산부'),
         ('manager', '총괄책임자'),
         ('general', '총무부'),
+        ('ceo', '대표'),
     ])
 
 

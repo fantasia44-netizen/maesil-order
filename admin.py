@@ -83,10 +83,12 @@ class UserEditForm(FlaskForm):
     name = StringField('이름', validators=[DataRequired(), Length(max=100)])
     role = SelectField('소속/권한', choices=[
         ('admin', '관리자'),
+        ('ceo', '대표'),
         ('manager', '책임자'),
         ('sales', '영업팀'),
         ('logistics', '물류팀'),
         ('production', '생산팀'),
+        ('general', '총무부'),
     ])
     is_active_user = BooleanField('활성 상태')
     is_approved = BooleanField('승인 상태')
