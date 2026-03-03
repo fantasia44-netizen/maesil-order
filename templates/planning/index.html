@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}생산계획{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+    <!-- 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-clipboard-data"></i> 생산계획</h5>
+        <div class="d-flex gap-2 align-items-center">
+            <select id="salesWindow" class="form-select form-select-sm" style="width:auto">
+                <option value="7" selected>최근 7일</option>
+                <option value="14">최근 14일</option>
+                <option value="30">최근 30일</option>
+            </select>
+            <button id="calcBtn" class="btn btn-primary btn-sm">
+                <i class="bi bi-calculator"></i> 계획 생성
+            </button>
+            <button id="settingBtn" class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#configModal">
+                <i class="bi bi-gear"></i> 품목 설정
+            </button>
+        </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div id="summaryCards" class="row g-2 mb-3 d-none">
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm">
+                <div class="card-body py-2">
+                    <div class="text-muted small">대상 품목</div>
+                    <div class="fw-bold fs-5" id="sTotal">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm bg-danger bg-opacity-10">
+                <div class="card-body py-2">
+                    <div class="text-danger small">부족</div>
+                    <div class="fw-bold fs-5 text-danger" id="sCritical">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm bg-warning bg-opacity-10">
+                <div class="card-body py-2">
+                    <div class="text-warning small">주의</div>
+                    <div class="fw-bold fs-5 text-warning" id="sWarning">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm bg-success bg-opacity-10">
+                <div class="card-body py-2">
+                    <div class="text-success small">안정</div>
+                    <div class="fw-bold fs-5 text-success" id="sStable">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm">
+                <div class="card-body py-2">
+                    <div class="text-muted small">미판매</div>
+                    <div class="fw-bold fs-5" id="sUnsold">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="card text-center border-0 shadow-sm bg-primary bg-opacity-10">
+                <div class="card-body py-2">
+                    <div class="text-primary small">생산 필요</div>
+                    <div class="fw-bold fs-5 text-primary" id="sNeed">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 필터 -->
+    <div class="d-flex gap-2 mb-2 align-items-center">
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto">
+            <option value="">전체 상태</option>
+            <option value="부족">부족</option>
+            <option value="주의">주의</option>
+            <option value="안정">안정</option>
+            <option value="미판매">미판매</option>
+        </select>
+        <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="품목 검색..." style="width:200px">
+        <span class="text-muted small" id="filteredCount"></span>
+    </div>
+
+    <!-- 결과 테이블 -->
+    <div class="table-responsive">
+        <table class="table table-sm table-hover table-bordered" id="planTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:30px">#</th>
+                    <th>품목명</th>
+                    <th class="text-center" style="width:80px">상태</th>
+                    <th class="text-end" style="width:80px">현재재고</th>
+                    <th class="text-end" style="width:80px">일평균<br><small class="text-muted">출고</small></th>
+                    <th class="text-end" style="width:80px">소진일수</th>
+                    <th class="text-end" style="width:70px">안전재고</th>
+                    <th class="text-end" style="width:70px">리드타임<br><small class="text-muted">(일)</small></th>
+                    <th class="text-end" style="width:80px">목표재고</th>
+                    <th class="text-end fw-bold" style="width:90px">권장생산량</th>
+                    <th style="width:40px">단위</th>
+                </tr>
+            </thead>
+            <tbody id="planBody">
+                <tr><td colspan="11" class="text-center text-muted py-4">
+                    <i class="bi bi-calculator"></i> '계획 생성' 버튼을 클릭하세요
+                </td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 생성 시각 -->
+    <div class="text-muted small mt-1" id="genTime"></div>
+</div>
+
+<!-- 품목 설정 모달 -->
+<div class="modal fade" id="configModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="bi bi-gear"></i> 생산대상 품목 설정</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-2">
+                <div class="mb-2">
+                    <input type="text" id="cfgSearch" class="form-control form-control-sm" placeholder="품목 검색...">
+                </div>
+                <div class="table-responsive" style="max-height:400px; overflow-y:auto">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>품목명</th>
+                                <th style="width:90px">안전재고</th>
+                                <th style="width:90px">리드타임(일)</th>
+                                <th style="width:50px">저장</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cfgBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const csrf_token = document.querySelector('meta[name="csrf-token"]').content;
+let allItems = [];
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+function fmt(v) { return v != null ? Number(v).toLocaleString('ko-KR', {maximumFractionDigits:1}) : '-'; }
+
+// ── 계획 생성 ──
+document.getElementById('calcBtn').addEventListener('click', async function() {
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 계산 중...';
+    try {
+        const res = await fetch('/planning/api/calculate', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken': csrf_token},
+            body: JSON.stringify({
+                sales_window: parseInt(document.getElementById('salesWindow').value)
+            })
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('json')) { alert('세션 만료. 새로고침 해주세요.'); return; }
+        const data = await res.json();
+        if (data.error) { alert(data.error); return; }
+
+        allItems = data.items || [];
+        renderSummary(data.summary);
+        renderTable(allItems);
+
+        const dt = data.generated_at ? new Date(data.generated_at).toLocaleString('ko-KR') : '';
+        document.getElementById('genTime').textContent = dt ? `생성: ${dt} (${data.summary.sales_window}일 기준)` : '';
+    } catch(e) {
+        alert(e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-calculator"></i> 계획 생성';
+    }
+});
+
+function renderSummary(s) {
+    document.getElementById('summaryCards').classList.remove('d-none');
+    document.getElementById('sTotal').textContent = s.total_targets;
+    document.getElementById('sCritical').textContent = s.critical;
+    document.getElementById('sWarning').textContent = s.warning;
+    document.getElementById('sStable').textContent = s.stable;
+    document.getElementById('sUnsold').textContent = s.unsold;
+    document.getElementById('sNeed').textContent = s.need_production;
+}
+
+function renderTable(items) {
+    const status = document.getElementById('statusFilter').value;
+    const search = document.getElementById('searchInput').value.trim().toLowerCase();
+    let filtered = items;
+    if (status) filtered = filtered.filter(i => i.status === status);
+    if (search) filtered = filtered.filter(i => i.product_name.toLowerCase().includes(search));
+
+    const tbody = document.getElementById('planBody');
+    if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">표시할 데이터 없음</td></tr>';
+        document.getElementById('filteredCount').textContent = '';
+        return;
+    }
+    document.getElementById('filteredCount').textContent = filtered.length < items.length
+        ? `${filtered.length}/${items.length}건` : `${items.length}건`;
+
+    let html = '';
+    filtered.forEach((item, idx) => {
+        const cls = item.status === '부족' ? 'table-danger' :
+                    item.status === '주의' ? 'table-warning' : '';
+        const badge = item.status === '부족' ? '<span class="badge bg-danger">부족</span>' :
+                      item.status === '주의' ? '<span class="badge bg-warning text-dark">주의</span>' :
+                      item.status === '안정' ? '<span class="badge bg-success">안정</span>' :
+                      '<span class="badge bg-secondary">미판매</span>';
+
+        const depDays = item.depletion_days != null
+            ? `<span class="${item.depletion_days <= 3 ? 'text-danger fw-bold' : item.depletion_days <= 7 ? 'text-warning fw-bold' : ''}">${fmt(item.depletion_days)}일</span>`
+            : '<span class="text-muted">-</span>';
+
+        const recProd = item.recommended_production > 0
+            ? `<span class="text-primary fw-bold">${fmt(item.recommended_production)}</span>`
+            : '<span class="text-muted">0</span>';
+
+        html += `<tr class="${cls}">
+            <td class="text-muted small">${idx+1}</td>
+            <td>${esc(item.product_name)}</td>
+            <td class="text-center">${badge}</td>
+            <td class="text-end">${fmt(item.current_stock)}</td>
+            <td class="text-end">${fmt(item.avg_daily_sales)}</td>
+            <td class="text-end">${depDays}</td>
+            <td class="text-end">${fmt(item.safety_stock)}</td>
+            <td class="text-end">${item.lead_time_days}</td>
+            <td class="text-end">${fmt(item.target_stock)}</td>
+            <td class="text-end">${recProd}</td>
+            <td class="small">${esc(item.unit)}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+// 필터
+document.getElementById('statusFilter').addEventListener('change', () => renderTable(allItems));
+document.getElementById('searchInput').addEventListener('input', () => renderTable(allItems));
+
+// ── 품목 설정 모달 ──
+document.getElementById('configModal').addEventListener('show.bs.modal', loadConfig);
+
+async function loadConfig() {
+    const tbody = document.getElementById('cfgBody');
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center"><span class="spinner-border spinner-border-sm"></span></td></tr>';
+    try {
+        const res = await fetch('/planning/api/targets');
+        const data = await res.json();
+        if (data.error) { tbody.innerHTML = `<tr><td colspan="4">${data.error}</td></tr>`; return; }
+        window._cfgData = data;
+        renderConfig(data);
+    } catch(e) {
+        tbody.innerHTML = `<tr><td colspan="4">${e.message}</td></tr>`;
+    }
+}
+
+function renderConfig(items) {
+    const search = (document.getElementById('cfgSearch').value || '').trim().toLowerCase();
+    let filtered = items;
+    if (search) filtered = filtered.filter(i => i.product_name.toLowerCase().includes(search));
+
+    const tbody = document.getElementById('cfgBody');
+    if (!filtered.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center">없음</td></tr>'; return; }
+
+    let html = '';
+    filtered.forEach(item => {
+        const nameAttr = esc(item.product_name).replace(/"/g, '&quot;');
+        html += `<tr>
+            <td class="small">${esc(item.product_name)}</td>
+            <td><input type="number" class="form-control form-control-sm cfg-safety"
+                data-name="${nameAttr}" value="${item.safety_stock}" min="0" style="width:80px"></td>
+            <td><input type="number" class="form-control form-control-sm cfg-lead"
+                data-name="${nameAttr}" value="${item.lead_time_days}" min="1" max="90" style="width:80px"></td>
+            <td><button class="btn btn-sm btn-outline-primary cfg-save-btn" data-name="${nameAttr}">
+                <i class="bi bi-check-lg"></i></button></td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+
+    // 저장 버튼 이벤트
+    tbody.querySelectorAll('.cfg-save-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const name = this.dataset.name;
+            const row = this.closest('tr');
+            const safety = parseInt(row.querySelector('.cfg-safety').value) || 0;
+            const lead = parseInt(row.querySelector('.cfg-lead').value) || 3;
+            this.disabled = true;
+            try {
+                const res = await fetch('/planning/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json', 'X-CSRFToken': csrf_token},
+                    body: JSON.stringify({product_name: name, safety_stock: safety, lead_time_days: lead})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.innerHTML = '<i class="bi bi-check-circle text-success"></i>';
+                    setTimeout(() => { this.innerHTML = '<i class="bi bi-check-lg"></i>'; this.disabled = false; }, 1500);
+                } else {
+                    alert(data.error || '저장 실패');
+                    this.disabled = false;
+                }
+            } catch(e) { alert(e.message); this.disabled = false; }
+        });
+    });
+}
+
+document.getElementById('cfgSearch').addEventListener('input', () => {
+    if (window._cfgData) renderConfig(window._cfgData);
+});
+</script>
+{% endblock %}
