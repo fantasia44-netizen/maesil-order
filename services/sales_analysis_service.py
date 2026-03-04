@@ -86,8 +86,8 @@ def _fetch_legacy_sales(db, first, last):
     rows = []
     for r in raw:
         cat = (r.get('category') or '').strip()
-        # 거래처매출/로켓은 판매분석 대상 아님 (B2B)
-        if cat in ('거래처매출', '로켓'):
+        # 거래처매출은 판매분석 대상 아님 (B2B)
+        if cat in ('거래처매출',):
             continue
         rows.append({
             'product_name': r.get('product_name', ''),
@@ -98,7 +98,7 @@ def _fetch_legacy_sales(db, first, last):
 
 
 def _fetch_order_sales(db, first, last):
-    """order_transactions에서 품목별 판매 데이터 조회."""
+    """order_transactions + daily_revenue(로켓)에서 품목별 판매 데이터 조회."""
     def builder(table):
         return db.client.table(table).select(
             'product_name,qty,total_amount'
@@ -108,11 +108,29 @@ def _fetch_order_sales(db, first, last):
 
     raw = db._paginate_query('order_transactions', builder)
 
-    return [{
+    rows = [{
         'product_name': r.get('product_name', ''),
         'qty': r.get('qty', 0),
         'amount': r.get('total_amount', 0),
     } for r in raw]
+
+    # 로켓매출은 daily_revenue에만 존재 → 별도 조회
+    def rocket_builder(table):
+        return db.client.table(table).select(
+            'product_name,qty,revenue'
+        ).eq('category', '로켓') \
+         .gte('revenue_date', first) \
+         .lte('revenue_date', last)
+
+    rocket_raw = db._paginate_query('daily_revenue', rocket_builder)
+    for r in rocket_raw:
+        rows.append({
+            'product_name': r.get('product_name', ''),
+            'qty': r.get('qty', 0),
+            'amount': r.get('revenue', 0),
+        })
+
+    return rows
 
 
 # ═══════════════════════════════════════════════════════════════
