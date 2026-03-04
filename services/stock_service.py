@@ -10,6 +10,30 @@ from services.excel_io import build_stock_snapshot, snapshot_lookup, _snap_qty
 
 # ─── 헬퍼 ───
 
+# 재고관리 제외 품목 캐시 (서버 재시작 시 리셋)
+_unmanaged_cache = {'data': None, 'ts': 0}
+
+def _get_stock_unmanaged_set(db):
+    """product_costs에서 is_stock_managed=false인 품목명 set 반환 (5분 캐시)."""
+    import time
+    now = time.time()
+    if _unmanaged_cache['data'] is not None and now - _unmanaged_cache['ts'] < 300:
+        return _unmanaged_cache['data']
+    try:
+        cost_map = db.query_product_costs()
+        exclude = set()
+        for name, info in cost_map.items():
+            if info.get('is_stock_managed') is False:
+                exclude.add(name)
+                # 공백 변형도 추가
+                exclude.add(name.replace(' ', ''))
+        _unmanaged_cache['data'] = exclude
+        _unmanaged_cache['ts'] = now
+        return exclude
+    except Exception:
+        return set()
+
+
 def validate_date(date_str):
     """날짜 형식 검증. 유효하면 True, 아니면 ValueError 발생."""
     try:
@@ -82,6 +106,13 @@ def query_all_stock_data(db, date_to, date_from=None, location=None,
         return pd.DataFrame()
 
     df = pd.DataFrame(all_data)
+
+    # ── 재고관리 제외 품목 필터 (아이스팩, 드라이아이스 등) ──
+    _exclude = _get_stock_unmanaged_set(db)
+    if _exclude:
+        df = df[~df['product_name'].isin(_exclude)]
+        if df.empty:
+            return pd.DataFrame()
     df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
     df['unit'] = df['unit'].fillna('개') if 'unit' in df.columns else '개'
     for col in ['origin', 'manufacture_date', 'expiry_date', 'lot_number',
@@ -124,6 +155,13 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     df = pd.DataFrame(all_data)
     if df.empty:
         return []
+
+    # ── 재고관리 제외 품목 필터 (아이스팩, 드라이아이스 등) ──
+    _exclude = _get_stock_unmanaged_set(db)
+    if _exclude:
+        df = df[~df['product_name'].isin(_exclude)]
+        if df.empty:
+            return []
 
     for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin', 'food_type']:
         if col not in df.columns:

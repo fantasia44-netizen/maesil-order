@@ -2008,7 +2008,7 @@ class SupabaseDB(DBBase):
         except Exception:
             return []
 
-    def query_stock_summary_by_location(self):
+    def query_stock_summary_by_location(self, exclude_products=None):
         """창고별 재고 품목 수 요약 (양수 재고만)."""
         try:
             today = today_kst()
@@ -2016,9 +2016,13 @@ class SupabaseDB(DBBase):
                 .select("product_name,location,qty") \
                 .lte("transaction_date", today).execute()
             # 품목+창고별 합산
+            _excl = exclude_products or set()
             stock = {}
             for r in (res.data or []):
-                key = (r.get("product_name", ""), r.get("location", ""))
+                pn = r.get("product_name", "")
+                if pn in _excl:
+                    continue
+                key = (pn, r.get("location", ""))
                 stock[key] = stock.get(key, 0) + (r.get("qty") or 0)
             # 창고별 집계 (양수 재고 품목만)
             locations = {}

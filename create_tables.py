@@ -152,7 +152,10 @@ ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FAL
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS deleted_by TEXT;
 
--- 12) purchase_orders (발주서 이력)
+-- 12) product_costs 재고관리 제외 플래그 (아이스팩, 드라이아이스 등 부자재)
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS is_stock_managed BOOLEAN DEFAULT TRUE;
+
+-- 13) purchase_orders (발주서 이력)
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id               BIGSERIAL PRIMARY KEY,
     order_date       DATE NOT NULL,

@@ -6,6 +6,12 @@ from datetime import datetime, timedelta
 from services.tz_utils import today_kst
 
 
+def _get_stock_exclude_set(db):
+    """product_costs에서 is_stock_managed=false인 품목 set."""
+    from services.stock_service import _get_stock_unmanaged_set
+    return _get_stock_unmanaged_set(db)
+
+
 def get_dashboard_data(db, date=None):
     """대시보드 전체 데이터 수집.
 
@@ -24,19 +30,21 @@ def get_dashboard_data(db, date=None):
     today = datetime.strptime(date, '%Y-%m-%d')
     month_start = today.replace(day=1).strftime('%Y-%m-%d')
 
+    excl = _get_stock_exclude_set(db)
+
     return {
         "date": date,
-        "kpi": _get_kpi(db, date, month_start),
+        "kpi": _get_kpi(db, date, month_start, excl),
         "revenue_trend": db.query_revenue_trend(days=7),
         "channel_breakdown": db.query_orders_by_channel(
             date_from=month_start, date_to=date),
-        "warehouse_stock": db.query_stock_summary_by_location(),
+        "warehouse_stock": db.query_stock_summary_by_location(exclude_products=excl),
         "top_products": db.query_top_products_by_revenue(days=30, limit=10),
         "recent_activity": db.query_recent_activity(limit=15),
     }
 
 
-def _get_kpi(db, date, month_start):
+def _get_kpi(db, date, month_start, exclude_products=None):
     """KPI 카드 데이터.
     매출은 order_transactions 기반: 총매출(total_amount), 순매출(settlement).
     """
@@ -57,7 +65,7 @@ def _get_kpi(db, date, month_start):
     outbound_summary = db.query_outbound_summary(date_from=month_start, date_to=date)
 
     # 재고 품목 수
-    stock_summary = db.query_stock_summary_by_location()
+    stock_summary = db.query_stock_summary_by_location(exclude_products=exclude_products)
     total_products = sum(s.get("product_count", 0) for s in stock_summary)
 
     return {
