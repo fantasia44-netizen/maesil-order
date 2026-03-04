@@ -199,33 +199,6 @@ def create_app(config_class=None):
             flash(f'"{BUSINESSES[biz_id]["name"]}" 사업자로 전환되었습니다.', 'info')
         return redirect(url_for('auth.login'))
 
-    # ── 관리자 계정 초기 설정 (1회용) ──
-    @app.route('/setup-admin')
-    def setup_admin():
-        from config import BUSINESSES
-        biz_id = session.get('current_biz', DEFAULT_BUSINESS)
-        db = app.db_pool.get(biz_id)
-        biz_name = BUSINESSES.get(biz_id, {}).get('name', biz_id)
-        if not db:
-            return f'[{biz_name}] DB 연결 없음', 500
-        try:
-            existing = db.query_user_by_username('admin')
-            if existing:
-                return f'[{biz_name}] admin 계정 이미 존재 (id={existing.get("id")})'
-            admin_user = User()
-            admin_user.set_password('admin1234!')
-            db.insert_user({
-                'username': 'admin',
-                'name': '관리자',
-                'password_hash': admin_user.password_hash,
-                'role': 'admin',
-                'is_approved': True,
-                'is_active_user': True,
-            })
-            return f'[{biz_name}] 관리자 계정 생성 완료! (admin / admin1234!)'
-        except Exception as e:
-            return f'[{biz_name}] 생성 실패: {e}', 500
-
     # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑 + 사업자별 필터링)
     @app.context_processor
     def inject_sidebar():
