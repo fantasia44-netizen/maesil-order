@@ -555,7 +555,7 @@ def permissions_reset():
         from datetime import datetime as _dt, timezone as _tz
         now_str = _dt.now(_tz.utc).isoformat()
         payload = []
-        for page_key, name, icon, url, default_roles in PAGE_REGISTRY:
+        for page_key, name, icon, url, default_roles, *_ in PAGE_REGISTRY:
             for role in Config.ROLES.keys():
                 payload.append({
                     'role': role,

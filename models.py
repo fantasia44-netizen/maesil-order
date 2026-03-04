@@ -49,41 +49,58 @@ CHANGE_LOG = [
 ]
 
 # ── 메뉴 페이지 레지스트리 (동적 권한 관리용) ──
-# (page_key, name, icon, url, default_roles)
+# (page_key, name, icon, url, default_roles, group)
+# group: None=최상단 고정, 그 외 그룹명 문자열
+
+MENU_GROUPS = ['주문·판매', '거래처', '재고·물류', '생산', '매출·분석', '관리']
+
 PAGE_REGISTRY = [
-    ('dashboard',      '대시보드',       'bi-house',              '/',                    ['admin','ceo','manager','sales','logistics','production','general']),
-    ('stock',          '재고 현황',      'bi-box',                '/stock',               ['admin','ceo','manager','sales','logistics','production','general']),
-    ('orders',         '온라인주문처리',  'bi-cart',               '/orders',              ['admin','manager','sales']),
-    ('order_manage',   '주문 관리',      'bi-clipboard-data',     '/orders/manage',       ['admin','manager','sales']),
-    ('n_delivery',     'N배송 수동입력',  'bi-pencil-square',      '/orders/n-delivery',   ['admin','manager','sales']),
-    ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales']),
-    ('shipment',       '출고 관리',      'bi-box-arrow-right',    '/shipment',            ['admin','ceo','manager','sales','logistics','general']),
-    ('closing',        '일일마감',       'bi-calendar-check',     '/closing',             ['admin','manager','sales','logistics']),
-    ('price',          '판매관리',       'bi-tags',               '/price',               ['admin','manager','sales','general']),
-    ('trade',          '거래처 관리',    'bi-building',           '/trade',               ['admin','ceo','manager','sales','general']),
-    ('outbound',       '거래처주문처리',  'bi-truck',              '/outbound',            ['admin','ceo','manager','sales','general']),
-    ('purchase_order', '발주서 관리',    'bi-file-earmark-text',  '/trade/purchase-order', ['admin','manager','sales','general']),
-    ('revenue',        '매출 관리',      'bi-currency-won',       '/revenue',             ['admin','ceo','manager','sales','general']),
-    ('promotions',     '행사/쿠폰',     'bi-megaphone',          '/promotions',          ['admin','manager','sales','general']),
-    ('inbound',        '입고 관리',      'bi-box-arrow-in-down',  '/inbound',             ['admin','manager','logistics','production']),
-    ('production',     '생산 관리',      'bi-gear',               '/production',          ['admin','manager','logistics','production']),
-    ('adjustment',     '재고 조정',      'bi-pencil-square',      '/adjustment',          ['admin','manager','production','logistics','general']),
-    ('set_assembly',   '세트작업',       'bi-boxes',              '/set-assembly',        ['admin','manager','sales','logistics','production','general']),
-    ('transfer',       '창고 이동',      'bi-arrow-left-right',   '/transfer',            ['admin','manager','logistics','general']),
-    ('repack',         '소분 관리',      'bi-scissors',           '/repack',              ['admin','manager','production']),
-    ('etc_outbound',   '기타출고',       'bi-box-arrow-right',    '/etc-outbound',        ['admin','manager','sales','logistics','production','general']),
-    ('ledger',         '수불장',         'bi-journal-text',       '/ledger',              ['admin','manager','logistics','production','general']),
-    ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general']),
-    ('bom_cost',       'BOM 원가',       'bi-piggy-bank',         '/bom-cost',            ['admin','manager']),
-    ('yield_mgmt',     '수율 관리',      'bi-graph-up',           '/yield',               ['admin','manager','production']),
-    ('planning',       '생산계획',       'bi-clipboard-data',     '/planning',            ['admin','ceo','manager','production']),
-    ('sales_analysis', '판매분석',       'bi-graph-up-arrow',     '/planning/sales',      ['admin','ceo','manager','production']),
-    ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager']),
-    ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin']),
-    ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin']),
-    ('admin_perms',    '권한 설정',      'bi-shield-lock',        '/admin/permissions',   ['admin']),
-    ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin']),
-    ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager']),
+    # ── 홈 (최상단 고정) ──
+    ('dashboard',      '대시보드',       'bi-house',              '/',                    ['admin','ceo','manager','sales','logistics','production','general'], None),
+
+    # ── 주문·판매 ──
+    ('orders',         '온라인주문처리',  'bi-cart',               '/orders',              ['admin','manager','sales'],                                        '주문·판매'),
+    ('order_manage',   '주문 관리',      'bi-clipboard-data',     '/orders/manage',       ['admin','manager','sales'],                                        '주문·판매'),
+    ('n_delivery',     'N배송 수동입력',  'bi-pencil-square',      '/orders/n-delivery',   ['admin','manager','sales'],                                        '주문·판매'),
+    ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales'],                                        '주문·판매'),
+    ('shipment',       '출고 관리',      'bi-box-arrow-right',    '/shipment',            ['admin','ceo','manager','sales','logistics','general'],             '주문·판매'),
+    ('price',          '판매관리',       'bi-tags',               '/price',               ['admin','manager','sales','general'],                               '주문·판매'),
+    ('promotions',     '행사/쿠폰',     'bi-megaphone',          '/promotions',          ['admin','manager','sales','general'],                               '주문·판매'),
+
+    # ── 거래처 ──
+    ('trade',          '거래처 관리',    'bi-building',           '/trade',               ['admin','ceo','manager','sales','general'],                         '거래처'),
+    ('outbound',       '거래처주문처리',  'bi-truck',              '/outbound',            ['admin','ceo','manager','sales','general'],                         '거래처'),
+    ('purchase_order', '발주서 관리',    'bi-file-earmark-text',  '/trade/purchase-order', ['admin','manager','sales','general'],                              '거래처'),
+
+    # ── 재고·물류 ──
+    ('stock',          '재고 현황',      'bi-box',                '/stock',               ['admin','ceo','manager','sales','logistics','production','general'], '재고·물류'),
+    ('inbound',        '입고 관리',      'bi-box-arrow-in-down',  '/inbound',             ['admin','manager','logistics','production'],                        '재고·물류'),
+    ('adjustment',     '재고 조정',      'bi-pencil-square',      '/adjustment',          ['admin','manager','production','logistics','general'],              '재고·물류'),
+    ('transfer',       '창고 이동',      'bi-arrow-left-right',   '/transfer',            ['admin','manager','logistics','general'],                           '재고·물류'),
+    ('etc_outbound',   '기타출고',       'bi-box-arrow-right',    '/etc-outbound',        ['admin','manager','sales','logistics','production','general'],      '재고·물류'),
+    ('ledger',         '수불장',         'bi-journal-text',       '/ledger',              ['admin','manager','logistics','production','general'],              '재고·물류'),
+
+    # ── 생산 ──
+    ('production',     '생산 관리',      'bi-gear',               '/production',          ['admin','manager','logistics','production'],                        '생산'),
+    ('planning',       '생산계획',       'bi-clipboard-data',     '/planning',            ['admin','ceo','manager','production'],                              '생산'),
+    ('repack',         '소분 관리',      'bi-scissors',           '/repack',              ['admin','manager','production'],                                    '생산'),
+    ('set_assembly',   '세트작업',       'bi-boxes',              '/set-assembly',        ['admin','manager','sales','logistics','production','general'],      '생산'),
+    ('bom_cost',       'BOM 원가',       'bi-piggy-bank',         '/bom-cost',            ['admin','manager'],                                                '생산'),
+    ('yield_mgmt',     '수율 관리',      'bi-graph-up',           '/yield',               ['admin','manager','production'],                                    '생산'),
+
+    # ── 매출·분석 ──
+    ('revenue',        '매출 관리',      'bi-currency-won',       '/revenue',             ['admin','ceo','manager','sales','general'],                         '매출·분석'),
+    ('sales_analysis', '판매분석',       'bi-graph-up-arrow',     '/planning/sales',      ['admin','ceo','manager','production'],                              '매출·분석'),
+    ('closing',        '일일마감',       'bi-calendar-check',     '/closing',             ['admin','manager','sales','logistics'],                             '매출·분석'),
+    ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general'],              '매출·분석'),
+
+    # ── 관리 ──
+    ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager'],                                                '관리'),
+    ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin'],                                                          '관리'),
+    ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin'],                                                          '관리'),
+    ('admin_perms',    '권한 설정',      'bi-shield-lock',        '/admin/permissions',   ['admin'],                                                          '관리'),
+    ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin'],                                                          '관리'),
+    ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager'],                                                '관리'),
 ]
 
 

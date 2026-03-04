@@ -147,28 +147,42 @@ def create_app(config_class=None):
         flash('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'danger')
         return redirect(url_for('main.dashboard'))
 
-    # 사이드바 메뉴 (DB 기반 동적 권한)
+    # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑)
     @app.context_processor
     def inject_sidebar():
         if not current_user.is_authenticated:
-            return dict(sidebar_menus=[], pending_users=0)
+            return dict(sidebar_menus=[], sidebar_groups={},
+                        sidebar_top_menu=None, pending_users=0)
 
-        from models import PAGE_REGISTRY
+        from collections import OrderedDict
+        from models import PAGE_REGISTRY, MENU_GROUPS
         r = current_user.role
 
         # DB 권한 조회 (TTL 캐시)
         perms = app.db.query_role_permissions()
         role_perms = perms.get(r, {})
 
-        menus = []
-        for page_key, name, icon, url, defaults in PAGE_REGISTRY:
-            # DB에 설정 있으면 DB 우선, 없으면 기본값(defaults) 사용
-            if role_perms.get(page_key, r in defaults):
-                menus.append({'name': name, 'icon': icon, 'url': url})
+        flat_menus = []
+        top_menu = None
+        groups = OrderedDict((g, []) for g in MENU_GROUPS)
+
+        for page_key, name, icon, url, defaults, group in PAGE_REGISTRY:
+            if not role_perms.get(page_key, r in defaults):
+                continue
+            item = {'name': name, 'icon': icon, 'url': url}
+            flat_menus.append(item)
+            if group is None:
+                top_menu = item
+            elif group in groups:
+                groups[group].append(item)
+
+        # 빈 그룹 제거
+        groups = OrderedDict((k, v) for k, v in groups.items() if v)
 
         pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
 
-        return dict(sidebar_menus=menus, pending_users=pending_users)
+        return dict(sidebar_menus=flat_menus, sidebar_groups=groups,
+                    sidebar_top_menu=top_menu, pending_users=pending_users)
 
     # Blueprint 등록
     from auth import auth_bp

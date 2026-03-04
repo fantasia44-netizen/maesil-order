@@ -1211,7 +1211,7 @@ class SupabaseDB(DBBase):
         from config import Config
         now_str = datetime.now(timezone.utc).isoformat()
         payload = []
-        for page_key, name, icon, url, default_roles in page_registry:
+        for page_key, name, icon, url, default_roles, *_ in page_registry:
             for role in Config.ROLES.keys():
                 payload.append({
                     'role': role,

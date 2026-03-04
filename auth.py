@@ -155,7 +155,7 @@ def role_required(*roles):
                 if '/api/' in req_path:
                     check_paths.append(req_path.replace('/api/', '/', 1))
                 # 긴 URL 우선 매칭 (예: /orders/n-delivery > /orders)
-                for pk, _name, _icon, url, _roles in sorted(
+                for pk, _name, _icon, url, _roles, *_ in sorted(
                     PAGE_REGISTRY, key=lambda x: len(x[3]), reverse=True
                 ):
                     url_stripped = url.rstrip('/')
