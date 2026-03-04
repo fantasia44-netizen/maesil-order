@@ -692,38 +692,67 @@ def update_trade(trade_id):
         except Exception as rev_err:
             current_app.logger.warning(f'매출 연동 수정 실패: {rev_err}')
 
-        # stock_ledger 수량 차이 반영
-        qty_diff = new_qty - old_qty
-        if qty_diff != 0:
-            try:
-                memo_str = trade.get('memo', '')
-                location = ''
-                if '(' in memo_str and ')' in memo_str:
-                    location = memo_str.split('(')[1].split(')')[0].strip()
-                if location and product_name:
-                    # 기존 SALES_OUT 레코드에서 카테고리/단위 정보 조회
-                    existing = db.query_stock_ledger(
-                        date_to=trade_date, date_from=trade_date,
-                        location=location, type_list=['SALES_OUT'],
+        # stock_ledger SALES_OUT 확인 및 보정
+        try:
+            # memo에서 창고명 추출: "단건출고 (창고명)"
+            memo_str = trade.get('memo', '') or new_memo
+            location = ''
+            if '(' in memo_str and ')' in memo_str:
+                location = memo_str.split('(')[1].split(')')[0].strip()
+
+            if location and product_name and trade_date:
+                norm_name = product_name.replace(' ', '')
+                # 기존 SALES_OUT 레코드 조회
+                existing = db.query_stock_ledger(
+                    date_to=trade_date, date_from=trade_date,
+                    location=location, type_list=['SALES_OUT'],
+                )
+                matched = [r for r in existing
+                           if r.get('product_name', '').replace(' ', '') == norm_name
+                           and r.get('transaction_date') == trade_date]
+
+                existing_sales_qty = sum(abs(r.get('qty', 0)) for r in matched)
+
+                if existing_sales_qty == 0:
+                    # ── SALES_OUT이 아예 없음 → FIFO로 신규 생성 ──
+                    current_app.logger.info(
+                        f'[재고 보정] SALES_OUT 누락 발견, 신규 생성: '
+                        f'{product_name} x{new_qty} ({location})'
                     )
-                    ref = next(
-                        (r for r in existing
-                         if r.get('product_name', '').replace(' ', '') == product_name.replace(' ', '')),
-                        {}
-                    )
-                    db.insert_stock_ledger([{
-                        'transaction_date': trade_date,
-                        'product_name': product_name,
-                        'type': 'SALES_OUT',
-                        'qty': -abs(qty_diff) if qty_diff > 0 else abs(qty_diff),
-                        'location': location,
-                        'category': ref.get('category', ''),
-                        'unit': ref.get('unit', trade.get('unit', '개')),
-                        'storage_method': ref.get('storage_method', ''),
-                        'manufacture_date': ref.get('manufacture_date', ''),
-                    }])
-            except Exception as stk_err:
-                current_app.logger.warning(f'재고 조정 실패: {stk_err}')
+                    try:
+                        from services.outbound_service import process_single_outbound
+                        stock_result = process_single_outbound(
+                            db, trade_date, location,
+                            [{'product_name': product_name, 'qty': new_qty,
+                              'unit': trade.get('unit', '개')}]
+                        )
+                        if stock_result.get('success'):
+                            flash(f'재고차감 보정 완료: {product_name} x{new_qty} '
+                                  f'({stock_result.get("count", 0)}건)', 'info')
+                        else:
+                            for s in stock_result.get('shortage', []):
+                                flash(f'재고 부족으로 보정 실패: {s}', 'warning')
+                    except Exception as fix_err:
+                        current_app.logger.warning(f'재고 보정 실패: {fix_err}')
+                        flash(f'재고차감 보정 중 오류: {fix_err}', 'warning')
+                else:
+                    # ── SALES_OUT 존재 → 수량 차이분만 조정 ──
+                    qty_diff = new_qty - old_qty
+                    if qty_diff != 0:
+                        ref = matched[0] if matched else {}
+                        db.insert_stock_ledger([{
+                            'transaction_date': trade_date,
+                            'product_name': product_name,
+                            'type': 'SALES_OUT',
+                            'qty': -abs(qty_diff) if qty_diff > 0 else abs(qty_diff),
+                            'location': location,
+                            'category': ref.get('category', ''),
+                            'unit': ref.get('unit', trade.get('unit', '개')),
+                            'storage_method': ref.get('storage_method', ''),
+                            'manufacture_date': ref.get('manufacture_date', ''),
+                        }])
+        except Exception as stk_err:
+            current_app.logger.warning(f'재고 조정 실패: {stk_err}')
 
         old_amount = old_qty * old_unit_price
         _log_action('update_trade', target=str(trade_id),
