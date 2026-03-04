@@ -137,6 +137,114 @@ def api_summary():
 
 
 # ================================================================
+# 채널별 주문수량 집계 API
+# ================================================================
+
+def _channel_group(channel):
+    """채널명 → 집계 그룹 분류."""
+    ch = (channel or '').strip()
+    if ch in ('N배송_수동', 'N배송'):
+        return 'N배송'
+    if ch == '쿠팡':
+        return '쿠팡매출'
+    return '일반매출'
+
+
+@aggregation_bp.route('/api/channel-orders')
+@role_required('admin', 'manager', 'sales')
+def api_channel_orders():
+    """채널별 일자별 주문수량 집계.
+
+    order_transactions(온라인) + daily_revenue(거래처매출/로켓) 통합.
+    그룹: 일반매출, 쿠팡/로켓, N배송, 거래처매출, 합계.
+    """
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to') or date_from
+    if not date_from:
+        return jsonify({'error': '날짜를 지정하세요'}), 400
+
+    db = current_app.db
+    try:
+        from collections import defaultdict
+
+        # 일자별 그룹별 {date: {group: qty}}
+        agg = defaultdict(lambda: defaultdict(int))
+        groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
+
+        # 1. order_transactions (온라인 채널)
+        offset = 0
+        while True:
+            resp = db.client.table('order_transactions') \
+                .select('order_date,channel,qty') \
+                .eq('status', '정상') \
+                .gte('order_date', date_from) \
+                .lte('order_date', date_to) \
+                .range(offset, offset + 999) \
+                .execute()
+            batch = resp.data or []
+            for r in batch:
+                d = r.get('order_date', '')
+                if not d:
+                    continue
+                grp = _channel_group(r.get('channel', ''))
+                agg[d][grp] += _safe_int(r.get('qty', 0))
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        # 2. daily_revenue (거래처매출, 로켓)
+        offset = 0
+        while True:
+            resp = db.client.table('daily_revenue') \
+                .select('revenue_date,category,qty') \
+                .in_('category', ['거래처매출', '로켓']) \
+                .gte('revenue_date', date_from) \
+                .lte('revenue_date', date_to) \
+                .range(offset, offset + 999) \
+                .execute()
+            batch = resp.data or []
+            for r in batch:
+                d = r.get('revenue_date', '')
+                if not d:
+                    continue
+                cat = (r.get('category') or '').strip()
+                if cat == '로켓':
+                    grp = '로켓'
+                else:
+                    grp = '거래처매출'
+                agg[d][grp] += _safe_int(r.get('qty', 0))
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        # 결과 구성
+        dates = sorted(agg.keys())
+        rows = []
+        totals = {g: 0 for g in groups}
+        totals['합계'] = 0
+
+        for d in dates:
+            row = {'date': d}
+            row_total = 0
+            for g in groups:
+                v = agg[d].get(g, 0)
+                row[g] = v
+                row_total += v
+                totals[g] += v
+            row['합계'] = row_total
+            totals['합계'] += row_total
+            rows.append(row)
+
+        return jsonify({
+            'groups': groups,
+            'rows': rows,
+            'totals': totals,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ================================================================
 # DB 기반 보고서 생성 (출고+매출 엑셀)
 # ================================================================
 
@@ -770,6 +878,136 @@ def generate_report():
             import traceback
             traceback.print_exc()
             flash(f'일자별 종합 보고서 생성 오류: {daily_err}', 'warning')
+
+        # ══════════════════════════════════════════════
+        # 7. 채널별 주문수량: 일자(행) × 채널그룹(열) 피벗
+        # ══════════════════════════════════════════════
+        try:
+            from collections import defaultdict as _dd
+            ch_agg = _dd(lambda: _dd(int))
+            ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
+
+            # order_transactions (온라인 채널)
+            ot_offset = 0
+            while True:
+                ot_resp = db.client.table('order_transactions') \
+                    .select('order_date,channel,qty') \
+                    .eq('status', '정상') \
+                    .gte('order_date', date_from) \
+                    .lte('order_date', date_to) \
+                    .range(ot_offset, ot_offset + 999) \
+                    .execute()
+                ot_batch = ot_resp.data or []
+                for r in ot_batch:
+                    d = r.get('order_date', '')
+                    if not d:
+                        continue
+                    ch_agg[d][_channel_group(r.get('channel', ''))] += _safe_int(r.get('qty', 0))
+                if len(ot_batch) < 1000:
+                    break
+                ot_offset += 1000
+
+            # daily_revenue (거래처매출, 로켓)
+            dr_offset = 0
+            while True:
+                dr_resp = db.client.table('daily_revenue') \
+                    .select('revenue_date,category,qty') \
+                    .in_('category', ['거래처매출', '로켓']) \
+                    .gte('revenue_date', date_from) \
+                    .lte('revenue_date', date_to) \
+                    .range(dr_offset, dr_offset + 999) \
+                    .execute()
+                dr_batch = dr_resp.data or []
+                for r in dr_batch:
+                    d = r.get('revenue_date', '')
+                    if not d:
+                        continue
+                    cat = (r.get('category') or '').strip()
+                    grp = '로켓' if cat == '로켓' else '거래처매출'
+                    ch_agg[d][grp] += _safe_int(r.get('qty', 0))
+                if len(dr_batch) < 1000:
+                    break
+                dr_offset += 1000
+
+            if ch_agg:
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.utils import get_column_letter
+
+                wb_ch = Workbook()
+                ws_ch = wb_ch.active
+                ws_ch.title = '채널별주문수량'
+
+                ch_header_fill = PatternFill(start_color="D6EAF8", fill_type="solid")
+                ch_total_fill = PatternFill(start_color="FEF9E7", fill_type="solid")
+                ch_bold = Font(bold=True)
+                ch_right = Alignment(horizontal="right")
+                ch_center = Alignment(horizontal="center")
+                ch_border = Border(bottom=Side(style="thin", color="CCCCCC"))
+                ch_num_fmt = '#,##0'
+
+                # 헤더
+                headers_ch = ['날짜'] + ch_groups + ['합계']
+                ws_ch.column_dimensions['A'].width = 14
+                for ci, h in enumerate(headers_ch):
+                    col = ci + 1
+                    ws_ch.column_dimensions[get_column_letter(col)].width = 14
+                    c = ws_ch.cell(row=1, column=col, value=h)
+                    c.font = ch_bold
+                    c.fill = ch_header_fill
+                    c.alignment = ch_center
+
+                # 데이터 행
+                ch_dates = sorted(ch_agg.keys())
+                col_totals = {g: 0 for g in ch_groups}
+                col_totals['합계'] = 0
+                row_num = 2
+
+                for d in ch_dates:
+                    ws_ch.cell(row=row_num, column=1, value=d).font = Font(bold=True)
+                    ws_ch.cell(row=row_num, column=1).border = ch_border
+                    row_total = 0
+                    for gi, g in enumerate(ch_groups):
+                        v = ch_agg[d].get(g, 0)
+                        c = ws_ch.cell(row=row_num, column=gi + 2,
+                                       value=v if v else '')
+                        c.border = ch_border
+                        if v:
+                            c.number_format = ch_num_fmt
+                            c.alignment = ch_right
+                        col_totals[g] += v
+                        row_total += v
+                    c = ws_ch.cell(row=row_num, column=len(ch_groups) + 2, value=row_total)
+                    c.number_format = ch_num_fmt
+                    c.alignment = ch_right
+                    c.font = ch_bold
+                    c.border = ch_border
+                    col_totals['합계'] += row_total
+                    row_num += 1
+
+                # 합계 행
+                ws_ch.cell(row=row_num, column=1, value='합계').font = ch_bold
+                ws_ch.cell(row=row_num, column=1).fill = ch_total_fill
+                for gi, g in enumerate(ch_groups):
+                    c = ws_ch.cell(row=row_num, column=gi + 2, value=col_totals[g])
+                    c.font = ch_bold
+                    c.fill = ch_total_fill
+                    c.number_format = ch_num_fmt
+                    c.alignment = ch_right
+                c = ws_ch.cell(row=row_num, column=len(ch_groups) + 2, value=col_totals['합계'])
+                c.font = ch_bold
+                c.fill = ch_total_fill
+                c.number_format = ch_num_fmt
+                c.alignment = ch_right
+
+                ch_path = os.path.join(output_dir, f"채널별주문수량_{date_file}_{ts}.xlsx")
+                wb_ch.save(ch_path)
+                generated_files.append(ch_path)
+
+        except Exception as ch_err:
+            import traceback
+            traceback.print_exc()
+            flash(f'채널별 주문수량 생성 오류: {ch_err}', 'warning')
 
         flash(f"[{date_label}] 보고서 생성 완료 — 출고 {total_items}종 {total_qty:,}개, "
               f"파일 {len(generated_files)}개", 'success')

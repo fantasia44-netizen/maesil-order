@@ -155,6 +155,8 @@
                             <span class="badge bg-success">매출</span>
                             {% elif f.startswith('통합집계') %}
                             <span class="badge bg-info">집계</span>
+                            {% elif f.startswith('채널별주문') %}
+                            <span class="badge bg-purple" style="background:#7952b3!important">채널별</span>
                             {% elif f.startswith('일자별종합') %}
                             <span class="badge bg-dark">종합</span>
                             {% else %}
