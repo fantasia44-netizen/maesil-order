@@ -114,17 +114,16 @@
                     <th class="text-center" style="width:70px">식품유형</th>
                     <th class="text-center" style="width:80px">상태</th>
                     <th class="text-end" style="width:80px">현재재고</th>
+                    <th class="text-end" style="width:70px">총출고<br><small class="text-muted" id="thSalesWindow"></small></th>
                     <th class="text-end" style="width:80px">일평균<br><small class="text-muted">출고</small></th>
                     <th class="text-end" style="width:80px">소진일수</th>
                     <th class="text-end" style="width:70px">안전재고</th>
-                    <th class="text-end" style="width:70px">리드타임<br><small class="text-muted">(일)</small></th>
                     <th class="text-end" style="width:80px">목표재고</th>
                     <th class="text-end fw-bold" style="width:90px">권장생산량</th>
-                    <th style="width:40px">단위</th>
                 </tr>
             </thead>
             <tbody id="planBody">
-                <tr><td colspan="12" class="text-center text-muted py-4">
+                <tr><td colspan="11" class="text-center text-muted py-4">
                     <i class="bi bi-calculator"></i> '계획 생성' 버튼을 클릭하세요
                 </td></tr>
             </tbody>
@@ -199,6 +198,7 @@ document.getElementById('calcBtn').addEventListener('click', async function() {
             warning: data.summary.warning_days || 7,
         };
         renderSummary(data.summary);
+        document.getElementById('thSalesWindow').textContent = `${data.summary.sales_window}일`;
         renderTable(allItems);
 
         const dt = data.generated_at ? new Date(data.generated_at).toLocaleString('ko-KR') : '';
@@ -235,7 +235,7 @@ function renderTable(items) {
 
     const tbody = document.getElementById('planBody');
     if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-3">표시할 데이터 없음</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-3">표시할 데이터 없음</td></tr>';
         document.getElementById('filteredCount').textContent = '';
         return;
     }
@@ -269,13 +269,12 @@ function renderTable(items) {
             <td class="text-center">${ftBadge}</td>
             <td class="text-center">${badge}</td>
             <td class="text-end">${fmt(item.current_stock)}</td>
+            <td class="text-end">${fmt(item.total_sold_period)}</td>
             <td class="text-end">${fmt(item.avg_daily_sales)}</td>
             <td class="text-end">${depDays}</td>
             <td class="text-end">${fmt(item.safety_stock)}</td>
-            <td class="text-end">${item.lead_time_days}</td>
             <td class="text-end">${fmt(item.target_stock)}</td>
             <td class="text-end">${recProd}</td>
-            <td class="small">${esc(item.unit)}</td>
         </tr>`;
     });
     tbody.innerHTML = html;
