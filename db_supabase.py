@@ -48,7 +48,8 @@ class SupabaseDB(DBBase):
                 print(f"Column migration note: {col_err}")
             self._db_cols = self.get_db_columns()
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[DB connect error] {e}")
             return False
 
     def get_db_columns(self):
