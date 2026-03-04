@@ -6,6 +6,34 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 SUPABASE_URL = "https://pbocckpuiyzijspqpvqz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBib2Nja3B1aXl6aWpzcHFwdnF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MDI0NjgsImV4cCI6MjA4NjI3ODQ2OH0.-oh6BjjSaOOSEavwK3xbvX5AkYPLJUp9VuGbcLWuFHc"
 
+# 쿡대디 Supabase (별도 프로젝트)
+COOKDADDY_SUPABASE_URL = "https://yfktbbszelpzydrktmuo.supabase.co"
+COOKDADDY_SUPABASE_KEY = "sb_publishable_SV6Xe6b2bm50vtqfTai42A_SjBKFlap"
+
+# 사업자 설정
+DEFAULT_BUSINESS = 'baemama'
+BUSINESSES = {
+    'baemama': {
+        'name': '배마마',
+        'supabase_url': SUPABASE_URL,
+        'supabase_key': SUPABASE_KEY,
+        'color': '#2c3e50',
+        'icon': 'bi-gear-wide-connected',
+        'exclude_pages': [],
+    },
+    'cookdaddy': {
+        'name': '쿡대디',
+        'supabase_url': os.environ.get('COOKDADDY_SUPABASE_URL') or COOKDADDY_SUPABASE_URL,
+        'supabase_key': os.environ.get('COOKDADDY_SUPABASE_KEY') or COOKDADDY_SUPABASE_KEY,
+        'color': '#c0392b',
+        'icon': 'bi-fire',
+        'exclude_pages': [
+            'orders', 'order_manage', 'n_delivery', 'rocket_manual',
+            'aggregation', 'shipment', 'promotions',
+        ],
+    },
+}
+
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(32).hex()

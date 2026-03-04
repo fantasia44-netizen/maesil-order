@@ -1,8 +1,8 @@
 import os
 import time
 
-from flask import Flask, redirect, request, session, url_for, flash, jsonify
-from flask_login import LoginManager, current_user, logout_user
+from flask import Flask, redirect, request, session, url_for, flash, jsonify, g
+from flask_login import LoginManager, current_user, logout_user, login_required
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -29,15 +29,32 @@ def create_app(config_class=None):
     # CSRF
     CSRFProtect(app)
 
-    # Supabase DB 초기화
+    # ── 사업자별 Supabase DB Pool 초기화 ──
     from db_supabase import SupabaseDB
-    app.db = SupabaseDB()
-    app.db.connect()
+    from config import BUSINESSES, DEFAULT_BUSINESS
 
-    # 권한 테이블 기본값 초기화 (테이블이 비어있으면 PAGE_REGISTRY 기본값 삽입)
+    app.db_pool = {}
+    for biz_id, biz_conf in BUSINESSES.items():
+        if biz_conf.get('supabase_url') and biz_conf.get('supabase_key'):
+            db_inst = SupabaseDB()
+            if db_inst.connect(biz_conf['supabase_url'], biz_conf['supabase_key']):
+                app.db_pool[biz_id] = db_inst
+                print(f'[DB] {biz_conf["name"]} 연결 성공')
+            else:
+                print(f'[DB] {biz_conf["name"]} 연결 실패')
+        else:
+            print(f'[DB] {biz_conf["name"]} — URL/KEY 미설정, 건너뜀')
+
+    # 기본 사업자 DB (기존 호환)
+    app.db = app.db_pool.get(DEFAULT_BUSINESS)
+    if not app.db:
+        raise RuntimeError(f'기본 사업자 "{DEFAULT_BUSINESS}" DB 연결 실패')
+
+    # 권한 테이블 기본값 초기화
     try:
         from models import PAGE_REGISTRY
-        app.db.seed_default_permissions(PAGE_REGISTRY)
+        for biz_id, db_inst in app.db_pool.items():
+            db_inst.seed_default_permissions(PAGE_REGISTRY)
     except Exception as e:
         print(f"[WARN] seed_default_permissions: {e}")
 
@@ -91,6 +108,13 @@ def create_app(config_class=None):
                 return redirect(url_for('auth.login'))
 
             session['_last_active'] = now
+
+    # ── 사업자 DB 스위칭 (세션 기반) ──
+    @app.before_request
+    def switch_db_by_session():
+        biz = session.get('current_biz', DEFAULT_BUSINESS)
+        if biz in app.db_pool:
+            app.db = app.db_pool[biz]
 
     # ── 보안: 응답 헤더 추가 ──
     @app.after_request
@@ -147,12 +171,36 @@ def create_app(config_class=None):
         flash('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'danger')
         return redirect(url_for('main.dashboard'))
 
-    # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑)
+    # ── 사업자 전환 라우트 ──
+    @app.route('/switch-business/<biz_id>')
+    @login_required
+    def switch_business(biz_id):
+        if biz_id not in BUSINESSES:
+            flash('존재하지 않는 사업자입니다.', 'warning')
+            return redirect(url_for('main.dashboard'))
+        if biz_id not in app.db_pool:
+            flash(f'"{BUSINESSES[biz_id]["name"]}" DB가 아직 설정되지 않았습니다.', 'warning')
+            return redirect(url_for('main.dashboard'))
+        # 사업자 전환 → 로그아웃 후 재로그인 (각 DB에 별도 사용자)
+        logout_user()
+        session.clear()
+        session['current_biz'] = biz_id
+        flash(f'"{BUSINESSES[biz_id]["name"]}" 사업자로 전환되었습니다. 로그인해주세요.', 'info')
+        return redirect(url_for('auth.login'))
+
+    # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑 + 사업자별 필터링)
     @app.context_processor
     def inject_sidebar():
+        # 현재 사업자 정보 (비로그인 상태에서도 필요)
+        biz_id = session.get('current_biz', DEFAULT_BUSINESS)
+        biz_conf = BUSINESSES.get(biz_id, BUSINESSES.get(DEFAULT_BUSINESS, {}))
+        available_biz = {k: v for k, v in BUSINESSES.items() if k in app.db_pool}
+
         if not current_user.is_authenticated:
             return dict(sidebar_menus=[], sidebar_groups={},
-                        sidebar_top_menu=None, pending_users=0)
+                        sidebar_top_menu=None, pending_users=0,
+                        current_biz=biz_conf, current_biz_id=biz_id,
+                        businesses=available_biz)
 
         from collections import OrderedDict
         from models import PAGE_REGISTRY, MENU_GROUPS
@@ -162,11 +210,16 @@ def create_app(config_class=None):
         perms = app.db.query_role_permissions()
         role_perms = perms.get(r, {})
 
+        # 사업자별 제외 페이지
+        exclude_pages = set(biz_conf.get('exclude_pages', []))
+
         flat_menus = []
         top_menu = None
         groups = OrderedDict((g, []) for g in MENU_GROUPS)
 
         for page_key, name, icon, url, defaults, group in PAGE_REGISTRY:
+            if page_key in exclude_pages:
+                continue
             if not role_perms.get(page_key, r in defaults):
                 continue
             item = {'name': name, 'icon': icon, 'url': url}
@@ -182,7 +235,9 @@ def create_app(config_class=None):
         pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
 
         return dict(sidebar_menus=flat_menus, sidebar_groups=groups,
-                    sidebar_top_menu=top_menu, pending_users=pending_users)
+                    sidebar_top_menu=top_menu, pending_users=pending_users,
+                    current_biz=biz_conf, current_biz_id=biz_id,
+                    businesses=available_biz)
 
     # Blueprint 등록
     from auth import auth_bp
@@ -244,34 +299,36 @@ def create_app(config_class=None):
 
 
 def init_db(app):
-    """기본 관리자 계정 확인/생성 (app_users 테이블이 없으면 건너뜀)"""
+    """모든 연결된 사업자 DB에 기본 관리자 계정 확인/생성"""
     with app.app_context():
-        try:
-            existing = app.db.query_user_by_username('admin')
-            if not existing:
-                admin_user = User()
-                admin_user.set_password('admin1234!')
-                app.db.insert_user({
-                    'username': 'admin',
-                    'name': '관리자',
-                    'password_hash': admin_user.password_hash,
-                    'role': 'admin',
-                    'is_approved': True,
-                    'is_active_user': True,
-                })
-                print('[초기화] 관리자 계정 생성 완료')
-                print('  아이디: admin / 비밀번호: admin1234!')
-        except Exception as e:
-            print(f'[경고] 사용자 테이블 초기화 실패: {e}')
-            print('  Supabase에서 app_users, audit_logs 테이블을 먼저 생성하세요.')
+        for biz_id, db_inst in app.db_pool.items():
+            try:
+                existing = db_inst.query_user_by_username('admin')
+                if not existing:
+                    admin_user = User()
+                    admin_user.set_password('admin1234!')
+                    db_inst.insert_user({
+                        'username': 'admin',
+                        'name': '관리자',
+                        'password_hash': admin_user.password_hash,
+                        'role': 'admin',
+                        'is_approved': True,
+                        'is_active_user': True,
+                    })
+                    print(f'[{biz_id}] 관리자 계정 생성 완료 (admin / admin1234!)')
+            except Exception as e:
+                print(f'[{biz_id}] 사용자 테이블 초기화 실패: {e}')
 
 
 if __name__ == '__main__':
+    from config import BUSINESSES
     app = create_app()
     init_db(app)
 
     port = int(os.environ.get('PORT', 5000))
-    print(f'\n  배마마 통합시스템 서버 시작: http://localhost:{port}')
+    print(f'\n  통합시스템 서버 시작: http://localhost:{port}')
+    biz_names = [v['name'] for k, v in BUSINESSES.items() if k in app.db_pool]
+    print(f'  연결된 사업자: {", ".join(biz_names)}')
     print(f'  종료: Ctrl+C\n')
 
     app.config['TEMPLATES_AUTO_RELOAD'] = True

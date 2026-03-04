@@ -37,9 +37,11 @@ class SupabaseDB(DBBase):
         self.client: Client = None
         self._db_cols = None
 
-    def connect(self):
+    def connect(self, url=None, key=None):
         try:
-            self.client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            _url = url or SUPABASE_URL
+            _key = key or SUPABASE_KEY
+            self.client = create_client(_url, _key)
             try:
                 self.client.rpc("ensure_stock_ledger_columns", {}).execute()
             except Exception as col_err:
