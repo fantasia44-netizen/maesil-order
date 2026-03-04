@@ -171,7 +171,7 @@ def create_app(config_class=None):
         flash('서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.', 'danger')
         return redirect(url_for('main.dashboard'))
 
-    # ── 사업자 전환 라우트 ──
+    # ── 사업자 전환 라우트 (로그인 상태) ──
     @app.route('/switch-business/<biz_id>')
     @login_required
     def switch_business(biz_id):
@@ -186,6 +186,17 @@ def create_app(config_class=None):
         session.clear()
         session['current_biz'] = biz_id
         flash(f'"{BUSINESSES[biz_id]["name"]}" 사업자로 전환되었습니다. 로그인해주세요.', 'info')
+        return redirect(url_for('auth.login'))
+
+    # ── 사업자 전환 라우트 (비로그인 — 로그인 페이지에서 사용) ──
+    @app.route('/switch-biz/<biz_id>')
+    def switch_biz(biz_id):
+        if biz_id in BUSINESSES and biz_id in app.db_pool:
+            if current_user.is_authenticated:
+                logout_user()
+            session.clear()
+            session['current_biz'] = biz_id
+            flash(f'"{BUSINESSES[biz_id]["name"]}" 사업자로 전환되었습니다.', 'info')
         return redirect(url_for('auth.login'))
 
     # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑 + 사업자별 필터링)

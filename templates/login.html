@@ -1,14 +1,25 @@
 {% extends "base.html" %}
-{% block title %}로그인 - 배마마 통합시스템{% endblock %}
+{% block title %}로그인 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
 
 {% block public_content %}
-<div class="min-vh-100 d-flex align-items-center justify-content-center" style="background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);">
+<div class="min-vh-100 d-flex align-items-center justify-content-center" style="background: linear-gradient(135deg, {{ current_biz.color|default('#2c3e50') }} 0%, #3498db 100%);">
     <div class="card shadow-lg" style="width: 400px; border-radius: 16px;">
         <div class="card-body p-5">
             <div class="text-center mb-4">
-                <i class="bi bi-gear-wide-connected" style="font-size: 2.5rem; color: #3498db;"></i>
-                <h3 class="mt-2 fw-bold">배마마 통합시스템</h3>
+                <i class="bi {{ current_biz.icon|default('bi-gear-wide-connected') }}" style="font-size: 2.5rem; color: {{ current_biz.color|default('#3498db') }};"></i>
+                <h3 class="mt-2 fw-bold">{{ current_biz.name|default('배마마') }} 통합시스템</h3>
                 <p class="text-muted">제조·유통 통합관리</p>
+                {% if businesses|default({})|length > 1 %}
+                <div class="mt-2">
+                    {% for bid, bconf in businesses.items() %}
+                    {% if bid != current_biz_id %}
+                    <a href="/switch-biz/{{ bid }}" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi {{ bconf.icon }}"></i> {{ bconf.name }}(으)로 전환
+                    </a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
 
             <form method="POST" novalidate>
