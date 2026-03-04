@@ -31,7 +31,7 @@ def index():
     ledger_type = request.args.get('ledger_type', '')
     product_search = request.args.get('product_search', '').strip()
     storage_method = request.args.get('storage_method', '')
-    view_mode = request.args.get('view_mode', 'default')  # default / manufacture / expiry
+    view_mode = request.args.get('view_mode', 'default')  # default / manufacture / expiry / lot_number
 
     locations, categories = [], []
     try:
@@ -50,6 +50,7 @@ def index():
                 location=loc,
                 split_manufacture=(view_mode == 'manufacture'),
                 split_expiry=(view_mode == 'expiry'),
+                split_lot_number=(view_mode == 'lot_number'),
             )
 
             # 수불장 유형 필터 적용
@@ -123,6 +124,16 @@ def index():
                     row_data['manufacture_date'] = key[5] or '-'
                 elif view_mode == 'expiry' and len(key) > 5:
                     row_data['expiry_date'] = key[5] or '-'
+                elif view_mode == 'lot_number' and len(key) > 5:
+                    row_data['lot_number'] = key[5] or '-'
+                    # 등급: 해당 그룹 트랜잭션에서 추출
+                    grade = ''
+                    for tx in txns:
+                        g = (tx.get('grade') or '').strip()
+                        if g:
+                            grade = g
+                            break
+                    row_data['grade'] = grade or '-'
                 # 종료일 재고 0이고 기간 거래도 없으면 제외
                 if closing == 0 and not txns:
                     continue
@@ -241,6 +252,7 @@ def pdf():
             db, date_from, date_to, location=loc,
             split_manufacture=(view_mode == 'manufacture'),
             split_expiry=(view_mode == 'expiry'),
+            split_lot_number=(view_mode == 'lot_number'),
         )
 
         # 수불장 유형 필터 적용

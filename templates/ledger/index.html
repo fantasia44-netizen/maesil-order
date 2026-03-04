@@ -53,6 +53,7 @@
                     <option value="default" {% if view_mode|default('default') == 'default' %}selected{% endif %}>기본(품목별)</option>
                     <option value="manufacture" {% if view_mode|default('default') == 'manufacture' %}selected{% endif %}>제조일자별</option>
                     <option value="expiry" {% if view_mode|default('default') == 'expiry' %}selected{% endif %}>소비기한별</option>
+                    <option value="lot_number" {% if view_mode|default('default') == 'lot_number' %}selected{% endif %}>이력번호별</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -121,6 +122,9 @@
                         <th>제조일자</th>
                         {% elif view_mode|default('default') == 'expiry' %}
                         <th>소비기한</th>
+                        {% elif view_mode|default('default') == 'lot_number' %}
+                        <th>이력번호</th>
+                        <th>등급</th>
                         {% endif %}
                         <th class="text-end">전일재고</th>
                         <th class="text-end">입고</th>
@@ -154,6 +158,9 @@
                         <td>{{ row.manufacture_date|default('-') }}</td>
                         {% elif view_mode|default('default') == 'expiry' %}
                         <td>{{ row.expiry_date|default('-') }}</td>
+                        {% elif view_mode|default('default') == 'lot_number' %}
+                        <td>{{ row.lot_number|default('-') }}</td>
+                        <td>{{ row.grade|default('-') }}</td>
                         {% endif %}
                         <td class="text-end">{{ (row.opening|default(0))|fmt_qty }}</td>
                         <td class="text-end text-primary">{{ (row.inbound|default(0))|fmt_qty }}</td>
