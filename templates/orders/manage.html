@@ -195,9 +195,21 @@
             <div class="modal-body">
                 <input type="hidden" id="editOrderId">
                 <input type="hidden" id="editOldQty">
+                <input type="hidden" id="editOldProduct">
+                <input type="hidden" id="editOldUnitPrice">
                 <div class="mb-3">
-                    <label class="form-label">수량</label>
-                    <input type="number" class="form-control" id="editQty" min="1">
+                    <label class="form-label">품목명</label>
+                    <input type="text" class="form-control" id="editProductName">
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">수량</label>
+                        <input type="number" class="form-control" id="editQty" min="1">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">단가</label>
+                        <input type="number" class="form-control" id="editUnitPrice" min="0">
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">변경 사유 <span class="text-danger">*</span></label>
@@ -205,7 +217,7 @@
                 </div>
                 <div id="editReprocessInfo" class="alert alert-info py-2" style="display:none;">
                     <i class="bi bi-info-circle"></i>
-                    출고 처리된 주문의 수량 변경 시 <strong>재고 역분개 + 재처리</strong>가 자동으로 진행됩니다.
+                    출고 처리된 주문의 <strong>품목 또는 수량 변경</strong> 시 재고 역분개 + 재처리가 자동으로 진행됩니다.
                 </div>
             </div>
             <div class="modal-footer">
@@ -454,9 +466,10 @@ function showDetail(orderId) {
 
             // 액션 버튼
             if (t.status === '정상') {
+                const escProduct = (t.product_name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                 html += `<hr><div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${t.id}, ${t.qty}, ${t.is_outbound_done ? 'true' : 'false'})">
-                        <i class="bi bi-pencil-square"></i> 수량 정정
+                    <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${t.id}, ${t.qty}, '${escProduct}', ${t.unit_price||0}, ${t.is_outbound_done ? 'true' : 'false'})">
+                        <i class="bi bi-pencil-square"></i> 주문 수정
                     </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="openCancel(${t.id}, ${t.is_outbound_done ? 'true' : 'false'})">
                         <i class="bi bi-x-circle"></i> 취소/환불
@@ -535,11 +548,15 @@ function submitCancel() {
 // 수량 정정
 // ================================================================
 
-function openEdit(orderId, currentQty, isOutboundDone) {
+function openEdit(orderId, currentQty, currentProduct, currentUnitPrice, isOutboundDone) {
     bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
     document.getElementById('editOrderId').value = orderId;
     document.getElementById('editOldQty').value = currentQty;
+    document.getElementById('editOldProduct').value = currentProduct || '';
+    document.getElementById('editOldUnitPrice').value = currentUnitPrice || 0;
+    document.getElementById('editProductName').value = currentProduct || '';
     document.getElementById('editQty').value = currentQty;
+    document.getElementById('editUnitPrice').value = currentUnitPrice || 0;
     document.getElementById('editReason').value = '';
     document.getElementById('editReprocessInfo').style.display = isOutboundDone ? 'block' : 'none';
     new bootstrap.Modal(document.getElementById('editModal')).show();
@@ -548,12 +565,38 @@ function openEdit(orderId, currentQty, isOutboundDone) {
 function submitEdit() {
     const orderId = document.getElementById('editOrderId').value;
     const oldQty = parseInt(document.getElementById('editOldQty').value);
+    const oldProduct = document.getElementById('editOldProduct').value;
+    const oldUnitPrice = parseInt(document.getElementById('editOldUnitPrice').value) || 0;
     const newQty = parseInt(document.getElementById('editQty').value);
+    const newProduct = document.getElementById('editProductName').value.trim();
+    const newUnitPrice = parseInt(document.getElementById('editUnitPrice').value) || 0;
     const reason = document.getElementById('editReason').value.trim();
 
     if (!reason) { alert('변경 사유를 입력하세요'); return; }
+    if (!newProduct) { alert('품목명을 입력하세요'); return; }
     if (newQty <= 0) { alert('수량은 1 이상이어야 합니다'); return; }
-    if (newQty === oldQty) { alert('수량이 변경되지 않았습니다'); return; }
+
+    // 변경된 필드만 payload에 포함
+    const payload = {};
+    let changes = [];
+    if (newProduct !== oldProduct) {
+        payload.product_name = newProduct;
+        changes.push(`품목: ${oldProduct} → ${newProduct}`);
+    }
+    if (newQty !== oldQty) {
+        payload.qty = newQty;
+        changes.push(`수량: ${oldQty} → ${newQty}`);
+    }
+    if (newUnitPrice !== oldUnitPrice) {
+        payload.unit_price = newUnitPrice;
+        payload.total_amount = newQty * newUnitPrice;
+        changes.push(`단가: ${oldUnitPrice.toLocaleString()} → ${newUnitPrice.toLocaleString()}`);
+    }
+
+    if (!Object.keys(payload).length) {
+        alert('변경된 내용이 없습니다');
+        return;
+    }
 
     const btn = event.target;
     btn.disabled = true;
@@ -565,10 +608,7 @@ function submitEdit() {
             'Content-Type': 'application/json',
             'X-CSRFToken': '{{ csrf_token() }}'
         },
-        body: JSON.stringify({
-            payload: { qty: newQty },
-            reason: reason
-        })
+        body: JSON.stringify({ payload, reason })
     })
     .then(parseJsonSafe)
     .then(data => {
@@ -576,7 +616,7 @@ function submitEdit() {
         btn.textContent = '저장';
         if (data.success) {
             bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-            let msg = `수량 정정 완료 (${oldQty} → ${newQty})`;
+            let msg = `주문 수정 완료\n${changes.join('\n')}`;
             if (data.reversal) {
                 msg += `\n\n[재고 역분개 + 재처리 완료]`;
                 msg += `\n- 복원: ${data.reversal.stock_reversed || 0}건`;

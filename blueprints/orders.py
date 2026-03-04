@@ -492,14 +492,17 @@ def api_order_edit(order_id):
     if not reason:
         return jsonify({'error': '변경 사유를 입력하세요'}), 400
 
-    # 수량 변경 시 재고/매출 역분개 → 재처리
+    # 품목/수량 변경 시 재고/매출 역분개 → 재처리
     order = current_app.db.query_order_transaction_by_id(order_id)
     new_qty = payload.get('qty')
+    new_product = payload.get('product_name')
     need_reprocess = (
-        new_qty is not None
-        and order
+        order
         and order.get('is_outbound_done')
-        and int(new_qty) != int(order.get('qty', 0))
+        and (
+            (new_qty is not None and int(new_qty) != int(order.get('qty', 0)))
+            or (new_product and new_product != order.get('product_name', ''))
+        )
     )
 
     if need_reprocess:
