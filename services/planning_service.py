@@ -200,12 +200,12 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW,
         else:
             depletion_days = None  # 판매 없음
 
-        # 목표재고 = (일평균 × 리드타임) + 안전재고
+        # 목표재고 = 한달치 (일평균 × 30일)
         safety = config['safety_stock']
         lead_time = config['lead_time_days']
-        target_stock = (avg_daily * lead_time) + safety
+        target_stock = avg_daily * 30
 
-        # 권장생산량
+        # 권장생산량 = 한달치 - 현재재고
         if avg_daily == 0:
             recommended = 0
         else:

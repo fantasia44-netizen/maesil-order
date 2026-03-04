@@ -945,12 +945,30 @@ def api_n_delivery_update(tx_id):
 
         # 출고 처리 여부 확인 (수정 전)
         was_outbound_done = old_row.get('is_outbound_done', False)
+        is_cancel = update_data.get('status') == '취소'
+
+        # ★ 재고 처리를 DB 업데이트 전에 수행 (reverse가 원본 qty를 참조하므로)
+        stock_msg = ''
+        if was_outbound_done:
+            try:
+                from services.order_to_stock_service import reverse_order_stock, process_single_order_realtime
+                # 1) 기존 출고 역분개 (SALES_RETURN) — 아직 원본 qty가 DB에 남아 있음
+                rev_result = reverse_order_stock(db, tx_id)
+                rev_cnt = rev_result.get('stock_reversed', 0)
+
+                if is_cancel:
+                    stock_msg = f' (취소 — 재고 복원 {rev_cnt}건)'
+                else:
+                    # 수정: 역분개 후 DB 업데이트 후 재출고 (아래에서 처리)
+                    stock_msg = f' (재고: 복원 {rev_cnt}건)'
+            except Exception as stk_err:
+                stock_msg = f' (⚠️ 재고 재처리 실패: {stk_err})'
 
         # DB 업데이트
         db.client.table('order_transactions').update(update_data).eq('id', tx_id).execute()
 
         # 감사 로그 기록
-        action = 'N배송_취소' if update_data.get('status') == '취소' else 'N배송_수정'
+        action = 'N배송_취소' if is_cancel else 'N배송_수정'
         db.insert_audit_log({
             'action': action,
             'user_name': username,
@@ -965,32 +983,19 @@ def api_n_delivery_update(tx_id):
             'new_value': update_data,
         })
 
-        # 출고 재처리: 이미 출고 완료된 건이면 역분개 후 재적용
-        is_cancel = update_data.get('status') == '취소'
-        stock_msg = ''
+        if is_cancel:
+            return jsonify({'success': True, 'message': f'취소 처리 완료{stock_msg}'})
+
+        # 수정(취소 아닌 경우): 변경된 수량/품목으로 재출고
         if was_outbound_done:
             try:
-                from services.order_to_stock_service import reverse_order_stock, process_single_order_realtime
-                # 1) 기존 출고 역분개 (SALES_RETURN)
-                rev_result = reverse_order_stock(db, tx_id)
-
-                if is_cancel:
-                    # 취소: 역분개만 (재출고 안 함)
-                    rev_cnt = rev_result.get('stock_reversed', 0)
-                    stock_msg = f' (취소 — 재고 복원 {rev_cnt}건)'
-                    return jsonify({'success': True, 'message': f'취소 처리 완료{stock_msg}'})
-
-                # 2) 변경된 수량/품목으로 재출고
+                from services.order_to_stock_service import process_single_order_realtime
                 re_result = process_single_order_realtime(db, tx_id)
-                rev_cnt = rev_result.get('stock_reversed', 0)
                 out_cnt = re_result.get('outbound_count', 0)
-                stock_msg = f' (재고: 복원 {rev_cnt}건 → 재출고 {out_cnt}건)'
+                stock_msg += f' → 재출고 {out_cnt}건)'
+                stock_msg = stock_msg.replace(') →', ' →')  # 괄호 정리
             except Exception as stk_err:
-                stock_msg = f' (⚠️ 재고 재처리 실패: {stk_err})'
-
-        # 취소인데 출고 미처리였던 경우
-        if is_cancel and not was_outbound_done:
-            return jsonify({'success': True, 'message': '취소 처리 완료'})
+                stock_msg += f' (⚠️ 재출고 실패: {stk_err})'
 
         return jsonify({'success': True, 'message': f'수정 완료{stock_msg}'})
     except Exception as e:
