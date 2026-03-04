@@ -81,17 +81,27 @@
 <!-- 수불장 테이블 -->
 {% if ledger is defined and ledger %}
 <div class="card">
-    <div class="card-header">
-        <i class="bi bi-journal-text"></i> 수불장 ({{ ledger|length }}건)
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-journal-text"></i> 수불장 (<span id="filteredCount">{{ ledger|length }}</span>건)</span>
+        <div class="d-flex gap-2 align-items-center">
+            <select id="storageFilter" class="form-select form-select-sm" style="width:auto">
+                <option value="">보관방법 전체</option>
+                <option value="냉동">냉동</option>
+                <option value="냉장">냉장</option>
+                <option value="실온">실온</option>
+            </select>
+            <input type="text" id="productSearch" class="form-control form-control-sm" placeholder="품목 검색..." style="width:180px">
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover table-sm mb-0">
+            <table class="table table-hover table-sm mb-0" id="ledgerTable">
                 <thead class="table-light">
                     <tr>
                         <th>품목명</th>
                         <th>위치</th>
                         <th>종류</th>
+                        <th>보관</th>
                         <th>단위</th>
                         {% if view_mode|default('default') == 'manufacture' %}
                         <th>제조일자</th>
@@ -106,12 +116,25 @@
                         <th class="text-end">종료일재고</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="ledgerBody">
                     {% for row in ledger %}
-                    <tr>
+                    <tr data-product="{{ row.product_name|lower }}" data-storage="{{ row.storage_method|default('')|lower }}">
                         <td><strong>{{ row.product_name }}</strong></td>
                         <td>{{ row.location|default('') }}</td>
                         <td>{{ row.category|default('') }}</td>
+                        <td>
+                            {% if row.storage_method == '냉동' %}
+                            <span class="badge bg-primary bg-opacity-75">냉동</span>
+                            {% elif row.storage_method == '냉장' %}
+                            <span class="badge bg-info bg-opacity-75">냉장</span>
+                            {% elif row.storage_method == '실온' %}
+                            <span class="badge bg-secondary bg-opacity-75">실온</span>
+                            {% elif row.storage_method %}
+                            <span class="badge bg-light text-dark">{{ row.storage_method }}</span>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
                         <td>{{ row.unit|default('') }}</td>
                         {% if view_mode|default('default') == 'manufacture' %}
                         <td>{{ row.manufacture_date|default('-') }}</td>
@@ -136,4 +159,38 @@
     <i class="bi bi-info-circle"></i> 해당 조건의 수불장 데이터가 없습니다.
 </div>
 {% endif %}
+
+<script>
+(function() {
+    const searchInput = document.getElementById('productSearch');
+    const storageFilter = document.getElementById('storageFilter');
+    const countEl = document.getElementById('filteredCount');
+    if (!searchInput || !storageFilter) return;
+
+    const rows = document.querySelectorAll('#ledgerBody tr');
+    const totalCount = rows.length;
+
+    function applyFilter() {
+        const query = searchInput.value.trim().toLowerCase();
+        const storage = storageFilter.value.toLowerCase();
+        let visible = 0;
+        rows.forEach(tr => {
+            const product = tr.dataset.product || '';
+            const sm = tr.dataset.storage || '';
+            const matchProduct = !query || product.includes(query);
+            const matchStorage = !storage || sm.includes(storage);
+            if (matchProduct && matchStorage) {
+                tr.style.display = '';
+                visible++;
+            } else {
+                tr.style.display = 'none';
+            }
+        });
+        countEl.textContent = visible < totalCount ? `${visible}/${totalCount}` : totalCount;
+    }
+
+    searchInput.addEventListener('input', applyFilter);
+    storageFilter.addEventListener('change', applyFilter);
+})();
+</script>
 {% endblock %}

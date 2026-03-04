@@ -249,13 +249,16 @@
                                class="btn btn-sm btn-outline-primary py-0 px-1" title="거래명세서">
                                 <i class="bi bi-file-earmark-pdf"></i>
                             </a>
-                            <form method="POST" action="{{ url_for('outbound.delete_trade', trade_id=t.id) }}" class="d-inline"
-                                  onsubmit="return confirm('이 거래를 삭제하시겠습니까?\n{{ t.partner_name }} / {{ t.product_name }} / {{ '{:,.0f}'.format(t.amount|default(0)) }}원')">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="삭제">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1 edit-trade-btn" title="수정"
+                                    data-id="{{ t.id }}"
+                                    data-partner="{{ t.partner_name|default('') }}"
+                                    data-product="{{ t.product_name|default('') }}"
+                                    data-qty="{{ t.qty|default(0) }}"
+                                    data-price="{{ t.unit_price|default(0) }}"
+                                    data-memo="{{ t.memo|default('') }}"
+                                    data-date="{{ t.trade_date|default(t.date|default('')) }}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
                         </td>
                     </tr>
                     {% else %}
@@ -288,6 +291,59 @@
     </div>
 </div>
 {% endblock %}
+
+<!-- 거래 수정 모달 -->
+<div class="modal fade" id="editTradeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="editTradeForm" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title"><i class="bi bi-pencil"></i> 거래 수정</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">거래처</label>
+                        <input type="text" class="form-control form-control-sm" id="editPartner" readonly>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">품목명</label>
+                        <input type="text" class="form-control form-control-sm" id="editProduct" readonly>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">거래일</label>
+                        <input type="text" class="form-control form-control-sm" id="editDate" readonly>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">수량</label>
+                            <input type="number" name="qty" class="form-control" id="editQty" min="1" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small fw-semibold">단가</label>
+                            <input type="number" name="unit_price" class="form-control" id="editPrice" min="0" required>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">금액</label>
+                        <div class="form-control form-control-sm bg-light" id="editAmount">0</div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">비고</label>
+                        <input type="text" name="memo" class="form-control form-control-sm" id="editMemo">
+                    </div>
+                </div>
+                <div class="modal-footer py-1">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="bi bi-check-lg"></i> 수정 저장
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 {% block extra_js %}
 <script>
@@ -575,6 +631,41 @@
     });
 
     updateCount();
+})();
+
+// ── 거래 수정 모달 ──
+(function() {
+    const editBtns = document.querySelectorAll('.edit-trade-btn');
+    if (!editBtns.length) return;
+
+    const modal = new bootstrap.Modal(document.getElementById('editTradeModal'));
+    const form = document.getElementById('editTradeForm');
+    const qtyInput = document.getElementById('editQty');
+    const priceInput = document.getElementById('editPrice');
+    const amountEl = document.getElementById('editAmount');
+
+    function calcAmount() {
+        const q = parseInt(qtyInput.value) || 0;
+        const p = parseInt(priceInput.value) || 0;
+        amountEl.textContent = (q * p).toLocaleString() + '원';
+    }
+    qtyInput.addEventListener('input', calcAmount);
+    priceInput.addEventListener('input', calcAmount);
+
+    editBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.id;
+            form.action = `/outbound/trades/update/${id}`;
+            document.getElementById('editPartner').value = this.dataset.partner;
+            document.getElementById('editProduct').value = this.dataset.product;
+            document.getElementById('editDate').value = this.dataset.date;
+            qtyInput.value = this.dataset.qty;
+            priceInput.value = this.dataset.price;
+            document.getElementById('editMemo').value = this.dataset.memo;
+            calcAmount();
+            modal.show();
+        });
+    });
 })();
 </script>
 {% endblock %}

@@ -92,11 +92,20 @@ def index():
                 closing = opening + period_total
 
                 # key = (product_name, location, category, unit, [manufacture_date/expiry_date])
+                # 보관방법: 해당 그룹의 트랜잭션에서 추출
+                storage = ''
+                for tx in txns:
+                    sm = (tx.get('storage_method') or '').strip()
+                    if sm:
+                        storage = sm
+                        break
+
                 row_data = {
                     'product_name': key[0],
                     'location': key[1],
                     'category': key[2],
                     'unit': key[3] if len(key) > 3 else '',
+                    'storage_method': storage,
                     'opening': opening,
                     'inbound': inbound,
                     'production': production,

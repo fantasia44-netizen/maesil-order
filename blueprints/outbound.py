@@ -596,6 +596,93 @@ def delete_trade(trade_id):
     return redirect(url_for('outbound.index'))
 
 
+@outbound_bp.route('/trades/update/<int:trade_id>', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def update_trade(trade_id):
+    """거래 수정 (manual_trades + daily_revenue 연동 수정)"""
+    db = current_app.db
+    try:
+        trade = db.query_manual_trade_by_id(trade_id)
+        if not trade:
+            flash('거래를 찾을 수 없습니다.', 'danger')
+            return redirect(url_for('outbound.index'))
+
+        new_qty = request.form.get('qty', type=int)
+        new_unit_price = request.form.get('unit_price', type=int)
+        new_memo = request.form.get('memo', '').strip()
+
+        if new_qty is None or new_qty <= 0:
+            flash('수량을 올바르게 입력하세요.', 'danger')
+            return redirect(url_for('outbound.index'))
+        if new_unit_price is None or new_unit_price < 0:
+            new_unit_price = 0
+
+        new_amount = new_qty * new_unit_price
+        old_qty = int(trade.get('qty', 0))
+        old_unit_price = int(trade.get('unit_price', 0))
+
+        # manual_trades 수정
+        db.client.table('manual_trades').update({
+            'qty': new_qty,
+            'unit_price': new_unit_price,
+            'amount': new_amount,
+            'memo': new_memo,
+        }).eq('id', trade_id).execute()
+
+        # daily_revenue 연동 수정
+        try:
+            trade_date = trade.get('trade_date', '')
+            product_name = trade.get('product_name', '')
+            if trade_date and product_name:
+                db.client.table('daily_revenue').update({
+                    'qty': new_qty,
+                    'unit_price': new_unit_price,
+                    'revenue': new_amount,
+                }).eq('revenue_date', trade_date) \
+                  .eq('product_name', product_name) \
+                  .eq('category', '거래처매출').execute()
+        except Exception as rev_err:
+            current_app.logger.warning(f'매출 연동 수정 실패: {rev_err}')
+
+        # stock_ledger 수량 차이 반영
+        qty_diff = new_qty - old_qty
+        if qty_diff != 0:
+            try:
+                memo_str = trade.get('memo', '')
+                location = ''
+                if '(' in memo_str and ')' in memo_str:
+                    location = memo_str.split('(')[1].split(')')[0].strip()
+                if location and product_name:
+                    db.insert_stock_ledger([{
+                        'transaction_date': trade_date,
+                        'product_name': product_name,
+                        'type': 'SALES_OUT',
+                        'qty': -abs(qty_diff) if qty_diff > 0 else abs(qty_diff),
+                        'location': location,
+                        'memo': f'거래수정 (수량변경: {old_qty}→{new_qty})',
+                    }])
+            except Exception as stk_err:
+                current_app.logger.warning(f'재고 조정 실패: {stk_err}')
+
+        old_amount = old_qty * old_unit_price
+        _log_action('update_trade', target=str(trade_id),
+                     old_value={
+                         'partner': trade.get('partner_name', ''),
+                         'product': trade.get('product_name', ''),
+                         'trade_date': trade.get('trade_date', ''),
+                         'qty': old_qty, 'unit_price': old_unit_price,
+                         'amount': old_amount,
+                     },
+                     detail=f'{trade.get("partner_name","")}/{trade.get("product_name","")} '
+                            f'수량:{old_qty}→{new_qty}, 단가:{old_unit_price:,}→{new_unit_price:,}, '
+                            f'금액:{old_amount:,}→{new_amount:,}')
+        flash(f'거래 수정 완료: {trade.get("product_name", "")} (수량: {new_qty}, 단가: {new_unit_price:,})', 'success')
+    except Exception as e:
+        flash(f'거래 수정 중 오류: {e}', 'danger')
+
+    return redirect(url_for('outbound.index'))
+
+
 @outbound_bp.route('/invoice-trade/<int:trade_id>')
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_trade(trade_id):
