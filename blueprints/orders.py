@@ -762,7 +762,7 @@ def api_n_delivery():
         # 단가 조회: 네이버판매가 우선
         import unicodedata
         nm_key = unicodedata.normalize('NFC', product_name.strip())
-        prices = price_map.get(nm_key, {})
+        prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
         unit_price = prices.get('네이버판매가', 0)
         total_amount = unit_price * qty
 
@@ -933,7 +933,7 @@ def api_n_delivery_update(tx_id):
             import unicodedata
             price_map = db.query_price_table()
             nm_key = unicodedata.normalize('NFC', new_product.strip())
-            prices = price_map.get(nm_key, {})
+            prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
             new_up = prices.get('네이버판매가', 0)
             update_data['unit_price'] = new_up
             qty = new_qty if new_qty else old_row.get('qty', 0)
@@ -1106,7 +1106,7 @@ def api_rocket_manual():
 
         import unicodedata
         nm_key = unicodedata.normalize('NFC', product_name)
-        prices = price_map.get(nm_key, {})
+        prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
         unit_price = prices.get('로켓판매가', 0)
         revenue = int(unit_price * qty)
 
@@ -1235,7 +1235,7 @@ def api_rocket_manual_update(rev_id):
             update_data['product_name'] = new_product
             price_map = db.query_price_table()
             nm_key = unicodedata.normalize('NFC', new_product.strip())
-            prices = price_map.get(nm_key, {})
+            prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
             update_data['unit_price'] = int(prices.get('로켓판매가', 0))
 
         if new_qty is not None:

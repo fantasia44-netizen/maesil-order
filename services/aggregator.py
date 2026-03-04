@@ -582,7 +582,7 @@ class Aggregator:
                             unit_price, _src = db.resolve_unit_price(
                                 _norm(nm), c, today_str, self.price_map)
                         else:
-                            unit_price = self.price_map.get(_norm(nm), {}).get(price_col, 0)
+                            unit_price = (self.price_map.get(_norm(nm), {}) or self.price_map.get(_norm(nm).replace(' ', ''), {})).get(price_col, 0)
                         rev = q * unit_price
                         row[f'{c}_수량'] = q
                         row[f'{c}_단가'] = int(unit_price)

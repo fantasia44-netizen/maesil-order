@@ -141,6 +141,10 @@ def _get_current_stock(db):
         qty = float(r.get('qty', 0) or 0)
         if name:
             stock[name] += qty
+            # 공백 제거 버전도 등록 (product_costs와 매칭용)
+            norm = name.replace(' ', '')
+            if norm != name:
+                stock[norm] += qty
 
     return dict(stock)
 

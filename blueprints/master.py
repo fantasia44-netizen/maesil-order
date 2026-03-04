@@ -527,7 +527,7 @@ def api_product_update(product_name):
 
     db = current_app.db
     cost_map = db.query_product_costs()
-    existing = cost_map.get(product_name)
+    existing = cost_map.get(product_name) or cost_map.get(product_name.replace(' ', ''))
     if not existing:
         return jsonify({'error': f'품목 "{product_name}"을 찾을 수 없습니다.'}), 404
 

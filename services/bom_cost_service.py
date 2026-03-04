@@ -172,7 +172,7 @@ def calculate_bom_costs(db):
         net_margins = {}
         net_profits = {}
         cost_breakdown = {}
-        p = price_map.get(product_name, {})
+        p = price_map.get(product_name, {}) or price_map.get(product_name.replace(' ', ''), {})
 
         for label, key in [('네이버', '네이버판매가'), ('쿠팡', '쿠팡판매가'), ('로켓', '로켓판매가')]:
             sell = float(p.get(key, 0))
@@ -220,11 +220,11 @@ def calculate_bom_costs(db):
         total_cost = 0
         total_weight = 0
         for comp_name, comp_qty in sorted(final_items.items()):
-            unit_cost = cost_map.get(comp_name, 0)
+            unit_cost = cost_map.get(comp_name, 0) or cost_map.get(comp_name.replace(' ', ''), 0)
             subtotal = unit_cost * comp_qty
             total_cost += subtotal
 
-            w_info = weight_map.get(comp_name, {})
+            w_info = weight_map.get(comp_name, {}) or weight_map.get(comp_name.replace(' ', ''), {})
             comp_weight = w_info.get('weight', 0) * comp_qty
             total_weight += comp_weight
 
@@ -262,8 +262,8 @@ def calculate_bom_costs(db):
         if product_name in processed_products:
             continue  # 이미 세트로 처리됨
 
-        unit_cost = cost_map.get(product_name, 0)
-        w_info = weight_map.get(product_name, {})
+        unit_cost = cost_map.get(product_name, 0) or cost_map.get(product_name.replace(' ', ''), 0)
+        w_info = weight_map.get(product_name, {}) or weight_map.get(product_name.replace(' ', ''), {})
         item_weight = w_info.get('weight', 0)
 
         comp_details = []

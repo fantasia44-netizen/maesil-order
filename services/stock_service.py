@@ -110,7 +110,8 @@ def query_all_stock_data(db, date_to, date_from=None, location=None,
     # ── 재고관리 제외 품목 필터 (아이스팩, 드라이아이스 등) ──
     _exclude = _get_stock_unmanaged_set(db)
     if _exclude:
-        df = df[~df['product_name'].isin(_exclude)]
+        _exclude_norm = _exclude | {n.replace(' ', '') for n in _exclude}
+        df = df[~df['product_name'].isin(_exclude_norm)]
         if df.empty:
             return pd.DataFrame()
     df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
@@ -159,7 +160,8 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     # ── 재고관리 제외 품목 필터 (아이스팩, 드라이아이스 등) ──
     _exclude = _get_stock_unmanaged_set(db)
     if _exclude:
-        df = df[~df['product_name'].isin(_exclude)]
+        _exclude_norm = _exclude | {n.replace(' ', '') for n in _exclude}
+        df = df[~df['product_name'].isin(_exclude_norm)]
         if df.empty:
             return []
 
