@@ -114,27 +114,34 @@ class SupabaseDB(DBBase):
         inserted = 0
         skipped = 0
 
-        # event_uid 있는 것: upsert로 중복 방지 (on_conflict=event_uid → 변경 없이 스킵)
+        # event_uid 있는 것: 배치 upsert (on_conflict → 스킵)
         if with_uid:
-            try:
-                self.client.table("stock_ledger").upsert(
-                    with_uid, on_conflict="event_uid",
-                    ignore_duplicates=True
-                ).execute()
-                inserted += len(with_uid)  # 실제 스킵된 건은 DB 단에서 처리
-            except Exception:
-                # ignore_duplicates 미지원 시 개별 insert 시도
-                for p in with_uid:
-                    try:
-                        self.client.table("stock_ledger").insert(p).execute()
-                        inserted += 1
-                    except Exception:
-                        skipped += 1  # unique 위반 = 이미 존재 = 스킵
+            BATCH = 200
+            for i in range(0, len(with_uid), BATCH):
+                chunk = with_uid[i:i + BATCH]
+                try:
+                    self.client.table("stock_ledger").upsert(
+                        chunk, on_conflict="event_uid",
+                        ignore_duplicates=True
+                    ).execute()
+                    inserted += len(chunk)
+                except Exception as e1:
+                    # ignore_duplicates 미지원 시 개별 fallback
+                    print(f"[DB] stock_ledger batch upsert failed: {e1}")
+                    for p in chunk:
+                        try:
+                            self.client.table("stock_ledger").insert(p).execute()
+                            inserted += 1
+                        except Exception:
+                            skipped += 1
 
-        # event_uid 없는 것: 기존 방식 insert
+        # event_uid 없는 것: 배치 insert
         if without_uid:
-            self.client.table("stock_ledger").insert(without_uid).execute()
-            inserted += len(without_uid)
+            BATCH = 200
+            for i in range(0, len(without_uid), BATCH):
+                chunk = without_uid[i:i + BATCH]
+                self.client.table("stock_ledger").insert(chunk).execute()
+                inserted += len(chunk)
 
         return inserted, skipped
 
