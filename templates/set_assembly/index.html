@@ -42,6 +42,17 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">보관방법</label>
+                        <select name="storage_method" class="form-select">
+                            <option value="">자동 (구성품 기준)</option>
+                            <option value="냉동">냉동</option>
+                            <option value="냉장">냉장</option>
+                            <option value="상온">상온</option>
+                            <option value="실온">실온</option>
+                        </select>
+                        <div class="form-text text-muted small">미선택 시 구성품 중 가장 엄격한 보관방법 자동 적용</div>
+                    </div>
 
                     <!-- 부재료 입력 -->
                     <hr>

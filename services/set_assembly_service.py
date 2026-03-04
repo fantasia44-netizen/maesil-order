@@ -104,7 +104,7 @@ def explode_bom(bom_lookup, set_name, channel, multiplier=1, _visited=None):
 
 
 def process_set_assembly(db, date_str, set_name, channel, location, qty,
-                         sub_materials=None):
+                         sub_materials=None, storage_method_override=None):
     """세트작업 처리 메인 함수.
 
     Args:
@@ -115,6 +115,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
         location: 창고위치
         qty: 세트 수량
         sub_materials: 부재료 목록 [{'name': str, 'qty': int}, ...]
+        storage_method_override: 보관방법 수동 지정 (None이면 구성품 기준 자동)
 
     Returns:
         dict: {success, set_out_count, set_in_count, sub_out_count, warnings, shortage}
@@ -282,15 +283,18 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
                 remain -= deduct
                 sub_out_count += 1
 
-    # 7. 세트 산출 (SET_IN) — 구성품 보관방법 중 가장 엄격한 것 계승
-    #    우선순위: 냉동 > 냉장 > 기타(상온 등)
-    _sm_priority = {'냉동': 0, '냉장': 1}
-    _component_sms = [p.get('storage_method', '') for p in payload
-                      if p.get('type') == 'SET_OUT' and p.get('storage_method')]
-    if _component_sms:
-        set_storage = min(_component_sms, key=lambda s: _sm_priority.get(s, 99))
+    # 7. 세트 산출 (SET_IN) — 보관방법: 수동지정 우선, 없으면 구성품 기준 자동
+    if storage_method_override:
+        set_storage = storage_method_override
     else:
-        set_storage = ''
+        #    우선순위: 냉동 > 냉장 > 기타(상온 등)
+        _sm_priority = {'냉동': 0, '냉장': 1}
+        _component_sms = [p.get('storage_method', '') for p in payload
+                          if p.get('type') == 'SET_OUT' and p.get('storage_method')]
+        if _component_sms:
+            set_storage = min(_component_sms, key=lambda s: _sm_priority.get(s, 99))
+        else:
+            set_storage = ''
 
     sub_memo = ""
     if sub_materials:

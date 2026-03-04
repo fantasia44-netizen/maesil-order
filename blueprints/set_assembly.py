@@ -107,6 +107,7 @@ def process():
     channel = request.form.get('channel', '').strip()
     location = request.form.get('location', '').strip()
     qty_str = request.form.get('qty', '1').strip()
+    storage_method_override = request.form.get('storage_method', '').strip()
 
     if not set_name or not channel or not location:
         flash('세트종류, 판매처, 창고위치를 모두 선택해주세요.', 'danger')
@@ -137,7 +138,8 @@ def process():
         from services.set_assembly_service import process_set_assembly
         result = process_set_assembly(
             current_app.db, date_str, set_name, channel, location, qty,
-            sub_materials=sub_materials
+            sub_materials=sub_materials,
+            storage_method_override=storage_method_override or None,
         )
 
         if result.get('warnings'):
