@@ -447,7 +447,7 @@ REVENUE_CATEGORIES = list(CATEGORY_PRICE_COL.keys())
 DAILY_REVENUE_ONLY_CATEGORIES = {"거래처매출", "로켓"}
 
 # DB 전환 기준일 (이 날짜 이전의 daily_revenue는 모든 카테고리 조회)
-DB_CUTOFF_DATE = "2026-03-02"
+DB_CUTOFF_DATE = "2026-03-01"
 
 # 레거시 daily_revenue.category → 현재 채널명 매핑
 LEGACY_CATEGORY_TO_CHANNEL = {
