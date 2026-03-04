@@ -181,15 +181,20 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
-    # food_type 빈값 통합: stock_ledger 내부 + product_costs fallback
+    # food_type 빈값 통합: stock_ledger 내부 + product_costs fallback (공백 정규화)
     ft_map = df[df['food_type'] != ''].groupby('product_name')['food_type'].first().to_dict()
-    # product_costs에서 food_type 가져와서 fallback
+    # product_costs에서 food_type 가져와서 fallback (공백 있는/없는 이름 모두 매핑)
     try:
         pc_map = db.query_product_costs()
         for pn, info in pc_map.items():
             ft_val = (info.get('food_type') or '').strip()
-            if ft_val and pn not in ft_map:
-                ft_map[pn] = ft_val
+            if ft_val:
+                if pn not in ft_map:
+                    ft_map[pn] = ft_val
+                # 공백 제거 버전도 등록 (stock_ledger는 공백 없는 이름 사용)
+                norm = pn.replace(' ', '')
+                if norm != pn and norm not in ft_map:
+                    ft_map[norm] = ft_val
     except Exception:
         pass
     if ft_map:
