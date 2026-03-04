@@ -194,55 +194,91 @@
     </div>
 </div>
 
-<!-- 수정 모달 -->
-<div class="modal fade" id="editModal" tabindex="-1">
+<!-- 수량 정정 모달 -->
+<div class="modal fade" id="editQtyModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">주문 수정</h5>
+                <h5 class="modal-title">수량 정정</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <input type="hidden" id="editOrderId">
-                <input type="hidden" id="editOldQty">
-                <input type="hidden" id="editOldProduct">
-                <input type="hidden" id="editOldUnitPrice">
-                <div class="mb-3">
-                    <label class="form-label">품목명</label>
-                    <input type="text" class="form-control" id="editProductName">
+                <input type="hidden" id="qtyEditOrderId">
+                <input type="hidden" id="qtyEditOldQty">
+                <div class="mb-2">
+                    <span class="text-muted small">품목:</span> <strong id="qtyEditProductLabel"></strong>
                 </div>
-                <div class="row mb-3">
-                    <div class="col-6">
-                        <label class="form-label">수량</label>
-                        <input type="number" class="form-control" id="editQty" min="1">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label">단가</label>
-                        <input type="number" class="form-control" id="editUnitPrice" min="0">
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label">수량</label>
+                    <input type="number" class="form-control" id="qtyEditQty" min="1">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">변경 사유 <span class="text-danger">*</span></label>
-                    <textarea class="form-control" id="editReason" rows="2" placeholder="변경 사유를 입력하세요"></textarea>
+                    <textarea class="form-control" id="qtyEditReason" rows="2" placeholder="변경 사유를 입력하세요"></textarea>
                 </div>
-                <div id="editReprocessInfo" class="alert alert-info py-2 small" style="display:none;">
+                <div id="qtyEditReprocessInfo" class="alert alert-info py-2 small" style="display:none;">
                     <i class="bi bi-exclamation-triangle-fill text-warning"></i>
-                    <strong>출고 처리된 주문입니다.</strong> 품목 또는 수량 변경 시:
-                    <ul class="mb-1 mt-1">
-                        <li><strong>기존 재고 복원</strong>: 기존 품목의 SALES_OUT이 SALES_RETURN으로 재고 복원됨</li>
-                        <li><strong>새 재고 차감</strong>: 변경된 품목/수량으로 새 SALES_OUT 재고 차감 처리</li>
-                        <li><strong>매출 자동 반영</strong>: 매출 데이터도 변경된 내용으로 갱신</li>
-                    </ul>
-                    <span class="text-muted">* 송장번호는 유지됩니다. 내용물 변경 시 새 송장 출력이 필요할 수 있습니다.</span>
-                </div>
-                <div id="editNotShippedInfo" class="alert alert-secondary py-2 small" style="display:none;">
-                    <i class="bi bi-info-circle"></i>
-                    미출고 주문 — 주문 정보만 수정됩니다. (재고 변동 없음)
+                    <strong>출고 처리된 주문</strong> — 수량 변경 시 재고 역분개 + 재처리가 자동 진행됩니다.
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                <button class="btn btn-primary" onclick="submitEdit()">저장</button>
+                <button class="btn btn-primary" onclick="submitQtyEdit()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 품목 정정 모달 -->
+<div class="modal fade" id="editProductModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">품목 정정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="prodEditOrderId">
+                <input type="hidden" id="prodEditOldProduct">
+                <input type="hidden" id="prodEditOldQty">
+                <input type="hidden" id="prodEditOldUnitPrice">
+                <div class="mb-2">
+                    <span class="text-muted small">현재 품목:</span> <strong id="prodEditOldLabel"></strong>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">변경할 품목 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="prodEditProductName" list="productDatalist"
+                           placeholder="품목명 입력 또는 선택">
+                    <datalist id="productDatalist"></datalist>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">수량</label>
+                        <input type="number" class="form-control" id="prodEditQty" min="1">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">단가</label>
+                        <input type="number" class="form-control" id="prodEditUnitPrice" min="0">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">변경 사유 <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="prodEditReason" rows="2" placeholder="변경 사유를 입력하세요"></textarea>
+                </div>
+                <div id="prodEditReprocessInfo" class="alert alert-info py-2 small" style="display:none;">
+                    <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    <strong>출고 처리된 주문</strong> — 품목 변경 시:
+                    <ul class="mb-1 mt-1">
+                        <li>기존 품목 재고 복원 (SALES_RETURN)</li>
+                        <li>새 품목으로 재고 차감 (SALES_OUT)</li>
+                        <li>매출 데이터 자동 갱신</li>
+                    </ul>
+                    <span class="text-muted">* 내용물 변경 시 새 송장 출력이 필요할 수 있습니다.</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-warning" onclick="submitProductEdit()">품목 변경</button>
             </div>
         </div>
     </div>
@@ -487,9 +523,12 @@ function showDetail(orderId) {
             // 액션 버튼
             if (t.status === '정상') {
                 const escProduct = (t.product_name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                html += `<hr><div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${t.id}, ${t.qty}, '${escProduct}', ${t.unit_price||0}, ${t.is_outbound_done ? 'true' : 'false'})">
-                        <i class="bi bi-pencil-square"></i> 주문 수정
+                html += `<hr><div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-sm btn-outline-primary" onclick="openQtyEdit(${t.id}, ${t.qty}, '${escProduct}', ${t.is_outbound_done ? 'true' : 'false'})">
+                        <i class="bi bi-123"></i> 수량 정정
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="openProductEdit(${t.id}, '${escProduct}', ${t.qty}, ${t.unit_price||0}, ${t.is_outbound_done ? 'true' : 'false'})">
+                        <i class="bi bi-arrow-repeat"></i> 품목 정정
                     </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="openCancel(${t.id}, ${t.is_outbound_done ? 'true' : 'false'})">
                         <i class="bi bi-x-circle"></i> 취소/환불
@@ -569,100 +608,139 @@ function submitCancel() {
 // 수량 정정
 // ================================================================
 
-function openEdit(orderId, currentQty, currentProduct, currentUnitPrice, isOutboundDone) {
+function openQtyEdit(orderId, currentQty, productName, isOutboundDone) {
     bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
-    document.getElementById('editOrderId').value = orderId;
-    document.getElementById('editOldQty').value = currentQty;
-    document.getElementById('editOldProduct').value = currentProduct || '';
-    document.getElementById('editOldUnitPrice').value = currentUnitPrice || 0;
-    document.getElementById('editProductName').value = currentProduct || '';
-    document.getElementById('editQty').value = currentQty;
-    document.getElementById('editUnitPrice').value = currentUnitPrice || 0;
-    document.getElementById('editReason').value = '';
-    document.getElementById('editReprocessInfo').style.display = isOutboundDone ? 'block' : 'none';
-    document.getElementById('editNotShippedInfo').style.display = isOutboundDone ? 'none' : 'block';
-    new bootstrap.Modal(document.getElementById('editModal')).show();
+    document.getElementById('qtyEditOrderId').value = orderId;
+    document.getElementById('qtyEditOldQty').value = currentQty;
+    document.getElementById('qtyEditProductLabel').textContent = productName || '';
+    document.getElementById('qtyEditQty').value = currentQty;
+    document.getElementById('qtyEditReason').value = '';
+    document.getElementById('qtyEditReprocessInfo').style.display = isOutboundDone ? 'block' : 'none';
+    new bootstrap.Modal(document.getElementById('editQtyModal')).show();
 }
 
-function submitEdit() {
-    const orderId = document.getElementById('editOrderId').value;
-    const oldQty = parseInt(document.getElementById('editOldQty').value);
-    const oldProduct = document.getElementById('editOldProduct').value;
-    const oldUnitPrice = parseInt(document.getElementById('editOldUnitPrice').value) || 0;
-    const newQty = parseInt(document.getElementById('editQty').value);
-    const newProduct = document.getElementById('editProductName').value.trim();
-    const newUnitPrice = parseInt(document.getElementById('editUnitPrice').value) || 0;
-    const reason = document.getElementById('editReason').value.trim();
+function submitQtyEdit() {
+    const orderId = document.getElementById('qtyEditOrderId').value;
+    const oldQty = parseInt(document.getElementById('qtyEditOldQty').value);
+    const newQty = parseInt(document.getElementById('qtyEditQty').value);
+    const reason = document.getElementById('qtyEditReason').value.trim();
 
     if (!reason) { alert('변경 사유를 입력하세요'); return; }
-    if (!newProduct) { alert('품목명을 입력하세요'); return; }
+    if (newQty <= 0) { alert('수량은 1 이상이어야 합니다'); return; }
+    if (newQty === oldQty) { alert('수량이 변경되지 않았습니다'); return; }
+
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '저장 중...';
+
+    fetch(`{{ url_for('orders.api_orders') }}/${orderId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
+        body: JSON.stringify({ payload: { qty: newQty }, reason })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        btn.disabled = false; btn.textContent = '저장';
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editQtyModal')).hide();
+            let msg = `수량 정정 완료 (${oldQty} → ${newQty})`;
+            if (data.reversal) msg += `\n재고 복원: ${data.reversal.stock_reversed || 0}건`;
+            if (data.reprocess) msg += `\n재출고: ${data.reprocess.outbound_count || 0}건`;
+            alert(msg);
+            loadOrders();
+        } else { alert(data.error || '수정 실패'); }
+    })
+    .catch(e => { btn.disabled = false; btn.textContent = '저장'; alert('오류: ' + e.message); });
+}
+
+// ================================================================
+// 품목 정정
+// ================================================================
+
+let _productListLoaded = false;
+function loadProductList() {
+    if (_productListLoaded) return;
+    fetch('{{ url_for("orders.api_product_list") }}')
+        .then(r => r.json())
+        .then(data => {
+            const dl = document.getElementById('productDatalist');
+            dl.innerHTML = (data.products || []).map(p => `<option value="${p}">`).join('');
+            _productListLoaded = true;
+        })
+        .catch(() => {});
+}
+
+function openProductEdit(orderId, currentProduct, currentQty, currentUnitPrice, isOutboundDone) {
+    bootstrap.Modal.getInstance(document.getElementById('orderDetailModal')).hide();
+    loadProductList();
+    document.getElementById('prodEditOrderId').value = orderId;
+    document.getElementById('prodEditOldProduct').value = currentProduct || '';
+    document.getElementById('prodEditOldQty').value = currentQty;
+    document.getElementById('prodEditOldUnitPrice').value = currentUnitPrice || 0;
+    document.getElementById('prodEditOldLabel').textContent = currentProduct || '';
+    document.getElementById('prodEditProductName').value = '';
+    document.getElementById('prodEditQty').value = currentQty;
+    document.getElementById('prodEditUnitPrice').value = currentUnitPrice || 0;
+    document.getElementById('prodEditReason').value = '';
+    document.getElementById('prodEditReprocessInfo').style.display = isOutboundDone ? 'block' : 'none';
+    new bootstrap.Modal(document.getElementById('editProductModal')).show();
+}
+
+function submitProductEdit() {
+    const orderId = document.getElementById('prodEditOrderId').value;
+    const oldProduct = document.getElementById('prodEditOldProduct').value;
+    const oldQty = parseInt(document.getElementById('prodEditOldQty').value);
+    const oldUnitPrice = parseInt(document.getElementById('prodEditOldUnitPrice').value) || 0;
+    const newProduct = document.getElementById('prodEditProductName').value.trim();
+    const newQty = parseInt(document.getElementById('prodEditQty').value);
+    const newUnitPrice = parseInt(document.getElementById('prodEditUnitPrice').value) || 0;
+    const reason = document.getElementById('prodEditReason').value.trim();
+
+    if (!newProduct) { alert('변경할 품목을 선택하세요'); return; }
+    if (newProduct === oldProduct && newQty === oldQty && newUnitPrice === oldUnitPrice) {
+        alert('변경된 내용이 없습니다'); return;
+    }
+    if (!reason) { alert('변경 사유를 입력하세요'); return; }
     if (newQty <= 0) { alert('수량은 1 이상이어야 합니다'); return; }
 
-    // 변경된 필드만 payload에 포함
     const payload = {};
     let changes = [];
-    if (newProduct !== oldProduct) {
-        payload.product_name = newProduct;
-        changes.push(`품목: ${oldProduct} → ${newProduct}`);
-    }
-    if (newQty !== oldQty) {
-        payload.qty = newQty;
-        changes.push(`수량: ${oldQty} → ${newQty}`);
-    }
+    if (newProduct !== oldProduct) { payload.product_name = newProduct; changes.push(`품목: ${oldProduct} → ${newProduct}`); }
+    if (newQty !== oldQty) { payload.qty = newQty; changes.push(`수량: ${oldQty} → ${newQty}`); }
     if (newUnitPrice !== oldUnitPrice) {
         payload.unit_price = newUnitPrice;
         payload.total_amount = newQty * newUnitPrice;
         changes.push(`단가: ${oldUnitPrice.toLocaleString()} → ${newUnitPrice.toLocaleString()}`);
     }
 
-    if (!Object.keys(payload).length) {
-        alert('변경된 내용이 없습니다');
-        return;
-    }
-
     const btn = event.target;
-    btn.disabled = true;
-    btn.textContent = '저장 중...';
+    btn.disabled = true; btn.textContent = '처리 중...';
 
     fetch(`{{ url_for('orders.api_orders') }}/${orderId}/edit`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token() }}'
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
         body: JSON.stringify({ payload, reason })
     })
     .then(parseJsonSafe)
     .then(data => {
-        btn.disabled = false;
-        btn.textContent = '저장';
+        btn.disabled = false; btn.textContent = '품목 변경';
         if (data.success) {
-            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-            let msg = `주문 수정 완료\n${changes.join('\n')}`;
+            bootstrap.Modal.getInstance(document.getElementById('editProductModal')).hide();
+            let msg = `품목 정정 완료\n${changes.join('\n')}`;
             if (data.reversal) {
-                msg += `\n\n[재고 처리 내역]`;
-                msg += `\n- 기존 재고 복원(SALES_RETURN): ${data.reversal.stock_reversed || 0}건`;
-                if (data.reversal.errors && data.reversal.errors.length) {
-                    msg += `\n- 경고: ${data.reversal.errors.join(', ')}`;
-                }
+                msg += `\n\n[재고 처리]`;
+                msg += `\n- 기존 품목 재고 복원: ${data.reversal.stock_reversed || 0}건`;
             }
             if (data.reprocess) {
-                msg += `\n- 새 재고 차감(SALES_OUT): ${data.reprocess.outbound_count || 0}건`;
+                msg += `\n- 새 품목 재고 차감: ${data.reprocess.outbound_count || 0}건`;
             }
             if (data.reversal || data.reprocess) {
-                msg += `\n\n※ 내용물 변경 시 새 송장 출력이 필요할 수 있습니다.`;
+                msg += `\n\n※ 내용물 변경 — 새 송장 출력이 필요할 수 있습니다.`;
             }
             alert(msg);
             loadOrders();
-        } else {
-            alert(data.error || '수정 실패');
-        }
+        } else { alert(data.error || '품목 정정 실패'); }
     })
-    .catch(e => {
-        btn.disabled = false;
-        btn.textContent = '저장';
-        alert('오류: ' + e.message);
-    });
+    .catch(e => { btn.disabled = false; btn.textContent = '품목 변경'; alert('오류: ' + e.message); });
 }
 
 // ================================================================

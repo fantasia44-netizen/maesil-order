@@ -479,6 +479,24 @@ def api_order_detail(order_id):
     })
 
 
+@orders_bp.route('/api/products')
+@role_required('admin', 'manager', 'sales')
+def api_product_list():
+    """stock_ledger의 고유 품목명 목록 반환 (품목 정정용)"""
+    try:
+        db = current_app.db
+        raw = db.client.table("stock_ledger") \
+            .select("product_name") \
+            .execute()
+        names = sorted(set(
+            r['product_name'] for r in (raw.data or [])
+            if r.get('product_name')
+        ))
+        return jsonify({'products': names})
+    except Exception as e:
+        return jsonify({'error': str(e), 'products': []}), 500
+
+
 @orders_bp.route('/api/orders/<int:order_id>/edit', methods=['POST'])
 @role_required('admin', 'manager')
 def api_order_edit(order_id):
