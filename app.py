@@ -314,8 +314,12 @@ def init_db(app):
     with app.app_context():
         for biz_id, db_inst in app.db_pool.items():
             try:
+                print(f'[{biz_id}] 관리자 계정 확인 중...')
                 existing = db_inst.query_user_by_username('admin')
-                if not existing:
+                if existing:
+                    print(f'[{biz_id}] 관리자 계정 이미 존재 (id={existing.get("id")})')
+                else:
+                    print(f'[{biz_id}] 관리자 계정 없음 → 생성 시도')
                     admin_user = User()
                     admin_user.set_password('admin1234!')
                     db_inst.insert_user({
