@@ -198,6 +198,34 @@ def single():
                 flash(f'재고 부족: {s}', 'danger')
             return redirect(url_for('outbound.index'))
 
+        # ── 재고차감 검증: stock_ledger에 SALES_OUT 실제 기록되었는지 확인 ──
+        stock_count = result.get('count', 0)
+        if stock_count == 0:
+            current_app.logger.warning(
+                f'[재고차감 경고] 출고 처리 완료되었으나 stock_ledger 기록 0건. '
+                f'date={date_str}, location={location}, items={[i["product_name"] for i in items]}'
+            )
+            flash('⚠️ 출고 처리는 완료되었으나 재고차감 기록이 0건입니다. 관리자에게 문의하세요.', 'warning')
+        else:
+            try:
+                verify = db.query_stock_ledger(
+                    date_to=date_str, date_from=date_str,
+                    location=location, type_list=['SALES_OUT'],
+                )
+                verify_names = set(r.get('product_name', '') for r in verify
+                                   if r.get('transaction_date') == date_str)
+                item_names = set(str(i['product_name']).strip().replace(' ', '')
+                                 for i in items)
+                missing = item_names - verify_names
+                if missing:
+                    current_app.logger.warning(
+                        f'[재고차감 검증 실패] SALES_OUT 미확인 품목: {missing}. '
+                        f'date={date_str}, location={location}'
+                    )
+                    flash(f'⚠️ 일부 품목의 재고차감이 확인되지 않습니다: {", ".join(missing)}', 'warning')
+            except Exception as verify_err:
+                current_app.logger.warning(f'재고차감 검증 중 오류: {verify_err}')
+
         # 거래기록 (manual_trades) 삽입 + 매출 데이터 수집
         revenue_payload = []
         for item in items:
@@ -286,7 +314,12 @@ def single():
             'count': result['count'],
         }
 
-        flash(f"출고 처리 완료: {result['count']}건 (매출처: {partner_name})", 'success')
+        item_summary = ', '.join(f"{i['product_name']}x{i['qty']}" for i in items)
+        flash(
+            f"출고 처리 완료: 재고차감 {result['count']}건, "
+            f"거래등록 {len(items)}건 (매출처: {partner_name}, 창고: {location}) — {item_summary}",
+            'success'
+        )
         return redirect(url_for('outbound.result'))
 
     except Exception as e:

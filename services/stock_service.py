@@ -114,6 +114,9 @@ def query_all_stock_data(db, date_to, date_from=None, location=None,
         df = df[~df['product_name'].isin(_exclude_norm)]
         if df.empty:
             return pd.DataFrame()
+    # ── 품목명 공백 정규화 (INBOUND/SALES_OUT 그룹 일치 보장) ──
+    if 'product_name' in df.columns:
+        df['product_name'] = df['product_name'].astype(str).str.replace(' ', '', regex=False).str.strip()
     df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
     df['unit'] = df['unit'].fillna('개') if 'unit' in df.columns else '개'
     for col in ['origin', 'manufacture_date', 'expiry_date', 'lot_number',

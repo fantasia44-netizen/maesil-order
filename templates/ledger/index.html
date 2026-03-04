@@ -34,6 +34,15 @@
                 </select>
             </div>
             <div class="col-md-2">
+                <label class="form-label fw-semibold">보관방법</label>
+                <select name="storage_method" class="form-select">
+                    <option value="">전체</option>
+                    <option value="냉동" {% if storage_method|default('') == '냉동' %}selected{% endif %}>냉동</option>
+                    <option value="냉장" {% if storage_method|default('') == '냉장' %}selected{% endif %}>냉장</option>
+                    <option value="실온" {% if storage_method|default('') == '실온' %}selected{% endif %}>실온</option>
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label fw-semibold">품목명 검색</label>
                 <input type="text" name="product_search" class="form-control" placeholder="품목명 입력..."
                        value="{{ product_search|default('') }}">
@@ -51,12 +60,12 @@
                     <i class="bi bi-search"></i> 조회
                 </button>
                 {% if ledger is defined and ledger %}
-                <a href="{{ url_for('ledger.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default')) }}"
+                <a href="{{ url_for('ledger.export', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default'), storage_method=storage_method|default('')) }}"
                    class="btn btn-outline-success">
                     <i class="bi bi-download"></i> 엑셀
                 </a>
                 <div class="btn-group">
-                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default')) }}"
+                    <a href="{{ url_for('ledger.pdf', date_from=date_from|default(''), date_to=date_to|default(''), location=location|default('전체'), ledger_type=ledger_type|default(''), view_mode=view_mode|default('default'), storage_method=storage_method|default('')) }}"
                        class="btn btn-outline-danger">
                         <i class="bi bi-file-earmark-pdf"></i> PDF
                     </a>

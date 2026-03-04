@@ -30,6 +30,7 @@ def index():
     location = request.args.get('location', '전체')
     ledger_type = request.args.get('ledger_type', '')
     product_search = request.args.get('product_search', '').strip()
+    storage_method = request.args.get('storage_method', '')
     view_mode = request.args.get('view_mode', 'default')  # default / manufacture / expiry
 
     locations, categories = [], []
@@ -65,6 +66,22 @@ def index():
 
             prev_dict = result['prev_dict']
             period_groups = result['period_groups']
+
+            # 보관방법 필터: 각 그룹의 트랜잭션에서 storage_method 확인
+            if storage_method:
+                sm_lower = storage_method.lower()
+                filtered_by_sm = []
+                for key in sorted_keys:
+                    txns = period_groups.get(key, [])
+                    sm_found = ''
+                    for tx in txns:
+                        sm_val = (tx.get('storage_method') or '').strip()
+                        if sm_val:
+                            sm_found = sm_val
+                            break
+                    if sm_found.lower() == sm_lower:
+                        filtered_by_sm.append(key)
+                sorted_keys = filtered_by_sm
 
             # 각 그룹키별로 집계 요약 생성
             for key in sorted_keys:
@@ -136,6 +153,7 @@ def index():
                            date_from=date_from, date_to=date_to,
                            location=location, ledger_type=ledger_type,
                            product_search=product_search,
+                           storage_method=storage_method,
                            view_mode=view_mode,
                            locations=locations,
                            ledger_types=list(LEDGER_CATEGORY_MAP.keys()),
