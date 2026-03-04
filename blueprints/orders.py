@@ -1041,3 +1041,221 @@ def api_n_delivery_reprocess():
                         'errors': errors[:10]})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ================================================================
+#  로켓매출 수동입력
+# ================================================================
+
+@orders_bp.route('/rocket-manual')
+@role_required('admin', 'manager', 'sales')
+def rocket_manual():
+    """로켓매출 수동입력 페이지"""
+    products = []
+    locations = []
+    try:
+        price_map = current_app.db.query_price_table()
+        for name, prices in price_map.items():
+            rp = prices.get('로켓판매가', 0)
+            if rp and rp > 0:
+                products.append({'name': name, 'price': int(rp)})
+        products.sort(key=lambda x: x['name'])
+    except Exception:
+        pass
+    try:
+        locations, _ = current_app.db.query_filter_options()
+    except Exception:
+        locations = ['넥스원', '해서']
+    return render_template('orders/rocket_manual.html',
+                           products=products, locations=locations)
+
+
+@orders_bp.route('/api/rocket-manual', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def api_rocket_manual():
+    """로켓매출 수동입력 저장 → daily_revenue upsert + 재고차감."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '요청 데이터 없음'}), 400
+
+    items = data.get('items', [])
+    revenue_date = data.get('revenue_date', '')
+    warehouse = data.get('warehouse', '넥스원')
+    if not items:
+        return jsonify({'error': '입력할 항목이 없습니다'}), 400
+    if not revenue_date:
+        return jsonify({'error': '매출일자를 입력하세요'}), 400
+
+    db = current_app.db
+    username = current_user.username if current_user.is_authenticated else ''
+    price_map = db.query_price_table()
+
+    revenue_payload = []
+    stock_items = []
+
+    for item in items:
+        product_name = str(item.get('product_name', '')).strip()
+        qty = int(item.get('qty', 0))
+        if not product_name or qty <= 0:
+            continue
+
+        import unicodedata
+        nm_key = unicodedata.normalize('NFC', product_name)
+        prices = price_map.get(nm_key, {})
+        unit_price = prices.get('로켓판매가', 0)
+        revenue = int(unit_price * qty)
+
+        revenue_payload.append({
+            'revenue_date': revenue_date,
+            'product_name': product_name,
+            'category': '로켓',
+            'channel': '',
+            'qty': qty,
+            'unit_price': int(unit_price),
+            'revenue': revenue,
+        })
+        stock_items.append({
+            'product_name': product_name,
+            'qty': qty,
+            'unit_price': int(unit_price),
+            'unit': '개',
+        })
+
+    if not revenue_payload:
+        return jsonify({'error': '유효한 입력 항목이 없습니다'}), 400
+
+    try:
+        # 1. 매출 기록 (daily_revenue)
+        db.upsert_revenue(revenue_payload)
+
+        # 2. 재고차감 (stock_ledger SALES_OUT)
+        stock_msg = ''
+        try:
+            from services.outbound_service import process_single_outbound
+            result = process_single_outbound(db, revenue_date, warehouse, stock_items)
+            if result.get('success'):
+                stock_msg = f', 재고차감 {result.get("count", 0)}건'
+            else:
+                shortage = result.get('shortage', [])
+                stock_msg = f' (재고 부족: {", ".join(shortage[:3])})'
+        except Exception as stk_err:
+            stock_msg = f' (재고차감 실패: {stk_err})'
+            current_app.logger.warning(f'로켓 재고차감 오류: {stk_err}')
+
+        # 3. 감사 로그
+        db.insert_audit_log({
+            'action': '로켓매출_수동입력',
+            'user_name': username,
+            'target': f'daily_revenue#{revenue_date}',
+            'detail': f'{revenue_date} 로켓 {len(revenue_payload)}건 저장 ({warehouse}){stock_msg}',
+            'new_value': {
+                'date': revenue_date,
+                'warehouse': warehouse,
+                'count': len(revenue_payload),
+                'items': [{'product': p['product_name'], 'qty': p['qty']}
+                          for p in revenue_payload],
+            },
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'로켓매출 {len(revenue_payload)}건 저장 완료{stock_msg}',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@orders_bp.route('/api/rocket-manual/list')
+@role_required('admin', 'manager', 'sales')
+def api_rocket_manual_list():
+    """로켓매출 수동입력 목록 조회."""
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    if not date_from or not date_to:
+        return jsonify({'error': '날짜 범위를 지정하세요'}), 400
+
+    try:
+        res = current_app.db.client.table('daily_revenue').select(
+            'id,revenue_date,product_name,qty,unit_price,revenue'
+        ).eq('category', '로켓') \
+         .gte('revenue_date', date_from) \
+         .lte('revenue_date', date_to) \
+         .order('revenue_date', desc=True) \
+         .limit(500).execute()
+        rows = res.data or []
+        return jsonify({'items': rows, 'count': len(rows)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@orders_bp.route('/api/rocket-manual/<int:rev_id>', methods=['PUT'])
+@role_required('admin', 'manager')
+def api_rocket_manual_update(rev_id):
+    """로켓매출 수정/삭제."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '요청 데이터 없음'}), 400
+
+    db = current_app.db
+    username = current_user.username if current_user.is_authenticated else ''
+
+    try:
+        old = db.client.table('daily_revenue').select('*').eq('id', rev_id).execute()
+        if not old.data:
+            return jsonify({'error': '해당 건을 찾을 수 없습니다'}), 404
+        old_row = old.data[0]
+        if old_row.get('category') != '로켓':
+            return jsonify({'error': '로켓매출 건만 수정 가능합니다'}), 403
+
+        action = data.get('action')
+        new_qty = data.get('qty')
+        new_product = data.get('product_name')
+
+        # 삭제
+        if action == 'delete' or (new_qty is not None and int(new_qty) == 0):
+            db.delete_revenue_by_id(rev_id)
+            db.insert_audit_log({
+                'action': '로켓매출_삭제',
+                'user_name': username,
+                'target': f'daily_revenue#{rev_id}',
+                'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")} 삭제',
+                'old_value': old_row,
+            })
+            return jsonify({'success': True, 'message': '삭제 완료'})
+
+        # 수정
+        import unicodedata
+        update_data = {}
+        if new_product and new_product != old_row.get('product_name'):
+            update_data['product_name'] = new_product
+            price_map = db.query_price_table()
+            nm_key = unicodedata.normalize('NFC', new_product.strip())
+            prices = price_map.get(nm_key, {})
+            update_data['unit_price'] = int(prices.get('로켓판매가', 0))
+
+        if new_qty is not None:
+            new_qty = int(new_qty)
+            if new_qty <= 0:
+                return jsonify({'error': '수량은 1 이상이어야 합니다 (삭제는 0)'}), 400
+            update_data['qty'] = new_qty
+
+        if not update_data:
+            return jsonify({'error': '변경할 내용이 없습니다'}), 400
+
+        up = update_data.get('unit_price', old_row.get('unit_price', 0))
+        q = update_data.get('qty', old_row.get('qty', 0))
+        update_data['revenue'] = int(up * q)
+
+        db.client.table('daily_revenue').update(update_data).eq('id', rev_id).execute()
+        db.insert_audit_log({
+            'action': '로켓매출_수정',
+            'user_name': username,
+            'target': f'daily_revenue#{rev_id}',
+            'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")}→{update_data.get("qty", old_row.get("qty"))}',
+            'old_value': {'product_name': old_row.get('product_name'),
+                          'qty': old_row.get('qty'), 'revenue': old_row.get('revenue')},
+            'new_value': update_data,
+        })
+        return jsonify({'success': True, 'message': '수정 완료'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

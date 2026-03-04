@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}로켓매출 수동입력 - 배마마 통합시스템{% endblock %}
+{% block page_title %}로켓매출 수동입력{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <i class="bi bi-rocket-takeoff"></i> 로켓매출 수동입력
+        <small class="text-muted ms-2">(쿠팡 로켓배송 직매출 등록)</small>
+    </div>
+    <div class="card-body">
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">매출일자 <span class="text-danger">*</span></label>
+                <input type="date" class="form-control" id="revenueDate">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">출고창고 <span class="text-danger">*</span></label>
+                <select class="form-select" id="warehouseSelect">
+                    {% for loc in locations %}
+                    <option value="{{ loc }}" {{ 'selected' if loc == '넥스원' else '' }}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6 d-flex align-items-end">
+                <small class="text-muted">같은 날짜+품목 재입력 시 기존 매출이 덮어쓰기됩니다.</small>
+            </div>
+        </div>
+
+        <table class="table table-sm" id="itemsTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:40%">품목명</th>
+                    <th style="width:15%" class="text-end">단가</th>
+                    <th style="width:15%">수량</th>
+                    <th style="width:15%" class="text-end">금액</th>
+                    <th style="width:15%"></th>
+                </tr>
+            </thead>
+            <tbody id="itemsBody">
+                <tr>
+                    <td>
+                        <select class="form-select form-select-sm product-select" onchange="onProductChange(this)">
+                            <option value="" data-price="0">-- 품목 선택 --</option>
+                            {% for p in products %}
+                            <option value="{{ p.name }}" data-price="{{ p.price }}">{{ p.name }} ({{ '{:,}'.format(p.price) }}원)</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="text-end price-cell">0</td>
+                    <td><input type="number" class="form-control form-control-sm qty-input" min="1" value="1" onchange="calcAmount(this)" oninput="calcAmount(this)"></td>
+                    <td class="text-end amount-cell">0</td>
+                    <td><button class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-x"></i></button></td>
+                </tr>
+            </tbody>
+            <tfoot>
+                <tr class="table-light fw-bold">
+                    <td>합계</td>
+                    <td></td>
+                    <td class="text-end" id="totalQty">0</td>
+                    <td class="text-end" id="totalAmount">0</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="d-flex justify-content-between">
+            <button class="btn btn-sm btn-outline-secondary" onclick="addRow()">
+                <i class="bi bi-plus"></i> 행 추가
+            </button>
+            <button class="btn btn-primary" onclick="submitRocket()" id="btnSubmit">
+                <i class="bi bi-save"></i> 저장
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="resultArea" style="display:none">
+    <div class="alert" id="resultAlert"></div>
+</div>
+
+<!-- 기존 입력 조회/수정 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check"></i> 기존 로켓매출 입력 내역</span>
+        <div class="d-flex gap-2 align-items-center">
+            <input type="date" class="form-control form-control-sm" id="searchFrom" style="width:140px">
+            <span>~</span>
+            <input type="date" class="form-control form-control-sm" id="searchTo" style="width:140px">
+            <button class="btn btn-sm btn-outline-primary" onclick="loadHistory()">
+                <i class="bi bi-search"></i> 조회
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>매출일</th>
+                    <th>품목명</th>
+                    <th class="text-end">수량</th>
+                    <th class="text-end">단가</th>
+                    <th class="text-end">매출액</th>
+                    <th style="width:80px"></th>
+                </tr>
+            </thead>
+            <tbody id="historyBody">
+                <tr><td colspan="6" class="text-center text-muted py-3">날짜를 선택하고 조회하세요</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> 로켓매출 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="mb-3">
+                    <label class="form-label">품목명</label>
+                    <select class="form-select" id="editProduct">
+                        {% for p in products %}
+                        <option value="{{ p.name }}" data-price="{{ p.price }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">수량 <small class="text-muted">(0 입력 시 삭제)</small></label>
+                    <input type="number" class="form-control" id="editQty" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger" onclick="deleteEntry()">
+                    <i class="bi bi-trash"></i> 삭제
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button type="button" class="btn btn-primary" onclick="saveEdit()">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrf_token = '{{ csrf_token() }}';
+
+document.addEventListener('DOMContentLoaded', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    document.getElementById('revenueDate').value = yesterday.toISOString().split('T')[0];
+
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    document.getElementById('searchFrom').value = weekAgo.toISOString().split('T')[0];
+    document.getElementById('searchTo').value = new Date().toISOString().split('T')[0];
+
+    loadHistory();
+});
+
+function onProductChange(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    const price = parseInt(opt.dataset.price) || 0;
+    const tr = sel.closest('tr');
+    tr.querySelector('.price-cell').textContent = price.toLocaleString();
+    calcAmount(tr.querySelector('.qty-input'));
+}
+
+function calcAmount(input) {
+    const tr = input.closest('tr');
+    const price = parseInt(tr.querySelector('.price-cell').textContent.replace(/,/g, '')) || 0;
+    const qty = parseInt(input.value) || 0;
+    tr.querySelector('.amount-cell').textContent = (price * qty).toLocaleString();
+    calcTotals();
+}
+
+function calcTotals() {
+    let totalQty = 0, totalAmt = 0;
+    document.querySelectorAll('#itemsBody tr').forEach(tr => {
+        totalQty += parseInt(tr.querySelector('.qty-input').value) || 0;
+        totalAmt += parseInt(tr.querySelector('.amount-cell').textContent.replace(/,/g, '')) || 0;
+    });
+    document.getElementById('totalQty').textContent = totalQty.toLocaleString();
+    document.getElementById('totalAmount').textContent = totalAmt.toLocaleString();
+}
+
+function addRow() {
+    const tbody = document.getElementById('itemsBody');
+    const firstRow = tbody.querySelector('tr');
+    const newRow = firstRow.cloneNode(true);
+    newRow.querySelector('.product-select').value = '';
+    newRow.querySelector('.price-cell').textContent = '0';
+    newRow.querySelector('.qty-input').value = 1;
+    newRow.querySelector('.amount-cell').textContent = '0';
+    tbody.appendChild(newRow);
+}
+
+function removeRow(btn) {
+    const tbody = document.getElementById('itemsBody');
+    if (tbody.rows.length > 1) {
+        btn.closest('tr').remove();
+        calcTotals();
+    }
+}
+
+function parseJsonSafe(res) {
+    const ct = (res.headers && res.headers.get('content-type')) ? res.headers.get('content-type') : '';
+    if (ct && ct.indexOf('application/json') !== -1) return res.json();
+    return res.text().then(t => { throw new Error('Unexpected response (' + res.status + '): ' + (t||'').slice(0,300)); });
+}
+
+function submitRocket() {
+    const revenueDate = document.getElementById('revenueDate').value;
+    const warehouse = document.getElementById('warehouseSelect').value;
+    if (!revenueDate) { alert('매출일자를 입력하세요'); return; }
+    if (!warehouse) { alert('출고창고를 선택하세요'); return; }
+
+    const items = [];
+    document.querySelectorAll('#itemsBody tr').forEach(row => {
+        const sel = row.querySelector('.product-select');
+        const qty = parseInt(row.querySelector('.qty-input').value) || 0;
+        if (sel.value && qty > 0) {
+            items.push({ product_name: sel.value, qty });
+        }
+    });
+
+    if (!items.length) { alert('하나 이상의 품목을 입력하세요'); return; }
+
+    const btn = document.getElementById('btnSubmit');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 저장 중...';
+
+    fetch('{{ url_for("orders.api_rocket_manual") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
+        body: JSON.stringify({ revenue_date: revenueDate, warehouse, items })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        const area = document.getElementById('resultArea');
+        const al = document.getElementById('resultAlert');
+        area.style.display = 'block';
+        if (data.success) {
+            al.className = 'alert alert-success';
+            al.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
+            loadHistory();
+        } else {
+            al.className = 'alert alert-danger';
+            al.innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || '저장 실패');
+        }
+    })
+    .catch(e => alert('오류: ' + e.message))
+    .finally(() => { btn.disabled = false; btn.innerHTML = '<i class="bi bi-save"></i> 저장'; });
+}
+
+function loadHistory() {
+    const from = document.getElementById('searchFrom').value;
+    const to = document.getElementById('searchTo').value;
+    if (!from || !to) return;
+
+    const tbody = document.getElementById('historyBody');
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 조회 중...</td></tr>';
+
+    fetch(`{{ url_for("orders.api_rocket_manual_list") }}?date_from=${from}&date_to=${to}`)
+        .then(parseJsonSafe)
+        .then(data => {
+            if (data.error) { tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">${data.error}</td></tr>`; return; }
+            const items = data.items || [];
+            if (!items.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">조회 결과 없음</td></tr>'; return; }
+            tbody.innerHTML = items.map(r => `
+                <tr>
+                    <td>${r.revenue_date || ''}</td>
+                    <td>${r.product_name || ''}</td>
+                    <td class="text-end">${(r.qty || 0).toLocaleString()}</td>
+                    <td class="text-end">${(r.unit_price || 0).toLocaleString()}</td>
+                    <td class="text-end">${(r.revenue || 0).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${r.id}, '${(r.product_name||'').replace(/'/g,"\\'")}', ${r.qty || 0})">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        })
+        .catch(e => { tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">오류: ${e.message}</td></tr>`; });
+}
+
+function openEdit(id, productName, qty) {
+    document.getElementById('editId').value = id;
+    document.getElementById('editProduct').value = productName;
+    document.getElementById('editQty').value = qty;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function saveEdit() {
+    const id = document.getElementById('editId').value;
+    const product_name = document.getElementById('editProduct').value;
+    const qty = parseInt(document.getElementById('editQty').value) || 0;
+
+    if (!product_name) { alert('품목을 선택하세요'); return; }
+    if (qty === 0 && !confirm('수량 0 입력 시 해당 건이 삭제됩니다. 계속하시겠습니까?')) return;
+
+    fetch(`/orders/api/rocket-manual/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
+        body: JSON.stringify({ product_name, qty })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadHistory();
+            const area = document.getElementById('resultArea');
+            const al = document.getElementById('resultAlert');
+            area.style.display = 'block';
+            al.className = 'alert alert-info';
+            al.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
+        } else { alert(data.error || '수정 실패'); }
+    })
+    .catch(e => alert('오류: ' + e.message));
+}
+
+function deleteEntry() {
+    if (!confirm('이 매출 기록을 삭제하시겠습니까?')) return;
+    const id = document.getElementById('editId').value;
+    fetch(`/orders/api/rocket-manual/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
+        body: JSON.stringify({ action: 'delete' })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadHistory();
+            const area = document.getElementById('resultArea');
+            const al = document.getElementById('resultAlert');
+            area.style.display = 'block';
+            al.className = 'alert alert-warning';
+            al.innerHTML = '<i class="bi bi-trash"></i> ' + data.message;
+        } else { alert(data.error || '삭제 실패'); }
+    })
+    .catch(e => alert('오류: ' + e.message));
+}
+</script>
+{% endblock %}
