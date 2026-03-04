@@ -426,7 +426,7 @@ def process_realtime_outbound(db, import_run_id):
     outbound_groups = {}   # (date, warehouse): [{product_name, qty, order_id}, ...]
     order_ids_done = []
     order_cats = {}
-    today_str = _stock_date()  # 재고차감일 = 오늘(실제 출고일)
+    today_str = _stock_date()
 
     for order in pending:
         oid = order['id']
@@ -438,9 +438,10 @@ def process_realtime_outbound(db, import_run_id):
         if not pname or qty <= 0:
             continue
 
-        stk_date = today_str
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
         is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+        # N배송 수동입력: 사용자 지정 매출일자로 재고차감, 그 외: 오늘(처리일)
+        stk_date = odate if is_n else today_str
 
         # BOM 분해
         if is_n:
@@ -659,10 +660,10 @@ def process_single_order_realtime(db, order_id):
     if not pname or qty <= 0:
         return {'outbound_count': 0, 'errors': ['데이터 부족']}
 
-    stk_date = _stock_date()
-
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
     is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+    # N배송 수동입력: 주문의 매출일자로 재고차감
+    stk_date = odate if (is_n and odate) else _stock_date()
 
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)
@@ -678,7 +679,7 @@ def process_single_order_realtime(db, order_id):
     else:
         decomposed = _decompose(pname, qty, bom_all, None)
 
-    # FIFO 출고 (재고차감일 = 오늘)
+    # FIFO 출고
     from services.excel_io import build_stock_snapshot, snapshot_lookup
     outbound_count = 0
 
