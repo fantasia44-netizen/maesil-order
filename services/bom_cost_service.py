@@ -115,7 +115,12 @@ def calculate_bom_costs(db):
     for k, v in cost_map_raw.items():
         price = float(v.get('cost_price', 0))
         ratio = float(v.get('conversion_ratio', 1) or 1)
-        cost_map[k] = price / ratio if ratio > 0 else price
+        unit_cost = price / ratio if ratio > 0 else price
+        cost_map[k] = unit_cost
+        # 공백 정규화 키도 등록
+        norm = k.replace(' ', '')
+        if norm != k and norm not in cost_map:
+            cost_map[norm] = unit_cost
 
     # 2-1. 중량 맵 (weight + material_type)
     # stock_ledger의 category를 실제 종류(material_type)로 사용
@@ -129,7 +134,11 @@ def calculate_bom_costs(db):
         mt = (category_map.get(k)
               or category_map.get(k.replace(' ', ''))
               or '')
-        weight_map[k] = {'weight': w, 'weight_unit': wu, 'material_type': mt}
+        wm = {'weight': w, 'weight_unit': wu, 'material_type': mt}
+        weight_map[k] = wm
+        norm = k.replace(' ', '')
+        if norm != k and norm not in weight_map:
+            weight_map[norm] = wm
 
     # 3. 판매가 로드
     price_map = db.query_price_table()

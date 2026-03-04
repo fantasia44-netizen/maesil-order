@@ -736,8 +736,8 @@ def api_n_delivery():
     db = current_app.db
     username = current_user.username if current_user.is_authenticated else ''
 
-    # import_runs 생성
-    import_run_id = db.create_import_run(
+    # import_runs 생성 (반환: tuple (id, error_msg))
+    import_run_id, run_err = db.create_import_run(
         channel='N배송_수동',
         filename=f'수동입력_{order_date}',
         file_hash=None,
@@ -745,7 +745,7 @@ def api_n_delivery():
         total_rows=len(items),
     )
     if not import_run_id:
-        return jsonify({'error': 'import_runs 생성 실패'}), 500
+        return jsonify({'error': f'import_runs 생성 실패: {run_err}'}), 500
 
     # 단가 테이블 로드 (매출 자동 반영)
     import hashlib, json
@@ -790,6 +790,7 @@ def api_n_delivery():
             "discount_amount": 0,
             "settlement": total_amount,
             "commission": 0,
+            "status": "정상",
         }
         orders.append({"transaction": transaction, "shipping": None})
 
@@ -798,21 +799,245 @@ def api_n_delivery():
 
     result = db.upsert_order_batch(import_run_id, orders)
 
-    # 실시간 출고 처리 (재고차감)
+    ins = result.get('inserted', 0)
+    upd = result.get('updated', 0)
+    fail = result.get('failed', 0)
+    rpc_err = result.get('rpc_error', '')
+    errors = result.get('errors', [])
+
+    # 저장 실패 체크
+    if ins + upd == 0:
+        err_detail = f"inserted={ins}, updated={upd}, failed={fail}"
+        if rpc_err:
+            err_detail += f", RPC오류: {rpc_err}"
+        if errors:
+            err_detail += f", errors: {errors[:3]}"
+        return jsonify({
+            'success': False,
+            'error': f'저장 실패 ({err_detail})',
+            'result': result
+        })
+
+    # 실시간 출고 처리 (재고차감) — skip_outbound 시 출고완료 표시만
+    skip_outbound = data.get('skip_outbound', False)
     rt_msg = ''
-    if result.get('inserted', 0) + result.get('updated', 0) > 0:
-        try:
-            from services.order_to_stock_service import process_realtime_outbound
-            rt = process_realtime_outbound(db, import_run_id)
-            result['realtime'] = rt
-            oc = rt.get('outbound_count', 0)
-            rt_msg = f' (출고 {oc}건)'
-        except Exception as rt_err:
-            result['realtime_error'] = str(rt_err)
-            rt_msg = f' (⚠️ 출고 자동처리 실패: {rt_err})'
+    if ins + upd > 0:
+        if skip_outbound:
+            # 기존 출고완료 건: 재고차감 안 하고 출고완료만 표시
+            try:
+                from services.channel_config import CHANNEL_REVENUE_MAP
+                rev_cat = CHANNEL_REVENUE_MAP.get('N배송_수동', 'N배송(용인)')
+                new_ids = []
+                check = db.client.table('order_transactions').select('id') \
+                    .eq('import_run_id', import_run_id).execute()
+                new_ids = [r['id'] for r in (check.data or [])]
+                if new_ids:
+                    db.mark_orders_outbound_done(new_ids, order_date, rev_cat)
+                rt_msg = f' (기존 출고완료 처리 — 재고차감 없음)'
+            except Exception as e:
+                rt_msg = f' (⚠️ 출고완료 표시 실패: {e})'
+        else:
+            try:
+                from services.order_to_stock_service import process_realtime_outbound
+                rt = process_realtime_outbound(db, import_run_id)
+                result['realtime'] = rt
+                oc = rt.get('outbound_count', 0)
+                rt_msg = f' (출고 {oc}건)'
+            except Exception as rt_err:
+                result['realtime_error'] = str(rt_err)
+                rt_msg = f' (⚠️ 출고 자동처리 실패: {rt_err})'
 
     return jsonify({
         'success': True,
-        'message': f'N배송 {len(orders)}건 저장 완료{rt_msg}',
+        'message': f'N배송 {ins}건 저장, {upd}건 갱신{rt_msg}',
         'result': result
     })
+
+
+@orders_bp.route('/api/n-delivery/list')
+@role_required('admin', 'manager', 'sales')
+def api_n_delivery_list():
+    """N배송 수동입력 목록 조회 (날짜 범위)."""
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    if not date_from or not date_to:
+        return jsonify({'error': '날짜 범위를 지정하세요'}), 400
+
+    db = current_app.db
+    try:
+        res = db.client.table('order_transactions').select(
+            'id,order_date,order_no,product_name,qty,unit_price,total_amount,status,channel,is_outbound_done'
+        ).like('order_no', 'NDEL%') \
+         .gte('order_date', date_from) \
+         .lte('order_date', date_to) \
+         .order('order_date', desc=True) \
+         .limit(500).execute()
+
+        rows = res.data or []
+        return jsonify({'items': rows, 'count': len(rows)})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'trace': traceback.format_exc()}), 500
+
+
+@orders_bp.route('/api/n-delivery/<int:tx_id>', methods=['PUT'])
+@role_required('admin', 'manager', 'sales')
+def api_n_delivery_update(tx_id):
+    """N배송 수동입력 건 수정 (수량/품목 변경). 감사로그 기록."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '요청 데이터 없음'}), 400
+
+    db = current_app.db
+    username = current_user.username if current_user.is_authenticated else ''
+
+    try:
+        # 기존 데이터 조회
+        old = db.client.table('order_transactions').select('*').eq('id', tx_id).execute()
+        if not old.data:
+            return jsonify({'error': '해당 건을 찾을 수 없습니다'}), 404
+
+        old_row = old.data[0]
+        # N배송 수동입력 건만 수정 가능 (order_no 'NDEL' 패턴 또는 channel 체크)
+        order_no = old_row.get('order_no', '')
+        if not order_no.startswith('NDEL') and old_row.get('channel') != 'N배송_수동':
+            return jsonify({'error': 'N배송 수동입력 건만 수정 가능합니다'}), 403
+
+        # 변경할 필드 구성
+        update_data = {}
+        new_qty = data.get('qty')
+        new_product = data.get('product_name')
+
+        if new_qty is not None:
+            new_qty = int(new_qty)
+            if new_qty < 0:
+                return jsonify({'error': '수량은 0 이상이어야 합니다'}), 400
+
+            # 수량 0 → 취소 처리
+            if new_qty == 0:
+                update_data['qty'] = 0
+                update_data['total_amount'] = 0
+                update_data['settlement'] = 0
+                update_data['status'] = '취소'
+                update_data['status_reason'] = f'수량 0 취소 (by {username})'
+            else:
+                update_data['qty'] = new_qty
+                # 금액도 재계산
+                up = old_row.get('unit_price', 0) or 0
+                update_data['total_amount'] = up * new_qty
+                update_data['settlement'] = up * new_qty
+
+        if new_product and new_product != old_row.get('product_name'):
+            update_data['product_name'] = new_product
+            # 단가 재조회
+            import unicodedata
+            price_map = db.query_price_table()
+            nm_key = unicodedata.normalize('NFC', new_product.strip())
+            prices = price_map.get(nm_key, {})
+            new_up = prices.get('네이버판매가', 0)
+            update_data['unit_price'] = new_up
+            qty = new_qty if new_qty else old_row.get('qty', 0)
+            update_data['total_amount'] = new_up * qty
+            update_data['settlement'] = new_up * qty
+
+        if not update_data:
+            return jsonify({'error': '변경할 내용이 없습니다'}), 400
+
+        # 출고 처리 여부 확인 (수정 전)
+        was_outbound_done = old_row.get('is_outbound_done', False)
+
+        # DB 업데이트
+        db.client.table('order_transactions').update(update_data).eq('id', tx_id).execute()
+
+        # 감사 로그 기록
+        action = 'N배송_취소' if update_data.get('status') == '취소' else 'N배송_수정'
+        db.insert_audit_log({
+            'action': action,
+            'user_name': username,
+            'target': f'order_transactions#{tx_id}',
+            'detail': f'{old_row.get("product_name")} 수량:{old_row.get("qty")}→{update_data.get("qty", old_row.get("qty"))}',
+            'old_value': {
+                'product_name': old_row.get('product_name'),
+                'qty': old_row.get('qty'),
+                'unit_price': old_row.get('unit_price'),
+                'total_amount': old_row.get('total_amount'),
+            },
+            'new_value': update_data,
+        })
+
+        # 출고 재처리: 이미 출고 완료된 건이면 역분개 후 재적용
+        is_cancel = update_data.get('status') == '취소'
+        stock_msg = ''
+        if was_outbound_done:
+            try:
+                from services.order_to_stock_service import reverse_order_stock, process_single_order_realtime
+                # 1) 기존 출고 역분개 (SALES_RETURN)
+                rev_result = reverse_order_stock(db, tx_id)
+
+                if is_cancel:
+                    # 취소: 역분개만 (재출고 안 함)
+                    rev_cnt = rev_result.get('stock_reversed', 0)
+                    stock_msg = f' (취소 — 재고 복원 {rev_cnt}건)'
+                    return jsonify({'success': True, 'message': f'취소 처리 완료{stock_msg}'})
+
+                # 2) 변경된 수량/품목으로 재출고
+                re_result = process_single_order_realtime(db, tx_id)
+                rev_cnt = rev_result.get('stock_reversed', 0)
+                out_cnt = re_result.get('outbound_count', 0)
+                stock_msg = f' (재고: 복원 {rev_cnt}건 → 재출고 {out_cnt}건)'
+            except Exception as stk_err:
+                stock_msg = f' (⚠️ 재고 재처리 실패: {stk_err})'
+
+        # 취소인데 출고 미처리였던 경우
+        if is_cancel and not was_outbound_done:
+            return jsonify({'success': True, 'message': '취소 처리 완료'})
+
+        return jsonify({'success': True, 'message': f'수정 완료{stock_msg}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@orders_bp.route('/api/n-delivery/reprocess', methods=['POST'])
+@role_required('admin', 'manager')
+def api_n_delivery_reprocess():
+    """기존 N배송 미처리 건 일괄 출고 재처리.
+
+    is_outbound_done=false인 NDEL 주문을 찾아서 출고 처리.
+    """
+    db = current_app.db
+    try:
+        # NDEL% 주문 중 미처리 건 조회
+        res = db.client.table('order_transactions').select(
+            'id,order_no,product_name,qty,order_date,channel,is_outbound_done'
+        ).like('order_no', 'NDEL%') \
+         .eq('is_outbound_done', False) \
+         .eq('status', '정상') \
+         .limit(500).execute()
+
+        pending = res.data or []
+        if not pending:
+            return jsonify({'success': True, 'message': '미처리 건 없음', 'processed': 0})
+
+        from services.order_to_stock_service import process_single_order_realtime
+
+        processed = 0
+        errors = []
+        for order in pending:
+            oid = order['id']
+            try:
+                result = process_single_order_realtime(db, oid)
+                if result.get('outbound_count', 0) > 0:
+                    processed += 1
+                if result.get('errors'):
+                    errors.extend(result['errors'])
+            except Exception as e:
+                errors.append(f"주문 {order.get('order_no')}: {e}")
+
+        msg = f'N배송 미처리 {len(pending)}건 중 {processed}건 출고 처리 완료'
+        if errors:
+            msg += f' (오류 {len(errors)}건)'
+        return jsonify({'success': True, 'message': msg,
+                        'processed': processed, 'total': len(pending),
+                        'errors': errors[:10]})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

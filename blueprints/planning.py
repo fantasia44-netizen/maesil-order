@@ -177,12 +177,32 @@ def api_category_download():
     try:
         cost_map = current_app.db.query_product_costs()
 
+        # 판매 데이터에 있는데 product_costs에 없는 품목도 포함
+        from services.sales_analysis_service import _fetch_month_sales
+        from services.tz_utils import today_kst
+        from datetime import datetime
+        today = datetime.strptime(today_kst(), '%Y-%m-%d')
+        cur_sales = _fetch_month_sales(current_app.db, today.year, today.month)
+        py, pm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
+        prev_sales = _fetch_month_sales(current_app.db, py, pm)
+
+        # 판매 품목 중 product_costs에 없는 것 추가 (공백 정규화 대응)
+        cost_map_norms = {k.replace(' ', ''): k for k in cost_map.keys()}
+        all_sales_names = set(cur_sales.keys()) | set(prev_sales.keys())
+        for pn in all_sales_names:
+            norm = pn.replace(' ', '')
+            if pn not in cost_map and norm not in cost_map_norms:
+                cost_map[pn] = {
+                    'cost_type': '', 'food_type': '', 'material_type': '완제품',
+                    'cost_price': 0, 'unit': '', 'memo': '(판매데이터에서 자동추가)',
+                }
+
         wb = Workbook()
         ws = wb.active
         ws.title = '품목분류'
 
         # 헤더
-        headers = ['품목명', 'sales_category', 'material_type', 'cost_type', '단가', '단위', '비고']
+        headers = ['품목명', 'cost_type', 'food_type', 'material_type', '단가', '단위', '비고']
         hfill = PatternFill(start_color='2C3E50', end_color='2C3E50', fill_type='solid')
         hfont = Font(bold=True, color='FFFFFF', size=11)
         thin = Border(
@@ -201,9 +221,9 @@ def api_category_download():
         for name in sorted(cost_map.keys()):
             info = cost_map[name]
             ws.cell(row, 1, name).border = thin
-            ws.cell(row, 2, info.get('sales_category') or '').border = thin
-            ws.cell(row, 3, info.get('material_type') or '').border = thin
-            ws.cell(row, 4, info.get('cost_type') or '').border = thin
+            ws.cell(row, 2, info.get('cost_type') or '').border = thin
+            ws.cell(row, 3, info.get('food_type') or '').border = thin
+            ws.cell(row, 4, info.get('material_type') or '').border = thin
             ws.cell(row, 5, info.get('cost_price', 0) or 0).border = thin
             ws.cell(row, 6, info.get('unit') or '').border = thin
             ws.cell(row, 7, info.get('memo') or '').border = thin
@@ -220,11 +240,11 @@ def api_category_download():
 
         # 안내 시트
         ws2 = wb.create_sheet('안내')
-        ws2.cell(1, 1, '📌 사용법').font = Font(bold=True, size=14)
-        ws2.cell(3, 1, '1. "품목분류" 시트의 B열(sales_category)에 분류명을 입력하세요')
-        ws2.cell(4, 1, '2. 분류 예시: 큐브, 세트, oem, pack, 해미애찬, 농산물, 수산물, 축산물')
+        ws2.cell(1, 1, '사용법').font = Font(bold=True, size=14)
+        ws2.cell(3, 1, '1. B열(cost_type): 생산, OEM, 소분, 매입 중 하나 입력')
+        ws2.cell(4, 1, '2. C열(food_type): 농산물, 수산물, 축산물 중 하나 입력')
         ws2.cell(5, 1, '3. 작성 후 "판매분석" 페이지에서 업로드하면 일괄 반영됩니다')
-        ws2.cell(7, 1, '⚠️ A열(품목명)은 수정하지 마세요. 매칭 기준입니다.')
+        ws2.cell(7, 1, 'A열(품목명)은 수정하지 마세요. 매칭 기준입니다.')
         ws2.column_dimensions['A'].width = 60
 
         buf = BytesIO()
@@ -246,7 +266,7 @@ def api_category_download():
 @planning_bp.route('/api/category-upload', methods=['POST'])
 @role_required('admin', 'manager')
 def api_category_upload():
-    """엑셀 업로드 → sales_category 일괄 수정."""
+    """엑셀 업로드 → cost_type + food_type 일괄 수정."""
     import pandas as pd
 
     try:
@@ -257,8 +277,14 @@ def api_category_upload():
         df = pd.read_excel(f, sheet_name=0)
 
         # 컬럼 확인
-        if '품목명' not in df.columns or 'sales_category' not in df.columns:
-            return jsonify({'error': "'품목명'과 'sales_category' 컬럼이 필요합니다."}), 400
+        if '품목명' not in df.columns:
+            return jsonify({'error': "'품목명' 컬럼이 필요합니다."}), 400
+        has_ct = 'cost_type' in df.columns
+        has_ft = 'food_type' in df.columns
+        # 하위호환: sales_category가 있으면 cost_type으로 취급
+        has_sc = 'sales_category' in df.columns
+        if not has_ct and not has_ft and not has_sc:
+            return jsonify({'error': "'cost_type' 또는 'food_type' 컬럼이 필요합니다."}), 400
 
         updated = 0
         skipped = 0
@@ -266,22 +292,33 @@ def api_category_upload():
 
         for _, row in df.iterrows():
             name = str(row.get('품목명', '')).strip()
-            cat = str(row.get('sales_category', '')).strip()
             if not name:
                 skipped += 1
                 continue
 
+            update_data = {}
+            if has_ct:
+                update_data['cost_type'] = str(row.get('cost_type', '')).strip()
+            elif has_sc:
+                update_data['cost_type'] = str(row.get('sales_category', '')).strip()
+            if has_ft:
+                update_data['food_type'] = str(row.get('food_type', '')).strip()
+
+            if not update_data:
+                skipped += 1
+                continue
+
             try:
-                current_app.db.client.table('product_costs').update({
-                    'sales_category': cat,
-                }).eq('product_name', name).execute()
+                current_app.db.client.table('product_costs').update(
+                    update_data
+                ).eq('product_name', name).execute()
                 updated += 1
             except Exception as e:
                 errors.append(f'{name}: {e}')
                 if len(errors) > 10:
                     break
 
-        _log_action('bulk_update_sales_category',
+        _log_action('bulk_update_product_category',
                      detail=f'일괄 분류 업데이트: {updated}건 반영, {skipped}건 스킵')
 
         return jsonify({

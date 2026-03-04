@@ -27,7 +27,7 @@ def get_dashboard_data(db, date=None):
     return {
         "date": date,
         "kpi": _get_kpi(db, date, month_start),
-        "revenue_trend": db.query_revenue_trend(days=30),
+        "revenue_trend": db.query_revenue_trend(days=7),
         "channel_breakdown": db.query_orders_by_channel(
             date_from=month_start, date_to=date),
         "warehouse_stock": db.query_stock_summary_by_location(),

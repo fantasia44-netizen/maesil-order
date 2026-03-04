@@ -14,8 +14,17 @@
                 <label class="form-label">매출일자 <span class="text-danger">*</span></label>
                 <input type="date" class="form-control" id="orderDate">
             </div>
-            <div class="col-md-9 d-flex align-items-end">
+            <div class="col-md-5 d-flex align-items-end">
                 <small class="text-muted">스마트스토어 N배송 주문의 실제 매출일(전날)을 입력하세요.</small>
+            </div>
+            <div class="col-md-4 d-flex align-items-end">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="skipOutbound">
+                    <label class="form-check-label text-warning fw-bold" for="skipOutbound">
+                        <i class="bi bi-exclamation-triangle"></i> 기존 출고완료 건 (재고차감 안함)
+                    </label>
+                    <div class="form-text">이미 통합출고로 처리된 과거 데이터 소급 등록 시 체크</div>
+                </div>
             </div>
         </div>
 
@@ -57,6 +66,81 @@
 <div id="resultArea" style="display:none">
     <div class="alert" id="resultAlert"></div>
 </div>
+
+<!-- 기존 입력 조회/수정 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-list-check"></i> 기존 N배송 입력 내역</span>
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-outline-warning" onclick="reprocessPending()" title="출고 미처리 건 일괄 처리">
+                <i class="bi bi-arrow-repeat"></i> 미처리 일괄처리
+            </button>
+            <input type="date" class="form-control form-control-sm" id="searchFrom" style="width:140px">
+            <span>~</span>
+            <input type="date" class="form-control form-control-sm" id="searchTo" style="width:140px">
+            <button class="btn btn-sm btn-outline-primary" onclick="loadHistory()">
+                <i class="bi bi-search"></i> 조회
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>매출일</th>
+                    <th>주문번호</th>
+                    <th>품목명</th>
+                    <th class="text-end">수량</th>
+                    <th class="text-end">단가</th>
+                    <th class="text-end">금액</th>
+                    <th>상태</th>
+                    <th>출고</th>
+                    <th style="width:80px"></th>
+                </tr>
+            </thead>
+            <tbody id="historyBody">
+                <tr><td colspan="9" class="text-center text-muted py-3">날짜를 선택하고 조회하세요</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 수정 모달 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil"></i> N배송 수정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="mb-3">
+                    <label class="form-label">주문번호</label>
+                    <input type="text" class="form-control" id="editOrderNo" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">품목명</label>
+                    <select class="form-select" id="editProduct">
+                        {% for p in products %}
+                        <option value="{{ p.name }}">{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">수량 <small class="text-muted">(0 입력 시 취소 처리)</small></label>
+                    <input type="number" class="form-control" id="editQty" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button type="button" class="btn btn-primary" onclick="saveEdit()">
+                    <i class="bi bi-check-lg"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -65,7 +149,16 @@
 document.addEventListener('DOMContentLoaded', () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    document.getElementById('orderDate').value = yesterday.toISOString().split('T')[0];
+    const yStr = yesterday.toISOString().split('T')[0];
+    document.getElementById('orderDate').value = yStr;
+
+    // 조회 기본: 최근 7일
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    document.getElementById('searchFrom').value = weekAgo.toISOString().split('T')[0];
+    document.getElementById('searchTo').value = new Date().toISOString().split('T')[0];
+
+    loadHistory();
 });
 
 function addRow() {
@@ -124,7 +217,7 @@ function submitNDelivery() {
             'Content-Type': 'application/json',
             'X-CSRFToken': '{{ csrf_token() }}'
         },
-        body: JSON.stringify({ order_date: orderDate, items })
+        body: JSON.stringify({ order_date: orderDate, items, skip_outbound: document.getElementById('skipOutbound').checked })
     })
     .then(parseJsonSafe)
     .then(data => {
@@ -135,6 +228,7 @@ function submitNDelivery() {
         if (data.success) {
             alert.className = 'alert alert-success';
             alert.innerHTML = `<i class="bi bi-check-circle"></i> ${data.message}`;
+            loadHistory(); // 저장 후 목록 새로고침
         } else {
             alert.className = 'alert alert-danger';
             alert.innerHTML = `<i class="bi bi-x-circle"></i> ${data.error || '저장 실패'}`;
@@ -146,6 +240,136 @@ function submitNDelivery() {
     .finally(() => {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-save"></i> 저장';
+    });
+}
+
+// ── 기존 입력 조회 ──
+function loadHistory() {
+    const from = document.getElementById('searchFrom').value;
+    const to = document.getElementById('searchTo').value;
+    if (!from || !to) return;
+
+    const tbody = document.getElementById('historyBody');
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 조회 중...</td></tr>';
+
+    fetch(`{{ url_for("orders.api_n_delivery_list") }}?date_from=${from}&date_to=${to}`)
+        .then(parseJsonSafe)
+        .then(data => {
+            if (data.error) {
+                tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">${data.error}</td></tr>`;
+                return;
+            }
+            const items = data.items || [];
+            if (!items.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-3">조회 결과 없음</td></tr>';
+                return;
+            }
+            tbody.innerHTML = items.map(r => `
+                <tr>
+                    <td>${r.order_date || ''}</td>
+                    <td><small class="text-muted">${r.order_no || ''}</small></td>
+                    <td>${r.product_name || ''}</td>
+                    <td class="text-end">${(r.qty || 0).toLocaleString()}</td>
+                    <td class="text-end">${(r.unit_price || 0).toLocaleString()}</td>
+                    <td class="text-end">${(r.total_amount || 0).toLocaleString()}</td>
+                    <td><span class="badge ${r.status === '정상' ? 'bg-success' : 'bg-secondary'}">${r.status || ''}</span></td>
+                    <td><span class="badge ${r.is_outbound_done ? 'bg-info' : 'bg-warning text-dark'}">${r.is_outbound_done ? '완료' : '미처리'}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${r.id}, '${(r.order_no||'').replace(/'/g,"\\'")}', '${(r.product_name||'').replace(/'/g,"\\'")}', ${r.qty || 0})">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        })
+        .catch(e => {
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">오류: ${e.message}</td></tr>`;
+        });
+}
+
+// ── 수정 모달 ──
+function openEdit(id, orderNo, productName, qty) {
+    document.getElementById('editId').value = id;
+    document.getElementById('editOrderNo').value = orderNo;
+    document.getElementById('editProduct').value = productName;
+    document.getElementById('editQty').value = qty;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+
+function saveEdit() {
+    const id = document.getElementById('editId').value;
+    const product_name = document.getElementById('editProduct').value;
+    const qty = parseInt(document.getElementById('editQty').value) || 0;
+
+    if (!product_name) {
+        alert('품목을 선택하세요');
+        return;
+    }
+    if (qty < 0) {
+        alert('수량은 0 이상이어야 합니다');
+        return;
+    }
+    if (qty === 0 && !confirm('수량 0 입력 시 해당 건이 취소 처리됩니다. 계속하시겠습니까?')) {
+        return;
+    }
+
+    fetch(`/orders/api/n-delivery/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({ product_name, qty })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadHistory();
+            // 성공 알림
+            const area = document.getElementById('resultArea');
+            const alertEl = document.getElementById('resultAlert');
+            area.style.display = 'block';
+            alertEl.className = 'alert alert-info';
+            alertEl.innerHTML = `<i class="bi bi-check-circle"></i> ${data.message}`;
+        } else {
+            alert(data.error || '수정 실패');
+        }
+    })
+    .catch(e => alert('오류: ' + e.message));
+}
+
+// ── 미처리 일괄 재처리 ──
+function reprocessPending() {
+    if (!confirm('출고 미처리된 N배송 건을 일괄 처리하시겠습니까?')) return;
+
+    const area = document.getElementById('resultArea');
+    const alertEl = document.getElementById('resultAlert');
+    area.style.display = 'block';
+    alertEl.className = 'alert alert-info';
+    alertEl.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 미처리 건 일괄 처리 중...';
+
+    fetch('{{ url_for("orders.api_n_delivery_reprocess") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        }
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        if (data.success) {
+            alertEl.className = 'alert alert-success';
+            alertEl.innerHTML = `<i class="bi bi-check-circle"></i> ${data.message}`;
+            loadHistory();
+        } else {
+            alertEl.className = 'alert alert-danger';
+            alertEl.innerHTML = `<i class="bi bi-x-circle"></i> ${data.error || '처리 실패'}`;
+        }
+    })
+    .catch(e => {
+        alertEl.className = 'alert alert-danger';
+        alertEl.innerHTML = `<i class="bi bi-x-circle"></i> 오류: ${e.message}`;
     });
 }
 </script>

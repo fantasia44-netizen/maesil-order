@@ -348,7 +348,7 @@ class SupabaseDB(DBBase):
             ot_rows = self._paginate_query("order_transactions", ot_builder)
 
             for r in ot_rows:
-                pn = (r.get("product_name") or "").strip()
+                pn = (r.get("product_name") or "").replace(' ', '').strip()
                 if not pn:
                     continue  # 상품명 없는 레코드 제외
                 ch = normalize_channel_display(r.get("channel", ""))
@@ -617,6 +617,7 @@ class SupabaseDB(DBBase):
         food_type: '농산물', '수산물', '축산물', '' (미지정)
         """
         from datetime import datetime, timezone
+        product_name = str(product_name).replace(' ', '').strip()
         payload = {
             'product_name': product_name,
             'cost_price': float(cost_price),
@@ -647,7 +648,7 @@ class SupabaseDB(DBBase):
         payload = []
         for item in items:
             payload.append({
-                'product_name': item['product_name'],
+                'product_name': str(item['product_name']).replace(' ', '').strip(),
                 'cost_price': float(item.get('cost_price', 0)),
                 'unit': item.get('unit', ''),
                 'memo': item.get('memo', ''),
@@ -1413,6 +1414,15 @@ class SupabaseDB(DBBase):
             "N배송(용인)": "네이버판매가",
         }
 
+        # 공백 정규화된 이름 (가격표 조회용)
+        norm_name = unicodedata.normalize('NFC', str(product_name).replace(' ', '').strip())
+
+        def _price_lookup(pn, col):
+            if not price_map or not col:
+                return 0
+            entry = price_map.get(pn) or price_map.get(norm_name) or {}
+            return float(entry.get(col, 0) or 0)
+
         # 1) 행사가 확인
         promo = self.query_active_promotion(product_name, category, target_date)
         if promo:
@@ -1422,10 +1432,7 @@ class SupabaseDB(DBBase):
         coupon = self.query_active_coupon(product_name, category, target_date)
         if coupon:
             price_col = _CATEGORY_PRICE_COL.get(category)
-            norm_name = unicodedata.normalize('NFC', str(product_name).strip())
-            base_price = 0
-            if price_map and price_col:
-                base_price = float((price_map.get(norm_name) or {}).get(price_col, 0) or 0)
+            base_price = _price_lookup(product_name, price_col)
             if base_price > 0:
                 if coupon['discount_type'] == '%':
                     discount = base_price * float(coupon['discount_value']) / 100
@@ -1435,12 +1442,9 @@ class SupabaseDB(DBBase):
 
         # 3) 기본 판매가
         price_col = _CATEGORY_PRICE_COL.get(category)
-        if price_map and price_col:
-            import unicodedata
-            norm_name = unicodedata.normalize('NFC', str(product_name).strip())
-            base_price = float((price_map.get(norm_name) or {}).get(price_col, 0) or 0)
-            if base_price > 0:
-                return base_price, 'master'
+        base_price = _price_lookup(product_name, price_col)
+        if base_price > 0:
+            return base_price, 'master'
 
         return 0, 'none'
 
@@ -1913,44 +1917,88 @@ class SupabaseDB(DBBase):
         except Exception:
             return {'total_amount': 0, 'settlement': 0, 'commission': 0, 'qty': 0}
 
-    def query_revenue_trend(self, days=30):
-        """최근 N일 매출 추이 (order_transactions 기반, 일별 합계)."""
+    def query_revenue_trend(self, days=7):
+        """최근 N일 매출 추이 (order_transactions + daily_revenue 합산).
+
+        DB_CUTOFF_DATE 이전 기간은 daily_revenue(레거시)에서 조회,
+        이후 기간은 order_transactions에서 조회.
+        """
+        from services.channel_config import DB_CUTOFF_DATE
         try:
             date_from = days_ago_kst(days)
-            res = self.client.table("order_transactions") \
-                .select("order_date,channel,total_amount,settlement,commission") \
-                .gte("order_date", date_from) \
-                .eq("status", "정상") \
-                .order("order_date").execute()
+            today = today_kst()
             daily = {}
-            for r in (res.data or []):
-                d = r.get("order_date", "")
-                ch = r.get("channel", "기타")
-                ta = r.get("total_amount", 0) or 0
-                st = r.get("settlement", 0) or 0
-                if d not in daily:
-                    daily[d] = {"date": d, "total": 0, "settlement": 0}
-                daily[d]["total"] += ta
-                daily[d]["settlement"] += st
-                daily[d][ch] = daily[d].get(ch, 0) + ta
+
+            # ── 1. order_transactions (cutoff 이후) ──
+            ot_start = max(date_from, DB_CUTOFF_DATE)
+            if ot_start <= today:
+                def ot_builder(table):
+                    return self.client.table(table).select(
+                        "order_date,total_amount,settlement"
+                    ).gte("order_date", ot_start) \
+                     .lte("order_date", today) \
+                     .eq("status", "정상") \
+                     .order("order_date")
+
+                ot_rows = self._paginate_query("order_transactions", ot_builder)
+                for r in ot_rows:
+                    d = r.get("order_date", "")
+                    if not d:
+                        continue
+                    ta = r.get("total_amount", 0) or 0
+                    st = r.get("settlement", 0) or 0
+                    if d not in daily:
+                        daily[d] = {"date": d, "total": 0, "settlement": 0}
+                    daily[d]["total"] += ta
+                    daily[d]["settlement"] += st
+
+            # ── 2. daily_revenue (cutoff 이전) ──
+            if date_from < DB_CUTOFF_DATE:
+                from datetime import datetime, timedelta
+                cutoff_dt = datetime.strptime(DB_CUTOFF_DATE, '%Y-%m-%d')
+                legacy_end = (cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d')
+
+                def builder(table):
+                    return self.client.table(table).select(
+                        'revenue_date,category,revenue'
+                    ).gte('revenue_date', date_from) \
+                     .lte('revenue_date', legacy_end) \
+                     .order('revenue_date')
+
+                rows = self._paginate_query('daily_revenue', builder)
+                for r in rows:
+                    d = r.get("revenue_date", "")
+                    cat = (r.get("category") or "").strip()
+                    # 거래처매출/로켓 제외 (B2B)
+                    if cat in ("거래처매출", "로켓"):
+                        continue
+                    rev = r.get("revenue", 0) or 0
+                    if d not in daily:
+                        daily[d] = {"date": d, "total": 0, "settlement": 0}
+                    daily[d]["total"] += rev
+
             return sorted(daily.values(), key=lambda x: x["date"])
         except Exception:
             return []
 
     def query_orders_by_channel(self, date_from=None, date_to=None):
-        """채널별 주문 통계."""
+        """채널별 주문 통계 (채널 표시명 정규화 적용)."""
+        from services.channel_config import normalize_channel_display
         try:
-            q = self.client.table("order_transactions") \
-                .select("channel,qty,total_amount")
-            if date_from:
-                q = q.gte("order_date", date_from)
-            if date_to:
-                q = q.lte("order_date", date_to)
-            q = q.eq("status", "정상")
-            res = q.execute()
+            def builder(table):
+                q = self.client.table(table) \
+                    .select("channel,qty,total_amount") \
+                    .eq("status", "정상")
+                if date_from:
+                    q = q.gte("order_date", date_from)
+                if date_to:
+                    q = q.lte("order_date", date_to)
+                return q
+
+            rows = self._paginate_query("order_transactions", builder)
             channels = {}
-            for r in (res.data or []):
-                ch = r.get("channel", "기타")
+            for r in rows:
+                ch = normalize_channel_display(r.get("channel", "기타"))
                 if ch not in channels:
                     channels[ch] = {"channel": ch, "count": 0, "qty": 0, "amount": 0}
                 channels[ch]["count"] += 1
@@ -1994,7 +2042,7 @@ class SupabaseDB(DBBase):
                 .eq("status", "정상").execute()
             products = {}
             for r in (res.data or []):
-                pn = (r.get("product_name") or "").strip()
+                pn = (r.get("product_name") or "").replace(' ', '').strip()
                 if not pn:
                     continue  # 상품명 없는 레코드 제외
                 if pn not in products:

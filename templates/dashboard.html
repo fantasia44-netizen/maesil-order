@@ -75,11 +75,11 @@
     <div class="col-lg-8">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-graph-up"></i> 매출 추이 (최근 30일)</span>
-                <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-secondary active" onclick="loadRevChart(30)">30일</button>
-                    <button class="btn btn-outline-secondary" onclick="loadRevChart(7)">7일</button>
-                    <button class="btn btn-outline-secondary" onclick="loadRevChart(90)">90일</button>
+                <span><i class="bi bi-graph-up"></i> 매출 추이 (최근 <span id="revDaysLabel">7</span>일)</span>
+                <div class="btn-group btn-group-sm" id="revBtnGroup">
+                    <button class="btn btn-outline-secondary active" data-days="7">7일</button>
+                    <button class="btn btn-outline-secondary" data-days="30">30일</button>
+                    <button class="btn btn-outline-secondary" data-days="90">90일</button>
                 </div>
             </div>
             <div class="card-body" style="height:300px;">
@@ -274,18 +274,26 @@
         }
     });
 
-    window.loadRevChart = function(days) {
+    // ── 기간 버튼 이벤트 ──
+    document.getElementById('revBtnGroup').addEventListener('click', function(e) {
+        const btn = e.target.closest('[data-days]');
+        if (!btn) return;
+        const days = parseInt(btn.dataset.days);
+
         fetch('/api/dashboard/revenue-chart?days=' + days)
             .then(r => r.json())
             .then(data => {
                 revenueChart.data.labels = data.map(d => d.date ? d.date.slice(5) : '');
                 revenueChart.data.datasets[0].data = data.map(d => d.total || 0);
                 revenueChart.update();
-                document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
-                event.target.classList.add('active');
+                // 버튼 active 토글
+                document.querySelectorAll('#revBtnGroup .btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                // 라벨 업데이트
+                document.getElementById('revDaysLabel').textContent = days;
             })
             .catch(e => console.error('Revenue chart error:', e));
-    };
+    });
 
     // ── 채널 분포 파이차트 ──
     const chCtx = document.getElementById('channelChart').getContext('2d');

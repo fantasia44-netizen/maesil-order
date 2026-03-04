@@ -70,18 +70,26 @@
             </div>
         </div>
 
-        <!-- 카테고리별 소계 -->
-        <div class="mb-3" id="catArea">
-            <div class="row g-2" id="catCards"></div>
+        <!-- 유형별 소계 카드 -->
+        <div class="mb-2">
+            <div class="small fw-bold text-muted mb-1">유형별 (cost_type)</div>
+            <div class="row g-2" id="ctCards"></div>
+        </div>
+        <!-- 식품유형별 소계 카드 -->
+        <div class="mb-3">
+            <div class="small fw-bold text-muted mb-1">식품유형 (food_type)</div>
+            <div class="row g-2" id="ftCards"></div>
         </div>
 
         <!-- 필터 -->
         <div class="d-flex gap-2 mb-2 align-items-center flex-wrap">
-            <select id="catFilter" class="form-select form-select-sm" style="width:auto">
-                <option value="">전체 분류</option>
+            <select id="ctFilter" class="form-select form-select-sm" style="width:auto">
+                <option value="">전체 유형</option>
             </select>
-            <select id="chFilter" class="form-select form-select-sm" style="width:auto">
-                <option value="">전체 채널</option>
+            <select id="ftFilter" class="form-select form-select-sm" style="width:auto">
+                <option value="">전체 식품</option>
+            </select>
+            <select id="modeFilter" class="form-select form-select-sm" style="width:auto">
                 <option value="qty">수량 기준</option>
                 <option value="amount">금액 기준</option>
             </select>
@@ -179,16 +187,26 @@ function renderAll(data) {
     document.getElementById('monthProg').innerHTML =
         `<div class="progress" style="height:6px"><div class="progress-bar" style="width:${prog}%"></div></div>`;
 
-    // 카테고리 카드
-    renderCatCards(data.category_totals);
+    // 유형별 소계 카드
+    renderGroupCards('ctCards', data.cost_type_totals || data.category_totals || []);
+    renderGroupCards('ftCards', data.food_type_totals || []);
 
-    // 필터 옵션
-    const catSel = document.getElementById('catFilter');
-    catSel.innerHTML = '<option value="">전체 분류</option>';
-    data.category_totals.forEach(c => {
+    // cost_type 필터 옵션
+    const ctSel = document.getElementById('ctFilter');
+    ctSel.innerHTML = '<option value="">전체 유형</option>';
+    (data.cost_type_totals || data.category_totals || []).forEach(c => {
         const o = document.createElement('option');
         o.value=c.category; o.text=`${c.category} (${c.count})`;
-        catSel.appendChild(o);
+        ctSel.appendChild(o);
+    });
+
+    // food_type 필터 옵션
+    const ftSel = document.getElementById('ftFilter');
+    ftSel.innerHTML = '<option value="">전체 식품</option>';
+    (data.food_type_totals || []).forEach(c => {
+        const o = document.createElement('option');
+        o.value=c.category; o.text=`${c.category} (${c.count})`;
+        ftSel.appendChild(o);
     });
 
     renderTable(data.items);
@@ -196,8 +214,9 @@ function renderAll(data) {
         ? '조회: ' + new Date(data.generated_at).toLocaleString('ko-KR') : '';
 }
 
-function renderCatCards(cats) {
-    const div = document.getElementById('catCards');
+function renderGroupCards(containerId, cats) {
+    const div = document.getElementById(containerId);
+    if(!cats.length) { div.innerHTML = '<div class="col"><span class="text-muted small">데이터 없음</span></div>'; return; }
     div.innerHTML = cats.map(c => `
         <div class="col-6 col-md-2">
             <div class="card border-0 shadow-sm h-100">
@@ -217,13 +236,15 @@ function renderCatCards(cats) {
 }
 
 function renderTable(items) {
-    const cat = document.getElementById('catFilter').value;
-    const mode = document.getElementById('chFilter').value;
+    const ctVal = document.getElementById('ctFilter').value;
+    const ftVal = document.getElementById('ftFilter').value;
+    const mode = document.getElementById('modeFilter').value;
     const search = document.getElementById('searchInput').value.trim().toLowerCase();
     const hideZero = document.getElementById('hideZero').checked;
 
     let filtered = items;
-    if(cat) filtered = filtered.filter(i=>i.sales_category===cat);
+    if(ctVal) filtered = filtered.filter(i=>i.cost_type===ctVal);
+    if(ftVal) filtered = filtered.filter(i=>i.food_type===ftVal);
     if(search) filtered = filtered.filter(i=>i.product_name.toLowerCase().includes(search));
     if(hideZero) filtered = filtered.filter(i=>i.cur_qty>0||i.prev_qty>0);
 
@@ -234,23 +255,23 @@ function renderTable(items) {
     const cm = allData.current_month, pm = allData.prev_month;
 
     // 헤더
+    const valLabel = isAmt ? '금액' : '수량';
     document.getElementById('tableHead').innerHTML = `<tr>
         <th style="width:30px">#</th>
         <th>품목명</th>
-        <th class="text-center" style="width:60px">분류</th>
-        <th class="text-end" style="width:75px">${cm.label}<br><small>네이버</small></th>
-        <th class="text-end" style="width:75px">${cm.label}<br><small>쿠팡</small></th>
-        <th class="text-end" style="width:75px">${cm.label}<br><small class="fw-bold">합계</small></th>
-        <th class="text-end" style="width:75px">${pm.label}<br><small>합계</small></th>
-        <th class="text-end" style="width:60px">일평균<br><small>이번달</small></th>
-        <th class="text-end" style="width:60px">일평균<br><small>전월</small></th>
+        <th class="text-center" style="width:55px">유형</th>
+        <th class="text-center" style="width:55px">식품</th>
+        <th class="text-end" style="width:80px">${cm.label}<br><small>${valLabel}</small></th>
+        <th class="text-end" style="width:80px">${pm.label}<br><small>${valLabel}</small></th>
+        <th class="text-end" style="width:65px">일평균<br><small>이번달</small></th>
+        <th class="text-end" style="width:65px">일평균<br><small>전월</small></th>
         <th class="text-center" style="width:70px">달성율</th>
         <th class="text-end" style="width:55px">비중</th>
     </tr>`;
 
     if(!filtered.length) {
         document.getElementById('tableBody').innerHTML =
-            '<tr><td colspan="11" class="text-center text-muted py-3">데이터 없음</td></tr>';
+            '<tr><td colspan="10" class="text-center text-muted py-3">데이터 없음</td></tr>';
         document.getElementById('rowCount').textContent = '';
         return;
     }
@@ -260,8 +281,6 @@ function renderTable(items) {
 
     let html = '';
     filtered.forEach((item,idx) => {
-        const curN = isAmt ? item.cur_naver_amount : item.cur_naver_qty;
-        const curC = isAmt ? item.cur_coupang_amount : item.cur_coupang_qty;
         const curT = isAmt ? item.cur_amount : item.cur_qty;
         const prevT = isAmt ? item.prev_amount : item.prev_qty;
 
@@ -272,9 +291,8 @@ function renderTable(items) {
         html += `<tr class="${rowCls}">
             <td class="text-muted small">${idx+1}</td>
             <td>${esc(item.product_name)}</td>
-            <td class="text-center small">${esc(item.sales_category)}</td>
-            <td class="text-end">${n(curN)}</td>
-            <td class="text-end">${n(curC)}</td>
+            <td class="text-center small">${esc(item.cost_type)}</td>
+            <td class="text-center small">${esc(item.food_type)}</td>
             <td class="text-end fw-bold">${n(curT)}</td>
             <td class="text-end">${n(prevT)}</td>
             <td class="text-end">${nf(item.daily_avg_cur,1)}</td>
@@ -287,7 +305,7 @@ function renderTable(items) {
 }
 
 // 필터 이벤트
-['catFilter','chFilter','searchInput','hideZero'].forEach(id => {
+['ctFilter','ftFilter','modeFilter','searchInput','hideZero'].forEach(id => {
     document.getElementById(id).addEventListener(
         id==='searchInput'?'input':'change',
         () => { if(allData) renderTable(allData.items); }
