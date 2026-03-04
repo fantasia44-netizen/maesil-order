@@ -107,7 +107,11 @@ def _get_sales_data(db, days=DEFAULT_SALES_WINDOW):
         name = r.get('product_name', '')
         qty = float(r.get('qty', 0) or 0)
         if name:
-            sales[name] += abs(qty)  # 출고는 음수이므로 abs
+            # stock_ledger는 공백제거 저장, 원본 키 + 정규화 키 모두 등록
+            sales[name] += abs(qty)
+            norm = name.replace(' ', '')
+            if norm != name:
+                sales[norm] += abs(qty)
 
     return dict(sales)
 
@@ -180,8 +184,10 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW,
     # 2. 품목별 계산
     items = []
     for name, config in targets.items():
-        current_stock = stock_data.get(name, 0)
-        total_sold = sales_data.get(name, 0)
+        # stock_ledger는 공백제거 저장 → 정규화 키로도 조회
+        norm_name = name.replace(' ', '')
+        current_stock = stock_data.get(name, 0) or stock_data.get(norm_name, 0)
+        total_sold = sales_data.get(name, 0) or sales_data.get(norm_name, 0)
 
         # 일평균 판매량 (0 division 방지)
         avg_daily = total_sold / sales_window if sales_window > 0 else 0
