@@ -60,11 +60,6 @@
         <span class="text-muted small">({{ data.month_start|default('') }} ~ {{ data.date|default('') }})</span>
         <strong>:</strong>
         <span class="text-primary fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_revenue|default(0)) }}원</span>
-        {% if data.kpi.month_settlement|default(0) > 0 %}
-        <span class="text-muted mx-2">|</span>
-        <span class="text-muted">정산액</span>
-        <span class="text-success fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_settlement) }}원</span>
-        {% endif %}
     </span>
     <span class="text-muted small">
         출고 완료: {{ data.kpi.done_outbound|default(0) }}건

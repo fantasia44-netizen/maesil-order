@@ -86,18 +86,21 @@ def process_adjustment_batch(db, date_str, items):
             "location": location,
             "memo": memo,
         }
-        if storage_method:
-            row["storage_method"] = storage_method
         if unit:
             row["unit"] = unit
 
-        # ── category: 직접 입력값 → 기존 재고 스냅샷에서 자동 매핑 ──
+        # ── category / storage_method: 직접 입력값 → 기존 재고 스냅샷에서 자동 매핑 ──
         category = str(item.get('category', '')).strip()
-        if not category and location in _snapshots:
+        if (not category or not storage_method) and location in _snapshots:
             snap = snapshot_lookup(_snapshots[location], name)
-            category = snap.get('category', '')
+            if not category:
+                category = snap.get('category', '')
+            if not storage_method:
+                storage_method = snap.get('storage_method', '')
         if category:
             row["category"] = category
+        if storage_method:
+            row["storage_method"] = storage_method
 
         payload.append(row)
 
