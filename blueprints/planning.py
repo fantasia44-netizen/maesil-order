@@ -178,10 +178,15 @@ def api_category_download():
         raw_cost_map = current_app.db.query_product_costs()
 
         # ── 공백 정규화: 동일 품목 중복 병합 (공백 있는 버전 우선) ──
+        import re, unicodedata
+        def _norm_key(s):
+            s = unicodedata.normalize('NFC', str(s))
+            return re.sub(r'\s+', '', s)
+
         cost_map = {}
         norm_lookup = {}   # norm_key → canonical_name
         for name, info in raw_cost_map.items():
-            norm = name.replace(' ', '')
+            norm = _norm_key(name)
             if norm in norm_lookup:
                 # 이미 존재 — 분류 정보가 있는 쪽 우선, 같으면 공백 있는 버전 유지
                 existing = norm_lookup[norm]
@@ -215,7 +220,7 @@ def api_category_download():
         # 판매 품목 중 product_costs에 없는 것 추가 (공백 정규화 대응)
         all_sales_names = set(cur_sales.keys()) | set(prev_sales.keys())
         for pn in all_sales_names:
-            norm = pn.replace(' ', '')
+            norm = _norm_key(pn)
             if norm not in norm_lookup:
                 cost_map[pn] = {
                     'cost_type': '', 'food_type': '', 'material_type': '완제품',
@@ -323,10 +328,16 @@ def api_category_upload():
         errors = []
 
         # DB 전체 품목명 로드 → 공백 정규화 매핑 (norm → [실제이름들])
+        import re, unicodedata
+        def _norm_key(s):
+            """모든 종류 공백 제거 + Unicode NFC 정규화."""
+            s = unicodedata.normalize('NFC', str(s))
+            return re.sub(r'\s+', '', s)
+
         all_costs = current_app.db.query_product_costs()
         norm_to_names = {}
         for db_name in all_costs.keys():
-            nk = db_name.replace(' ', '')
+            nk = _norm_key(db_name)
             norm_to_names.setdefault(nk, []).append(db_name)
 
         def _safe_str(val, default=''):
@@ -369,7 +380,7 @@ def api_category_upload():
 
             try:
                 # 공백 정규화로 DB의 모든 변형 이름을 찾아서 일괄 업데이트
-                norm = name.replace(' ', '')
+                norm = _norm_key(name)
                 db_names = norm_to_names.get(norm, [name])
                 row_updated = False
                 for db_name in db_names:
@@ -381,7 +392,16 @@ def api_category_upload():
                 if row_updated:
                     updated += 1
                 else:
-                    not_found.append(name)
+                    # product_costs에 없는 품목 → 신규 등록
+                    try:
+                        insert_data = {'product_name': name}
+                        insert_data.update(update_data)
+                        current_app.db.client.table('product_costs').insert(
+                            insert_data
+                        ).execute()
+                        updated += 1
+                    except Exception:
+                        not_found.append(name)
             except Exception as e:
                 errors.append(f'{name}: {e}')
                 if len(errors) > 10:
