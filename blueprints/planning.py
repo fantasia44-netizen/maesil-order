@@ -329,24 +329,38 @@ def api_category_upload():
             nk = db_name.replace(' ', '')
             norm_to_names.setdefault(nk, []).append(db_name)
 
+        def _safe_str(val, default=''):
+            """pandas NaN/None → 빈 문자열 변환."""
+            if pd.isna(val):
+                return default
+            return str(val).strip()
+
+        not_found = []
+
         for _, row in df.iterrows():
-            name = str(row.get('품목명', '')).strip()
+            name = _safe_str(row.get('품목명', ''))
             if not name:
                 skipped += 1
                 continue
 
             update_data = {}
             if has_ct:
-                update_data['cost_type'] = str(row.get('cost_type', '')).strip()
+                v = _safe_str(row.get('cost_type', ''))
+                if v:
+                    update_data['cost_type'] = v
             elif has_sc:
-                update_data['cost_type'] = str(row.get('sales_category', '')).strip()
+                v = _safe_str(row.get('sales_category', ''))
+                if v:
+                    update_data['cost_type'] = v
             if has_ft:
-                update_data['food_type'] = str(row.get('food_type', '')).strip()
+                v = _safe_str(row.get('food_type', ''))
+                if v:
+                    update_data['food_type'] = v
             if has_sm:
-                sm_val = str(row.get('재고관리', '')).strip().upper()
+                sm_val = _safe_str(row.get('재고관리', '')).upper()
                 if sm_val in ('N', 'FALSE', '0', 'NO'):
                     update_data['is_stock_managed'] = False
-                elif sm_val in ('Y', 'TRUE', '1', 'YES', ''):
+                elif sm_val in ('Y', 'TRUE', '1', 'YES'):
                     update_data['is_stock_managed'] = True
 
             if not update_data:
@@ -357,11 +371,17 @@ def api_category_upload():
                 # 공백 정규화로 DB의 모든 변형 이름을 찾아서 일괄 업데이트
                 norm = name.replace(' ', '')
                 db_names = norm_to_names.get(norm, [name])
+                row_updated = False
                 for db_name in db_names:
-                    current_app.db.client.table('product_costs').update(
+                    resp = current_app.db.client.table('product_costs').update(
                         update_data
                     ).eq('product_name', db_name).execute()
-                updated += 1
+                    if resp.data:
+                        row_updated = True
+                if row_updated:
+                    updated += 1
+                else:
+                    not_found.append(name)
             except Exception as e:
                 errors.append(f'{name}: {e}')
                 if len(errors) > 10:
@@ -374,6 +394,7 @@ def api_category_upload():
             'success': True,
             'updated': updated,
             'skipped': skipped,
+            'not_found': not_found[:20],
             'errors': errors[:10],
         })
     except Exception as e:

@@ -329,8 +329,12 @@ document.getElementById('catUploadFile').addEventListener('change', async functi
         });
         const data = await res.json();
         if(data.error){alert(data.error); return;}
-        alert(`완료! ${data.updated}건 반영, ${data.skipped}건 스킵` +
-            (data.errors.length ? '\n오류: '+data.errors.join('\n') : ''));
+        let msg = `완료! ${data.updated}건 반영, ${data.skipped}건 스킵`;
+        if(data.not_found && data.not_found.length)
+            msg += `\n\n⚠ DB에서 찾지 못한 품목(${data.not_found.length}건):\n` + data.not_found.slice(0,10).join(', ');
+        if(data.errors && data.errors.length)
+            msg += '\n\n오류: '+data.errors.join('\n');
+        alert(msg);
         if(allData) load(); // 재조회
     } catch(e){alert(e.message);}
     finally { this.value=''; }
