@@ -53,18 +53,19 @@ def _get_production_targets(db):
     targets = {}
 
     for name, info in cost_map.items():
-        # 완제품 필터: cost_type='생산' 또는 material_type='완제품'
         cost_type = info.get('cost_type', '')
         material_type = info.get('material_type', '')
+        food_type = info.get('food_type', '') or ''
         is_target = info.get('is_production_target')
 
         # is_production_target 컬럼이 명시적으로 False면 제외
         if is_target is False:
             continue
 
-        # 완제품이 아니면 기본 제외 (단, is_production_target=True면 포함)
+        # 기본: cost_type='생산'인 품목만 (매입/OEM 제외)
+        # is_production_target=True면 cost_type 무관하게 포함
         if is_target is not True:
-            if cost_type != '생산' and material_type not in ('완제품', '반제품'):
+            if cost_type != '생산':
                 continue
 
         targets[name] = {
@@ -73,6 +74,7 @@ def _get_production_targets(db):
             'unit': info.get('unit', '개') or '개',
             'material_type': material_type,
             'cost_type': cost_type,
+            'food_type': food_type,
         }
 
     return targets
@@ -234,6 +236,7 @@ def calculate_production_plan(db, sales_window=DEFAULT_SALES_WINDOW,
             'status': status,
             'unit': config['unit'],
             'material_type': config.get('material_type', ''),
+            'food_type': config.get('food_type', ''),
         })
 
     # 3. 정렬: 부족 → 주의 → 안정 → 미판매, 소진일수 오름차순

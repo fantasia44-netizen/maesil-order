@@ -181,8 +181,17 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
-    # food_type 빈값 통합: 같은 품목에 food_type이 있으면 채워넣기
+    # food_type 빈값 통합: stock_ledger 내부 + product_costs fallback
     ft_map = df[df['food_type'] != ''].groupby('product_name')['food_type'].first().to_dict()
+    # product_costs에서 food_type 가져와서 fallback
+    try:
+        pc_map = db.query_product_costs()
+        for pn, info in pc_map.items():
+            ft_val = (info.get('food_type') or '').strip()
+            if ft_val and pn not in ft_map:
+                ft_map[pn] = ft_val
+    except Exception:
+        pass
     if ft_map:
         mask_ft = df['food_type'] == ''
         if mask_ft.any():
