@@ -360,21 +360,65 @@ def add_trade():
         flash('수량과 단가는 숫자로 입력하세요.', 'danger')
         return redirect(url_for('trade.trades'))
 
+    trade_type = request.form.get('trade_type', '판매')
+    location = request.form.get('location', '').strip()
+    unit = request.form.get('unit', '개').strip()
+    memo_text = request.form.get('memo', '').strip()
+
+    # 판매일 때 location 기반 memo 생성 (재고 복원용)
+    if trade_type == '판매' and location:
+        memo_val = f'거래처주문 ({location})'
+        if memo_text:
+            memo_val += f' - {memo_text}'
+    else:
+        memo_val = memo_text or None
+
     payload = {
         'partner_name': partner_name,
         'product_name': product_name,
         'trade_date': trade_date,
-        'trade_type': request.form.get('trade_type', '판매'),
+        'trade_type': trade_type,
         'qty': qty,
-        'unit': request.form.get('unit', '개').strip(),
+        'unit': unit,
         'unit_price': unit_price,
         'amount': qty * unit_price,
-        'memo': request.form.get('memo', '').strip() or None,
+        'memo': memo_val,
         'registered_by': current_user.username,
     }
 
+    db = current_app.db
     try:
-        current_app.db.insert_manual_trade(payload)
+        # ── 판매 거래: 재고차감(SALES_OUT) + 매출(daily_revenue) 연동 ──
+        if trade_type == '판매' and location and qty > 0:
+            try:
+                from services.outbound_service import process_single_outbound
+                items = [{'product_name': product_name, 'qty': qty, 'unit': unit}]
+                result = process_single_outbound(db, trade_date, location, items)
+                if not result['success']:
+                    for s in result.get('shortage', []):
+                        flash(f'재고 부족: {s}', 'danger')
+                    return redirect(url_for('trade.trades'))
+            except Exception as stk_err:
+                current_app.logger.warning(f'재고차감 실패: {stk_err}')
+                flash(f'재고차감 실패: {stk_err}', 'danger')
+                return redirect(url_for('trade.trades'))
+
+        db.insert_manual_trade(payload)
+
+        # 매출(daily_revenue) 등록
+        if trade_type == '판매' and qty > 0 and unit_price > 0:
+            try:
+                db.upsert_revenue([{
+                    'revenue_date': trade_date,
+                    'product_name': product_name,
+                    'category': '거래처매출',
+                    'qty': qty,
+                    'unit_price': unit_price,
+                    'revenue': qty * unit_price,
+                }])
+            except Exception as rev_err:
+                current_app.logger.warning(f'매출 등록 실패: {rev_err}')
+
         _log_action('add_trade', target=f'{partner_name}/{product_name}')
         flash(f'거래 등록 완료: {partner_name} — {product_name}', 'success')
     except Exception as e:
@@ -704,6 +748,83 @@ def generate_purchase_order():
     except Exception as e:
         flash(f'발주서 생성 중 오류: {e}', 'danger')
         return redirect(url_for('trade.purchase_order'))
+
+
+@trade_bp.route('/purchase-order/update/<int:po_id>', methods=['POST'])
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
+def update_purchase_order(po_id):
+    """발주서 수정 (품목/정보 수정 후 DB 반영)"""
+    db = current_app.db
+
+    try:
+        old_po = db.query_purchase_order_by_id(po_id)
+        if not old_po:
+            flash('해당 발주서를 찾을 수 없습니다.', 'warning')
+            return redirect(url_for('trade.purchase_order'))
+
+        # 거래처 정보
+        partner_id = request.form.get('partner_id', '')
+        partner_name = ''
+        if partner_id:
+            partners = db.query_partners()
+            partner = next(
+                (p for p in partners if str(p.get('id')) == partner_id), {}
+            )
+            partner_name = partner.get('partner_name', '')
+
+        # 발주처 정보
+        my_biz_id = request.form.get('my_biz_id', '')
+        my_biz_name = ''
+        if my_biz_id:
+            my_biz_list = db.query_my_business()
+            my_biz = next(
+                (b for b in my_biz_list if str(b.get('id')) == my_biz_id), {}
+            )
+            my_biz_name = my_biz.get('business_name', '')
+
+        # 품목 데이터
+        items_json = request.form.get('items', '[]')
+        items = json.loads(items_json)
+
+        update_data = {
+            'order_date': request.form.get('order_date', old_po.get('order_date', '')),
+            'partner_id': int(partner_id) if partner_id else old_po.get('partner_id'),
+            'partner_name': partner_name or old_po.get('partner_name', ''),
+            'my_biz_name': my_biz_name or old_po.get('my_biz_name', ''),
+            'request_date': request.form.get('request_date', '').strip() or None,
+            'delivery_note': request.form.get('delivery_note', '').strip() or None,
+            'order_manager': request.form.get('order_manager', '').strip() or None,
+            'invoice_manager': request.form.get('invoice_manager', '').strip() or None,
+            'manager_contact': request.form.get('manager_contact', '').strip() or None,
+            'caution_text': request.form.get('caution_text', '').strip() or None,
+            'items': items,
+            'item_count': len(items),
+        }
+
+        db.update_purchase_order(po_id, update_data)
+        _log_action('update_purchase_order', target=str(po_id),
+                     old_value=old_po, new_value=update_data)
+        flash('발주서가 수정되었습니다.', 'success')
+    except Exception as e:
+        flash(f'발주서 수정 중 오류: {e}', 'danger')
+
+    return redirect(url_for('trade.purchase_order'))
+
+
+@trade_bp.route('/purchase-order/api/<int:po_id>')
+@role_required('admin', 'ceo', 'manager', 'sales', 'general')
+def api_purchase_order(po_id):
+    """발주서 상세 JSON (수정 모달용)"""
+    try:
+        po = current_app.db.query_purchase_order_by_id(po_id)
+        if not po:
+            return jsonify({'error': '발주서를 찾을 수 없습니다.'}), 404
+        # items 파싱
+        if isinstance(po.get('items'), str):
+            po['items'] = json.loads(po['items'])
+        return jsonify({'success': True, 'po': po})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @trade_bp.route('/purchase-order/delete/<int:po_id>', methods=['POST'])

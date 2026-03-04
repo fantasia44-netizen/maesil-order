@@ -653,13 +653,26 @@ def update_trade(trade_id):
                 if '(' in memo_str and ')' in memo_str:
                     location = memo_str.split('(')[1].split(')')[0].strip()
                 if location and product_name:
+                    # 기존 SALES_OUT 레코드에서 카테고리/단위 정보 조회
+                    existing = db.query_stock_ledger(
+                        date_to=trade_date, date_from=trade_date,
+                        location=location, type_list=['SALES_OUT'],
+                    )
+                    ref = next(
+                        (r for r in existing
+                         if r.get('product_name', '').replace(' ', '') == product_name.replace(' ', '')),
+                        {}
+                    )
                     db.insert_stock_ledger([{
                         'transaction_date': trade_date,
                         'product_name': product_name,
                         'type': 'SALES_OUT',
                         'qty': -abs(qty_diff) if qty_diff > 0 else abs(qty_diff),
                         'location': location,
-                        'memo': f'거래수정 (수량변경: {old_qty}→{new_qty})',
+                        'category': ref.get('category', ''),
+                        'unit': ref.get('unit', trade.get('unit', '개')),
+                        'storage_method': ref.get('storage_method', ''),
+                        'manufacture_date': ref.get('manufacture_date', ''),
                     }])
             except Exception as stk_err:
                 current_app.logger.warning(f'재고 조정 실패: {stk_err}')

@@ -34,6 +34,11 @@
                 </select>
             </div>
             <div class="col-md-2">
+                <label class="form-label fw-semibold">품목명 검색</label>
+                <input type="text" name="product_search" class="form-control" placeholder="품목명 입력..."
+                       value="{{ product_search|default('') }}">
+            </div>
+            <div class="col-md-2">
                 <label class="form-label fw-semibold">보기 옵션</label>
                 <select name="view_mode" class="form-select">
                     <option value="default" {% if view_mode|default('default') == 'default' %}selected{% endif %}>기본(품목별)</option>

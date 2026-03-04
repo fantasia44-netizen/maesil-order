@@ -29,6 +29,7 @@ def index():
     date_to = request.args.get('date_to', '')
     location = request.args.get('location', '전체')
     ledger_type = request.args.get('ledger_type', '')
+    product_search = request.args.get('product_search', '').strip()
     view_mode = request.args.get('view_mode', 'default')  # default / manufacture / expiry
 
     locations, categories = [], []
@@ -55,6 +56,12 @@ def index():
             if ledger_type and ledger_type in LEDGER_CATEGORY_MAP:
                 cat_filter = set(LEDGER_CATEGORY_MAP[ledger_type])
                 sorted_keys = [k for k in sorted_keys if k[2] in cat_filter]
+
+            # 품목명 검색 필터
+            if product_search:
+                search_term = product_search.replace(' ', '').lower()
+                sorted_keys = [k for k in sorted_keys
+                               if search_term in k[0].replace(' ', '').lower()]
 
             prev_dict = result['prev_dict']
             period_groups = result['period_groups']
@@ -128,6 +135,7 @@ def index():
                            ledger=ledger_rows,
                            date_from=date_from, date_to=date_to,
                            location=location, ledger_type=ledger_type,
+                           product_search=product_search,
                            view_mode=view_mode,
                            locations=locations,
                            ledger_types=list(LEDGER_CATEGORY_MAP.keys()),

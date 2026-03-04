@@ -833,6 +833,10 @@ class SupabaseDB(DBBase):
         res = self.client.table("purchase_orders").select("*").eq("id", po_id).execute()
         return res.data[0] if res.data else None
 
+    def update_purchase_order(self, po_id, update_data):
+        """발주서 1건 수정."""
+        self.client.table("purchase_orders").update(update_data).eq("id", po_id).execute()
+
     def delete_purchase_order(self, po_id):
         """발주서 1건 삭제."""
         self.client.table("purchase_orders").delete().eq("id", po_id).execute()

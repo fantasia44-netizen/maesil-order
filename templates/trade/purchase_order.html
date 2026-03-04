@@ -75,6 +75,10 @@
                                onclick="event.stopPropagation()">
                                 <i class="bi bi-file-earmark-pdf"></i>
                             </a>
+                            <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1 edit-po-btn" title="수정"
+                                    onclick="event.stopPropagation()" data-po-id="{{ po.id }}">
+                                <i class="bi bi-pencil"></i>
+                            </button>
                             <form method="POST" action="{{ url_for('trade.delete_purchase_order', po_id=po.id) }}" class="d-inline"
                                   onsubmit="event.stopPropagation(); return confirm('이 발주서 이력을 삭제하시겠습니까?\n{{ po.partner_name }} / {{ po.order_date }}')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -316,6 +320,102 @@
 </form>
 {% endblock %}
 
+<!-- ─── 발주서 수정 모달 ─── -->
+<div class="modal fade" id="editPoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="editPoForm" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="items" id="editPoItemsJson" value="[]">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title"><i class="bi bi-pencil"></i> 발주서 수정</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">발주일</label>
+                            <input type="date" name="order_date" id="editPoDate" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">입고요청일</label>
+                            <input type="date" name="request_date" id="editPoReqDate" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">입고기한</label>
+                            <input type="text" name="delivery_note" id="editPoDelivery" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">발주처</label>
+                            <select name="my_biz_id" id="editPoBiz" class="form-select form-select-sm">
+                                {% for b in my_businesses|default([]) %}
+                                <option value="{{ b.id }}">{{ b.business_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">공급업체</label>
+                            <select name="partner_id" id="editPoPartner" class="form-select form-select-sm">
+                                {% for p in partners|default([]) %}
+                                <option value="{{ p.id }}">{{ p.partner_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">발주담당자</label>
+                            <input type="text" name="order_manager" id="editPoManager" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">계산서담당자</label>
+                            <input type="text" name="invoice_manager" id="editPoInvMgr" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-semibold">연락처</label>
+                            <input type="text" name="manager_contact" id="editPoContact" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                    <!-- 품목 테이블 -->
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="fw-semibold small">발주내역</label>
+                        <button type="button" class="btn btn-sm btn-primary" id="editPoAddItem">
+                            <i class="bi bi-plus-lg"></i> 추가
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:40px">No</th>
+                                    <th>물품명</th>
+                                    <th style="width:80px">단위</th>
+                                    <th style="width:80px">수량</th>
+                                    <th>비고</th>
+                                    <th style="width:40px"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="editPoItemBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2">
+                        <label class="form-label small fw-semibold">주의사항</label>
+                        <textarea name="caution_text" id="editPoCaution" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer py-1">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="bi bi-check-lg"></i> 수정 저장
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -518,6 +618,106 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 초기 1행 자동 추가
     addBtn.click();
+
+    // ── 발주서 수정 모달 ──
+    const editPoModal = document.getElementById('editPoModal');
+    if (editPoModal) {
+        const editModal = new bootstrap.Modal(editPoModal);
+        const editForm = document.getElementById('editPoForm');
+        const editItemBody = document.getElementById('editPoItemBody');
+        const editItemsJson = document.getElementById('editPoItemsJson');
+
+        function addEditPoRow(item) {
+            const idx = editItemBody.children.length + 1;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="text-center edit-po-no">${idx}</td>
+                <td><input type="text" class="form-control form-control-sm ep-name" value="${item ? (item.product_name || '') : ''}" required></td>
+                <td><input type="text" class="form-control form-control-sm ep-unit" value="${item ? (item.unit || 'EA') : 'EA'}"></td>
+                <td><input type="number" class="form-control form-control-sm ep-qty" step="any" value="${item ? (item.qty || 1) : 1}"></td>
+                <td><input type="text" class="form-control form-control-sm ep-note" value="${item ? (item.note || '') : ''}"></td>
+                <td><button type="button" class="btn btn-sm btn-outline-danger ep-remove"><i class="bi bi-x-lg"></i></button></td>
+            `;
+            editItemBody.appendChild(tr);
+            tr.querySelector('.ep-remove').addEventListener('click', () => {
+                tr.remove();
+                renumberEditItems();
+            });
+        }
+
+        function renumberEditItems() {
+            editItemBody.querySelectorAll('tr').forEach((tr, i) => {
+                tr.querySelector('.edit-po-no').textContent = i + 1;
+            });
+        }
+
+        document.getElementById('editPoAddItem').addEventListener('click', () => addEditPoRow(null));
+
+        // 수정 버튼 클릭
+        document.querySelectorAll('.edit-po-btn').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const poId = this.dataset.poId;
+                editForm.action = `/trade/purchase-order/update/${poId}`;
+                editItemBody.innerHTML = '';
+
+                try {
+                    const res = await fetch(`/trade/purchase-order/api/${poId}`);
+                    const data = await res.json();
+                    if (!data.success) { alert(data.error || '조회 실패'); return; }
+                    const po = data.po;
+
+                    document.getElementById('editPoDate').value = po.order_date || '';
+                    document.getElementById('editPoReqDate').value = po.request_date || '';
+                    document.getElementById('editPoDelivery').value = po.delivery_note || '';
+                    document.getElementById('editPoManager').value = po.order_manager || '';
+                    document.getElementById('editPoInvMgr').value = po.invoice_manager || '';
+                    document.getElementById('editPoContact').value = po.manager_contact || '';
+                    document.getElementById('editPoCaution').value = po.caution_text || '';
+
+                    // 발주처 선택
+                    const bizSel = document.getElementById('editPoBiz');
+                    if (bizSel && po.my_biz_name) {
+                        for (const opt of bizSel.options) {
+                            if (opt.textContent.trim() === po.my_biz_name) { opt.selected = true; break; }
+                        }
+                    }
+                    // 공급업체 선택
+                    const partnerSel = document.getElementById('editPoPartner');
+                    if (partnerSel && po.partner_id) {
+                        partnerSel.value = po.partner_id;
+                    }
+                    // 품목 로드
+                    const items = Array.isArray(po.items) ? po.items : [];
+                    items.forEach(it => addEditPoRow(it));
+                    if (items.length === 0) addEditPoRow(null);
+
+                    editModal.show();
+                } catch (err) {
+                    alert('발주서 조회 중 오류: ' + err.message);
+                }
+            });
+        });
+
+        // 수정 폼 제출
+        editForm.addEventListener('submit', function(e) {
+            const rows = editItemBody.querySelectorAll('tr');
+            if (rows.length === 0) { e.preventDefault(); alert('품목을 추가하세요.'); return; }
+            const items = [];
+            let valid = true;
+            rows.forEach(tr => {
+                const name = tr.querySelector('.ep-name').value.trim();
+                if (!name) { valid = false; return; }
+                items.push({
+                    product_name: name,
+                    unit: tr.querySelector('.ep-unit').value.trim(),
+                    qty: tr.querySelector('.ep-qty').value.trim(),
+                    note: tr.querySelector('.ep-note').value.trim(),
+                });
+            });
+            if (!valid) { e.preventDefault(); alert('물품명이 비어있는 항목이 있습니다.'); return; }
+            editItemsJson.value = JSON.stringify(items);
+        });
+    }
 });
 </script>
 {% endblock %}
