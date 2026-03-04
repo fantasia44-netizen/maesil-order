@@ -122,10 +122,16 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
             remain -= deduct
 
     if payload:
-        db.insert_stock_ledger(payload)
+        insert_result = db.insert_stock_ledger(payload)
+        if isinstance(insert_result, dict):
+            actual_count = insert_result.get('inserted', len(payload))
+        else:
+            actual_count = len(payload)
+    else:
+        actual_count = 0
 
     return {
-        'count': len(payload),
+        'count': actual_count,
         'shortage': shortage,
         'location': location,
         'aborted': False,
@@ -211,14 +217,22 @@ def process_single_outbound(db, date_str, location, items):
             })
             remain -= deduct
 
+    insert_result = {'inserted': 0, 'failed': 0, 'errors': []}
     if payload:
-        db.insert_stock_ledger(payload)
+        insert_result = db.insert_stock_ledger(payload)
+        # insert_stock_ledger가 dict를 반환하지 않는 경우 (호환)
+        if not isinstance(insert_result, dict):
+            insert_result = {'inserted': len(payload), 'failed': 0, 'errors': []}
+        if insert_result.get('failed', 0) > 0:
+            for err in insert_result.get('errors', []):
+                warnings.append(f'재고차감 일부 실패: {err}')
 
     return {
         'success': True,
-        'count': len(payload),
+        'count': insert_result.get('inserted', len(payload)),
         'shortage': [],
         'warnings': warnings,
+        'insert_detail': insert_result,
     }
 
 

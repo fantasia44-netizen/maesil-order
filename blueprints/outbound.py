@@ -198,8 +198,22 @@ def single():
                 flash(f'재고 부족: {s}', 'danger')
             return redirect(url_for('outbound.index'))
 
+        # process_single_outbound 내부 경고 표시
+        for w in result.get('warnings', []):
+            flash(f'⚠️ {w}', 'warning')
+
         # ── 재고차감 검증: stock_ledger에 SALES_OUT 실제 기록되었는지 확인 ──
         stock_count = result.get('count', 0)
+        insert_detail = result.get('insert_detail', {})
+        if insert_detail.get('failed', 0) > 0:
+            current_app.logger.error(
+                f'[재고차감 부분 실패] {insert_detail["failed"]}건 실패. '
+                f'errors={insert_detail.get("errors", [])}. '
+                f'date={date_str}, location={location}'
+            )
+            flash(f'⚠️ 재고차감 중 {insert_detail["failed"]}건 실패: '
+                  f'{"; ".join(insert_detail.get("errors", []))}', 'danger')
+
         if stock_count == 0:
             current_app.logger.warning(
                 f'[재고차감 경고] 출고 처리 완료되었으나 stock_ledger 기록 0건. '
@@ -212,7 +226,8 @@ def single():
                     date_to=date_str, date_from=date_str,
                     location=location, type_list=['SALES_OUT'],
                 )
-                verify_names = set(r.get('product_name', '') for r in verify
+                verify_names = set(r.get('product_name', '').replace(' ', '')
+                                   for r in verify
                                    if r.get('transaction_date') == date_str)
                 item_names = set(str(i['product_name']).strip().replace(' ', '')
                                  for i in items)

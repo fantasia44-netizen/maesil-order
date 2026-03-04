@@ -91,10 +91,29 @@ class SupabaseDB(DBBase):
 
     def insert_stock_ledger(self, payload_list):
         if not payload_list:
-            return
+            return {'inserted': 0, 'failed': 0, 'errors': []}
         payload_list = self._normalize_product_names(payload_list)
         filtered = self._filter_payload(payload_list)
-        self.client.table("stock_ledger").insert(filtered).execute()
+        # 배치 삽입 시도 → 실패 시 개별 삽입 fallback
+        try:
+            self.client.table("stock_ledger").insert(filtered).execute()
+            return {'inserted': len(filtered), 'failed': 0, 'errors': []}
+        except Exception as batch_err:
+            print(f"[stock_ledger] 배치 삽입 실패, 개별 삽입 시도: {batch_err}")
+            inserted = 0
+            failed = 0
+            errors = []
+            for row in filtered:
+                try:
+                    self.client.table("stock_ledger").insert(row).execute()
+                    inserted += 1
+                except Exception as row_err:
+                    failed += 1
+                    pname = row.get('product_name', '?')
+                    err_msg = f"{pname}: {row_err}"
+                    errors.append(err_msg)
+                    print(f"[stock_ledger] 개별 삽입 실패 — {err_msg}")
+            return {'inserted': inserted, 'failed': failed, 'errors': errors}
 
     def upsert_stock_ledger_idempotent(self, payload_list):
         """event_uid 기반 중복 방지 insert.
