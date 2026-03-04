@@ -8,7 +8,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 # 쿡대디 Supabase (별도 프로젝트)
 COOKDADDY_SUPABASE_URL = "https://yfktbbszelpzydrktmuo.supabase.co"
-COOKDADDY_SUPABASE_KEY = "sb_publishable_SV6Xe6b2bm50vtqfTai42A_SjBKFlap"
+COOKDADDY_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlma3RiYnN6ZWxwenlkcmt0bXVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MjM3MDksImV4cCI6MjA4ODE5OTcwOX0.epmsBO5HQJfSs6bRDbbO_dHNNMHGIElNiR__FmdzYS8"
 
 # 사업자 설정
 DEFAULT_BUSINESS = 'baemama'
