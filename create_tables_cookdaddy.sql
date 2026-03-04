@@ -92,8 +92,8 @@ CREATE INDEX IF NOT EXISTS idx_stock_ledger_transfer_id ON stock_ledger(transfer
 -- 3. 마스터 데이터 테이블
 -- ============================================================
 
--- 3-1) product_master (옵션마스터)
-CREATE TABLE IF NOT EXISTS product_master (
+-- 3-1) master_products (품목마스터)
+CREATE TABLE IF NOT EXISTS master_products (
     id            BIGSERIAL PRIMARY KEY,
     product_name  TEXT UNIQUE NOT NULL,
     line_code     TEXT DEFAULT '0',
@@ -115,8 +115,8 @@ CREATE TABLE IF NOT EXISTS option_master (
     updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3-3) price_master (가격표)
-CREATE TABLE IF NOT EXISTS price_master (
+-- 3-3) master_prices (가격표)
+CREATE TABLE IF NOT EXISTS master_prices (
     id            BIGSERIAL PRIMARY KEY,
     product_name  TEXT UNIQUE NOT NULL,
     sku           TEXT DEFAULT '',
@@ -127,8 +127,8 @@ CREATE TABLE IF NOT EXISTS price_master (
     updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3-4) bom_master (세트옵션 BOM)
-CREATE TABLE IF NOT EXISTS bom_master (
+-- 3-4) master_bom (세트옵션 BOM)
+CREATE TABLE IF NOT EXISTS master_bom (
     id            BIGSERIAL PRIMARY KEY,
     channel       TEXT NOT NULL,
     set_name      TEXT NOT NULL,
@@ -838,10 +838,10 @@ ALTER TABLE app_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE role_permissions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_ledger DISABLE ROW LEVEL SECURITY;
-ALTER TABLE product_master DISABLE ROW LEVEL SECURITY;
+ALTER TABLE master_products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE option_master DISABLE ROW LEVEL SECURITY;
-ALTER TABLE price_master DISABLE ROW LEVEL SECURITY;
-ALTER TABLE bom_master DISABLE ROW LEVEL SECURITY;
+ALTER TABLE master_prices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE master_bom DISABLE ROW LEVEL SECURITY;
 ALTER TABLE product_costs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE channel_costs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE daily_revenue DISABLE ROW LEVEL SECURITY;
