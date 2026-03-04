@@ -880,18 +880,19 @@ def generate_report():
             flash(f'일자별 종합 보고서 생성 오류: {daily_err}', 'warning')
 
         # ══════════════════════════════════════════════
-        # 7. 채널별 주문수량: 일자(행) × 채널그룹(열) 피벗
+        # 7. 채널별 주문수량: 일자별 시트, 품목(행) × 채널그룹(열)
         # ══════════════════════════════════════════════
         try:
             from collections import defaultdict as _dd
-            ch_agg = _dd(lambda: _dd(int))
+            # {date: {product_name: {channel_group: qty}}}
+            ch_agg = _dd(lambda: _dd(lambda: _dd(int)))
             ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
 
             # order_transactions (온라인 채널)
             ot_offset = 0
             while True:
                 ot_resp = db.client.table('order_transactions') \
-                    .select('order_date,channel,qty') \
+                    .select('order_date,product_name,channel,qty') \
                     .eq('status', '정상') \
                     .gte('order_date', date_from) \
                     .lte('order_date', date_to) \
@@ -900,9 +901,10 @@ def generate_report():
                 ot_batch = ot_resp.data or []
                 for r in ot_batch:
                     d = r.get('order_date', '')
-                    if not d:
+                    pn = _norm(r.get('product_name', ''))
+                    if not d or not pn:
                         continue
-                    ch_agg[d][_channel_group(r.get('channel', ''))] += _safe_int(r.get('qty', 0))
+                    ch_agg[d][pn][_channel_group(r.get('channel', ''))] += _safe_int(r.get('qty', 0))
                 if len(ot_batch) < 1000:
                     break
                 ot_offset += 1000
@@ -911,7 +913,7 @@ def generate_report():
             dr_offset = 0
             while True:
                 dr_resp = db.client.table('daily_revenue') \
-                    .select('revenue_date,category,qty') \
+                    .select('revenue_date,product_name,category,qty') \
                     .in_('category', ['거래처매출', '로켓']) \
                     .gte('revenue_date', date_from) \
                     .lte('revenue_date', date_to) \
@@ -920,11 +922,12 @@ def generate_report():
                 dr_batch = dr_resp.data or []
                 for r in dr_batch:
                     d = r.get('revenue_date', '')
-                    if not d:
+                    pn = _norm(r.get('product_name', ''))
+                    if not d or not pn:
                         continue
                     cat = (r.get('category') or '').strip()
                     grp = '로켓' if cat == '로켓' else '거래처매출'
-                    ch_agg[d][grp] += _safe_int(r.get('qty', 0))
+                    ch_agg[d][pn][grp] += _safe_int(r.get('qty', 0))
                 if len(dr_batch) < 1000:
                     break
                 dr_offset += 1000
@@ -935,70 +938,92 @@ def generate_report():
                 from openpyxl.utils import get_column_letter
 
                 wb_ch = Workbook()
-                ws_ch = wb_ch.active
-                ws_ch.title = '채널별주문수량'
+                first_sheet = True
 
-                ch_header_fill = PatternFill(start_color="D6EAF8", fill_type="solid")
-                ch_total_fill = PatternFill(start_color="FEF9E7", fill_type="solid")
+                header_fill = PatternFill(start_color="D6EAF8", fill_type="solid")
+                total_fill = PatternFill(start_color="FEF9E7", fill_type="solid")
                 ch_bold = Font(bold=True)
                 ch_right = Alignment(horizontal="right")
                 ch_center = Alignment(horizontal="center")
                 ch_border = Border(bottom=Side(style="thin", color="CCCCCC"))
-                ch_num_fmt = '#,##0'
 
-                # 헤더
-                headers_ch = ['날짜'] + ch_groups + ['합계']
-                ws_ch.column_dimensions['A'].width = 14
-                for ci, h in enumerate(headers_ch):
-                    col = ci + 1
-                    ws_ch.column_dimensions[get_column_letter(col)].width = 14
-                    c = ws_ch.cell(row=1, column=col, value=h)
-                    c.font = ch_bold
-                    c.fill = ch_header_fill
-                    c.alignment = ch_center
+                for d in sorted(ch_agg.keys()):
+                    day_data = ch_agg[d]
+                    if not day_data:
+                        continue
 
-                # 데이터 행
-                ch_dates = sorted(ch_agg.keys())
-                col_totals = {g: 0 for g in ch_groups}
-                col_totals['합계'] = 0
-                row_num = 2
+                    # 시트 생성
+                    if first_sheet:
+                        ws = wb_ch.active
+                        ws.title = d
+                        first_sheet = False
+                    else:
+                        ws = wb_ch.create_sheet(title=d)
 
-                for d in ch_dates:
-                    ws_ch.cell(row=row_num, column=1, value=d).font = Font(bold=True)
-                    ws_ch.cell(row=row_num, column=1).border = ch_border
-                    row_total = 0
-                    for gi, g in enumerate(ch_groups):
-                        v = ch_agg[d].get(g, 0)
-                        c = ws_ch.cell(row=row_num, column=gi + 2,
-                                       value=v if v else '')
+                    # 헤더
+                    headers_ch = ['순서', '품목명'] + ch_groups + ['합계']
+                    ws.column_dimensions['A'].width = 8
+                    ws.column_dimensions['B'].width = 30
+                    for ci, h in enumerate(headers_ch):
+                        col = ci + 1
+                        if ci >= 2:
+                            ws.column_dimensions[get_column_letter(col)].width = 12
+                        c = ws.cell(row=1, column=col, value=h)
+                        c.font = ch_bold
+                        c.fill = header_fill
+                        c.alignment = ch_center
+
+                    # 품목 정렬 (sort_order)
+                    products = sorted(day_data.keys(),
+                                      key=lambda x: (sort_map.get(x, 999), x))
+
+                    row_num = 2
+                    col_totals = {g: 0 for g in ch_groups}
+                    grand_total = 0
+
+                    for pn in products:
+                        so = sort_map.get(pn, 999)
+                        ws.cell(row=row_num, column=1,
+                                value=so if so != 999 else '').border = ch_border
+                        ws.cell(row=row_num, column=2, value=pn).border = ch_border
+
+                        row_total = 0
+                        for gi, g in enumerate(ch_groups):
+                            v = day_data[pn].get(g, 0)
+                            c = ws.cell(row=row_num, column=gi + 3,
+                                        value=v if v else '')
+                            c.border = ch_border
+                            if v:
+                                c.number_format = '#,##0'
+                                c.alignment = ch_right
+                            col_totals[g] += v
+                            row_total += v
+
+                        c = ws.cell(row=row_num, column=len(ch_groups) + 3, value=row_total)
+                        c.number_format = '#,##0'
+                        c.alignment = ch_right
+                        c.font = ch_bold
                         c.border = ch_border
-                        if v:
-                            c.number_format = ch_num_fmt
-                            c.alignment = ch_right
-                        col_totals[g] += v
-                        row_total += v
-                    c = ws_ch.cell(row=row_num, column=len(ch_groups) + 2, value=row_total)
-                    c.number_format = ch_num_fmt
-                    c.alignment = ch_right
-                    c.font = ch_bold
-                    c.border = ch_border
-                    col_totals['합계'] += row_total
-                    row_num += 1
+                        grand_total += row_total
+                        row_num += 1
 
-                # 합계 행
-                ws_ch.cell(row=row_num, column=1, value='합계').font = ch_bold
-                ws_ch.cell(row=row_num, column=1).fill = ch_total_fill
-                for gi, g in enumerate(ch_groups):
-                    c = ws_ch.cell(row=row_num, column=gi + 2, value=col_totals[g])
+                    # 합계 행
+                    ws.cell(row=row_num, column=1, value='').fill = total_fill
+                    c = ws.cell(row=row_num, column=2,
+                                value=f'합계 {len(products)}종')
                     c.font = ch_bold
-                    c.fill = ch_total_fill
-                    c.number_format = ch_num_fmt
+                    c.fill = total_fill
+                    for gi, g in enumerate(ch_groups):
+                        c = ws.cell(row=row_num, column=gi + 3, value=col_totals[g])
+                        c.font = ch_bold
+                        c.fill = total_fill
+                        c.number_format = '#,##0'
+                        c.alignment = ch_right
+                    c = ws.cell(row=row_num, column=len(ch_groups) + 3, value=grand_total)
+                    c.font = ch_bold
+                    c.fill = total_fill
+                    c.number_format = '#,##0'
                     c.alignment = ch_right
-                c = ws_ch.cell(row=row_num, column=len(ch_groups) + 2, value=col_totals['합계'])
-                c.font = ch_bold
-                c.fill = ch_total_fill
-                c.number_format = ch_num_fmt
-                c.alignment = ch_right
 
                 ch_path = os.path.join(output_dir, f"채널별주문수량_{date_file}_{ts}.xlsx")
                 wb_ch.save(ch_path)
