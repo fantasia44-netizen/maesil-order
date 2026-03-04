@@ -27,10 +27,16 @@ def _fmt_qty(val):
 
 
 def _unpack_gkey(gkey):
-    """group_keys 4-tuple 또는 5-tuple 언패킹."""
+    """group_keys tuple 언패킹 → (product_name, location, category, unit, mfg_date).
+    5-tuple: (name, loc, cat, unit, storage_method) → mfg_date=''
+    6-tuple: (name, loc, cat, unit, storage_method, mfg/expiry) → mfg_date=gkey[5]
+    Legacy 4-tuple: (name, loc, cat, unit) → mfg_date=''
+    """
+    if len(gkey) >= 6:
+        return gkey[0], gkey[1], gkey[2], gkey[3], gkey[5]
     if len(gkey) == 5:
-        return gkey[0], gkey[1], gkey[2], gkey[3], gkey[4]
-    return gkey[0], gkey[1], gkey[2], gkey[3], ''
+        return gkey[0], gkey[1], gkey[2], gkey[3], ''
+    return gkey[0], gkey[1], gkey[2], gkey[3] if len(gkey) > 3 else '', ''
 
 
 # ================================================================
@@ -85,7 +91,7 @@ def _generate_multicolumn_pdf(path, config, prev_dict, period_groups,
     margin = 15 * mm
     page_size = landscape(A4)
     page_w, page_h = page_size
-    has_mfg = len(group_keys) > 4
+    has_mfg = len(group_keys) > 5
 
     # 칼럼 너비 계산
     gap = 5 * mm
@@ -271,7 +277,7 @@ def generate_ledger_pdf(path, config, prev_dict, period_groups, sorted_keys,
     include_warnings = config.get('include_warnings', True)
     fit_one_page = config.get('fit_one_page', False)
     multi_col = config.get('multi_col', 0)  # 0=off, 2=2단, 3=3단
-    has_mfg = len(group_keys) > 4  # 제조일 분리 여부
+    has_mfg = len(group_keys) > 5  # 제조일 분리 여부
 
     # ================================================================
     # 다단 출력 모드 — 사용자 선택 (2단 또는 3단)

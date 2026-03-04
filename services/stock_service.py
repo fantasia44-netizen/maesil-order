@@ -431,11 +431,21 @@ def query_ledger_data(db, date_from, date_to, location=None, category=None,
     if df.empty:
         return {'prev_dict': {}, 'period_groups': {}, 'sorted_keys': [], 'group_keys': []}
 
-    group_keys = ['product_name', 'location', 'category', 'unit']
+    group_keys = ['product_name', 'location', 'category', 'unit', 'storage_method']
     if split_manufacture:
-        group_keys = ['product_name', 'location', 'category', 'unit', 'manufacture_date']
+        group_keys = ['product_name', 'location', 'category', 'unit', 'storage_method', 'manufacture_date']
     elif split_expiry:
-        group_keys = ['product_name', 'location', 'category', 'unit', 'expiry_date']
+        group_keys = ['product_name', 'location', 'category', 'unit', 'storage_method', 'expiry_date']
+
+    # 보관방법 빈값 통합: 같은 품목/위치/카테고리/단위에 보관방법이 있으면 채워넣기
+    base_cols = ['product_name', 'location', 'category', 'unit']
+    sm_map = df[df['storage_method'] != ''].groupby(base_cols)['storage_method'].first().to_dict()
+    if sm_map:
+        mask = df['storage_method'] == ''
+        if mask.any():
+            df.loc[mask, 'storage_method'] = df.loc[mask, base_cols].apply(
+                lambda row: sm_map.get(tuple(row), ''), axis=1
+            )
 
     if date_from:
         df_before = df[df['transaction_date'] < date_from]

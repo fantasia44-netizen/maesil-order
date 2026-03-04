@@ -67,21 +67,11 @@ def index():
             prev_dict = result['prev_dict']
             period_groups = result['period_groups']
 
-            # 보관방법 필터: 각 그룹의 트랜잭션에서 storage_method 확인
+            # 보관방법 필터: group key에 storage_method 포함 (key[4])
             if storage_method:
                 sm_lower = storage_method.lower()
-                filtered_by_sm = []
-                for key in sorted_keys:
-                    txns = period_groups.get(key, [])
-                    sm_found = ''
-                    for tx in txns:
-                        sm_val = (tx.get('storage_method') or '').strip()
-                        if sm_val:
-                            sm_found = sm_val
-                            break
-                    if sm_found.lower() == sm_lower:
-                        filtered_by_sm.append(key)
-                sorted_keys = filtered_by_sm
+                sorted_keys = [k for k in sorted_keys
+                               if (k[4] if len(k) > 4 else '').lower() == sm_lower]
 
             # 각 그룹키별로 집계 요약 생성
             for key in sorted_keys:
@@ -115,21 +105,13 @@ def index():
                 period_total = sum(tx.get('qty', 0) for tx in txns)
                 closing = opening + period_total
 
-                # key = (product_name, location, category, unit, [manufacture_date/expiry_date])
-                # 보관방법: 해당 그룹의 트랜잭션에서 추출
-                storage = ''
-                for tx in txns:
-                    sm = (tx.get('storage_method') or '').strip()
-                    if sm:
-                        storage = sm
-                        break
-
+                # key = (product_name, location, category, unit, storage_method, [manufacture_date/expiry_date])
                 row_data = {
                     'product_name': key[0],
                     'location': key[1],
                     'category': key[2],
                     'unit': key[3] if len(key) > 3 else '',
-                    'storage_method': storage,
+                    'storage_method': key[4] if len(key) > 4 else '',
                     'opening': opening,
                     'inbound': inbound,
                     'production': production,
@@ -137,10 +119,10 @@ def index():
                     'transfer': transfer,
                     'closing': closing,
                 }
-                if view_mode == 'manufacture' and len(key) > 4:
-                    row_data['manufacture_date'] = key[4] or '-'
-                elif view_mode == 'expiry' and len(key) > 4:
-                    row_data['expiry_date'] = key[4] or '-'
+                if view_mode == 'manufacture' and len(key) > 5:
+                    row_data['manufacture_date'] = key[5] or '-'
+                elif view_mode == 'expiry' and len(key) > 5:
+                    row_data['expiry_date'] = key[5] or '-'
                 # 종료일 재고 0이고 기간 거래도 없으면 제외
                 if closing == 0 and not txns:
                     continue
