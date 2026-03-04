@@ -104,7 +104,8 @@ def explode_bom(bom_lookup, set_name, channel, multiplier=1, _visited=None):
 
 
 def process_set_assembly(db, date_str, set_name, channel, location, qty,
-                         sub_materials=None, storage_method_override=None):
+                         sub_materials=None, storage_method_override=None,
+                         food_type=None):
     """세트작업 처리 메인 함수.
 
     Args:
@@ -116,6 +117,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
         qty: 세트 수량
         sub_materials: 부재료 목록 [{'name': str, 'qty': int}, ...]
         storage_method_override: 보관방법 수동 지정 (None이면 구성품 기준 자동)
+        food_type: 식품유형 (농산물/수산물/축산물, None이면 미지정)
 
     Returns:
         dict: {success, set_out_count, set_in_count, sub_out_count, warnings, shortage}
@@ -299,7 +301,7 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
     sub_memo = ""
     if sub_materials:
         sub_memo = f", 부재료 {len(sub_materials)}종"
-    payload.append({
+    set_in_payload = {
         "transaction_date": date_str,
         "type": "SET_IN",
         "product_name": set_name,
@@ -309,7 +311,10 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
         "unit": "개",
         "storage_method": set_storage,
         "memo": f"세트작업 ({channel}), 구성품 {len(final_items)}종{sub_memo}",
-    })
+    }
+    if food_type:
+        set_in_payload["food_type"] = food_type
+    payload.append(set_in_payload)
     set_in_count = 1
 
     # 8. DB 삽입

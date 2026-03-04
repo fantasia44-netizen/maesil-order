@@ -438,6 +438,9 @@ class SupabaseDB(DBBase):
                 if not pn_dr:
                     continue
                 cat = r.get("category", "기타")
+                # 레거시 카테고리 정규화 (N배송(용인) → N배송)
+                if cat == "N배송(용인)":
+                    cat = "N배송"
                 # 레거시 카테고리 → 현재 채널명 매핑
                 ch = LEGACY_CATEGORY_TO_CHANNEL.get(cat)
                 if not ch:
@@ -471,6 +474,9 @@ class SupabaseDB(DBBase):
                 if not pn_dr:
                     continue
                 cat = r.get("category", "기타")
+                # 레거시 카테고리 정규화 (N배송(용인) → N배송)
+                if cat == "N배송(용인)":
+                    cat = "N배송"
                 ch = normalize_channel_display(r.get("channel", "") or cat)
                 key = (r.get("revenue_date", ""), pn_dr, ch)
                 if key not in agg:
@@ -1437,7 +1443,6 @@ class SupabaseDB(DBBase):
             "쿠팡매출": "쿠팡판매가",
             "로켓": "로켓판매가",
             "N배송": "네이버판매가",
-            "N배송(용인)": "네이버판매가",
         }
 
         # 공백 정규화된 이름 (가격표 조회용)

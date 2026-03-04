@@ -42,6 +42,7 @@ def index():
             from services.stock_service import query_stock_snapshot
             split_manufacture = (view_mode == '제조일분리')
             split_expiry = (view_mode == '소비기한분리')
+            split_lot_number = (view_mode == '이력번호분리')
 
             rows = query_stock_snapshot(
                 db, date_str,
@@ -50,6 +51,7 @@ def index():
                 food_type=food_type_filter,
                 split_manufacture=split_manufacture,
                 split_expiry=split_expiry,
+                split_lot_number=split_lot_number,
             )
 
             # 품목명 필터

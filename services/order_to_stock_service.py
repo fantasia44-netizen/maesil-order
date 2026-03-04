@@ -224,7 +224,7 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
 
         # N배송 주문인 경우 분해하지 않음
-        is_n_delivery = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+        is_n_delivery = (ch == 'N배송_수동' or rev_cat == 'N배송')
 
         # BOM 분해 (쿠팡 채널은 쿠팡전용 BOM 우선)
         if is_n_delivery:
@@ -439,7 +439,7 @@ def process_realtime_outbound(db, import_run_id):
             continue
 
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
-        is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+        is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
         # 재고차감: 주문의 매출일자 기준 (과거 송장 일괄처리 시에도 정확한 날짜 반영)
         stk_date = odate if odate else today_str
 
@@ -594,7 +594,7 @@ def reverse_order_stock(db, order_id):
     bom_all = bom_map.get('모든채널', {})
     bom_coupang = bom_map.get('쿠팡전용', {})
 
-    is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+    is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
 
     if is_n:
         decomposed = {pname: qty}
@@ -661,7 +661,7 @@ def process_single_order_realtime(db, order_id):
         return {'outbound_count': 0, 'errors': ['데이터 부족']}
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
-    is_n = (ch == 'N배송_수동' or rev_cat in ('N배송(용인)', 'N배송'))
+    is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
     # 재고차감: 주문의 매출일자 기준
     stk_date = odate if odate else _stock_date()
 

@@ -847,7 +847,7 @@ def api_n_delivery():
             # 기존 출고완료 건: 재고차감 안 하고 출고완료만 표시
             try:
                 from services.channel_config import CHANNEL_REVENUE_MAP
-                rev_cat = CHANNEL_REVENUE_MAP.get('N배송_수동', 'N배송(용인)')
+                rev_cat = CHANNEL_REVENUE_MAP.get('N배송_수동', 'N배송')
                 new_ids = []
                 check = db.client.table('order_transactions').select('id') \
                     .eq('import_run_id', import_run_id).execute()

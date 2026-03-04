@@ -204,7 +204,7 @@ def parse_base_data_payload(df, today):
 
 def parse_revenue_payload(df, upload_date):
     """일일매출 엑셀 → payload list. Returns (payload, total_revenue)."""
-    CATS = ["일반매출", "쿠팡매출", "로켓", "N배송(용인)"]
+    CATS = ["일반매출", "쿠팡매출", "로켓", "N배송"]
     payload = []
     for _, row in df.iterrows():
         nm = str(row.get('품목명', '')).strip()

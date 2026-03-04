@@ -131,7 +131,8 @@ def query_all_stock_data(db, date_to, date_from=None, location=None,
 
 def query_stock_snapshot(db, date_str, location=None, category=None,
                          search=None, storage_method=None, food_type=None,
-                         split_expiry=False, split_manufacture=False):
+                         split_expiry=False, split_manufacture=False,
+                         split_lot_number=False):
     """기준일 기준 재고현황을 조회하여 리스트로 반환.
     app.py의 _refresh_stock_view 로직과 동일.
 
@@ -144,11 +145,13 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         storage_method: 보관방법 필터 (선택, '전체' = 전체)
         split_expiry: 소비기한 분리 여부
         split_manufacture: 제조일 분리 여부
+        split_lot_number: 이력번호 분리 여부
 
     Returns:
         list of dict: [
             {product_name, qty, unit, location, category, storage_method,
-             expiry_date(optional), manufacture_date(optional), is_negative},
+             expiry_date(optional), manufacture_date(optional),
+             lot_number(optional), grade(optional), is_negative},
             ...
         ]
     """
@@ -168,7 +171,7 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         if df.empty:
             return []
 
-    for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin', 'food_type']:
+    for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin', 'food_type', 'lot_number', 'grade']:
         if col not in df.columns:
             df[col] = ''
         df[col] = df[col].fillna('')
@@ -211,6 +214,8 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'manufacture_date']
     elif split_expiry:
         group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'expiry_date']
+    elif split_lot_number:
+        group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit', 'lot_number', 'grade']
     else:
         group_cols = ['product_name', 'location', 'category', 'storage_method', 'unit']
 
@@ -252,6 +257,9 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
             item['manufacture_date'] = r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else ''
         if split_expiry:
             item['expiry_date'] = r['expiry_date'] if pd.notna(r.get('expiry_date')) else ''
+        if split_lot_number:
+            item['lot_number'] = r['lot_number'] if pd.notna(r.get('lot_number')) else ''
+            item['grade'] = r['grade'] if pd.notna(r.get('grade')) else ''
         results.append(item)
 
     return results

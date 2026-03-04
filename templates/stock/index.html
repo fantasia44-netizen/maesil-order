@@ -44,6 +44,7 @@
                     <option value="기본" {% if view_mode|default('기본') == '기본' %}selected{% endif %}>기본</option>
                     <option value="소비기한분리" {% if view_mode == '소비기한분리' %}selected{% endif %}>소비기한 분리</option>
                     <option value="제조일분리" {% if view_mode == '제조일분리' %}selected{% endif %}>제조일 분리</option>
+                    <option value="이력번호분리" {% if view_mode == '이력번호분리' %}selected{% endif %}>이력번호 분리</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -114,6 +115,9 @@
                         <th>소비기한</th>
                         {% elif view_mode == '제조일분리' %}
                         <th>제조일</th>
+                        {% elif view_mode == '이력번호분리' %}
+                        <th>이력번호</th>
+                        <th>등급</th>
                         {% endif %}
                     </tr>
                 </thead>
@@ -131,6 +135,9 @@
                         <td>{{ row.expiry_date|default('-', true) }}</td>
                         {% elif view_mode == '제조일분리' %}
                         <td>{{ row.manufacture_date|default('-', true) }}</td>
+                        {% elif view_mode == '이력번호분리' %}
+                        <td>{{ row.lot_number|default('-', true) }}</td>
+                        <td>{{ row.grade|default('-', true) }}</td>
                         {% endif %}
                     </tr>
                     {% endfor %}

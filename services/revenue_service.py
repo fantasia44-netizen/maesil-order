@@ -29,7 +29,7 @@ def process_revenue_import(db, excel_df, date_str):
         db: SupabaseDB instance
         excel_df: pandas DataFrame (일일매출 엑셀)
             컬럼: 품목명, {카테고리}_수량, {카테고리}_단가, {카테고리}_매출
-            카테고리: 일반매출, 쿠팡매출, 로켓, N배송(용인)
+            카테고리: 일반매출, 쿠팡매출, 로켓, N배송
         date_str: 매출일자 (YYYY-MM-DD)
 
     Returns:
@@ -157,11 +157,19 @@ def _calc_monthly_totals(raw):
     return [{'month': k, 'total': v} for k, v in sorted(by_month.items())]
 
 
+def _normalize_category(cat):
+    """카테고리 정규화: N배송(용인) → N배송 등 레거시 이름 통일."""
+    _CAT_NORMALIZE = {
+        "N배송(용인)": "N배송",
+    }
+    return _CAT_NORMALIZE.get(cat, cat)
+
+
 def _calc_category_breakdown(raw):
     """카테고리별 매출 비중 리스트 반환 (내림차순)."""
     by_cat = {}
     for r in raw:
-        cat = r.get('category', '기타')
+        cat = _normalize_category(r.get('category', '기타'))
         by_cat[cat] = by_cat.get(cat, 0) + r.get('revenue', 0)
     return [{'category': k, 'total': v}
             for k, v in sorted(by_cat.items(), key=lambda x: -x[1])]
