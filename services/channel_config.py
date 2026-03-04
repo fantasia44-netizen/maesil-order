@@ -445,3 +445,15 @@ REVENUE_CATEGORIES = list(CATEGORY_PRICE_COL.keys())
 # daily_revenue 전용 카테고리 (order_transactions에 없고 daily_revenue에서만 관리)
 # query_revenue() 합산 시 이 카테고리만 daily_revenue에서 가져옴
 DAILY_REVENUE_ONLY_CATEGORIES = {"거래처매출", "로켓"}
+
+# DB 전환 기준일 (이 날짜 이전의 daily_revenue는 모든 카테고리 조회)
+DB_CUTOFF_DATE = "2026-03-02"
+
+# 레거시 daily_revenue.category → 현재 채널명 매핑
+LEGACY_CATEGORY_TO_CHANNEL = {
+    "일반매출":     "스마트스토어",
+    "쿠팡매출":     "쿠팡",
+    "자사몰매출":   "자사몰",
+    "N배송":        "N배송",
+    "N배송(용인)":  "N배송",
+}

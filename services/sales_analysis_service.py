@@ -2,12 +2,15 @@
 services/sales_analysis_service.py — 월간 판매분석 엔진.
 
 order_transactions 기반 품목별 월간 판매 집계 + 전월 비교.
-관리자 엑셀(일일매출현황) 대체 목적.
+DB_CUTOFF_DATE 이전 월은 daily_revenue(레거시)에서 조회.
 """
 from datetime import datetime, date
 from calendar import monthrange
 from collections import defaultdict
 from services.tz_utils import today_kst
+from services.channel_config import (
+    DB_CUTOFF_DATE, LEGACY_CATEGORY_TO_CHANNEL,
+)
 
 
 # ─── 채널 그룹핑 (엑셀과 동일: 네이버 vs 쿠팡) ───
@@ -44,6 +47,9 @@ def _prev_month(year, month):
 def _fetch_month_sales(db, year, month):
     """특정 월의 품목별 채널별 판매 데이터 집계.
 
+    DB_CUTOFF_DATE 이전 월 → daily_revenue(레거시)에서 조회.
+    DB_CUTOFF_DATE 이후 월 → order_transactions에서 조회.
+
     Returns:
         dict: {product_name: {
             'naver_qty': int, 'coupang_qty': int, 'total_qty': int,
@@ -52,27 +58,31 @@ def _fetch_month_sales(db, year, month):
     """
     first, last, _ = _month_range(year, month)
 
-    # order_transactions에서 직접 조회 (query_revenue보다 빠름)
-    def builder(table):
-        return db.client.table(table).select(
-            'channel,product_name,qty,total_amount'
-        ).eq('status', '정상') \
-         .gte('order_date', first) \
-         .lte('order_date', last)
-
-    rows = db._paginate_query('order_transactions', builder)
-
     agg = defaultdict(lambda: {
         'naver_qty': 0, 'coupang_qty': 0, 'total_qty': 0,
         'naver_amount': 0, 'coupang_amount': 0, 'total_amount': 0,
     })
+
+    # cutoff 이전 월이면 daily_revenue(레거시)에서 조회
+    if last < DB_CUTOFF_DATE:
+        rows = _fetch_legacy_sales(db, first, last)
+    elif first >= DB_CUTOFF_DATE:
+        rows = _fetch_order_sales(db, first, last)
+    else:
+        # 월이 cutoff를 걸치는 경우 (예: 3월 1일~31일, cutoff=3/2)
+        # cutoff 이전은 레거시, 이후는 order_transactions
+        from datetime import timedelta
+        cutoff = datetime.strptime(DB_CUTOFF_DATE, '%Y-%m-%d').date()
+        prev_day = (cutoff - timedelta(days=1)).isoformat()
+        rows = _fetch_legacy_sales(db, first, prev_day) + \
+               _fetch_order_sales(db, cutoff.isoformat(), last)
 
     for r in rows:
         pn = (r.get('product_name') or '').strip()
         if not pn:
             continue
         qty = int(r.get('qty', 0) or 0)
-        amt = int(r.get('total_amount', 0) or 0)
+        amt = int(r.get('amount', 0) or 0)
         grp = _channel_group(r.get('channel', ''))
 
         item = agg[pn]
@@ -86,6 +96,50 @@ def _fetch_month_sales(db, year, month):
             item['naver_amount'] += amt
 
     return dict(agg)
+
+
+def _fetch_legacy_sales(db, first, last):
+    """daily_revenue(레거시)에서 품목별 판매 데이터 조회."""
+    def builder(table):
+        return db.client.table(table).select(
+            'category,product_name,qty,revenue'
+        ).gte('revenue_date', first).lte('revenue_date', last)
+
+    raw = db._paginate_query('daily_revenue', builder)
+
+    rows = []
+    for r in raw:
+        cat = (r.get('category') or '').strip()
+        # 거래처매출/로켓은 판매분석 대상 아님 (B2B)
+        if cat in ('거래처매출', '로켓'):
+            continue
+        ch = LEGACY_CATEGORY_TO_CHANNEL.get(cat, cat)
+        rows.append({
+            'product_name': r.get('product_name', ''),
+            'channel': ch,
+            'qty': r.get('qty', 0),
+            'amount': r.get('revenue', 0),
+        })
+    return rows
+
+
+def _fetch_order_sales(db, first, last):
+    """order_transactions에서 품목별 판매 데이터 조회."""
+    def builder(table):
+        return db.client.table(table).select(
+            'channel,product_name,qty,total_amount'
+        ).eq('status', '정상') \
+         .gte('order_date', first) \
+         .lte('order_date', last)
+
+    raw = db._paginate_query('order_transactions', builder)
+
+    return [{
+        'product_name': r.get('product_name', ''),
+        'channel': r.get('channel', ''),
+        'qty': r.get('qty', 0),
+        'amount': r.get('total_amount', 0),
+    } for r in raw]
 
 
 def get_monthly_sales_analysis(db, year=None, month=None):

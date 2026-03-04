@@ -313,7 +313,8 @@ class SupabaseDB(DBBase):
         """
         from services.channel_config import (
             CHANNEL_REVENUE_MAP, normalize_channel_display,
-            DAILY_REVENUE_ONLY_CATEGORIES,
+            DAILY_REVENUE_ONLY_CATEGORIES, DB_CUTOFF_DATE,
+            LEGACY_CATEGORY_TO_CHANNEL,
         )
 
         agg = {}
@@ -365,37 +366,81 @@ class SupabaseDB(DBBase):
                 agg[key]["discount_amount"] += (r.get("discount_amount") or 0)
                 agg[key]["shipping_fee"] += (r.get("shipping_fee") or 0)
 
-        # ── 2. daily_revenue (거래처매출, 로켓 등 전용 카테고리) ──
+        # ── 2. daily_revenue ──
+        # DB 전환일(DB_CUTOFF_DATE) 이전: 모든 카테고리 조회 (레거시 데이터)
+        # DB 전환일 이후: 거래처매출/로켓만 조회 (온라인 채널은 order_transactions)
+        need_legacy = (not date_from or date_from < DB_CUTOFF_DATE)
+
         dr_cats = DAILY_REVENUE_ONLY_CATEGORIES
         if category and category != "전체":
             if category not in dr_cats:
-                dr_cats = set()  # 온라인 카테고리 필터 시 daily_revenue 스킵
+                dr_cats = set()
             else:
                 dr_cats = {category}
 
+        def dr_builder(table):
+            q = self.client.table(table).select(
+                "revenue_date,product_name,category,channel,"
+                "qty,unit_price,revenue"
+            ).order("revenue_date", desc=True)
+            if date_from:
+                q = q.gte("revenue_date", date_from)
+            if date_to:
+                q = q.lte("revenue_date", date_to)
+            return q
+
+        # 2-A. 레거시 데이터 (cutoff 이전, 모든 카테고리)
+        if need_legacy:
+            def dr_legacy_builder(table):
+                q = dr_builder(table).lt("revenue_date", DB_CUTOFF_DATE)
+                if category and category != "전체":
+                    # 채널명으로 필터: 레거시 카테고리 → 채널 역매핑
+                    rev_map = {v: k for k, v in LEGACY_CATEGORY_TO_CHANNEL.items()}
+                    legacy_cat = rev_map.get(category)
+                    if legacy_cat:
+                        q = q.eq("category", legacy_cat)
+                    elif category in DAILY_REVENUE_ONLY_CATEGORIES:
+                        q = q.eq("category", category)
+                return q
+
+            legacy_rows = self._paginate_query("daily_revenue", dr_legacy_builder)
+            for r in legacy_rows:
+                pn_dr = (r.get("product_name") or "").strip()
+                if not pn_dr:
+                    continue
+                cat = r.get("category", "기타")
+                # 레거시 카테고리 → 현재 채널명 매핑
+                ch = LEGACY_CATEGORY_TO_CHANNEL.get(cat)
+                if not ch:
+                    ch = normalize_channel_display(r.get("channel", "") or cat)
+                key = (r.get("revenue_date", ""), pn_dr, ch)
+                if key not in agg:
+                    agg[key] = {
+                        "revenue_date": r.get("revenue_date", ""),
+                        "product_name": pn_dr,
+                        "category": cat,
+                        "channel": ch,
+                        "qty": 0, "revenue": 0, "settlement": 0,
+                        "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                    }
+                agg[key]["qty"] += (r.get("qty") or 0)
+                agg[key]["revenue"] += (r.get("revenue") or 0)
+
+        # 2-B. 전용 카테고리 (cutoff 이후, 거래처매출/로켓만)
         if dr_cats:
-            def dr_builder(table):
-                q = self.client.table(table).select(
-                    "revenue_date,product_name,category,channel,"
-                    "qty,unit_price,revenue"
-                ).order("revenue_date", desc=True)
-                if date_from:
-                    q = q.gte("revenue_date", date_from)
-                if date_to:
-                    q = q.lte("revenue_date", date_to)
-                # 전용 카테고리만 필터
+            def dr_current_builder(table):
+                q = dr_builder(table).gte("revenue_date", DB_CUTOFF_DATE)
                 if len(dr_cats) == 1:
                     q = q.eq("category", list(dr_cats)[0])
                 else:
                     q = q.in_("category", list(dr_cats))
                 return q
 
-            dr_rows = self._paginate_query("daily_revenue", dr_builder)
-
+            dr_rows = self._paginate_query("daily_revenue", dr_current_builder)
             for r in dr_rows:
                 pn_dr = (r.get("product_name") or "").strip()
                 if not pn_dr:
-                    continue  # 상품명 없는 레코드 제외
+                    continue
                 cat = r.get("category", "기타")
                 ch = normalize_channel_display(r.get("channel", "") or cat)
                 key = (r.get("revenue_date", ""), pn_dr, ch)
@@ -878,10 +923,12 @@ class SupabaseDB(DBBase):
                 or keyword_upper in (r.get('product_name', '') or '').replace(' ', '').upper()]
 
     def insert_option_master(self, payload):
-        """옵션마스터 1건 등록 (match_key 자동 계산)."""
+        """옵션마스터 1건 등록/갱신 (match_key 자동 계산, 중복 시 upsert)."""
         orig = payload.get('original_name', '')
         payload['match_key'] = str(orig).replace(' ', '').upper()
-        self.client.table("option_master").insert(payload).execute()
+        self.client.table("option_master").upsert(
+            payload, on_conflict="match_key"
+        ).execute()
         self._invalidate_option_cache()
 
     def insert_option_master_batch(self, payload_list, batch_size=500):
