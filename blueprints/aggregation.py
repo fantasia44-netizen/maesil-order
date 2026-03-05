@@ -171,12 +171,35 @@ def api_channel_orders():
         agg = defaultdict(lambda: defaultdict(int))
         groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
 
-        # 1. order_transactions (온라인 채널)
+        # 1. order_transactions (온라인 채널) — collection_date 기준 (없으면 order_date fallback)
+        # 1-a: collection_date가 있는 주문
+        offset = 0
+        while True:
+            resp = db.client.table('order_transactions') \
+                .select('collection_date,channel,qty') \
+                .eq('status', '정상') \
+                .gte('collection_date', date_from) \
+                .lte('collection_date', date_to) \
+                .range(offset, offset + 999) \
+                .execute()
+            batch = resp.data or []
+            for r in batch:
+                d = r.get('collection_date', '')
+                if not d:
+                    continue
+                grp = _channel_group(r.get('channel', ''))
+                agg[d][grp] += _safe_int(r.get('qty', 0))
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        # 1-b: collection_date가 NULL인 주문 (기존 데이터 → order_date fallback)
         offset = 0
         while True:
             resp = db.client.table('order_transactions') \
                 .select('order_date,channel,qty') \
                 .eq('status', '정상') \
+                .is_('collection_date', 'null') \
                 .gte('order_date', date_from) \
                 .lte('order_date', date_to) \
                 .range(offset, offset + 999) \
@@ -900,48 +923,68 @@ def generate_report():
             ch_agg = _dd(lambda: _dd(lambda: _dd(int)))
             ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
 
-            # order_transactions (온라인 채널)
+            # order_transactions (온라인 채널) — collection_date 기준 (NULL이면 order_date)
+            _ot_rows = []
+            ot_offset = 0
+            while True:
+                ot_resp = db.client.table('order_transactions') \
+                    .select('collection_date,product_name,channel,qty') \
+                    .eq('status', '정상') \
+                    .gte('collection_date', date_from) \
+                    .lte('collection_date', date_to) \
+                    .range(ot_offset, ot_offset + 999) \
+                    .execute()
+                for r in (ot_resp.data or []):
+                    r['_date'] = r.get('collection_date', '')
+                    _ot_rows.append(r)
+                if len(ot_resp.data or []) < 1000:
+                    break
+                ot_offset += 1000
+            # collection_date가 NULL인 기존 데이터 (order_date fallback)
             ot_offset = 0
             while True:
                 ot_resp = db.client.table('order_transactions') \
                     .select('order_date,product_name,channel,qty') \
                     .eq('status', '정상') \
+                    .is_('collection_date', 'null') \
                     .gte('order_date', date_from) \
                     .lte('order_date', date_to) \
                     .range(ot_offset, ot_offset + 999) \
                     .execute()
-                ot_batch = ot_resp.data or []
-                for r in ot_batch:
-                    d = r.get('order_date', '')
-                    pn = _norm(r.get('product_name', ''))
-                    if not d or not pn:
-                        continue
-                    qty = _safe_int(r.get('qty', 0))
-                    if qty <= 0:
-                        continue
-                    grp = _channel_group(r.get('channel', ''))
-                    ch_raw = r.get('channel', '')
-                    rev_cat = CHANNEL_REVENUE_MAP.get(ch_raw, '일반매출')
-                    is_n = (grp == 'N배송')
-
-                    # N배송: 세트 안 풀기 + 창고 CJ용인 고정
-                    if is_n:
-                        wh = 'CJ용인'
-                        ch_agg[d][(pn, wh)][grp] += qty
-                    else:
-                        # 세트 BOM 풀기 (쿠팡/로켓은 쿠팡전용 BOM 우선)
-                        if grp in ('쿠팡매출', '로켓') or rev_cat in ('쿠팡매출', '로켓'):
-                            decomposed = _decompose(pn, qty, bom_coupang, bom_all)
-                        else:
-                            decomposed = _decompose(pn, qty, bom_all, None)
-                        # 분해된 단품별 창고 결정
-                        for item_name, item_qty in decomposed.items():
-                            wh = _get_warehouse(item_name, opt_map)
-                            ch_agg[d][(_norm(item_name), wh)][grp] += item_qty
-
-                if len(ot_batch) < 1000:
+                for r in (ot_resp.data or []):
+                    r['_date'] = r.get('order_date', '')
+                    _ot_rows.append(r)
+                if len(ot_resp.data or []) < 1000:
                     break
                 ot_offset += 1000
+
+            for r in _ot_rows:
+                d = r.get('_date', '')
+                pn = _norm(r.get('product_name', ''))
+                if not d or not pn:
+                    continue
+                qty = _safe_int(r.get('qty', 0))
+                if qty <= 0:
+                    continue
+                grp = _channel_group(r.get('channel', ''))
+                ch_raw = r.get('channel', '')
+                rev_cat = CHANNEL_REVENUE_MAP.get(ch_raw, '일반매출')
+                is_n = (grp == 'N배송')
+
+                # N배송: 세트 안 풀기 + 창고 CJ용인 고정
+                if is_n:
+                    wh = 'CJ용인'
+                    ch_agg[d][(pn, wh)][grp] += qty
+                else:
+                    # 세트 BOM 풀기 (쿠팡/로켓은 쿠팡전용 BOM 우선)
+                    if grp in ('쿠팡매출', '로켓') or rev_cat in ('쿠팡매출', '로켓'):
+                        decomposed = _decompose(pn, qty, bom_coupang, bom_all)
+                    else:
+                        decomposed = _decompose(pn, qty, bom_all, None)
+                    # 분해된 단품별 창고 결정
+                    for item_name, item_qty in decomposed.items():
+                        wh = _get_warehouse(item_name, opt_map)
+                        ch_agg[d][(_norm(item_name), wh)][grp] += item_qty
 
             # daily_revenue (거래처매출, 로켓)
             dr_offset = 0
