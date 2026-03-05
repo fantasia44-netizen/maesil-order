@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block title %}출고 통계 - 배마마 통합시스템{% endblock %}
+{% block page_title %}출고 통계{% endblock %}
+
+{% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link" href="{{ url_for('shipment.index') }}"><i class="bi bi-box-arrow-right"></i> 출고 관리</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link active" href="{{ url_for('shipment.stats') }}"><i class="bi bi-bar-chart-line"></i> 출고 통계</a>
+    </li>
+</ul>
+
+<!-- 필터 카드 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('shipment.stats') }}" class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">시작일</label>
+                <input type="date" name="date_from" class="form-control" value="{{ date_from|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">종료일</label>
+                <input type="date" name="date_to" class="form-control" value="{{ date_to|default('') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">창고</label>
+                <select name="location" class="form-select">
+                    <option value="전체">전체</option>
+                    {% for loc in locations|default([]) %}
+                    <option value="{{ loc }}" {% if location|default('전체') == loc %}selected{% endif %}>{{ loc }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-bar-chart"></i> 통계 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if stats %}
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small"><i class="bi bi-box-seam"></i> 총 출고수량</div>
+                <h3 class="mb-0 fw-bold text-primary">{{ '{:,.0f}'.format(stats.summary.total_qty) }}<small class="fs-6 text-muted">개</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small"><i class="bi bi-grid-3x3-gap"></i> 출고 품목수</div>
+                <h3 class="mb-0 fw-bold text-success">{{ '{:,.0f}'.format(stats.summary.total_items) }}<small class="fs-6 text-muted">종</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small"><i class="bi bi-calendar-range"></i> 조회 일수</div>
+                <h3 class="mb-0 fw-bold text-info">{{ stats.summary.days }}<small class="fs-6 text-muted">일</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <div class="text-muted small"><i class="bi bi-calculator"></i> 일평균 출고수량</div>
+                <h3 class="mb-0 fw-bold text-warning">{{ '{:,.0f}'.format(stats.summary.daily_avg) }}<small class="fs-6 text-muted">개</small></h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 그래프 영역: 일별 추이 + 창고별 비중 -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-graph-up"></i> 일별 출고 추이
+            </div>
+            <div class="card-body">
+                <canvas id="dailyChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-pie-chart"></i> 창고별 출고 비중
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center">
+                <canvas id="locationChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 일일출고 테이블 (창고별) -->
+{% if stats.daily_location_totals and stats.daily_location_totals.rows %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar-day"></i> 일일출고 (창고별)</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#dailyTableCollapse">
+            <i class="bi bi-chevron-expand"></i> 접기/펼치기
+        </button>
+    </div>
+    <div class="collapse show" id="dailyTableCollapse">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="sticky-top bg-light" style="min-width:100px">날짜</th>
+                            {% for loc in stats.daily_location_totals.locations %}
+                            <th class="text-end sticky-top bg-light" style="min-width:90px">{{ loc }}</th>
+                            {% endfor %}
+                            <th class="text-end sticky-top bg-light fw-bold" style="min-width:100px">합계</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in stats.daily_location_totals.rows %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.date }}</td>
+                            {% for loc in stats.daily_location_totals.locations %}
+                            <td class="text-end">
+                                {% set val = row.locations.get(loc, 0) %}
+                                {% if val > 0 %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="text-muted">-</span>{% endif %}
+                            </td>
+                            {% endfor %}
+                            <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.total) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-warning">
+                        <tr class="fw-bold">
+                            <td>합계</td>
+                            {% for loc in stats.daily_location_totals.locations %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.daily_location_totals.totals.get(loc, 0)) }}</td>
+                            {% endfor %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.daily_location_totals.grand_total) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 월별출고 (창고별 스택 바차트 + 테이블) -->
+{% if stats.monthly_location_totals and stats.monthly_location_totals.rows %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-bar-chart-fill"></i> 월별출고 (창고별)
+    </div>
+    <div class="card-body">
+        <canvas id="monthlyChart" style="max-height:300px"></canvas>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-table"></i> 월별출고 상세
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width:80px">월</th>
+                        {% for loc in stats.monthly_location_totals.locations %}
+                        <th class="text-end" style="min-width:90px">{{ loc }}</th>
+                        {% endfor %}
+                        <th class="text-end fw-bold" style="min-width:100px">합계</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in stats.monthly_location_totals.rows %}
+                    <tr>
+                        <td class="fw-semibold">{{ row.month }}</td>
+                        {% for loc in stats.monthly_location_totals.locations %}
+                        <td class="text-end">
+                            {% set val = row.locations.get(loc, 0) %}
+                            {% if val > 0 %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                        {% endfor %}
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-warning">
+                    <tr class="fw-bold">
+                        <td>합계</td>
+                        {% for loc in stats.monthly_location_totals.locations %}
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.monthly_location_totals.totals.get(loc, 0)) }}</td>
+                        {% endfor %}
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.monthly_location_totals.grand_total) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 카테고리별 비중 -->
+{% if stats.category_breakdown and stats.category_breakdown|length > 1 %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-diagram-3"></i> 카테고리별 출고
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for cat in stats.category_breakdown %}
+            <div class="col-auto mb-2">
+                {% set pct = (cat.total / stats.summary.total_qty * 100) if stats.summary.total_qty > 0 else 0 %}
+                <span class="badge bg-primary fs-6 px-3 py-2">{{ cat.category }} {{ '{:,.0f}'.format(cat.total) }}개 ({{ '{:.1f}'.format(pct) }}%)</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 상위 품목 랭킹 -->
+{% if stats.top_products %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-trophy"></i> 출고 상위 품목 (최대 15개)
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:50px">순위</th>
+                        <th>품목명</th>
+                        <th>카테고리</th>
+                        <th class="text-end">출고수량</th>
+                        <th style="width:30%">비중</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in stats.top_products %}
+                    <tr>
+                        <td class="text-center fw-bold">{{ loop.index }}</td>
+                        <td><strong>{{ p.name }}</strong></td>
+                        <td class="text-muted small">{{ p.category }}</td>
+                        <td class="text-end fw-bold">{{ '{:,.0f}'.format(p.qty) }}개</td>
+                        <td>
+                            {% set pct = (p.qty / stats.summary.total_qty * 100) if stats.summary.total_qty > 0 else 0 %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height:18px">
+                                    <div class="progress-bar bg-success" style="width:{{ pct }}%"></div>
+                                </div>
+                                <small class="text-muted" style="min-width:45px">{{ '{:.1f}'.format(pct) }}%</small>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% elif date_from or date_to %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 해당 조건의 출고 데이터가 없습니다.
+</div>
+{% else %}
+<div class="alert alert-secondary">
+    <i class="bi bi-info-circle"></i> 시작일과 종료일을 선택한 후 <strong>통계 조회</strong> 버튼을 눌러주세요.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if stats %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7"></script>
+<script>
+(function() {
+    const statsData = {{ stats_json|safe }};
+    if (!statsData) return;
+
+    // 숫자 포맷 헬퍼
+    function formatQty(val) {
+        return new Intl.NumberFormat('ko-KR').format(Math.round(val)) + '개';
+    }
+
+    // 창고별 고정 색상
+    const LOC_COLORS = {
+        '넥스원':   '#4e79a7',
+        '해서':     '#f28e2b',
+        'CJ용인':   '#e15759',
+    };
+    const FALLBACK_COLORS = [
+        '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'
+    ];
+    function getColor(loc, idx) {
+        return LOC_COLORS[loc] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+    }
+
+    // 1) 일별 출고 추이 (Line)
+    const dailyCtx = document.getElementById('dailyChart');
+    if (dailyCtx && statsData.daily_totals && statsData.daily_totals.length > 0) {
+        new Chart(dailyCtx, {
+            type: 'line',
+            data: {
+                labels: statsData.daily_totals.map(d => d.date),
+                datasets: [{
+                    label: '일별 출고수량',
+                    data: statsData.daily_totals.map(d => d.total),
+                    borderColor: '#4e79a7',
+                    backgroundColor: 'rgba(78, 121, 167, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: statsData.daily_totals.length > 60 ? 0 : 3,
+                    pointHoverRadius: 5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => formatQty(ctx.parsed.y)
+                        }
+                    }
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
+                    y: {
+                        ticks: {
+                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 2) 창고별 출고 비중 (Doughnut)
+    const locCtx = document.getElementById('locationChart');
+    if (locCtx && statsData.location_breakdown && statsData.location_breakdown.length > 0) {
+        const locLabels = statsData.location_breakdown.map(c => c.location);
+        const locData = statsData.location_breakdown.map(c => c.total);
+        const locColors = locLabels.map((loc, i) => getColor(loc, i));
+
+        new Chart(locCtx, {
+            type: 'doughnut',
+            data: {
+                labels: locLabels,
+                datasets: [{
+                    data: locData,
+                    backgroundColor: locColors,
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 11 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                                return ctx.label + ': ' + formatQty(ctx.parsed) + ' (' + pct + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3) 월별 출고 스택 바차트 (창고별)
+    const monthCtx = document.getElementById('monthlyChart');
+    if (monthCtx && statsData.monthly_location_totals && statsData.monthly_location_totals.rows.length > 0) {
+        const mlt = statsData.monthly_location_totals;
+        const months = mlt.rows.map(r => r.month);
+        const datasets = mlt.locations.map((loc, i) => ({
+            label: loc,
+            data: mlt.rows.map(r => r.locations[loc] || 0),
+            backgroundColor: getColor(loc, i),
+            borderRadius: 2,
+        }));
+
+        new Chart(monthCtx, {
+            type: 'bar',
+            data: { labels: months, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 11 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.dataset.label + ': ' + formatQty(ctx.parsed.y)
+                        }
+                    }
+                },
+                scales: {
+                    x: { stacked: true },
+                    y: {
+                        stacked: true,
+                        ticks: {
+                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
+                        }
+                    }
+                }
+            }
+        });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}

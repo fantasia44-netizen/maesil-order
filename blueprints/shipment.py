@@ -1,8 +1,9 @@
 """
 shipment.py — 출고관리 Blueprint.
-stock_ledger SALES_OUT 데이터 조회, 엑셀 다운로드.
+stock_ledger SALES_OUT 데이터 조회, 엑셀 다운로드, 출고 통계.
 """
 import io
+import json
 from flask import (
     Blueprint, render_template, request, current_app,
     flash, send_file,
@@ -148,3 +149,39 @@ def export():
         flash(f'출고 다운로드 중 오류: {e}', 'danger')
         from flask import redirect, url_for
         return redirect(url_for('shipment.index'))
+
+
+@shipment_bp.route('/stats')
+@role_required('admin', 'ceo', 'manager', 'sales', 'logistics', 'general')
+def stats():
+    """출고 통계 + 그래프"""
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    location = request.args.get('location', '전체')
+
+    locations = []
+    try:
+        locs, _ = current_app.db.query_filter_options()
+        locations = locs
+    except Exception:
+        pass
+
+    stats_data = None
+    if date_from or date_to:
+        try:
+            from services.shipment_stats_service import get_shipment_stats
+            stats_data = get_shipment_stats(
+                current_app.db,
+                date_from=date_from or None,
+                date_to=date_to or None,
+                location=location if location != '전체' else None,
+            )
+        except Exception as e:
+            flash(f'출고 통계 조회 중 오류: {e}', 'danger')
+
+    return render_template('shipment/stats.html',
+                           date_from=date_from, date_to=date_to,
+                           location=location,
+                           locations=locations,
+                           stats=stats_data,
+                           stats_json=json.dumps(stats_data, ensure_ascii=False) if stats_data else '{}')

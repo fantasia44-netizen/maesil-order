@@ -3,6 +3,16 @@
 {% block page_title %}출고 관리{% endblock %}
 
 {% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link active" href="{{ url_for('shipment.index') }}"><i class="bi bi-box-arrow-right"></i> 출고 관리</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" href="{{ url_for('shipment.stats') }}"><i class="bi bi-bar-chart-line"></i> 출고 통계</a>
+    </li>
+</ul>
+
 <!-- 조회 필터 -->
 <div class="card mb-4">
     <div class="card-header">
