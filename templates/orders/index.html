@@ -76,12 +76,19 @@
         </div>
     </div>
 
-    <!-- 액션 버튼 -->
+    <!-- 수집일 + 액션 버튼 -->
     <div class="card mb-4">
         <div class="card-header">
             <i class="bi bi-play-circle"></i> 처리 작업
         </div>
         <div class="card-body">
+            <div class="row align-items-end mb-3">
+                <div class="col-auto">
+                    <label class="form-label fw-semibold mb-1">주문수집일</label>
+                    <input type="date" name="collection_date" id="collectionDate" class="form-control" style="width:180px;">
+                    <div class="form-text">미입력 시 오늘 날짜</div>
+                </div>
+            </div>
             <div class="d-flex flex-wrap gap-3">
                 <button type="submit" name="action" value="invoice" class="btn btn-primary btn-lg">
                     <i class="bi bi-file-earmark-text"></i> 송장생성
@@ -277,6 +284,12 @@
 {% block extra_js %}
 <script>
 (function() {
+
+    // 주문수집일 기본값 = 오늘
+    var cdInput = document.getElementById('collectionDate');
+    if (cdInput && !cdInput.value) {
+        cdInput.value = new Date().toISOString().slice(0, 10);
+    }
 
     function parseJsonSafe(res) {
         const ct = (res.headers && res.headers.get('content-type')) ? res.headers.get('content-type') : '';

@@ -107,6 +107,7 @@ def process():
     """주문서 업로드 → 처리 (옵션은 DB에서 로드, 파일은 선택사항)"""
     platform = request.form.get('platform', '스마트스토어')
     action = request.form.get('action', 'invoice')
+    collection_date = request.form.get('collection_date', '').strip() or None
 
     order_file = request.files.get('order_file')
     option_file = request.files.get('option_file')
@@ -210,7 +211,8 @@ def process():
                                invoice_path, target_type, output_dir,
                                db=current_app.db, option_source=option_source,
                                save_to_db=True,
-                               uploaded_by=current_user.username if current_user.is_authenticated else '')
+                               uploaded_by=current_user.username if current_user.is_authenticated else '',
+                               collection_date=collection_date)
 
         # 미매칭 항목 발견 → 모달 팝업으로 등록 유도
         if result.get('unmatched'):

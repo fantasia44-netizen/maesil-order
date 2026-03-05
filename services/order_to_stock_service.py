@@ -209,8 +209,9 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         if not product_name or orig_qty <= 0:
             continue
 
-        # 재고차감일 = 주문일 (당일차감 원칙, 매출집계와 일치)
-        stk_date = order_date if order_date else today_date
+        # 재고차감일 = 수집일 (송장생성 당일 기준, 매출은 order_date 별도)
+        collection_date = order.get('collection_date', '')
+        stk_date = collection_date if collection_date else today_date
 
         # 마감 체크
         stk_closed_for_date = _is_date_closed(stk_date, 'stock')
@@ -438,8 +439,9 @@ def process_realtime_outbound(db, import_run_id):
 
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
         is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-        # 재고차감: 주문의 매출일자 기준 (과거 송장 일괄처리 시에도 정확한 날짜 반영)
-        stk_date = odate if odate else today_str
+        # 재고차감: 수집일 기준 (송장생성 당일)
+        coll_date = order.get('collection_date', '')
+        stk_date = coll_date if coll_date else today_str
 
         # BOM 분해
         if is_n:
@@ -660,8 +662,9 @@ def process_single_order_realtime(db, order_id):
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
     is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-    # 재고차감: 주문의 매출일자 기준
-    stk_date = odate if odate else _stock_date()
+    # 재고차감: 수집일 기준 (송장생성 당일)
+    coll_date = order.get('collection_date', '')
+    stk_date = coll_date if coll_date else _stock_date()
 
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)

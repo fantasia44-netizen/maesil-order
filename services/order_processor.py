@@ -183,7 +183,8 @@ class OrderProcessor:
             return None
 
     def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir,
-            db=None, option_source='file', save_to_db=False, uploaded_by=None):
+            db=None, option_source='file', save_to_db=False, uploaded_by=None,
+            collection_date=None):
         """
         mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'|'11번가'|'카카오'
         order_file: file-like object or path
@@ -195,6 +196,7 @@ class OrderProcessor:
         option_source: 'file' or 'db'
         save_to_db: True면 주문을 DB에 저장 (Phase 1)
         uploaded_by: 업로드한 사용자명
+        collection_date: 주문수집일 (YYYY-MM-DD, 미지정 시 송장생성 당일)
 
         returns: {
             'success': bool,
@@ -502,7 +504,8 @@ class OrderProcessor:
             if save_to_db and db is not None:
                 try:
                     db_result = self._save_orders_to_db(
-                        db, mode, res, order_file, uploaded_by, len(target)
+                        db, mode, res, order_file, uploaded_by, len(target),
+                        collection_date=collection_date
                     )
                     result['db_result'] = db_result
                     cross_skip = db_result.get('cross_channel_skipped', 0)
@@ -798,7 +801,8 @@ class OrderProcessor:
         except (ValueError, TypeError):
             return default
 
-    def _save_orders_to_db(self, db, channel, matched_rows, order_file, uploaded_by, total_rows):
+    def _save_orders_to_db(self, db, channel, matched_rows, order_file, uploaded_by, total_rows,
+                           collection_date=None):
         """매칭 완료된 주문을 DB에 저장 (import_runs + upsert_order_batch)."""
         # 1. import_runs 생성
         file_hash = self._compute_file_hash(order_file)
@@ -831,10 +835,15 @@ class OrderProcessor:
             order_date = self._parse_date(order_date_str)
             order_datetime = self._parse_datetime(order_date_str)
 
+            # 수집일: 사용자 지정값 or 송장생성 당일
+            from services.tz_utils import today_kst
+            coll_date = collection_date or today_kst()
+
             transaction = {
                 "channel": channel,
                 "order_date": order_date,
                 "order_datetime": order_datetime,  # 원본 주문일시 (시간 포함)
+                "collection_date": coll_date,      # 주문수집일 (재고차감 기준)
                 "order_no": order_no,
                 "line_no": line_no,
                 "original_option": str(row.get('_original_option', ''))[:500],
