@@ -98,22 +98,14 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-journal-text"></i> 수불장 (<span id="filteredCount">{{ ledger|length }}</span>건)</span>
-        <div class="d-flex gap-2 align-items-center">
-            <select id="storageFilter" class="form-select form-select-sm" style="width:auto">
-                <option value="">보관방법 전체</option>
-                <option value="냉동">냉동</option>
-                <option value="냉장">냉장</option>
-                <option value="실온">실온</option>
-            </select>
-            <input type="text" id="productSearch" class="form-control form-control-sm" placeholder="품목 검색..." style="width:180px">
-        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-hover table-sm mb-0" id="ledgerTable">
+                {% set extra_cols = 2 if view_mode|default('default') == 'lot_number' else (1 if view_mode|default('default') in ['manufacture', 'expiry'] else 0) %}
                 <thead class="table-light">
                     <tr>
-                        <th>품목명</th>
+                        <th style="cursor:pointer" onclick="sortTable(0,'text')">품목명 <i class="bi bi-arrow-down-up text-muted small"></i></th>
                         <th>위치</th>
                         <th>종류</th>
                         <th>보관</th>
@@ -126,17 +118,38 @@
                         <th>이력번호</th>
                         <th>등급</th>
                         {% endif %}
-                        <th class="text-end">전일재고</th>
+                        <th class="text-end" style="cursor:pointer" onclick="sortTable({{ 5 + extra_cols }},'num')">전일재고 <i class="bi bi-arrow-down-up text-muted small"></i></th>
                         <th class="text-end">입고</th>
                         <th class="text-end">생산</th>
                         <th class="text-end">출고</th>
                         <th class="text-end">이동</th>
-                        <th class="text-end">종료일재고</th>
+                        <th class="text-end" style="cursor:pointer" onclick="sortTable({{ 10 + extra_cols }},'num')">종료일재고 <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                    </tr>
+                    <tr class="table-secondary" id="filterRow">
+                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="0" data-type="text"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="1" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="2" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="3" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="4" data-type="select"><option value="">전체</option></select></td>
+                        {% if view_mode|default('default') == 'manufacture' %}
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="5" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode|default('default') == 'expiry' %}
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="5" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode|default('default') == 'lot_number' %}
+                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="5" data-type="text"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="6" data-type="select"><option value="">전체</option></select></td>
+                        {% endif %}
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"></td>
                     </tr>
                 </thead>
                 <tbody id="ledgerBody">
                     {% for row in ledger %}
-                    <tr data-product="{{ row.product_name|lower }}" data-storage="{{ row.storage_method|default('')|lower }}">
+                    <tr>
                         <td><strong>{{ row.product_name }}</strong></td>
                         <td>{{ row.location|default('') }}</td>
                         <td>{{ row.category|default('') }}</td>
@@ -183,35 +196,86 @@
 
 <script>
 (function() {
-    const searchInput = document.getElementById('productSearch');
-    const storageFilter = document.getElementById('storageFilter');
-    const countEl = document.getElementById('filteredCount');
-    if (!searchInput || !storageFilter) return;
+    const table = document.getElementById('ledgerTable');
+    if (!table) return;
 
-    const rows = document.querySelectorAll('#ledgerBody tr');
+    const tbody = document.getElementById('ledgerBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
     const totalCount = rows.length;
+    const countEl = document.getElementById('filteredCount');
+    const filterRow = document.getElementById('filterRow');
+    const filters = filterRow.querySelectorAll('input, select');
 
-    function applyFilter() {
-        const query = searchInput.value.trim().toLowerCase();
-        const storage = storageFilter.value.toLowerCase();
-        let visible = 0;
+    /* ── 드롭다운 자동 채우기 ── */
+    filterRow.querySelectorAll('select[data-col]').forEach(sel => {
+        const col = parseInt(sel.dataset.col);
+        const vals = new Set();
         rows.forEach(tr => {
-            const product = tr.dataset.product || '';
-            const sm = tr.dataset.storage || '';
-            const matchProduct = !query || product.includes(query);
-            const matchStorage = !storage || sm.includes(storage);
-            if (matchProduct && matchStorage) {
-                tr.style.display = '';
-                visible++;
-            } else {
-                tr.style.display = 'none';
+            const cell = tr.cells[col];
+            if (cell) {
+                const txt = cell.textContent.trim();
+                if (txt && txt !== '-') vals.add(txt);
             }
         });
-        countEl.textContent = visible < totalCount ? `${visible}/${totalCount}` : totalCount;
+        Array.from(vals).sort().forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = v;
+            sel.appendChild(opt);
+        });
+    });
+
+    /* ── 필터 적용 ── */
+    function applyFilters() {
+        let visible = 0;
+        rows.forEach(tr => {
+            let show = true;
+            filters.forEach(f => {
+                const col = f.dataset.col;
+                if (col === undefined || col === null) return;
+                const colIdx = parseInt(col);
+                const cell = tr.cells[colIdx];
+                if (!cell) return;
+                const cellText = cell.textContent.trim();
+                const type = f.dataset.type;
+                const val = f.value.trim();
+                if (!val) return;
+                if (type === 'text') {
+                    if (!cellText.toLowerCase().includes(val.toLowerCase())) show = false;
+                } else {
+                    if (cellText !== val) show = false;
+                }
+            });
+            tr.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        countEl.textContent = visible < totalCount ? visible + '/' + totalCount : totalCount;
     }
 
-    searchInput.addEventListener('input', applyFilter);
-    storageFilter.addEventListener('change', applyFilter);
+    filters.forEach(f => {
+        f.addEventListener(f.tagName === 'SELECT' ? 'change' : 'input', applyFilters);
+    });
+
+    /* ── 정렬 ── */
+    let sortState = {};
+    window.sortTable = function(colIdx, type) {
+        const dir = sortState[colIdx] === 'asc' ? 'desc' : 'asc';
+        sortState = {};
+        sortState[colIdx] = dir;
+
+        rows.sort((a, b) => {
+            const aText = a.cells[colIdx] ? a.cells[colIdx].textContent.trim() : '';
+            const bText = b.cells[colIdx] ? b.cells[colIdx].textContent.trim() : '';
+            if (type === 'num') {
+                const aNum = parseFloat(aText.replace(/,/g, '')) || 0;
+                const bNum = parseFloat(bText.replace(/,/g, '')) || 0;
+                return dir === 'asc' ? aNum - bNum : bNum - aNum;
+            }
+            return dir === 'asc' ? aText.localeCompare(bText, 'ko') : bText.localeCompare(aText, 'ko');
+        });
+
+        rows.forEach(tr => tbody.appendChild(tr));
+    };
 })();
 </script>
 {% endblock %}

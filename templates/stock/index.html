@@ -97,17 +97,17 @@
 {% if rows %}
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-box"></i> 재고 현황 ({{ rows|length }}건)</span>
+        <span><i class="bi bi-box"></i> 재고 현황 (<span id="filteredCount">{{ rows|length }}</span>건)</span>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover table-sm mb-0">
+            <table class="table table-hover table-sm mb-0" id="stockTable">
                 <thead class="table-light">
                     <tr>
-                        <th>품목명</th>
+                        <th style="cursor:pointer" onclick="sortTable(0,'text')">품목명 <i class="bi bi-arrow-down-up text-muted small"></i></th>
                         <th>카테고리</th>
                         <th>식품유형</th>
-                        <th class="text-end">수량</th>
+                        <th class="text-end" style="cursor:pointer" onclick="sortTable(3,'num')">수량 <i class="bi bi-arrow-down-up text-muted small"></i></th>
                         <th>단위</th>
                         <th>위치</th>
                         <th>보관방법</th>
@@ -118,6 +118,23 @@
                         {% elif view_mode == '이력번호분리' %}
                         <th>이력번호</th>
                         <th>등급</th>
+                        {% endif %}
+                    </tr>
+                    <tr class="table-secondary" id="filterRow">
+                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="0" data-type="text"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="1" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="2" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="4" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="5" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="6" data-type="select"><option value="">전체</option></select></td>
+                        {% if view_mode == '소비기한분리' %}
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="7" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode == '제조일분리' %}
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="7" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode == '이력번호분리' %}
+                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="7" data-type="text"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="8" data-type="select"><option value="">전체</option></select></td>
                         {% endif %}
                     </tr>
                 </thead>
@@ -151,4 +168,89 @@
     <i class="bi bi-info-circle"></i> 해당 조건의 재고 데이터가 없습니다.
 </div>
 {% endif %}
+
+<script>
+(function() {
+    const table = document.getElementById('stockTable');
+    if (!table) return;
+
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const totalCount = rows.length;
+    const countEl = document.getElementById('filteredCount');
+    const filterRow = document.getElementById('filterRow');
+    const filters = filterRow.querySelectorAll('input, select');
+
+    /* ── 드롭다운 자동 채우기 ── */
+    filterRow.querySelectorAll('select[data-col]').forEach(sel => {
+        const col = parseInt(sel.dataset.col);
+        const vals = new Set();
+        rows.forEach(tr => {
+            const cell = tr.cells[col];
+            if (cell) {
+                const txt = cell.textContent.trim();
+                if (txt && txt !== '-') vals.add(txt);
+            }
+        });
+        Array.from(vals).sort().forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = v;
+            sel.appendChild(opt);
+        });
+    });
+
+    /* ── 필터 적용 ── */
+    function applyFilters() {
+        let visible = 0;
+        rows.forEach(tr => {
+            let show = true;
+            filters.forEach(f => {
+                const col = f.dataset.col;
+                if (col === undefined || col === null) return;
+                const colIdx = parseInt(col);
+                const cell = tr.cells[colIdx];
+                if (!cell) return;
+                const cellText = cell.textContent.trim();
+                const type = f.dataset.type;
+                const val = f.value.trim();
+                if (!val) return;
+                if (type === 'text') {
+                    if (!cellText.toLowerCase().includes(val.toLowerCase())) show = false;
+                } else {
+                    if (cellText !== val) show = false;
+                }
+            });
+            tr.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        countEl.textContent = visible < totalCount ? visible + '/' + totalCount : totalCount;
+    }
+
+    filters.forEach(f => {
+        f.addEventListener(f.tagName === 'SELECT' ? 'change' : 'input', applyFilters);
+    });
+
+    /* ── 정렬 ── */
+    let sortState = {};
+    window.sortTable = function(colIdx, type) {
+        const dir = sortState[colIdx] === 'asc' ? 'desc' : 'asc';
+        sortState = {};
+        sortState[colIdx] = dir;
+
+        rows.sort((a, b) => {
+            const aText = a.cells[colIdx] ? a.cells[colIdx].textContent.trim() : '';
+            const bText = b.cells[colIdx] ? b.cells[colIdx].textContent.trim() : '';
+            if (type === 'num') {
+                const aNum = parseFloat(aText.replace(/,/g, '')) || 0;
+                const bNum = parseFloat(bText.replace(/,/g, '')) || 0;
+                return dir === 'asc' ? aNum - bNum : bNum - aNum;
+            }
+            return dir === 'asc' ? aText.localeCompare(bText, 'ko') : bText.localeCompare(aText, 'ko');
+        });
+
+        rows.forEach(tr => tbody.appendChild(tr));
+    };
+})();
+</script>
 {% endblock %}
