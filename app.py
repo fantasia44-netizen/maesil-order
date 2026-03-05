@@ -76,6 +76,10 @@ def create_app(config_class=None):
         from auth import _is_api_request
         if _is_api_request():
             return jsonify({'error': '로그인이 필요합니다. 페이지를 새로고침 해주세요.'}), 401
+        # 패킹센터 경로는 패킹 로그인으로
+        if request.path.startswith('/packing'):
+            flash('로그인이 필요합니다.', 'warning')
+            return redirect(url_for('packing.packing_login', next=request.url))
         flash('로그인이 필요합니다.', 'warning')
         return redirect(url_for('auth.login', next=request.url))
 
@@ -99,12 +103,15 @@ def create_app(config_class=None):
             timeout_min = app.config.get('SESSION_INACTIVITY_TIMEOUT', 60)
 
             if now - last_active > timeout_min * 60:
+                was_packing = current_user.role == 'packing'
                 logout_user()
                 session.clear()
                 from auth import _is_api_request
                 if _is_api_request():
                     return jsonify({'error': '세션이 만료되었습니다. 페이지를 새로고침 해주세요.'}), 401
                 flash('장시간 미사용으로 자동 로그아웃되었습니다.', 'warning')
+                if was_packing or request.path.startswith('/packing'):
+                    return redirect(url_for('packing.packing_login'))
                 return redirect(url_for('auth.login'))
 
             session['_last_active'] = now
@@ -213,6 +220,13 @@ def create_app(config_class=None):
                         current_biz=biz_conf, current_biz_id=biz_id,
                         businesses=available_biz)
 
+        # 패킹 사용자는 사이드바 불필요 (전용 템플릿 사용)
+        if current_user.role == 'packing':
+            return dict(sidebar_menus=[], sidebar_groups={},
+                        sidebar_top_menu=None, pending_users=0,
+                        current_biz=biz_conf, current_biz_id=biz_id,
+                        businesses=available_biz)
+
         from collections import OrderedDict
         from models import PAGE_REGISTRY, MENU_GROUPS
         r = current_user.role
@@ -280,6 +294,7 @@ def create_app(config_class=None):
     from blueprints.shipment import shipment_bp
     from blueprints.integrity import integrity_bp
     from blueprints.planning import planning_bp
+    from blueprints.packing import packing_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -287,8 +302,19 @@ def create_app(config_class=None):
                master_bp, ledger_bp, repack_bp, set_assembly_bp,
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
-               closing_bp, shipment_bp, integrity_bp, planning_bp]:
+               closing_bp, shipment_bp, integrity_bp, planning_bp,
+               packing_bp]:
         app.register_blueprint(bp)
+
+    # ── 패킹 사용자 메인 시스템 접근 차단 ──
+    @app.before_request
+    def block_packing_from_main():
+        """packing role은 /packing/*, /static/* 만 접근 가능"""
+        if current_user.is_authenticated and current_user.role == 'packing':
+            allowed = ('/packing', '/static')
+            if not any(request.path.startswith(p) for p in allowed):
+                flash('접근 권한이 없습니다.', 'danger')
+                return redirect(url_for('packing.index'))
 
     # ── Jinja2 커스텀 필터 ──
     def fmt_qty(val):

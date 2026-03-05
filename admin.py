@@ -89,6 +89,7 @@ class UserEditForm(FlaskForm):
         ('logistics', '물류팀'),
         ('production', '생산팀'),
         ('general', '총무부'),
+        ('packing', '위탁업체'),
     ])
     is_active_user = BooleanField('활성 상태')
     is_approved = BooleanField('승인 상태')

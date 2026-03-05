@@ -255,6 +255,11 @@ def login():
             return render_template('login.html', form=form)
 
         if user and user.check_password(form.password.data):
+            # 패킹 사용자는 패킹센터 로그인으로 안내
+            if user.role == 'packing':
+                flash('위탁업체는 패킹센터 로그인을 이용해주세요.', 'warning')
+                return redirect(url_for('packing.packing_login'))
+
             if not user.is_active_user:
                 flash('비활성화된 계정입니다. 관리자에게 문의하세요.', 'danger')
                 return render_template('login.html', form=form)

@@ -130,6 +130,7 @@ class User(UserMixin):
         self.name = data.get('name', '')
         self.password_hash = data.get('password_hash', '')
         self.role = data.get('role', 'sales')
+        self.company_name = data.get('company_name', '')
         self.is_active_user = data.get('is_active_user', True)
         self.is_approved = data.get('is_approved', False)
         self.failed_login_count = data.get('failed_login_count', 0)

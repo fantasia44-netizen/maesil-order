@@ -77,6 +77,7 @@ class Config:
         'logistics': {'name': '물류팀', 'level': 50},
         'production': {'name': '생산부', 'level': 50},
         'general': {'name': '총무부', 'level': 50},
+        'packing': {'name': '위탁업체', 'level': 10},
     }
 
 

@@ -880,11 +880,23 @@ def generate_report():
             flash(f'일자별 종합 보고서 생성 오류: {daily_err}', 'warning')
 
         # ══════════════════════════════════════════════
-        # 7. 채널별 주문수량: 일자별 시트, 품목(행) × 채널그룹(열)
+        # 7. 채널별 주문수량: 세트BOM 풀기 + 창고 표시
+        #    (N배송은 세트 풀기 제외)
         # ══════════════════════════════════════════════
         try:
             from collections import defaultdict as _dd
-            # {date: {product_name: {channel_group: qty}}}
+            from services.order_to_stock_service import (
+                _load_bom_map, _load_option_map, _get_warehouse, _decompose
+            )
+            from services.channel_config import CHANNEL_REVENUE_MAP
+
+            # BOM + 옵션마스터 로드
+            bom_map = _load_bom_map(db)
+            opt_map = _load_option_map(db)
+            bom_all = bom_map.get('모든채널', {})
+            bom_coupang = bom_map.get('쿠팡전용', {})
+
+            # {date: {(product_name, warehouse): {channel_group: qty}}}
             ch_agg = _dd(lambda: _dd(lambda: _dd(int)))
             ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
 
@@ -904,7 +916,29 @@ def generate_report():
                     pn = _norm(r.get('product_name', ''))
                     if not d or not pn:
                         continue
-                    ch_agg[d][pn][_channel_group(r.get('channel', ''))] += _safe_int(r.get('qty', 0))
+                    qty = _safe_int(r.get('qty', 0))
+                    if qty <= 0:
+                        continue
+                    grp = _channel_group(r.get('channel', ''))
+                    ch_raw = r.get('channel', '')
+                    rev_cat = CHANNEL_REVENUE_MAP.get(ch_raw, '일반매출')
+                    is_n = (grp == 'N배송')
+
+                    # N배송: 세트 안 풀기 + 창고 CJ용인 고정
+                    if is_n:
+                        wh = 'CJ용인'
+                        ch_agg[d][(pn, wh)][grp] += qty
+                    else:
+                        # 세트 BOM 풀기 (쿠팡/로켓은 쿠팡전용 BOM 우선)
+                        if grp in ('쿠팡매출', '로켓') or rev_cat in ('쿠팡매출', '로켓'):
+                            decomposed = _decompose(pn, qty, bom_coupang, bom_all)
+                        else:
+                            decomposed = _decompose(pn, qty, bom_all, None)
+                        # 분해된 단품별 창고 결정
+                        for item_name, item_qty in decomposed.items():
+                            wh = _get_warehouse(item_name, opt_map)
+                            ch_agg[d][(_norm(item_name), wh)][grp] += item_qty
+
                 if len(ot_batch) < 1000:
                     break
                 ot_offset += 1000
@@ -925,9 +959,21 @@ def generate_report():
                     pn = _norm(r.get('product_name', ''))
                     if not d or not pn:
                         continue
+                    qty = _safe_int(r.get('qty', 0))
+                    if qty <= 0:
+                        continue
                     cat = (r.get('category') or '').strip()
                     grp = '로켓' if cat == '로켓' else '거래처매출'
-                    ch_agg[d][pn][grp] += _safe_int(r.get('qty', 0))
+
+                    # 거래처매출/로켓도 세트 BOM 풀기
+                    if grp == '로켓':
+                        decomposed = _decompose(pn, qty, bom_coupang, bom_all)
+                    else:
+                        decomposed = _decompose(pn, qty, bom_all, None)
+                    for item_name, item_qty in decomposed.items():
+                        wh = _get_warehouse(_norm(item_name), opt_map)
+                        ch_agg[d][(_norm(item_name), wh)][grp] += item_qty
+
                 if len(dr_batch) < 1000:
                     break
                 dr_offset += 1000
@@ -937,11 +983,19 @@ def generate_report():
                 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
                 from openpyxl.utils import get_column_letter
 
+                # 창고별 색상 구분
+                wh_fills = {
+                    '넥스원': PatternFill(start_color="FFFFFF", fill_type="solid"),
+                    '해서': PatternFill(start_color="FFF3E0", fill_type="solid"),
+                    'CJ용인': PatternFill(start_color="E8F5E9", fill_type="solid"),
+                }
+
                 wb_ch = Workbook()
                 first_sheet = True
 
                 header_fill = PatternFill(start_color="D6EAF8", fill_type="solid")
                 total_fill = PatternFill(start_color="FEF9E7", fill_type="solid")
+                wh_subtotal_fill = PatternFill(start_color="EBF5FB", fill_type="solid")
                 ch_bold = Font(bold=True)
                 ch_right = Alignment(horizontal="right")
                 ch_center = Alignment(horizontal="center")
@@ -960,66 +1014,132 @@ def generate_report():
                     else:
                         ws = wb_ch.create_sheet(title=d)
 
-                    # 헤더
-                    headers_ch = ['순서', '품목명'] + ch_groups + ['합계']
+                    # 헤더: 순서|품목명|창고|채널그룹들|합계
+                    headers_ch = ['순서', '품목명', '창고'] + ch_groups + ['합계']
                     ws.column_dimensions['A'].width = 8
                     ws.column_dimensions['B'].width = 30
+                    ws.column_dimensions['C'].width = 10
                     for ci, h in enumerate(headers_ch):
                         col = ci + 1
-                        if ci >= 2:
+                        if ci >= 3:
                             ws.column_dimensions[get_column_letter(col)].width = 12
                         c = ws.cell(row=1, column=col, value=h)
                         c.font = ch_bold
                         c.fill = header_fill
                         c.alignment = ch_center
 
-                    # 품목 정렬 (sort_order)
-                    products = sorted(day_data.keys(),
-                                      key=lambda x: (sort_map.get(x, 999), x))
+                    # 품목+창고 정렬: 창고별 그룹 → sort_order → 품목명
+                    wh_order = {'넥스원': 0, '해서': 1, 'CJ용인': 2}
+                    sorted_keys = sorted(
+                        day_data.keys(),
+                        key=lambda x: (wh_order.get(x[1], 9), sort_map.get(x[0], 999), x[0])
+                    )
 
                     row_num = 2
                     col_totals = {g: 0 for g in ch_groups}
                     grand_total = 0
+                    prev_wh = None
+                    wh_subtotals = {g: 0 for g in ch_groups}
+                    wh_grand = 0
+                    wh_count = 0
 
-                    for pn in products:
+                    def _write_wh_subtotal(ws, row, wh_name, wh_cnt, wh_subs, wh_grd):
+                        """창고별 소계 행 작성."""
+                        ws.cell(row=row, column=1, value='').fill = wh_subtotal_fill
+                        c = ws.cell(row=row, column=2,
+                                    value=f'[{wh_name}] 소계 {wh_cnt}종')
+                        c.font = ch_bold
+                        c.fill = wh_subtotal_fill
+                        ws.cell(row=row, column=3, value='').fill = wh_subtotal_fill
+                        for gi, g in enumerate(ch_groups):
+                            c = ws.cell(row=row, column=gi + 4, value=wh_subs[g])
+                            c.font = ch_bold
+                            c.fill = wh_subtotal_fill
+                            c.number_format = '#,##0'
+                            c.alignment = ch_right
+                        c = ws.cell(row=row, column=len(ch_groups) + 4, value=wh_grd)
+                        c.font = ch_bold
+                        c.fill = wh_subtotal_fill
+                        c.number_format = '#,##0'
+                        c.alignment = ch_right
+                        return row + 1
+
+                    for (pn, wh) in sorted_keys:
+                        # 창고 변경 시 이전 창고 소계 출력
+                        if prev_wh is not None and wh != prev_wh and wh_count > 0:
+                            row_num = _write_wh_subtotal(
+                                ws, row_num, prev_wh, wh_count, wh_subtotals, wh_grand)
+                            wh_subtotals = {g: 0 for g in ch_groups}
+                            wh_grand = 0
+                            wh_count = 0
+
+                        prev_wh = wh
+                        wh_count += 1
                         so = sort_map.get(pn, 999)
-                        ws.cell(row=row_num, column=1,
-                                value=so if so != 999 else '').border = ch_border
-                        ws.cell(row=row_num, column=2, value=pn).border = ch_border
+                        row_fill = wh_fills.get(wh)
+
+                        c = ws.cell(row=row_num, column=1,
+                                    value=so if so != 999 else '')
+                        c.border = ch_border
+                        if row_fill:
+                            c.fill = row_fill
+                        c = ws.cell(row=row_num, column=2, value=pn)
+                        c.border = ch_border
+                        if row_fill:
+                            c.fill = row_fill
+                        c = ws.cell(row=row_num, column=3, value=wh)
+                        c.border = ch_border
+                        if row_fill:
+                            c.fill = row_fill
 
                         row_total = 0
                         for gi, g in enumerate(ch_groups):
-                            v = day_data[pn].get(g, 0)
-                            c = ws.cell(row=row_num, column=gi + 3,
+                            v = day_data[(pn, wh)].get(g, 0)
+                            c = ws.cell(row=row_num, column=gi + 4,
                                         value=v if v else '')
                             c.border = ch_border
+                            if row_fill:
+                                c.fill = row_fill
                             if v:
                                 c.number_format = '#,##0'
                                 c.alignment = ch_right
                             col_totals[g] += v
+                            wh_subtotals[g] += v
                             row_total += v
 
-                        c = ws.cell(row=row_num, column=len(ch_groups) + 3, value=row_total)
+                        c = ws.cell(row=row_num, column=len(ch_groups) + 4,
+                                    value=row_total)
                         c.number_format = '#,##0'
                         c.alignment = ch_right
                         c.font = ch_bold
                         c.border = ch_border
+                        if row_fill:
+                            c.fill = row_fill
                         grand_total += row_total
+                        wh_grand += row_total
                         row_num += 1
 
-                    # 합계 행
+                    # 마지막 창고 소계
+                    if prev_wh is not None and wh_count > 0:
+                        row_num = _write_wh_subtotal(
+                            ws, row_num, prev_wh, wh_count, wh_subtotals, wh_grand)
+
+                    # 총 합계 행
+                    total_items = len(sorted_keys)
                     ws.cell(row=row_num, column=1, value='').fill = total_fill
                     c = ws.cell(row=row_num, column=2,
-                                value=f'합계 {len(products)}종')
+                                value=f'합계 {total_items}종')
                     c.font = ch_bold
                     c.fill = total_fill
+                    ws.cell(row=row_num, column=3, value='').fill = total_fill
                     for gi, g in enumerate(ch_groups):
-                        c = ws.cell(row=row_num, column=gi + 3, value=col_totals[g])
+                        c = ws.cell(row=row_num, column=gi + 4, value=col_totals[g])
                         c.font = ch_bold
                         c.fill = total_fill
                         c.number_format = '#,##0'
                         c.alignment = ch_right
-                    c = ws.cell(row=row_num, column=len(ch_groups) + 3, value=grand_total)
+                    c = ws.cell(row=row_num, column=len(ch_groups) + 4,
+                                value=grand_total)
                     c.font = ch_bold
                     c.fill = total_fill
                     c.number_format = '#,##0'
