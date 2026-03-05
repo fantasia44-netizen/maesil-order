@@ -239,6 +239,13 @@ def process():
         if result.get('success'):
             flash(f"[{platform}] {target_type} 처리 완료!", 'success')
 
+        # 다채널 중복 경고 표시
+        db_res = result.get('db_result') or {}
+        cross_skip = db_res.get('cross_channel_skipped', 0)
+        if cross_skip:
+            flash(f"⚠️ 다른 채널에 이미 등록된 동일 주문 {cross_skip}건이 자동 스킵되었습니다. "
+                  f"같은 주문을 여러 채널에 등록하면 재고가 이중 차감됩니다.", 'warning')
+
         # 다운로드 링크 생성
         downloads = []
         for fpath in result.get('files', []):
@@ -1285,3 +1292,99 @@ def api_rocket_manual_update(rev_id):
         return jsonify({'success': True, 'message': '수정 완료'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ================================================================
+# 출고 정합성 검사 API
+# ================================================================
+
+@orders_bp.route('/api/integrity-check', methods=['GET'])
+@login_required
+@role_required('admin', 'manager')
+def integrity_check():
+    """출고 정합성 검사: is_outbound_done=True인데 SALES_OUT 없는 유령 출고 + 다채널 중복 감지.
+
+    Returns JSON:
+        {
+            ghost_outbound: [{id, channel, order_no, product_name, qty, order_date}, ...],
+            cross_channel_duplicates: [{order_no, channels: [...]}, ...],
+            summary: str
+        }
+    """
+    db = current_app.db
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    results = {'ghost_outbound': [], 'cross_channel_duplicates': [], 'summary': ''}
+
+    try:
+        # 1. 유령 출고 검사: is_outbound_done=True + SALES_OUT 미존재
+        q = db.client.table('order_transactions').select(
+            'id, channel, order_no, product_name, qty, order_date, is_outbound_done'
+        ).eq('is_outbound_done', True)
+        if date_from:
+            q = q.gte('order_date', date_from)
+        if date_to:
+            q = q.lte('order_date', date_to)
+        done_orders = q.limit(2000).execute()
+
+        for order in (done_orders.data or []):
+            oid = order['id']
+            sl_check = db.client.table('stock_ledger').select('id').eq(
+                'type', 'SALES_OUT'
+            ).like('event_uid', f'%:{oid}:%').limit(1).execute()
+            if not sl_check.data:
+                sl_check2 = db.client.table('stock_ledger').select('id').eq(
+                    'type', 'SALES_OUT'
+                ).like('event_uid', f'%:{oid}:0').limit(1).execute()
+                if not sl_check2.data:
+                    results['ghost_outbound'].append({
+                        'id': oid,
+                        'channel': order.get('channel', ''),
+                        'order_no': order.get('order_no', ''),
+                        'product_name': order.get('product_name', ''),
+                        'qty': order.get('qty', 0),
+                        'order_date': order.get('order_date', ''),
+                    })
+
+        # 2. 다채널 중복 감지: 같은 order_no가 여러 채널에 존재
+        q2 = db.client.table('order_transactions').select(
+            'id, channel, order_no, product_name, qty'
+        )
+        if date_from:
+            q2 = q2.gte('order_date', date_from)
+        if date_to:
+            q2 = q2.lte('order_date', date_to)
+        all_orders = q2.limit(5000).execute()
+
+        from collections import defaultdict
+        by_ono = defaultdict(list)
+        for r in (all_orders.data or []):
+            by_ono[r['order_no']].append(r)
+
+        for ono, rows in by_ono.items():
+            channels = set(r['channel'] for r in rows)
+            if len(channels) > 1:
+                results['cross_channel_duplicates'].append({
+                    'order_no': ono,
+                    'channels': [{'id': r['id'], 'channel': r['channel'],
+                                  'product_name': r['product_name'], 'qty': r['qty']}
+                                 for r in rows],
+                })
+
+        ghost_n = len(results['ghost_outbound'])
+        dup_n = len(results['cross_channel_duplicates'])
+        if ghost_n == 0 and dup_n == 0:
+            results['summary'] = '정합성 이상 없음'
+        else:
+            parts = []
+            if ghost_n:
+                parts.append(f'유령출고 {ghost_n}건')
+            if dup_n:
+                parts.append(f'다채널중복 {dup_n}건')
+            results['summary'] = f'문제 발견: {", ".join(parts)}'
+
+    except Exception as e:
+        results['summary'] = f'검사 오류: {e}'
+
+    return jsonify(results)

@@ -66,7 +66,11 @@ class Config:
     # 파일 업로드
     UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
     OUTPUT_FOLDER = os.path.join(basedir, 'output')
-    MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
+    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB (패킹 영상 업로드)
+
+    # 패킹센터 영상 설정
+    PACKING_VIDEO_MAX_BYTES = 100 * 1024 * 1024   # 100MB
+    PACKING_VIDEO_BITRATE = 1_000_000              # 1 Mbps
 
     # 팀/권한 정의
     ROLES = {

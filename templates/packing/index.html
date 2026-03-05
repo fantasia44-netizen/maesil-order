@@ -2,6 +2,20 @@
 {% block title %}패킹센터 - 홈{% endblock %}
 
 {% block content %}
+<style>
+    .pk-card-link {
+        display:block; text-decoration:none; color:inherit;
+        transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .pk-card-link:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 6px 20px rgba(0,137,123,0.25);
+        color: inherit;
+    }
+    .pk-card-link .pk-card { cursor:pointer; }
+    .badge-active { background:var(--pk-primary) !important; }
+</style>
+
 <div class="mb-4">
     <h4 class="fw-bold">
         <i class="bi bi-box-seam-fill" style="color: var(--pk-primary);"></i>
@@ -17,21 +31,23 @@
 <div class="row g-4">
     <!-- 녹화 모드 -->
     <div class="col-md-4">
-        <div class="pk-card text-center" style="min-height: 200px;">
-            <div class="mb-3">
-                <i class="bi bi-camera-video-fill" style="font-size: 3rem; color: var(--pk-primary);"></i>
+        <a href="{{ url_for('packing.recording') }}" class="pk-card-link">
+            <div class="pk-card text-center" style="min-height: 200px;">
+                <div class="mb-3">
+                    <i class="bi bi-camera-video-fill" style="font-size: 3rem; color: var(--pk-primary);"></i>
+                </div>
+                <h5 class="fw-bold mb-2">녹화 모드</h5>
+                <p style="color: var(--pk-muted); font-size: 0.9rem;">
+                    송장 바코드 스캔으로<br>포장 영상 자동 녹화
+                </p>
+                <span class="badge badge-active">사용 가능</span>
             </div>
-            <h5 class="fw-bold mb-2">녹화 모드</h5>
-            <p style="color: var(--pk-muted); font-size: 0.9rem;">
-                송장 바코드 스캔으로<br>포장 영상 자동 녹화
-            </p>
-            <span class="badge bg-secondary">Phase 2 준비 중</span>
-        </div>
+        </a>
     </div>
 
     <!-- 검수 모드 -->
     <div class="col-md-4">
-        <div class="pk-card text-center" style="min-height: 200px;">
+        <div class="pk-card text-center" style="min-height: 200px; opacity:0.6;">
             <div class="mb-3">
                 <i class="bi bi-upc-scan" style="font-size: 3rem; color: #f39c12;"></i>
             </div>
@@ -39,22 +55,24 @@
             <p style="color: var(--pk-muted); font-size: 0.9rem;">
                 제품 바코드 스캔으로<br>구성품 자동 체크
             </p>
-            <span class="badge bg-secondary">Phase 2 준비 중</span>
+            <span class="badge bg-secondary">준비 중</span>
         </div>
     </div>
 
     <!-- 작업 이력 -->
     <div class="col-md-4">
-        <div class="pk-card text-center" style="min-height: 200px;">
-            <div class="mb-3">
-                <i class="bi bi-clock-history" style="font-size: 3rem; color: #3498db;"></i>
+        <a href="{{ url_for('packing.history') }}" class="pk-card-link">
+            <div class="pk-card text-center" style="min-height: 200px;">
+                <div class="mb-3">
+                    <i class="bi bi-clock-history" style="font-size: 3rem; color: #3498db;"></i>
+                </div>
+                <h5 class="fw-bold mb-2">작업 이력</h5>
+                <p style="color: var(--pk-muted); font-size: 0.9rem;">
+                    포장 완료 건수 확인<br>영상 재생
+                </p>
+                <span class="badge badge-active">사용 가능</span>
             </div>
-            <h5 class="fw-bold mb-2">작업 이력</h5>
-            <p style="color: var(--pk-muted); font-size: 0.9rem;">
-                포장 완료 건수 확인<br>영상 재생
-            </p>
-            <span class="badge bg-secondary">Phase 2 준비 중</span>
-        </div>
+        </a>
     </div>
 </div>
 {% endblock %}

@@ -1582,7 +1582,7 @@ class SupabaseDB(DBBase):
                 except Exception as e:
                     print(f"[DB] fallback batch lookup error: {e}")
 
-            # 1-b단계: 크로스 채널 raw_hash 중복 체크 (다른 채널에 같은 주문 존재 여부)
+            # 1-b단계: 크로스 채널 중복 체크 (raw_hash + order_no 양방향)
             batch_hashes = [o.get("transaction", {}).get("raw_hash", "") for o in batch]
             batch_hashes = [h for h in batch_hashes if h]
             cross_channel_hashes = {}  # raw_hash → 기존 채널명
@@ -1598,6 +1598,31 @@ class SupabaseDB(DBBase):
                             cross_channel_hashes[xr["raw_hash"]] = xr.get("channel", "")
                     except Exception:
                         pass  # 조회 실패 시 기존 로직으로 진행
+
+            # 1-c단계: order_no 기반 크로스 채널 중복 체크 (같은 주문번호가 다른 채널에 존재)
+            batch_order_nos = set()
+            for order in batch:
+                txn = order.get("transaction", {})
+                ono = txn.get("order_no", "")
+                if ono:
+                    batch_order_nos.add(ono)
+            cross_channel_orders = {}  # order_no → 기존 채널명
+            if batch_order_nos:
+                for oi in range(0, len(batch_order_nos), 200):
+                    o_chunk = list(batch_order_nos)[oi:oi + 200]
+                    try:
+                        xores = self.client.table("order_transactions") \
+                            .select("order_no,channel") \
+                            .in_("order_no", o_chunk) \
+                            .execute()
+                        for xor in (xores.data or []):
+                            xor_ono = xor.get("order_no", "")
+                            xor_ch = xor.get("channel", "")
+                            if xor_ono not in cross_channel_orders:
+                                cross_channel_orders[xor_ono] = set()
+                            cross_channel_orders[xor_ono].add(xor_ch)
+                    except Exception:
+                        pass
 
             # 2단계: 분류 (insert / update / skip)
             to_insert = []
@@ -1625,10 +1650,19 @@ class SupabaseDB(DBBase):
                         txn_update["raw_data"] = txn["raw_data"]
                     to_update.append((rec["id"], txn_update, i))
                 else:
-                    # 크로스 채널 중복 체크: 같은 raw_hash가 다른 채널에 이미 존재
+                    # 크로스 채널 중복 체크 1: 같은 raw_hash가 다른 채널에 이미 존재
                     t_hash = txn.get("raw_hash", "")
                     existing_ch = cross_channel_hashes.get(t_hash)
                     if t_hash and existing_ch and existing_ch != txn.get("channel", ""):
+                        cross_skipped += 1
+                        skipped += 1
+                        continue
+                    # 크로스 채널 중복 체크 2: 같은 order_no가 다른 채널에 이미 존재
+                    t_ono = txn.get("order_no", "")
+                    t_ch = txn.get("channel", "")
+                    existing_chs = cross_channel_orders.get(t_ono, set())
+                    other_chs = existing_chs - {t_ch}
+                    if t_ono and other_chs:
                         cross_skipped += 1
                         skipped += 1
                         continue
@@ -2385,3 +2419,110 @@ class SupabaseDB(DBBase):
                 o.setdefault('invoice_no', '')
                 o.setdefault('courier', '')
                 o.setdefault('recipient_name', '')
+
+    # ── Packing Jobs ──────────────────────────────────────
+
+    def insert_packing_job(self, payload):
+        """패킹 작업 생성."""
+        try:
+            res = self.client.table("packing_jobs").insert(payload).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] insert_packing_job error: {e}")
+            return None
+
+    def get_packing_job(self, job_id):
+        """패킹 작업 단건 조회."""
+        try:
+            res = self.client.table("packing_jobs").select("*") \
+                .eq("id", job_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] get_packing_job error: {e}")
+            return None
+
+    def update_packing_job(self, job_id, update_data):
+        """패킹 작업 업데이트."""
+        try:
+            self.client.table("packing_jobs").update(update_data) \
+                .eq("id", job_id).execute()
+            return True
+        except Exception as e:
+            print(f"[DB] update_packing_job error: {e}")
+            return False
+
+    def query_packing_jobs(self, user_id=None, date_from=None, date_to=None,
+                           search=None, limit=20, offset=0):
+        """패킹 작업 목록 조회."""
+        try:
+            q = self.client.table("packing_jobs").select("*") \
+                .eq("status", "completed")
+            if user_id:
+                q = q.eq("user_id", user_id)
+            if date_from:
+                q = q.gte("started_at", f"{date_from}T00:00:00+00:00")
+            if date_to:
+                q = q.lte("started_at", f"{date_to}T23:59:59+00:00")
+            if search:
+                q = q.or_(
+                    f"scanned_barcode.ilike.%{search}%,"
+                    f"product_name.ilike.%{search}%,"
+                    f"order_no.ilike.%{search}%"
+                )
+            q = q.order("completed_at", desc=True)
+            q = q.range(offset, offset + limit - 1)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_packing_jobs error: {e}")
+            return []
+
+    def count_packing_jobs(self, user_id=None, date_from=None, date_to=None,
+                           search=None):
+        """패킹 작업 건수."""
+        try:
+            q = self.client.table("packing_jobs").select("id", count="exact") \
+                .eq("status", "completed")
+            if user_id:
+                q = q.eq("user_id", user_id)
+            if date_from:
+                q = q.gte("started_at", f"{date_from}T00:00:00+00:00")
+            if date_to:
+                q = q.lte("started_at", f"{date_to}T23:59:59+00:00")
+            if search:
+                q = q.or_(
+                    f"scanned_barcode.ilike.%{search}%,"
+                    f"product_name.ilike.%{search}%,"
+                    f"order_no.ilike.%{search}%"
+                )
+            res = q.execute()
+            return res.count if res.count is not None else 0
+        except Exception as e:
+            print(f"[DB] count_packing_jobs error: {e}")
+            return 0
+
+    # ── Packing Video Storage ─────────────────────────────
+
+    def upload_packing_video(self, path, video_bytes):
+        """패킹 영상 Supabase Storage 업로드."""
+        try:
+            self.client.storage.from_("packing-videos").upload(
+                path, video_bytes,
+                file_options={"content-type": "video/webm"}
+            )
+            return True
+        except Exception as e:
+            print(f"[DB] upload_packing_video error: {e}")
+            raise
+
+    def get_packing_video_signed_url(self, path, expires_in=3600):
+        """패킹 영상 서명 URL 생성."""
+        try:
+            res = self.client.storage.from_("packing-videos") \
+                .create_signed_url(path, expires_in)
+            if isinstance(res, dict):
+                return res.get('signedURL', '') or res.get('signedUrl', '')
+            return ''
+        except Exception as e:
+            print(f"[DB] get_packing_video_signed_url error: {e}")
+            return ''

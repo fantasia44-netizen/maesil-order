@@ -33,10 +33,7 @@ def _norm(text):
 
 
 def _stock_date():
-    """재고차감 반영일: 파일 처리일 = 오늘 (실제 출고 기준).
-    온라인주문은 주문수집→출고가 다음날이므로,
-    파일을 업로드(처리)하는 날 = 실제 출고일.
-    """
+    """재고차감 기본 반영일 (오늘). order_date가 없는 경우의 fallback."""
     return _now_kst().strftime('%Y-%m-%d')
 
 
@@ -154,8 +151,8 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
     log("자동처리 시작: 주문 → 출고")
 
-    # 재고차감일 = 오늘(파일 처리일 = 실제 출고일)
-    today_date = _stock_date()
+    # 재고차감일: 개별 주문의 order_date 사용 (당일차감 원칙)
+    today_date = _stock_date()  # fallback용
 
     # 대상 기간의 마감 상태 캐시 (주문별로 매번 DB 호출 방지)
     _closing_cache = {}
@@ -212,7 +209,8 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         if not product_name or orig_qty <= 0:
             continue
 
-        stk_date = today_date
+        # 재고차감일 = 주문일 (당일차감 원칙, 매출집계와 일치)
+        stk_date = order_date if order_date else today_date
 
         # 마감 체크
         stk_closed_for_date = _is_date_closed(stk_date, 'stock')

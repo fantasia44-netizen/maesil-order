@@ -1,0 +1,282 @@
+{% extends "packing/packing_base.html" %}
+
+{% block title %}작업 이력 — 패킹센터{% endblock %}
+
+{% block content %}
+<style>
+    .hist-container { padding:12px; max-width:1200px; margin:0 auto; }
+
+    /* 검색 바 */
+    .search-bar {
+        display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;
+        background:var(--pk-darker); border:1px solid var(--pk-header);
+        border-radius:8px; padding:14px 16px; margin-bottom:16px;
+    }
+    .search-bar .form-group { display:flex; flex-direction:column; gap:4px; }
+    .search-bar label { color:var(--pk-muted); font-size:0.75rem; }
+    .search-bar input {
+        background:var(--pk-dark); border:1px solid var(--pk-header); color:#fff;
+        border-radius:6px; padding:6px 10px; font-size:0.9rem;
+    }
+    .search-bar input:focus { border-color:var(--pk-primary); outline:none; }
+
+    /* 요약 */
+    .summary-bar {
+        display:flex; gap:16px; margin-bottom:12px; color:var(--pk-muted); font-size:0.85rem;
+    }
+    .summary-bar span { color:var(--pk-text); font-weight:600; }
+
+    /* 테이블 */
+    .hist-table {
+        width:100%; border-collapse:collapse;
+        background:var(--pk-darker); border-radius:8px; overflow:hidden;
+    }
+    .hist-table th {
+        background:var(--pk-header); color:var(--pk-muted); font-size:0.8rem;
+        padding:10px 12px; text-align:left; font-weight:500;
+    }
+    .hist-table td {
+        padding:10px 12px; border-bottom:1px solid var(--pk-header);
+        color:var(--pk-text); font-size:0.9rem; vertical-align:middle;
+    }
+    .hist-table tr:hover td { background:rgba(0,137,123,0.08); }
+    .hist-table .mono { font-family:monospace; font-size:0.85rem; }
+    .hist-table .duration { color:var(--pk-primary); font-weight:600; }
+
+    /* 재생 버튼 */
+    .btn-play {
+        background:var(--pk-primary); color:#fff; border:none; border-radius:6px;
+        padding:4px 12px; cursor:pointer; font-size:0.85rem;
+    }
+    .btn-play:hover { background:#00796b; }
+    .btn-play:disabled { background:var(--pk-header); color:var(--pk-muted); cursor:default; }
+
+    /* 페이지네이션 */
+    .paging {
+        display:flex; justify-content:center; align-items:center; gap:8px;
+        margin-top:16px;
+    }
+    .paging button {
+        background:var(--pk-header); color:var(--pk-text); border:none;
+        border-radius:6px; padding:6px 14px; cursor:pointer; font-size:0.85rem;
+    }
+    .paging button:hover { background:var(--pk-primary); }
+    .paging button:disabled { opacity:0.4; cursor:default; }
+    .paging .page-info { color:var(--pk-muted); font-size:0.85rem; }
+
+    /* 비디오 모달 */
+    #videoModal .modal-content {
+        background:var(--pk-dark); border:1px solid var(--pk-header);
+    }
+    #videoModal .modal-header { border-bottom:1px solid var(--pk-header); }
+    #videoModal .modal-title { color:var(--pk-text); font-size:1rem; }
+    #videoModal .btn-close { filter:invert(1); }
+    #videoModal video { width:100%; border-radius:6px; background:#000; }
+
+    .empty-msg {
+        text-align:center; padding:60px 20px; color:var(--pk-muted);
+    }
+    .empty-msg i { font-size:2.5rem; display:block; margin-bottom:12px; }
+
+    @media (max-width:768px) {
+        .search-bar { flex-direction:column; }
+        .hist-table { font-size:0.8rem; }
+        .hist-table th, .hist-table td { padding:8px 6px; }
+    }
+</style>
+
+<div class="hist-container">
+    <!-- 검색 바 -->
+    <div class="search-bar">
+        <div class="form-group">
+            <label>시작일</label>
+            <input type="date" id="dateFrom">
+        </div>
+        <div class="form-group">
+            <label>종료일</label>
+            <input type="date" id="dateTo">
+        </div>
+        <div class="form-group" style="flex:1; min-width:160px;">
+            <label>검색 (송장/품목/주문번호)</label>
+            <input type="text" id="searchInput" placeholder="검색어 입력">
+        </div>
+        <button class="btn btn-pk" onclick="loadHistory(1)" style="height:36px;">
+            <i class="bi bi-search me-1"></i>검색
+        </button>
+    </div>
+
+    <!-- 요약 -->
+    <div class="summary-bar" id="summaryBar">
+        총 <span id="totalCount">0</span>건
+    </div>
+
+    <!-- 테이블 -->
+    <table class="hist-table">
+        <thead>
+            <tr>
+                <th style="width:100px;">시각</th>
+                {% if current_user.role in ('admin', 'manager') %}
+                <th style="width:100px;">업체</th>
+                {% endif %}
+                <th>송장번호</th>
+                <th>품목</th>
+                <th style="width:70px;">녹화시간</th>
+                <th style="width:70px;">영상</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+            <tr>
+                <td colspan="6" class="empty-msg">
+                    <i class="bi bi-clock-history"></i>
+                    검색 조건을 설정하고 검색 버튼을 눌러주세요
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 페이지네이션 -->
+    <div class="paging" id="paging" style="display:none;">
+        <button onclick="loadHistory(currentPage-1)" id="btnPrev">&lt; 이전</button>
+        <span class="page-info" id="pageInfo">1 / 1</span>
+        <button onclick="loadHistory(currentPage+1)" id="btnNext">다음 &gt;</button>
+    </div>
+</div>
+
+<!-- 비디오 재생 모달 -->
+<div class="modal fade" id="videoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="videoTitle">영상 재생</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-2">
+                <video id="videoPlayer" controls></video>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF = '{{ csrf_token() }}';
+const IS_ADMIN = {{ 'true' if current_user.role in ('admin', 'manager') else 'false' }};
+let currentPage = 1;
+
+// 오늘 날짜 기본값
+document.addEventListener('DOMContentLoaded', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('dateFrom').value = today;
+    document.getElementById('dateTo').value = today;
+    loadHistory(1);
+});
+
+// Enter 검색
+document.getElementById('searchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadHistory(1);
+});
+
+async function loadHistory(page) {
+    currentPage = page;
+    const params = new URLSearchParams({
+        date_from: document.getElementById('dateFrom').value,
+        date_to: document.getElementById('dateTo').value,
+        search: document.getElementById('searchInput').value.trim(),
+        page: page,
+    });
+
+    try {
+        const res = await fetch(`/packing/api/history?${params}`, {
+            headers: {'X-CSRFToken': CSRF},
+        });
+        const json = await res.json();
+        if (!json.ok) return;
+
+        document.getElementById('totalCount').textContent = json.total;
+        renderTable(json.data);
+        renderPaging(json.page, json.pages, json.total);
+    } catch(e) {
+        console.error('History load error:', e);
+    }
+}
+
+function renderTable(rows) {
+    const $body = document.getElementById('historyBody');
+    const colspan = IS_ADMIN ? 6 : 5;
+
+    if (!rows.length) {
+        $body.innerHTML = `<tr><td colspan="${colspan}" class="empty-msg">
+            <i class="bi bi-inbox"></i>조회 결과가 없습니다</td></tr>`;
+        return;
+    }
+
+    $body.innerHTML = rows.map(r => {
+        // 시각 (KST)
+        const dt = r.completed_at ? new Date(r.completed_at) : new Date(r.started_at);
+        const timeStr = dt.toLocaleString('ko-KR', {
+            timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit',
+            month:'2-digit', day:'2-digit',
+        });
+
+        // 녹화시간
+        const durMs = r.video_duration_ms || 0;
+        const min = Math.floor(durMs / 60000);
+        const sec = Math.floor((durMs % 60000) / 1000);
+        const durStr = `${min}:${String(sec).padStart(2,'0')}`;
+
+        // 영상 버튼
+        const hasVideo = r.video_path ? '' : 'disabled';
+
+        const companyCol = IS_ADMIN
+            ? `<td>${r.company_name || r.username || '-'}</td>` : '';
+
+        return `<tr>
+            <td>${timeStr}</td>
+            ${companyCol}
+            <td class="mono">${r.scanned_barcode || '-'}</td>
+            <td>${r.product_name || '-'}</td>
+            <td class="duration">${durStr}</td>
+            <td><button class="btn-play" ${hasVideo}
+                onclick="playVideo(${r.id}, '${r.scanned_barcode}')">
+                <i class="bi bi-play-fill"></i></button></td>
+        </tr>`;
+    }).join('');
+}
+
+function renderPaging(page, pages, total) {
+    const $paging = document.getElementById('paging');
+    if (total <= 0) { $paging.style.display = 'none'; return; }
+    $paging.style.display = 'flex';
+    document.getElementById('pageInfo').textContent = `${page} / ${pages}`;
+    document.getElementById('btnPrev').disabled = page <= 1;
+    document.getElementById('btnNext').disabled = page >= pages;
+}
+
+async function playVideo(jobId, barcode) {
+    try {
+        const res = await fetch(`/packing/api/video-url/${jobId}`, {
+            headers: {'X-CSRFToken': CSRF},
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            alert(json.error || '영상을 불러올 수 없습니다.');
+            return;
+        }
+
+        const $player = document.getElementById('videoPlayer');
+        $player.src = json.url;
+        document.getElementById('videoTitle').textContent = `영상 — ${barcode}`;
+        const modal = new bootstrap.Modal(document.getElementById('videoModal'));
+        modal.show();
+    } catch(e) {
+        alert('서버 연결 실패');
+    }
+}
+
+// 모달 닫힐 때 영상 정지
+document.getElementById('videoModal').addEventListener('hidden.bs.modal', () => {
+    const $player = document.getElementById('videoPlayer');
+    $player.pause();
+    $player.src = '';
+});
+</script>
+{% endblock %}

@@ -512,7 +512,7 @@ class OrderProcessor:
                              f"스킵 {db_result.get('skipped', 0)}건, "
                              f"실패 {db_result.get('failed', 0)}건{cross_msg}")
                     if cross_skip:
-                        self.log(f"⚠️ 다른 채널에 이미 등록된 주문 {cross_skip}건 스킵 (raw_hash 동일)")
+                        self.log(f"⚠️ 다른 채널에 이미 등록된 주문 {cross_skip}건 스킵 (order_no/raw_hash 동일)")
                 except Exception as db_err:
                     self.log(f"DB 저장 중 예외 발생 (송장은 계속): {db_err}")
                     result['db_result'] = {"inserted": 0, "updated": 0, "skipped": 0,

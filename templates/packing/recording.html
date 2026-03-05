@@ -1,0 +1,563 @@
+{% extends "packing/packing_base.html" %}
+
+{% block title %}녹화 모드 — 패킹센터{% endblock %}
+
+{% block content %}
+<style>
+    .rec-container { display:flex; gap:16px; height:calc(100vh - 140px); padding:8px; }
+    .rec-left { flex:2; display:flex; flex-direction:column; gap:10px; }
+    .rec-right { flex:1; min-width:280px; }
+
+    /* 카메라 */
+    .camera-wrap {
+        position:relative; flex:1; background:#000; border-radius:8px; overflow:hidden;
+        display:flex; align-items:center; justify-content:center;
+    }
+    .camera-wrap video { width:100%; height:100%; object-fit:cover; }
+    .camera-placeholder {
+        color:var(--pk-muted); text-align:center;
+    }
+    .camera-placeholder i { font-size:3rem; display:block; margin-bottom:8px; }
+
+    /* 녹화 표시 */
+    .rec-indicator {
+        position:absolute; top:12px; left:12px;
+        display:none; align-items:center; gap:8px;
+        background:rgba(0,0,0,0.7); padding:6px 14px; border-radius:20px;
+        color:#fff; font-weight:600; font-size:0.95rem;
+    }
+    .rec-indicator.active { display:flex; }
+    .rec-dot {
+        width:12px; height:12px; border-radius:50%; background:#ff1744;
+        animation: blink 1s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+    /* 상태 배지 */
+    .state-badge {
+        position:absolute; top:12px; right:12px;
+        padding:6px 16px; border-radius:20px; font-size:0.85rem; font-weight:600;
+    }
+    .state-idle { background:var(--pk-header); color:var(--pk-muted); }
+    .state-matched { background:#1b5e20; color:#a5d6a7; }
+    .state-recording { background:#b71c1c; color:#ffcdd2; }
+    .state-completing { background:#e65100; color:#ffe0b2; }
+
+    /* 바코드 입력 */
+    .barcode-area {
+        background:var(--pk-darker); border:2px solid var(--pk-header);
+        border-radius:8px; padding:10px 16px; display:flex; align-items:center; gap:10px;
+    }
+    .barcode-area i { font-size:1.5rem; color:var(--pk-primary); }
+    .barcode-area input {
+        flex:1; background:transparent; border:none; outline:none;
+        color:#fff; font-size:1.2rem; font-family:monospace;
+    }
+    .barcode-area input::placeholder { color:var(--pk-muted); }
+
+    /* 주문정보 패널 */
+    .order-panel {
+        background:var(--pk-darker); border:1px solid var(--pk-header);
+        border-radius:8px; padding:16px; height:100%;
+        display:flex; flex-direction:column; gap:12px; overflow-y:auto;
+    }
+    .order-panel h5 { color:var(--pk-text); margin:0; font-size:1rem; }
+    .order-field { display:flex; justify-content:space-between; padding:6px 0;
+                   border-bottom:1px solid var(--pk-header); }
+    .order-label { color:var(--pk-muted); font-size:0.85rem; }
+    .order-value { color:#fff; font-weight:500; }
+    .order-items { flex:1; }
+    .order-item {
+        background:var(--pk-header); padding:8px 12px; border-radius:6px;
+        margin-bottom:6px; display:flex; justify-content:space-between;
+    }
+    .order-item-name { color:var(--pk-text); }
+    .order-item-qty { color:var(--pk-primary); font-weight:700; }
+
+    /* 안내 메시지 */
+    .guide-msg {
+        text-align:center; padding:40px 20px; color:var(--pk-muted);
+    }
+    .guide-msg i { font-size:2.5rem; display:block; margin-bottom:12px; }
+    .guide-msg .step { color:var(--pk-primary); font-weight:600; }
+
+    /* 에러/성공 토스트 */
+    .toast-area {
+        position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+        z-index:9999;
+    }
+
+    /* 업로드 프로그레스 */
+    .upload-overlay {
+        display:none; position:absolute; top:0; left:0; right:0; bottom:0;
+        background:rgba(0,0,0,0.8); z-index:10;
+        align-items:center; justify-content:center; flex-direction:column; gap:12px;
+        color:#fff; border-radius:8px;
+    }
+    .upload-overlay.active { display:flex; }
+
+    @media (max-width:768px) {
+        .rec-container { flex-direction:column; height:auto; }
+        .rec-right { min-width:auto; }
+    }
+</style>
+
+<!-- 메인 컨테이너 -->
+<div class="rec-container">
+    <!-- 왼쪽: 카메라 + 바코드 입력 -->
+    <div class="rec-left">
+        <div class="camera-wrap" id="cameraWrap">
+            <div class="camera-placeholder" id="cameraPlaceholder">
+                <i class="bi bi-camera-video"></i>
+                카메라 연결 중...
+            </div>
+            <video id="cameraPreview" autoplay muted playsinline style="display:none;"></video>
+
+            <!-- 녹화 표시 -->
+            <div class="rec-indicator" id="recIndicator">
+                <div class="rec-dot"></div>
+                <span>REC</span>
+                <span id="recTimer">00:00</span>
+            </div>
+
+            <!-- 상태 배지 -->
+            <div class="state-badge state-idle" id="stateBadge">대기</div>
+
+            <!-- 업로드 오버레이 -->
+            <div class="upload-overlay" id="uploadOverlay">
+                <div class="spinner-border text-light" role="status"></div>
+                <div>영상 업로드 중...</div>
+                <div id="uploadSize" style="font-size:0.85rem; color:#aaa;"></div>
+            </div>
+        </div>
+
+        <!-- 바코드 입력 -->
+        <div class="barcode-area">
+            <i class="bi bi-upc-scan"></i>
+            <input type="text" id="barcodeInput" placeholder="송장 바코드를 스캔하세요"
+                   autocomplete="off" autofocus>
+            <span id="barcodeStatus" style="font-size:0.8rem; color:var(--pk-muted);"></span>
+        </div>
+    </div>
+
+    <!-- 오른쪽: 주문 정보 -->
+    <div class="rec-right">
+        <div class="order-panel" id="orderPanel">
+            <h5><i class="bi bi-clipboard-data me-2"></i>주문 정보</h5>
+
+            <!-- 대기 상태 안내 -->
+            <div class="guide-msg" id="guideMsg">
+                <i class="bi bi-upc-scan"></i>
+                <div class="step">1단계</div>
+                송장 바코드를 스캔하세요
+                <div style="margin-top:20px; font-size:0.8rem; color:var(--pk-muted);">
+                    USB 바코드 스캐너 또는<br>직접 입력 후 Enter
+                </div>
+            </div>
+
+            <!-- 주문 상세 (매칭 후 표시) -->
+            <div id="orderDetail" style="display:none;">
+                <div class="order-field">
+                    <span class="order-label">채널</span>
+                    <span class="order-value" id="odChannel">-</span>
+                </div>
+                <div class="order-field">
+                    <span class="order-label">주문번호</span>
+                    <span class="order-value" id="odOrderNo">-</span>
+                </div>
+                <div class="order-field">
+                    <span class="order-label">수취인</span>
+                    <span class="order-value" id="odRecipient">-</span>
+                </div>
+                <div class="order-field">
+                    <span class="order-label">택배사</span>
+                    <span class="order-value" id="odCourier">-</span>
+                </div>
+                <div class="order-field">
+                    <span class="order-label">송장번호</span>
+                    <span class="order-value" id="odBarcode" style="font-family:monospace;">-</span>
+                </div>
+
+                <h6 style="color:var(--pk-text); margin-top:12px;">
+                    <i class="bi bi-box-seam me-1"></i>품목
+                    <span class="badge bg-secondary ms-1" id="odTotalQty">0</span>
+                </h6>
+                <div class="order-items" id="odItems"></div>
+
+                <!-- 녹화 안내 -->
+                <div id="matchedGuide" class="text-center mt-2" style="display:none;">
+                    <div style="color:var(--pk-primary); font-weight:600; font-size:0.95rem;">
+                        <i class="bi bi-arrow-repeat me-1"></i>같은 바코드를 다시 스캔하면 녹화 시작
+                    </div>
+                </div>
+                <div id="recordingGuide" class="text-center mt-2" style="display:none;">
+                    <div style="color:#ff5252; font-weight:600; font-size:0.95rem;">
+                        <i class="bi bi-stop-circle me-1"></i>같은 바코드를 스캔하면 녹화 종료
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 토스트 영역 -->
+<div class="toast-area">
+    <div class="toast align-items-center border-0" id="toastEl" role="alert" data-bs-delay="3000">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMsg"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto"
+                    data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF_TOKEN = '{{ csrf_token() }}';
+
+// ── 상태 관리 ──
+const State = {
+    IDLE: 'IDLE',
+    MATCHED: 'MATCHED',
+    RECORDING: 'RECORDING',
+    COMPLETING: 'COMPLETING',
+};
+
+let state = State.IDLE;
+let currentBarcode = null;
+let currentOrderData = null;
+let currentJobId = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let cameraStream = null;
+let timerInterval = null;
+let recordingStartTime = null;
+let audioCtx = null;
+
+// ── DOM 참조 ──
+const $barcodeInput = document.getElementById('barcodeInput');
+const $cameraPreview = document.getElementById('cameraPreview');
+const $cameraPlaceholder = document.getElementById('cameraPlaceholder');
+const $recIndicator = document.getElementById('recIndicator');
+const $recTimer = document.getElementById('recTimer');
+const $stateBadge = document.getElementById('stateBadge');
+const $guideMsg = document.getElementById('guideMsg');
+const $orderDetail = document.getElementById('orderDetail');
+const $matchedGuide = document.getElementById('matchedGuide');
+const $recordingGuide = document.getElementById('recordingGuide');
+const $uploadOverlay = document.getElementById('uploadOverlay');
+const $uploadSize = document.getElementById('uploadSize');
+
+// ── 초기화 ──
+document.addEventListener('DOMContentLoaded', () => {
+    initCamera();
+    initBarcodeInput();
+});
+
+// ── 카메라 ──
+async function initCamera() {
+    try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: {ideal:1280}, height: {ideal:720}, facingMode:'environment' },
+            audio: false,
+        });
+        $cameraPreview.srcObject = cameraStream;
+        $cameraPreview.style.display = 'block';
+        $cameraPlaceholder.style.display = 'none';
+    } catch(e) {
+        $cameraPlaceholder.innerHTML =
+            '<i class="bi bi-camera-video-off"></i>' +
+            '카메라를 사용할 수 없습니다<br>' +
+            '<small style="color:#ff5252;">' + e.message + '</small>';
+    }
+}
+
+// ── 바코드 입력 ──
+function initBarcodeInput() {
+    $barcodeInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const barcode = $barcodeInput.value.trim();
+            $barcodeInput.value = '';
+            if (barcode) handleBarcodeScan(barcode);
+        }
+    });
+    // 포커스 유지
+    document.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+            $barcodeInput.focus();
+        }
+    });
+    $barcodeInput.focus();
+}
+
+// ── 바코드 처리 핵심 ──
+async function handleBarcodeScan(barcode) {
+    if (state === State.COMPLETING) return; // 업로드 중 무시
+
+    if (state === State.RECORDING && barcode === currentBarcode) {
+        // 녹화 중 + 같은 바코드 → 녹화 종료
+        await stopRecording();
+    } else if (state === State.MATCHED && barcode === currentBarcode) {
+        // 매칭 후 + 같은 바코드 → 녹화 시작
+        await startRecording();
+    } else {
+        // 새 바코드 → 조회
+        if (state === State.RECORDING) {
+            showToast('녹화 중입니다. 같은 바코드를 스캔하여 종료하세요.', 'warning');
+            return;
+        }
+        await lookupBarcode(barcode);
+    }
+    $barcodeInput.focus();
+}
+
+// ── 바코드 조회 ──
+async function lookupBarcode(barcode) {
+    updateState(State.IDLE);
+    playBeep(1200, 150);
+    document.getElementById('barcodeStatus').textContent = '조회 중...';
+
+    try {
+        const res = await fetch('/packing/api/lookup-barcode', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({barcode}),
+        });
+        const json = await res.json();
+
+        if (!json.ok) {
+            playBeep(400, 300); // 낮은 경고음
+            showToast(json.error, 'danger');
+            document.getElementById('barcodeStatus').textContent = '';
+            return;
+        }
+
+        // 매칭 성공
+        currentBarcode = barcode;
+        currentOrderData = json.data;
+        displayOrderInfo(json.data);
+        updateState(State.MATCHED);
+        document.getElementById('barcodeStatus').textContent = '';
+
+        // TTS: 주문 정보 읽기
+        speakOrderInfo(json.data);
+
+    } catch(e) {
+        showToast('서버 연결 실패', 'danger');
+        document.getElementById('barcodeStatus').textContent = '';
+    }
+}
+
+// ── 주문 정보 표시 ──
+function displayOrderInfo(data) {
+    $guideMsg.style.display = 'none';
+    $orderDetail.style.display = 'block';
+
+    document.getElementById('odChannel').textContent = data.channel || '-';
+    document.getElementById('odOrderNo').textContent = data.order_no || '-';
+    document.getElementById('odRecipient').textContent = data.recipient_name || '-';
+    document.getElementById('odCourier').textContent = data.courier || '-';
+    document.getElementById('odBarcode').textContent = currentBarcode || '-';
+    document.getElementById('odTotalQty').textContent = data.total_qty || 0;
+
+    const $items = document.getElementById('odItems');
+    $items.innerHTML = '';
+    (data.items || []).forEach(it => {
+        const div = document.createElement('div');
+        div.className = 'order-item';
+        div.innerHTML = `<span class="order-item-name">${it.product_name || it.option_name || '-'}</span>
+                         <span class="order-item-qty">x${it.qty}</span>`;
+        $items.appendChild(div);
+    });
+}
+
+// ── 녹화 시작 ──
+async function startRecording() {
+    if (!cameraStream) {
+        showToast('카메라가 연결되어 있지 않습니다.', 'danger');
+        return;
+    }
+
+    // 서버에 job 생성
+    try {
+        const res = await fetch('/packing/api/start-job', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({
+                barcode: currentBarcode,
+                ...currentOrderData,
+            }),
+        });
+        const json = await res.json();
+        if (!json.ok) {
+            showToast(json.error || '작업 생성 실패', 'danger');
+            return;
+        }
+        currentJobId = json.job_id;
+    } catch(e) {
+        showToast('서버 연결 실패', 'danger');
+        return;
+    }
+
+    // MediaRecorder 시작
+    recordedChunks = [];
+    try {
+        mediaRecorder = new MediaRecorder(cameraStream, {
+            mimeType: 'video/webm;codecs=vp8',
+            videoBitsPerSecond: {{ config.get('PACKING_VIDEO_BITRATE', 1000000) }},
+        });
+    } catch(e) {
+        mediaRecorder = new MediaRecorder(cameraStream);
+    }
+
+    mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+
+    mediaRecorder.start(1000); // 1초 단위 chunk
+    recordingStartTime = Date.now();
+    updateState(State.RECORDING);
+
+    // 타이머 시작
+    timerInterval = setInterval(() => {
+        const elapsed = Date.now() - recordingStartTime;
+        const min = String(Math.floor(elapsed / 60000)).padStart(2, '0');
+        const sec = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+        $recTimer.textContent = `${min}:${sec}`;
+    }, 500);
+
+    playBeep(1500, 200);
+    speak('녹화를 시작합니다');
+}
+
+// ── 녹화 종료 ──
+async function stopRecording() {
+    updateState(State.COMPLETING);
+    clearInterval(timerInterval);
+    const durationMs = Date.now() - recordingStartTime;
+
+    playBeep(800, 300);
+
+    // MediaRecorder 정지 후 업로드
+    return new Promise((resolve) => {
+        mediaRecorder.onstop = async () => {
+            const blob = new Blob(recordedChunks, {type:'video/webm'});
+            const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
+            $uploadOverlay.classList.add('active');
+            $uploadSize.textContent = `${sizeMB} MB`;
+
+            // FormData 업로드
+            const formData = new FormData();
+            formData.append('video', blob, `${currentBarcode}.webm`);
+            formData.append('job_id', currentJobId);
+            formData.append('duration_ms', durationMs);
+            formData.append('csrf_token', CSRF_TOKEN);
+
+            try {
+                const res = await fetch('/packing/api/complete-job', {
+                    method: 'POST',
+                    body: formData,
+                });
+                const json = await res.json();
+                if (json.ok) {
+                    showToast('녹화 완료! 영상이 저장되었습니다.', 'success');
+                    speak('녹화 완료');
+                } else {
+                    showToast(json.error || '업로드 실패', 'danger');
+                }
+            } catch(e) {
+                showToast('업로드 중 오류 발생', 'danger');
+            }
+
+            $uploadOverlay.classList.remove('active');
+            resetToIdle();
+            resolve();
+        };
+        mediaRecorder.stop();
+    });
+}
+
+// ── 상태 초기화 ──
+function resetToIdle() {
+    currentBarcode = null;
+    currentOrderData = null;
+    currentJobId = null;
+    mediaRecorder = null;
+    recordedChunks = [];
+    recordingStartTime = null;
+
+    $guideMsg.style.display = 'block';
+    $orderDetail.style.display = 'none';
+    $recTimer.textContent = '00:00';
+
+    updateState(State.IDLE);
+    $barcodeInput.focus();
+}
+
+// ── 상태 UI 업데이트 ──
+function updateState(newState) {
+    state = newState;
+    const badgeMap = {
+        IDLE:       {cls:'state-idle',      text:'대기'},
+        MATCHED:    {cls:'state-matched',    text:'매칭'},
+        RECORDING:  {cls:'state-recording',  text:'녹화 중'},
+        COMPLETING: {cls:'state-completing', text:'저장 중'},
+    };
+    const b = badgeMap[newState];
+    $stateBadge.className = 'state-badge ' + b.cls;
+    $stateBadge.textContent = b.text;
+
+    $recIndicator.classList.toggle('active', newState === State.RECORDING);
+    $matchedGuide.style.display = newState === State.MATCHED ? 'block' : 'none';
+    $recordingGuide.style.display = newState === State.RECORDING ? 'block' : 'none';
+}
+
+// ── TTS ──
+function speak(text) {
+    if (!window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'ko-KR';
+    utt.rate = 1.1;
+    speechSynthesis.speak(utt);
+}
+
+function speakOrderInfo(data) {
+    const parts = [];
+    if (data.channel) parts.push(data.channel);
+    if (data.recipient_name) parts.push(`수취인 ${data.recipient_name}`);
+    if (data.items && data.items.length > 0) {
+        const first = data.items[0];
+        parts.push(`${first.product_name} ${first.qty}개`);
+        if (data.items.length > 1) parts.push(`외 ${data.items.length - 1}건`);
+    }
+    if (parts.length > 0) speak(parts.join(', '));
+}
+
+// ── 비프음 ──
+function playBeep(freq, duration) {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.value = 0.3;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        setTimeout(() => { osc.stop(); }, duration);
+    } catch(e) {}
+}
+
+// ── 토스트 ──
+function showToast(msg, type) {
+    const el = document.getElementById('toastEl');
+    const msgEl = document.getElementById('toastMsg');
+    msgEl.textContent = msg;
+    el.className = 'toast align-items-center border-0 text-bg-' + (type||'info');
+    const t = bootstrap.Toast.getOrCreateInstance(el);
+    t.show();
+}
+</script>
+{% endblock %}
