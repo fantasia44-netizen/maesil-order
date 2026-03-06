@@ -184,7 +184,7 @@ class OrderProcessor:
 
     def run(self, mode, order_file, option_file, invoice_file, target_type, output_dir,
             db=None, option_source='file', save_to_db=False, uploaded_by=None,
-            collection_date=None):
+            collection_date=None, opt_list_override=None):
         """
         mode: '스마트스토어'|'자사몰'|'쿠팡'|'옥션/G마켓'|'오아시스'|'11번가'|'카카오'
         order_file: file-like object or path
@@ -197,6 +197,7 @@ class OrderProcessor:
         save_to_db: True면 주문을 DB에 저장 (Phase 1)
         uploaded_by: 업로드한 사용자명
         collection_date: 주문수집일 (YYYY-MM-DD, 미지정 시 송장생성 당일)
+        opt_list_override: 옵션 리스트 직접 주입 (캐시 완전 우회, 재처리 시 사용)
 
         returns: {
             'success': bool,
@@ -221,8 +222,22 @@ class OrderProcessor:
         try:
             self.log(f"🚀 v17.0 [{mode}] {target_type} 가동")
 
-            # [1] 옵션지 분석 (DB 또는 파일)
-            if option_source == 'db' and db is not None:
+            # [1] 옵션지 분석 (DB 또는 파일, override 우선)
+            if opt_list_override is not None:
+                opt_list = opt_list_override
+                if not opt_list:
+                    result['error'] = "옵션마스터 데이터가 비어있습니다."
+                    return result
+                # 헤더 잔여행/빈 데이터 제거
+                _header_vals_ovr = {'standard_name', 'product_name', '품목명', 'original_name', '원문명'}
+                opt_list = [o for o in opt_list
+                            if str(o.get('원문명', '')).strip()
+                            and str(o.get('품목명', '')).strip().lower() not in _header_vals_ovr
+                            and str(o.get('원문명', '')).strip().lower() not in _header_vals_ovr]
+                opt_raw = pd.DataFrame(opt_list)[['원문명', '품목명', '라인코드', '출력순서', '바코드']]
+                opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+                self.log(f"✅ 옵션마스터(DB직접) 로드: {len(opt_list)}건")
+            elif option_source == 'db' and db is not None:
                 opt_list = db.query_option_master_as_list()
                 if not opt_list:
                     result['error'] = "옵션마스터 DB에 데이터가 없습니다.\n마스터 관리에서 옵션리스트를 동기화하세요."
@@ -456,6 +471,10 @@ class OrderProcessor:
                         # 매칭 실패 → 실제 매칭 키(k) 수집 (옵션리스트 A열에 넣을 값)
                         if k and k not in unmatched:
                             unmatched.append(k)
+                            c_k_debug = k.replace(" ", "").upper()
+                            # 유사 키 탐색 (디버깅용)
+                            similar = [o['Key'] for o in opt_list if c_k_debug[:6] in o['Key'] or o['Key'][:6] in c_k_debug][:3]
+                            self.log(f"[UNMATCH] key='{k}' c_k='{c_k_debug}' | 유사: {similar if similar else '없음'} | opt_list: {len(opt_list)}건")
                 except:
                     continue
 

@@ -336,6 +336,14 @@ def api_option_register():
             'sort_order': sort_order,
             'barcode': barcode,
         })
+        # 등록 후 DB 반영 검증 — match_key로 실제 조회 확인
+        match_key = original_name.replace(' ', '').upper()
+        verify = current_app.db.query_option_master(use_cache=False)
+        found = any(r.get('match_key', '') == match_key for r in verify)
+        if not found:
+            print(f"[OPTION-REG] WARNING: 등록 후 DB 검증 실패! match_key='{match_key}' original='{original_name}'")
+            return jsonify({'error': f'DB 등록은 완료되었으나 검증 실패 (match_key: {match_key}). 다시 시도하세요.'}), 500
+        print(f"[OPTION-REG] OK: '{original_name}' -> '{product_name}' match_key='{match_key}' (DB {len(verify)}건 중 확인)")
         return jsonify({'success': True, 'message': f'{original_name} → {product_name} 등록 완료'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -358,8 +366,9 @@ def api_reprocess():
         from services.order_processor import OrderProcessor
         output_dir = current_app.config['OUTPUT_FOLDER']
 
-        # 옵션 등록 직후 재처리이므로 캐시 강제 무효화 (멀티스레드 환경 대응)
-        current_app.db._invalidate_option_cache()
+        # 옵션 등록 직후 재처리 — 캐시 완전 우회하여 DB에서 직접 로드
+        fresh_opts = current_app.db.query_option_master_as_list(use_cache=False)
+        print(f"[REPROCESS] 옵션마스터 DB 직접 로드: {len(fresh_opts)}건 (캐시 우회)")
 
         processor = OrderProcessor()
         result = processor.run(
@@ -368,7 +377,8 @@ def api_reprocess():
             db=current_app.db, option_source='db',
             save_to_db=True,
             uploaded_by=current_user.username if current_user.is_authenticated else '',
-            collection_date=reprocess.get('collection_date')
+            collection_date=reprocess.get('collection_date'),
+            opt_list_override=fresh_opts,
         )
 
         if result.get('unmatched'):

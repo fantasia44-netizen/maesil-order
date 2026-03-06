@@ -933,14 +933,18 @@ class SupabaseDB(DBBase):
         _option_cache['ts'] = now
         return data
 
-    def query_option_master_as_list(self):
-        """옵션마스터를 OrderProcessor 호환 dict list로 반환 (캐시)."""
+    def query_option_master_as_list(self, use_cache=True):
+        """옵션마스터를 OrderProcessor 호환 dict list로 반환 (캐시).
+
+        Args:
+            use_cache: False면 캐시 완전 우회, DB 직접 조회.
+        """
         # list 캐시가 유효하면 바로 반환
         now = time.time()
-        if _option_cache['data_list'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
+        if use_cache and _option_cache['data_list'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
             return _option_cache['data_list']
 
-        all_rows = self.query_option_master()
+        all_rows = self.query_option_master(use_cache=use_cache)
         result = []
         for r in all_rows:
             result.append({
