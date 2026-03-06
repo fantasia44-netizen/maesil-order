@@ -94,9 +94,9 @@ class ProductionConfig(Config):
     SESSION_COOKIE_SAMESITE = 'Lax'
     PREFERRED_URL_SCHEME = 'https'
 
-    # 더 짧은 세션 타임아웃
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=4)
-    SESSION_INACTIVITY_TIMEOUT = 30    # 30분
+    # 세션 타임아웃
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
+    SESSION_INACTIVITY_TIMEOUT = 120    # 120분 (2시간) 비활동 시 자동 로그아웃
 
     # 더 엄격한 로그인 제한
     LOGIN_MAX_ATTEMPTS = 3
