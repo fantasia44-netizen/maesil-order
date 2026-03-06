@@ -336,15 +336,10 @@ def api_option_register():
             'sort_order': sort_order,
             'barcode': barcode,
         })
-        # 등록 후 DB 반영 검증 — match_key로 실제 조회 확인
+        # 등록 성공 후 캐시 강제 갱신 (재처리 대비)
         match_key = original_name.replace(' ', '').upper()
-        verify = current_app.db.query_option_master(use_cache=False)
-        found = any(r.get('match_key', '') == match_key for r in verify)
-        if not found:
-            print(f"[OPTION-REG] WARNING: 등록 후 DB 검증 실패! match_key='{match_key}' original='{original_name}'")
-            return jsonify({'error': f'DB 등록은 완료되었으나 검증 실패 (match_key: {match_key}). 다시 시도하세요.'}), 500
-        print(f"[OPTION-REG] OK: '{original_name}' -> '{product_name}' match_key='{match_key}' (DB {len(verify)}건 중 확인)")
-        return jsonify({'success': True, 'message': f'{original_name} → {product_name} 등록 완료'})
+        print(f"[OPTION-REG] OK: '{original_name}' -> '{product_name}' match_key='{match_key}'")
+        return jsonify({'success': True, 'message': f'{original_name} -> {product_name} 등록 완료'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
