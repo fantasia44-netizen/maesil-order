@@ -223,6 +223,7 @@ def process():
                 'mode': mode,
                 'target_type': target_type,
                 'platform': platform,
+                'collection_date': collection_date,
             }
 
             try:
@@ -356,13 +357,18 @@ def api_reprocess():
     try:
         from services.order_processor import OrderProcessor
         output_dir = current_app.config['OUTPUT_FOLDER']
+
+        # 옵션 등록 직후 재처리이므로 캐시 강제 무효화 (멀티스레드 환경 대응)
+        current_app.db._invalidate_option_cache()
+
         processor = OrderProcessor()
         result = processor.run(
             reprocess['mode'], order_path, None,
             reprocess.get('invoice_path'), reprocess['target_type'], output_dir,
             db=current_app.db, option_source='db',
             save_to_db=True,
-            uploaded_by=current_user.username if current_user.is_authenticated else ''
+            uploaded_by=current_user.username if current_user.is_authenticated else '',
+            collection_date=reprocess.get('collection_date')
         )
 
         if result.get('unmatched'):
