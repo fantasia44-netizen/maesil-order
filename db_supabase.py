@@ -924,7 +924,7 @@ class SupabaseDB(DBBase):
             return _option_cache['data']
 
         def builder(table):
-            return self.client.table(table).select("*").order("sort_order")
+            return self.client.table(table).select("*").order("sort_order").order("id")
         data = self._paginate_query("option_master", builder)
 
         # 캐시 갱신
