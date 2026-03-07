@@ -100,8 +100,8 @@ PAGE_REGISTRY = [
     ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general'],              '매출·분석'),
 
     # ── 관리 ──
-    ('employees',      '직원 관리',      'bi-person-badge',       '/hr/employees',        ['admin'],                                                          '관리'),
-    ('payroll',        '급여 관리',      'bi-wallet2',            '/hr/payroll',          ['admin'],                                                          '관리'),
+    ('employees',      '직원 관리',      'bi-person-badge',       '/hr/employees',        ['admin','general'],                                                '관리'),
+    ('payroll',        '급여 관리',      'bi-wallet2',            '/hr/payroll',          ['admin','general'],                                                '관리'),
     ('leave',          '연차 관리',      'bi-calendar-event',     '/hr/leave',            ['admin','general'],                                                '관리'),
     ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager'],                                                '관리'),
     ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin'],                                                          '관리'),

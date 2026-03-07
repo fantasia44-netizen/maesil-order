@@ -19,14 +19,14 @@ hr_bp = Blueprint('hr', __name__, url_prefix='/hr')
 # ══════════════════════════════════════════════
 
 @hr_bp.route('/employees')
-@role_required('admin')
+@role_required('admin', 'general')
 def employees():
     """직원 관리 메인 페이지"""
     return render_template('hr/employees.html')
 
 
 @hr_bp.route('/api/employees')
-@role_required('admin')
+@role_required('admin', 'general')
 def api_employees():
     """직원 목록 JSON API"""
     db = current_app.db
@@ -44,7 +44,7 @@ def api_employees():
 
 
 @hr_bp.route('/api/employees', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_create_employee():
     """직원 등록"""
     db = current_app.db
@@ -84,7 +84,7 @@ def api_create_employee():
 
 
 @hr_bp.route('/api/employees/<int:emp_id>', methods=['PUT'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_update_employee(emp_id):
     """직원 수정"""
     db = current_app.db
@@ -141,14 +141,14 @@ def api_delete_employee(emp_id):
 # ══════════════════════════════════════════════
 
 @hr_bp.route('/payroll')
-@role_required('admin')
+@role_required('admin', 'general')
 def payroll():
     """급여 관리 메인 페이지"""
     return render_template('hr/payroll.html')
 
 
 @hr_bp.route('/api/payroll')
-@role_required('admin')
+@role_required('admin', 'general')
 def api_payroll():
     """급여 목록 JSON API"""
     db = current_app.db
@@ -178,7 +178,7 @@ def api_payroll():
 
 
 @hr_bp.route('/api/payroll/<int:payroll_id>', methods=['PUT'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_update_payroll(payroll_id):
     """급여 1건 수정 (수당/메모 수정)"""
     db = current_app.db
@@ -210,7 +210,7 @@ def api_update_payroll(payroll_id):
 
 
 @hr_bp.route('/api/payroll/generate', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_generate_payroll():
     """월 급여 자동 생성"""
     db = current_app.db
@@ -230,7 +230,7 @@ def api_generate_payroll():
 
 
 @hr_bp.route('/api/payroll/sync-expenses', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_sync_expenses():
     """급여 합계를 expenses에 인건비로 자동 반영"""
     db = current_app.db
@@ -305,7 +305,7 @@ def api_leave():
 
 
 @hr_bp.route('/api/leave/grant', methods=['POST'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_grant_leave():
     """연차 부여일수 설정"""
     db = current_app.db
