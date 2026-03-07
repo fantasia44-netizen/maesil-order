@@ -1,14 +1,16 @@
 import os
 from datetime import timedelta
+from dotenv import load_dotenv
 
 basedir = os.path.abspath(os.path.dirname(__file__))
+load_dotenv(os.path.join(basedir, '.env'))
 
-SUPABASE_URL = "https://pbocckpuiyzijspqpvqz.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBib2Nja3B1aXl6aWpzcHFwdnF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MDI0NjgsImV4cCI6MjA4NjI3ODQ2OH0.-oh6BjjSaOOSEavwK3xbvX5AkYPLJUp9VuGbcLWuFHc"
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 
 # 쿡대디 Supabase (별도 프로젝트)
-COOKDADDY_SUPABASE_URL = "https://yfktbbszelpzydrktmuo.supabase.co"
-COOKDADDY_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlma3RiYnN6ZWxwenlkcmt0bXVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MjM3MDksImV4cCI6MjA4ODE5OTcwOX0.epmsBO5HQJfSs6bRDbbO_dHNNMHGIElNiR__FmdzYS8"
+COOKDADDY_SUPABASE_URL = os.environ.get('COOKDADDY_SUPABASE_URL')
+COOKDADDY_SUPABASE_KEY = os.environ.get('COOKDADDY_SUPABASE_KEY')
 
 # 사업자 설정
 DEFAULT_BUSINESS = 'baemama'

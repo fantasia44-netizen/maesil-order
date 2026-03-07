@@ -10,6 +10,7 @@ order_transactions에서 미처리 주문을 가져와:
 매출은 order_transactions에 이미 저장된 금액(total_amount, settlement, commission)을
 조회 시 집계하므로 별도 매출 기록(daily_revenue)을 하지 않습니다.
 """
+import logging
 import unicodedata
 from datetime import datetime
 try:
@@ -18,6 +19,8 @@ except ImportError:
     from backports.zoneinfo import ZoneInfo
 
 from services.channel_config import CHANNEL_REVENUE_MAP
+
+logger = logging.getLogger(__name__)
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -338,14 +341,18 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
         if payload:
             try:
+                for p in payload:
+                    logger.info(f"[재고차감] {date_str} | {p['product_name']} | {p['qty']} | {warehouse} | SALES_OUT")
                 inserted, skipped = db.upsert_stock_ledger_idempotent(payload)
                 total_outbound += inserted
                 total_skipped += skipped
+                logger.info(f"[재고차감완료] {date_str} | {warehouse} | {inserted}건 성공 | 중복스킵 {skipped}건")
                 if skipped:
                     log(f"  [{warehouse}] {date_str}: FIFO 출고 {inserted}건 (중복 스킵 {skipped}건)")
                 else:
                     log(f"  [{warehouse}] {date_str}: FIFO 출고 {inserted}건")
             except Exception as e:
+                logger.error(f"[재고차감실패] {date_str} | {warehouse} | {len(payload)}건 | {str(e)}")
                 errors.append(f"[{warehouse}] stock_ledger INSERT 실패: {e}")
 
     if total_skipped:
@@ -519,14 +526,18 @@ def process_realtime_outbound(db, import_run_id):
 
         if payload:
             try:
+                for p in payload:
+                    logger.info(f"[재고차감] {date_str} | {p['product_name']} | {p['qty']} | {warehouse} | SALES_OUT | import_run#{import_run_id}")
                 inserted, skipped = db.upsert_stock_ledger_idempotent(payload)
                 total_outbound += inserted
                 total_skipped += skipped
+                logger.info(f"[재고차감완료] {date_str} | {warehouse} | {inserted}건 성공 | 중복스킵 {skipped}건 | import_run#{import_run_id}")
                 if skipped:
                     log(f"  [{warehouse}] FIFO 출고 {inserted}건 (중복 스킵 {skipped}건)")
                 else:
                     log(f"  [{warehouse}] FIFO 출고 {inserted}건")
             except Exception as e:
+                logger.error(f"[재고차감실패] {date_str} | {warehouse} | {len(payload)}건 | {str(e)} | import_run#{import_run_id}")
                 errors.append(f"[{warehouse}] stock_ledger 오류: {e}")
 
     # 5. 주문 처리 완료 표시
@@ -612,6 +623,7 @@ def reverse_order_stock(db, order_id):
         ref_uid = f"SO:{reverse_stk_date}:{wh}:{_norm(item)}:{order_id}"
         return_uid = f"SR:{reverse_stk_date}:{wh}:{_norm(item)}:{order_id}"
         try:
+            logger.info(f"[반품] {reverse_stk_date} | {item} | +{iqty} | {wh} | SALES_RETURN | order#{order_id}")
             db.insert_stock_ledger([{
                 "transaction_date": reverse_stk_date,
                 "type": "SALES_RETURN",
@@ -625,8 +637,10 @@ def reverse_order_stock(db, order_id):
                 "event_uid": return_uid,
                 "ref_event_uid": ref_uid,
             }])
+            logger.info(f"[반품완료] {reverse_stk_date} | {item} | +{iqty} | {wh} | order#{order_id}")
             stock_reversed += 1
         except Exception as e:
+            logger.error(f"[반품실패] {reverse_stk_date} | {item} | +{iqty} | {wh} | order#{order_id} | {str(e)}")
             errors.append(f"SALES_RETURN 오류 ({item}): {e}")
 
     # 4. is_outbound_done 초기화
@@ -723,9 +737,13 @@ def process_single_order_realtime(db, order_id):
                     remain -= deduct
 
             if payload:
+                for p in payload:
+                    logger.info(f"[재고차감] {stk_date} | {p['product_name']} | {p['qty']} | {wh} | SALES_OUT | order#{order_id}")
                 inserted, skipped = db.upsert_stock_ledger_idempotent(payload)
                 outbound_count += inserted
+                logger.info(f"[재고차감완료] {stk_date} | {wh} | {inserted}건 성공 | order#{order_id}")
         except Exception as e:
+            logger.error(f"[재고차감실패] {stk_date} | {item} | {wh} | order#{order_id} | {str(e)}")
             errors.append(f"출고 오류 ({item}): {e}")
 
     # 완료 표시

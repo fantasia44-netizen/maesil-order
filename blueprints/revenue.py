@@ -101,8 +101,10 @@ def import_revenue():
             flash(f'기존 매출 {deleted}건 삭제 후 재입력합니다.', 'info')
 
         db.upsert_revenue(payload)
+        current_app.logger.info(f"[매출import성공] {upload_date} | {len(payload)}건 | 총매출 {total_rev:,}원 | 파일: {filename} | 사용자: {current_user.username}")
         flash(f'매출 {len(payload)}건 등록 완료 (합계: {total_rev:,}원)', 'success')
     except Exception as e:
+        current_app.logger.error(f"[매출import실패] {upload_date} | 파일: {filename} | 사용자: {current_user.username} | {str(e)}")
         flash(f'매출 업로드 중 오류: {e}', 'danger')
     finally:
         if os.path.exists(filepath):
@@ -180,6 +182,14 @@ def delete_revenue(revenue_id):
         except Exception:
             pass
         current_app.db.delete_revenue_by_id(revenue_id)
+        current_app.logger.info(
+            f"[매출삭제] id={revenue_id} | "
+            f"{old_record.get('revenue_date', '')} | {old_record.get('product_name', '')} | "
+            f"{old_record.get('revenue', 0):,}원 | {old_record.get('category', '')} | "
+            f"사용자: {current_user.username}"
+            if old_record else
+            f"[매출삭제] id={revenue_id} | 사용자: {current_user.username}"
+        )
         _log_action('delete_revenue', target=str(revenue_id), old_value=old_record)
         flash('매출 삭제 완료', 'success')
     except Exception as e:
@@ -220,5 +230,3 @@ def stats():
                            categories=REVENUE_CATEGORIES,
                            stats=stats_data,
                            stats_json=json.dumps(stats_data, ensure_ascii=False) if stats_data else '{}')
-
-

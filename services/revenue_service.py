@@ -2,6 +2,7 @@
 revenue_service.py — 매출(Tab 7) 비즈니스 로직.
 Tkinter 의존 제거. db 파라미터(SupabaseDB 인스턴스)를 받고 결과를 dict/list로 반환.
 """
+import logging
 import pandas as pd
 from datetime import datetime
 
@@ -9,6 +10,8 @@ try:
     from excel_io import parse_revenue_payload
 except ImportError:
     from services.excel_io import parse_revenue_payload
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_date(date_str):
@@ -46,7 +49,15 @@ def process_revenue_import(db, excel_df, date_str):
     if not payload:
         return {"count": 0, "total_revenue": 0}
 
-    db.upsert_revenue(payload)
+    logger.info(f"[매출등록] {date_str} | {len(payload)}건 | 총매출 {total_rev:,}원 | upsert 시도")
+    for p in payload:
+        logger.info(f"[매출등록] {date_str} | {p.get('product_name', '')} | {p.get('qty', 0)}개 | {p.get('revenue', 0):,}원 | {p.get('category', '')}")
+    try:
+        db.upsert_revenue(payload)
+        logger.info(f"[매출등록완료] {date_str} | {len(payload)}건 | 총매출 {total_rev:,}원")
+    except Exception as e:
+        logger.error(f"[매출등록실패] {date_str} | {len(payload)}건 | {str(e)}")
+        raise
     return {"count": len(payload), "total_revenue": total_rev}
 
 

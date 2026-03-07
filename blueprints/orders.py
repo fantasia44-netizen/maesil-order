@@ -15,7 +15,7 @@ from flask import (
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from auth import role_required
+from auth import role_required, _log_action
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -686,6 +686,75 @@ def api_import_run_detail(run_id):
     if not run:
         return jsonify({'error': '업로드 이력을 찾을 수 없습니다'}), 404
     return jsonify(run)
+
+
+# ================================================================
+# Import Run 롤백 (일괄취소)
+# ================================================================
+
+@orders_bp.route('/import-runs')
+@role_required('admin', 'manager')
+def import_runs_page():
+    """업로드 이력 관리 페이지 (롤백 기능 포함)"""
+    return render_template('orders/import_runs.html')
+
+
+@orders_bp.route('/api/import-runs/<int:run_id>/impact')
+@role_required('admin', 'manager')
+def api_import_run_impact(run_id):
+    """import_run 취소 영향 범위 미리보기"""
+    result = current_app.db.get_import_run_impact(run_id)
+    if result.get('error'):
+        return jsonify({'error': result['error']}), 404
+    return jsonify(result)
+
+
+@orders_bp.route('/api/import-runs/<int:run_id>/cancel', methods=['POST'])
+@role_required('admin', 'manager')
+def api_cancel_import_run(run_id):
+    """import_run 일괄취소 (롤백)"""
+    db = current_app.db
+    cancelled_by = current_user.name or current_user.username
+
+    # 영향 범위 먼저 확인
+    impact = db.get_import_run_impact(run_id)
+    if impact.get('error'):
+        return jsonify({'error': impact['error']}), 404
+
+    # 활성 주문 없으면 취소할 것이 없음
+    if impact.get('active_count', 0) == 0:
+        return jsonify({'error': '취소할 정상 주문이 없습니다.'}), 400
+
+    # 롤백 실행
+    result = db.cancel_import_run(run_id, cancelled_by)
+
+    if result.get('error'):
+        return jsonify({'error': result['error']}), 500
+
+    # 감사 로그
+    try:
+        _log_action(
+            action='cancel_import_run',
+            target=f'import_run #{run_id}',
+            detail=(
+                f"import_run 일괄취소: "
+                f"취소 {result['cancelled_orders']}건, "
+                f"출고완료 건너뜀 {result['skipped_outbound']}건"
+            ),
+            new_value={
+                'run_id': run_id,
+                'cancelled_orders': result['cancelled_orders'],
+                'skipped_outbound': result['skipped_outbound'],
+            }
+        )
+    except Exception:
+        pass
+
+    return jsonify({
+        'success': True,
+        'cancelled_orders': result['cancelled_orders'],
+        'skipped_outbound': result['skipped_outbound'],
+    })
 
 
 # ================================================================

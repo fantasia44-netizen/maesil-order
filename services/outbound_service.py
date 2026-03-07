@@ -3,6 +3,7 @@ outbound_service.py -- 통합출고 (탭3) 비즈니스 로직.
 Tkinter UI 제거, 순수 데이터 반환.
 """
 import os
+import logging
 import pandas as pd
 from datetime import datetime
 
@@ -10,6 +11,8 @@ from services.excel_io import (
     safe_int, safe_qty, normalize_location, detect_qty_col,
     build_stock_snapshot, snapshot_lookup, parse_revenue_payload,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ─── 헬퍼 ───
@@ -122,11 +125,19 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
             remain -= deduct
 
     if payload:
-        insert_result = db.insert_stock_ledger(payload)
-        if isinstance(insert_result, dict):
-            actual_count = insert_result.get('inserted', len(payload))
-        else:
-            actual_count = len(payload)
+        logger.info(f"[재고차감] {date_str} | {location} | SALES_OUT {len(payload)}건 insert 시도")
+        for p in payload:
+            logger.info(f"[재고차감] {date_str} | {p['product_name']} | {p['qty']} | {location} | {p['type']}")
+        try:
+            insert_result = db.insert_stock_ledger(payload)
+            if isinstance(insert_result, dict):
+                actual_count = insert_result.get('inserted', len(payload))
+            else:
+                actual_count = len(payload)
+            logger.info(f"[재고차감완료] {date_str} | {location} | {actual_count}건 성공")
+        except Exception as e:
+            logger.error(f"[재고차감실패] {date_str} | {location} | {len(payload)}건 | {str(e)}")
+            raise
     else:
         actual_count = 0
 
@@ -219,13 +230,23 @@ def process_single_outbound(db, date_str, location, items):
 
     insert_result = {'inserted': 0, 'failed': 0, 'errors': []}
     if payload:
-        insert_result = db.insert_stock_ledger(payload)
-        # insert_stock_ledger가 dict를 반환하지 않는 경우 (호환)
-        if not isinstance(insert_result, dict):
-            insert_result = {'inserted': len(payload), 'failed': 0, 'errors': []}
-        if insert_result.get('failed', 0) > 0:
-            for err in insert_result.get('errors', []):
-                warnings.append(f'재고차감 일부 실패: {err}')
+        logger.info(f"[단건재고차감] {date_str} | {location} | SALES_OUT {len(payload)}건 insert 시도")
+        for p in payload:
+            logger.info(f"[재고차감] {date_str} | {p['product_name']} | {p['qty']} | {location} | {p['type']}")
+        try:
+            insert_result = db.insert_stock_ledger(payload)
+            # insert_stock_ledger가 dict를 반환하지 않는 경우 (호환)
+            if not isinstance(insert_result, dict):
+                insert_result = {'inserted': len(payload), 'failed': 0, 'errors': []}
+            if insert_result.get('failed', 0) > 0:
+                for err in insert_result.get('errors', []):
+                    warnings.append(f'재고차감 일부 실패: {err}')
+                logger.error(f"[단건재고차감실패] {date_str} | {location} | 실패 {insert_result['failed']}건 | {insert_result.get('errors', [])}")
+            else:
+                logger.info(f"[단건재고차감완료] {date_str} | {location} | {insert_result.get('inserted', len(payload))}건 성공")
+        except Exception as e:
+            logger.error(f"[단건재고차감실패] {date_str} | {location} | {len(payload)}건 | {str(e)}")
+            raise
 
     return {
         'success': True,

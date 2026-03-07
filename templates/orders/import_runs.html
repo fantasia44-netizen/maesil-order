@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}업로드 이력 관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}업로드 이력 관리{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label small mb-0">채널</label>
+                <select class="form-select form-select-sm" id="filterChannel">
+                    <option value="">전체</option>
+                    <option value="스마트스토어">스마트스토어</option>
+                    <option value="쿠팡">쿠팡</option>
+                    <option value="옥션/G마켓">옥션/G마켓</option>
+                    <option value="자사몰">자사몰</option>
+                    <option value="오아시스">오아시스</option>
+                    <option value="11번가">11번가</option>
+                    <option value="카카오">카카오</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-0">상태</label>
+                <select class="form-select form-select-sm" id="filterStatus">
+                    <option value="">전체</option>
+                    <option value="completed">완료</option>
+                    <option value="partial">부분</option>
+                    <option value="processing">처리중</option>
+                    <option value="cancelled">취소</option>
+                    <option value="partially_cancelled">부분취소</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary btn-sm w-100" onclick="loadRuns()">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 이력 목록 -->
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>일시</th>
+                        <th>채널</th>
+                        <th>파일명</th>
+                        <th>업로더</th>
+                        <th class="text-end">전체</th>
+                        <th class="text-end">성공</th>
+                        <th class="text-end">변경</th>
+                        <th class="text-end">실패</th>
+                        <th>상태</th>
+                        <th class="text-center">액션</th>
+                    </tr>
+                </thead>
+                <tbody id="runsBody">
+                    <tr><td colspan="11" class="text-center text-muted py-4">조회 버튼을 눌러 이력을 검색하세요</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 영향 범위 미리보기 모달 -->
+<div class="modal fade" id="impactModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> 일괄취소 미리보기</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="impactBody">
+                <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-danger" id="btnConfirmCancel" onclick="confirmCancel()" disabled>
+                    <i class="bi bi-x-octagon"></i> 일괄취소 실행
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CSRF = '{{ csrf_token() }}';
+let pendingRunId = null;
+
+function parseJsonSafe(res) {
+    if (!res.ok) {
+        return res.json().then(d => { throw new Error(d.error || `HTTP ${res.status}`); })
+            .catch(e => { if (e.message.startsWith('HTTP')) throw e; throw e; });
+    }
+    const ct = (res.headers && res.headers.get('content-type')) || '';
+    if (ct.indexOf('application/json') !== -1) return res.json();
+    return res.text().then(t => {
+        throw new Error('JSON이 아닌 응답: ' + t.slice(0, 200));
+    });
+}
+
+function getStatusBadge(status) {
+    const map = {
+        'completed':            { cls: 'bg-success',  label: '완료' },
+        'partial':              { cls: 'bg-warning text-dark', label: '부분완료' },
+        'processing':           { cls: 'bg-info',     label: '처리중' },
+        'failed':               { cls: 'bg-danger',   label: '실패' },
+        'cancelled':            { cls: 'bg-dark',     label: '취소' },
+        'partially_cancelled':  { cls: 'bg-secondary', label: '부분취소' },
+    };
+    const s = map[status] || { cls: 'bg-secondary', label: status };
+    return `<span class="badge ${s.cls}">${s.label}</span>`;
+}
+
+function canCancel(status) {
+    return ['completed', 'partial', 'processing'].includes(status);
+}
+
+function loadRuns() {
+    const tbody = document.getElementById('runsBody');
+    tbody.innerHTML = '<tr><td colspan="11" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> 조회 중...</td></tr>';
+
+    fetch('{{ url_for("orders.api_import_runs") }}')
+        .then(parseJsonSafe)
+        .then(data => {
+            let runs = data.runs || [];
+
+            // 클라이언트 필터
+            const chFilter = document.getElementById('filterChannel').value;
+            const stFilter = document.getElementById('filterStatus').value;
+            if (chFilter) runs = runs.filter(r => r.channel === chFilter);
+            if (stFilter) runs = runs.filter(r => r.status === stFilter);
+
+            if (!runs.length) {
+                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">조회 결과 없음</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = runs.map(r => {
+                const actionBtn = canCancel(r.status)
+                    ? `<button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="showImpact(${r.id})" title="일괄취소">
+                        <i class="bi bi-x-octagon"></i> 취소
+                       </button>`
+                    : `<span class="text-muted small">-</span>`;
+                return `<tr>
+                    <td class="small text-muted">${r.id}</td>
+                    <td>${r.created_at ? r.created_at.replace('T',' ').substring(0,19) : ''}</td>
+                    <td><span class="badge bg-secondary">${r.channel || ''}</span></td>
+                    <td class="text-truncate small" style="max-width:200px" title="${r.filename || ''}">${r.filename || '-'}</td>
+                    <td>${r.uploaded_by || '-'}</td>
+                    <td class="text-end">${r.total_rows || 0}</td>
+                    <td class="text-end text-success">${r.success_count || 0}</td>
+                    <td class="text-end text-warning">${r.changed_count || 0}</td>
+                    <td class="text-end text-danger">${r.fail_count || 0}</td>
+                    <td>${getStatusBadge(r.status)}</td>
+                    <td class="text-center">${actionBtn}</td>
+                </tr>`;
+            }).join('');
+        })
+        .catch(e => {
+            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-4">오류: ${e.message}</td></tr>`;
+        });
+}
+
+function showImpact(runId) {
+    pendingRunId = runId;
+    const modal = new bootstrap.Modal(document.getElementById('impactModal'));
+    const body = document.getElementById('impactBody');
+    const btn = document.getElementById('btnConfirmCancel');
+    btn.disabled = true;
+    body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+    modal.show();
+
+    fetch(`{{ url_for("orders.api_import_runs") }}/${runId}/impact`)
+        .then(parseJsonSafe)
+        .then(data => {
+            const r = data.run || {};
+            let html = `
+            <table class="table table-sm mb-3">
+                <tr><th class="w-40">Run ID</th><td>${r.id || runId}</td></tr>
+                <tr><th>채널</th><td>${r.channel || '-'}</td></tr>
+                <tr><th>파일명</th><td class="small">${r.filename || '-'}</td></tr>
+                <tr><th>업로드 일시</th><td>${r.created_at ? r.created_at.replace('T',' ').substring(0,19) : '-'}</td></tr>
+                <tr><th>업로더</th><td>${r.uploaded_by || '-'}</td></tr>
+            </table>
+            <h6>영향 범위</h6>
+            <table class="table table-sm table-bordered">
+                <tr>
+                    <td>전체 주문</td>
+                    <td class="text-end fw-bold">${data.total_count || 0}건</td>
+                </tr>
+                <tr>
+                    <td>정상 주문 (취소 대상)</td>
+                    <td class="text-end fw-bold text-danger">${data.active_count || 0}건</td>
+                </tr>
+                <tr>
+                    <td>출고완료 (건너뜀)</td>
+                    <td class="text-end fw-bold text-warning">${data.outbound_count || 0}건</td>
+                </tr>
+                <tr>
+                    <td>이미 취소/환불</td>
+                    <td class="text-end text-muted">${data.already_cancelled || 0}건</td>
+                </tr>
+            </table>`;
+
+            if (data.outbound_count > 0) {
+                html += `<div class="alert alert-warning py-2 small mb-0">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>출고 완료된 ${data.outbound_count}건</strong>은 이번 취소에서 건너뜁니다.
+                    출고 연쇄취소(재고 복원 + 매출 삭제)는 별도 기능으로 처리해야 합니다.
+                </div>`;
+            }
+
+            // 취소할 미출고 정상 주문 수 계산
+            const cancelTarget = (data.active_count || 0) - (data.outbound_count || 0);
+            if (cancelTarget <= 0) {
+                html += `<div class="alert alert-info py-2 small mt-2 mb-0">
+                    <i class="bi bi-info-circle"></i> 취소 가능한 미출고 정상 주문이 없습니다.
+                </div>`;
+                btn.disabled = true;
+            } else {
+                html += `<div class="alert alert-danger py-2 small mt-2 mb-0">
+                    <i class="bi bi-exclamation-octagon-fill"></i>
+                    <strong>${cancelTarget}건</strong>의 미출고 정상 주문이 취소됩니다. 이 작업은 되돌릴 수 없습니다.
+                </div>`;
+                btn.disabled = false;
+            }
+
+            body.innerHTML = html;
+        })
+        .catch(e => {
+            body.innerHTML = `<div class="alert alert-danger">오류: ${e.message}</div>`;
+        });
+}
+
+function confirmCancel() {
+    if (!pendingRunId) return;
+    if (!confirm('정말 일괄취소를 실행하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+    const btn = document.getElementById('btnConfirmCancel');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
+
+    fetch(`{{ url_for("orders.api_import_runs") }}/${pendingRunId}/cancel`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+        },
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        btn.innerHTML = '<i class="bi bi-x-octagon"></i> 일괄취소 실행';
+        if (data.success) {
+            let msg = `일괄취소 완료: ${data.cancelled_orders}건 취소`;
+            if (data.skipped_outbound > 0) {
+                msg += `, ${data.skipped_outbound}건 건너뜀 (출고완료)`;
+            }
+            alert(msg);
+            bootstrap.Modal.getInstance(document.getElementById('impactModal')).hide();
+            loadRuns();
+        } else {
+            alert(data.error || '취소 실패');
+            btn.disabled = false;
+        }
+    })
+    .catch(e => {
+        btn.innerHTML = '<i class="bi bi-x-octagon"></i> 일괄취소 실행';
+        btn.disabled = false;
+        alert('오류: ' + e.message);
+    });
+}
+
+// 페이지 로드 시 자동 조회
+document.addEventListener('DOMContentLoaded', loadRuns);
+</script>
+{% endblock %}

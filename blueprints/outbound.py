@@ -247,7 +247,7 @@ def single():
             qty = abs(int(item['qty']))
             unit_price = int(item.get('unit_price', 0))
             product_name = str(item['product_name']).strip()
-            db.insert_manual_trade({
+            trade_data = {
                 'partner_name': partner_name,
                 'product_name': product_name,
                 'trade_date': date_str,
@@ -258,7 +258,12 @@ def single():
                 'amount': qty * unit_price,
                 'memo': f'단건출고 ({location})',
                 'registered_by': current_user.username,
-            })
+            }
+            current_app.logger.info(
+                f"[거래등록] {date_str} | {partner_name} | {product_name} | "
+                f"{qty}개 | {unit_price:,}원 | 금액 {qty * unit_price:,}원 | {location}"
+            )
+            db.insert_manual_trade(trade_data)
             # daily_revenue 등록용 데이터
             if qty > 0 and unit_price > 0:
                 revenue_payload.append({
@@ -276,6 +281,10 @@ def single():
             ec_amount = int(ec.get('amount', 0))
             ec_memo = str(ec.get('memo', '')).strip()
             if ec_name and ec_amount > 0:
+                current_app.logger.info(
+                    f"[거래등록-부대비용] {date_str} | {partner_name} | {ec_name} | "
+                    f"1식 | {ec_amount:,}원 | {ec_memo}"
+                )
                 db.insert_manual_trade({
                     'partner_name': partner_name,
                     'product_name': ec_name,
@@ -330,6 +339,12 @@ def single():
         }
 
         item_summary = ', '.join(f"{i['product_name']}x{i['qty']}" for i in items)
+        total_amount = sum(abs(int(i.get('qty', 0))) * int(i.get('unit_price', 0)) for i in items)
+        current_app.logger.info(
+            f"[출고완료] {date_str} | {partner_name} | {location} | "
+            f"재고차감 {result['count']}건 | 거래 {len(items)}건 | "
+            f"총금액 {total_amount:,}원 | {item_summary}"
+        )
         flash(
             f"출고 처리 완료: 재고차감 {result['count']}건, "
             f"거래등록 {len(items)}건 (매출처: {partner_name}, 창고: {location}) — {item_summary}",
@@ -338,6 +353,7 @@ def single():
         return redirect(url_for('outbound.result'))
 
     except Exception as e:
+        current_app.logger.error(f"[출고실패] {date_str} | {partner_name} | {location} | {str(e)}")
         flash(f'출고 처리 중 오류: {e}', 'danger')
 
     return redirect(url_for('outbound.index'))

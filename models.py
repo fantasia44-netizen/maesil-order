@@ -63,6 +63,7 @@ PAGE_REGISTRY = [
     ('order_manage',   '주문 관리',      'bi-clipboard-data',     '/orders/manage',       ['admin','manager','sales'],                                        '주문·판매'),
     ('n_delivery',     'N배송 수동입력',  'bi-pencil-square',      '/orders/n-delivery',   ['admin','manager','sales'],                                        '주문·판매'),
     ('rocket_manual',  '로켓매출 수동입력','bi-rocket-takeoff',     '/orders/rocket-manual', ['admin','manager','sales'],                                        '주문·판매'),
+    ('import_runs',    '업로드이력 관리', 'bi-arrow-counterclockwise', '/orders/import-runs', ['admin','manager'],                                                '주문·판매'),
     ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales'],                                        '주문·판매'),
     ('shipment',       '출고 관리',      'bi-box-arrow-right',    '/shipment',            ['admin','ceo','manager','sales','logistics','general'],             '주문·판매'),
     ('price',          '판매가관리',     'bi-tags',               '/price',               ['admin','manager','sales','general'],                               '주문·판매'),

@@ -2196,6 +2196,113 @@ class SupabaseDB(DBBase):
             print(f"[DB] query_orders_by_import_run error: {e}")
             return []
 
+    def get_import_run_impact(self, run_id):
+        """import_run 취소 시 영향 범위 미리보기.
+        반환: {run: {...}, order_count, outbound_count, cancelled_count, error}
+        """
+        try:
+            # import_run 정보
+            run = self.query_import_run_by_id(run_id)
+            if not run:
+                return {"error": "import_run을 찾을 수 없습니다."}
+
+            # 해당 run_id의 order_transactions 전체 (상태 무관)
+            all_orders = self.client.table("order_transactions") \
+                .select("id,status,is_outbound_done") \
+                .eq("import_run_id", run_id).execute()
+            all_list = all_orders.data or []
+
+            total_count = len(all_list)
+            active_count = sum(1 for o in all_list if o.get("status") == "정상")
+            outbound_count = sum(1 for o in all_list
+                                if o.get("status") == "정상" and o.get("is_outbound_done"))
+            already_cancelled = sum(1 for o in all_list if o.get("status") in ("취소", "환불"))
+
+            return {
+                "run": run,
+                "total_count": total_count,
+                "active_count": active_count,
+                "outbound_count": outbound_count,
+                "already_cancelled": already_cancelled,
+            }
+        except Exception as e:
+            print(f"[DB] get_import_run_impact error: {e}")
+            return {"error": str(e)}
+
+    def cancel_import_run(self, run_id, cancelled_by):
+        """import_run 단위 롤백: run status → cancelled, 정상 주문 → 취소 처리.
+        출고 처리된 주문은 건너뛰고, 미출고 정상 주문만 취소.
+        반환: {cancelled_orders, skipped_outbound, error}
+        """
+        from datetime import datetime, timezone
+        try:
+            # 1) import_run 상태 확인
+            run = self.query_import_run_by_id(run_id)
+            if not run:
+                return {"error": "import_run을 찾을 수 없습니다."}
+            if run.get("status") == "cancelled":
+                return {"error": "이미 취소된 import_run입니다."}
+
+            # 2) 해당 run의 정상 주문 조회
+            res = self.client.table("order_transactions") \
+                .select("id,is_outbound_done,order_no,channel,product_name,qty") \
+                .eq("import_run_id", run_id) \
+                .eq("status", "정상").execute()
+            active_orders = res.data or []
+
+            cancelled_orders = 0
+            skipped_outbound = 0
+            now_iso = datetime.now(timezone.utc).isoformat()
+
+            for order in active_orders:
+                # 출고 완료된 주문은 건너뜀 (연쇄 취소는 다음 단계)
+                if order.get("is_outbound_done"):
+                    skipped_outbound += 1
+                    continue
+
+                # 주문 상태 → 취소
+                self.client.table("order_transactions").update({
+                    "status": "취소",
+                    "status_reason": f"import_run 일괄취소 (run_id={run_id})",
+                    "updated_at": now_iso,
+                }).eq("id", order["id"]).execute()
+
+                # 변경 이력 기록 (order_change_log)
+                try:
+                    self.client.table("order_change_log").insert({
+                        "order_transaction_id": order["id"],
+                        "change_type": "status_change",
+                        "field_name": "status",
+                        "before_value": "정상",
+                        "after_value": "취소",
+                        "change_reason": f"import_run 일괄취소 (run_id={run_id})",
+                        "changed_by": cancelled_by,
+                    }).execute()
+                except Exception:
+                    pass  # change_log 실패해도 취소는 계속 진행
+
+                cancelled_orders += 1
+
+            # 3) import_runs 상태 업데이트
+            new_status = "cancelled"
+            if skipped_outbound > 0:
+                new_status = "partially_cancelled"
+
+            self.update_import_run(run_id, {
+                "status": new_status,
+                "cancelled_by": cancelled_by,
+                "cancelled_at": now_iso,
+            })
+
+            return {
+                "cancelled_orders": cancelled_orders,
+                "skipped_outbound": skipped_outbound,
+            }
+        except Exception as e:
+            print(f"[DB] cancel_import_run error: {e}")
+            import traceback; traceback.print_exc()
+            return {"error": str(e)}
+
     def reset_order_outbound(self, order_id):
         """주문 출고 상태 초기화 (취소/환불 시)."""
         try:
