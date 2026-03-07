@@ -123,14 +123,22 @@ def api_update_employee(emp_id):
         return jsonify({'error': str(e)}), 500
 
 
-@hr_bp.route('/api/employees/<int:emp_id>', methods=['DELETE'])
-@role_required('admin')
-def api_delete_employee(emp_id):
-    """직원 삭제"""
+@hr_bp.route('/api/employees/<int:emp_id>/retire', methods=['POST'])
+@role_required('admin', 'general')
+def api_retire_employee(emp_id):
+    """직원 퇴사 처리 (삭제하지 않고 상태만 변경)"""
     db = current_app.db
+    data = request.get_json() or {}
+    retire_date = (data.get('retire_date') or '').strip()
+    memo = (data.get('memo') or '').strip()
+
     try:
-        db.delete_employee(emp_id)
-        _log_action('delete_employee', target=f'id={emp_id}')
+        update_data = {'status': '퇴사'}
+        if memo:
+            update_data['memo'] = memo
+        db.update_employee(emp_id, update_data)
+        _log_action('retire_employee', target=f'id={emp_id}',
+                     detail=f'퇴사일={retire_date}', new_value=update_data)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

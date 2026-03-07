@@ -51,7 +51,7 @@
                 <select id="filterStatus" class="form-select form-select-sm" style="width:120px;">
                     <option value="">전체</option>
                     <option value="재직" selected>재직</option>
-                    <option value="퇴직">퇴직</option>
+                    <option value="퇴사">퇴사</option>
                 </select>
             </div>
             <div class="ms-auto">
@@ -129,7 +129,7 @@
                     <label class="form-label">상태</label>
                     <select id="inputStatus" class="form-select">
                         <option value="재직">재직</option>
-                        <option value="퇴직">퇴직</option>
+                        <option value="퇴사">퇴사</option>
                     </select>
                 </div>
                 <div class="mb-3">
@@ -205,9 +205,11 @@ function renderTable() {
                 <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openEditModal(${r.id})" title="수정">
                     <i class="bi bi-pencil"></i>
                 </button>
-                <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteEmployee(${r.id})" title="삭제">
-                    <i class="bi bi-trash"></i>
-                </button>
+                ${r.status === '재직' ? `<button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="retireEmployee(${r.id}, '${(r.name||'').replace(/'/g,"\\'")}')" title="퇴사 처리">
+                    <i class="bi bi-box-arrow-right"></i>
+                </button>` : `<button class="btn btn-outline-success btn-sm py-0 px-1" onclick="reinstateEmployee(${r.id})" title="복직">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>`}
             </td>
         </tr>`;
     });
@@ -282,18 +284,43 @@ function saveEmployee() {
     .catch(err => { console.error(err); alert('저장 중 오류'); });
 }
 
-function deleteEmployee(id) {
-    if (!confirm('이 직원을 삭제하시겠습니까?')) return;
-    fetch(`/hr/api/employees/${id}`, {
-        method: 'DELETE',
-        headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+function retireEmployee(id, name) {
+    if (!confirm(`${name} 님을 퇴사 처리하시겠습니까?\n(정보는 삭제되지 않고 숨김 처리됩니다)`)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`/hr/api/employees/${id}/retire`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ retire_date: today, memo: `${today} 퇴사` }),
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) loadData();
-        else alert(data.error || '삭제 실패');
+        else alert(data.error || '퇴사 처리 실패');
     })
-    .catch(err => { console.error(err); alert('삭제 중 오류'); });
+    .catch(err => { console.error(err); alert('퇴사 처리 중 오류'); });
+}
+
+function reinstateEmployee(id) {
+    if (!confirm('이 직원을 복직 처리하시겠습니까?')) return;
+    fetch(`/hr/api/employees/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ name: allEmployees.find(e=>e.id===id)?.name, hire_date: allEmployees.find(e=>e.id===id)?.hire_date, status: '재직', memo: '' }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadData();
+        else alert(data.error || '복직 처리 실패');
+    })
+    .catch(err => { console.error(err); alert('복직 처리 중 오류'); });
 }
 
 function fmtWon(val) {
