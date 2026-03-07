@@ -126,6 +126,105 @@ def cancel(invoice_id):
     return redirect(url_for('tax_invoice.index'))
 
 
+@tax_invoice_bp.route('/sync', methods=['POST'])
+@role_required('admin', 'manager')
+def sync():
+    """팝빌에서 세금계산서 가져오기 (매출+매입)."""
+    db = current_app.db
+    popbill = current_app.popbill
+
+    if not popbill.is_ready:
+        flash('팝빌 연동이 설정되지 않았습니다. 키를 확인하세요.', 'danger')
+        return redirect(url_for('tax_invoice.index'))
+
+    date_from = request.form.get('date_from', '')
+    date_to = request.form.get('date_to', '')
+
+    if not date_from or not date_to:
+        flash('동기화 기간을 선택하세요.', 'warning')
+        return redirect(url_for('tax_invoice.index'))
+
+    # YYYYMMDD 형식으로 변환
+    s_date = date_from.replace('-', '')
+    e_date = date_to.replace('-', '')
+
+    total_synced = 0
+
+    for direction, dir_label in [('SELL', 'sales'), ('BUY', 'purchase')]:
+        try:
+            result = popbill.search_invoices(
+                direction=direction,
+                start_date=s_date,
+                end_date=e_date,
+                page=1, per_page=500,
+            )
+            items = getattr(result, 'list', []) if result else []
+
+            for item in items:
+                inv_num = getattr(item, 'invoiceNum', '') or ''
+                mgt_key = getattr(item, 'invoicerMgtKey', '') if direction == 'SELL' \
+                    else getattr(item, 'invoiceeMgtKey', '')
+                mgt_key = mgt_key or ''
+
+                # 중복 체크 (승인번호 또는 관리번호)
+                existing = db.query_tax_invoices(direction=dir_label)
+                is_dup = any(
+                    (inv_num and e.get('invoice_number') == inv_num) or
+                    (mgt_key and e.get('mgt_key') == mgt_key)
+                    for e in existing
+                )
+                if is_dup:
+                    continue
+
+                write_date = getattr(item, 'writeDate', '')
+                if write_date and len(write_date) == 8:
+                    write_date = f"{write_date[:4]}-{write_date[4:6]}-{write_date[6:8]}"
+
+                issue_date = getattr(item, 'issueDate', '')
+                if issue_date and len(issue_date) == 8:
+                    issue_date = f"{issue_date[:4]}-{issue_date[4:6]}-{issue_date[6:8]}"
+
+                supply = int(getattr(item, 'supplyCostTotal', '0') or 0)
+                tax = int(getattr(item, 'taxTotal', '0') or 0)
+                total = int(getattr(item, 'totalAmount', '0') or 0)
+
+                payload = {
+                    'direction': dir_label,
+                    'invoice_number': inv_num,
+                    'mgt_key': mgt_key,
+                    'write_date': write_date or today_kst(),
+                    'issue_date': issue_date or None,
+                    'tax_type': getattr(item, 'taxType', '과세') or '과세',
+                    'supplier_corp_num': getattr(item, 'invoicerCorpNum', '') or '',
+                    'supplier_corp_name': getattr(item, 'invoicerCorpName', '') or '',
+                    'supplier_ceo_name': getattr(item, 'invoicerCEOName', '') or '',
+                    'buyer_corp_num': getattr(item, 'invoiceeCorpNum', '') or '',
+                    'buyer_corp_name': getattr(item, 'invoiceeCorpName', '') or '',
+                    'buyer_ceo_name': getattr(item, 'invoiceeCEOName', '') or '',
+                    'supply_cost_total': supply,
+                    'tax_total': tax,
+                    'total_amount': total,
+                    'status': 'issued',
+                    'memo': '팝빌 동기화',
+                    'registered_by': current_user.username,
+                }
+                db.insert_tax_invoice(payload)
+                total_synced += 1
+
+        except Exception as e:
+            flash(f'팝빌 {direction} 동기화 오류: {e}', 'danger')
+
+    if total_synced > 0:
+        _log_action('sync_tax_invoices', detail=f'{total_synced}건 동기화')
+        flash(f'팝빌 동기화 완료: {total_synced}건 가져옴', 'success')
+    else:
+        flash('새로 가져올 세금계산서가 없습니다.', 'info')
+
+    return redirect(url_for('tax_invoice.index',
+                            direction=request.args.get('direction', '전체'),
+                            date_from=date_from, date_to=date_to))
+
+
 @tax_invoice_bp.route('/api/partners')
 @login_required
 def api_partners():
