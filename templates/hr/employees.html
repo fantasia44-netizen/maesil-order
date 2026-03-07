@@ -278,6 +278,14 @@ const COMP_TYPES = [
 document.addEventListener('DOMContentLoaded', () => {
     loadData();
     document.getElementById('filterStatus').addEventListener('change', loadData);
+
+    // 모달 내 탭 수동 초기화 (tabindex=-1 충돌 방지)
+    document.querySelectorAll('#empModal [data-bs-toggle="tab"]').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            new bootstrap.Tab(this).show();
+        });
+    });
 });
 
 function loadData() {
