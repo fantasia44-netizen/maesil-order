@@ -296,6 +296,8 @@ def create_app(config_class=None):
     from blueprints.planning import planning_bp
     from blueprints.packing import packing_bp
     from blueprints.reconciliation import reconciliation_bp
+    from blueprints.finance import finance_bp
+    from blueprints.hr import hr_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -304,7 +306,7 @@ def create_app(config_class=None):
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
                closing_bp, shipment_bp, integrity_bp, planning_bp,
-               packing_bp, reconciliation_bp]:
+               packing_bp, reconciliation_bp, finance_bp, hr_bp]:
         app.register_blueprint(bp)
 
     # ── 패킹 사용자 메인 시스템 접근 차단 ──

@@ -703,6 +703,45 @@ class SupabaseDB(DBBase):
             "product_name", product_name
         ).execute()
 
+    # --- product_cost_history (매입단가 이력) ---
+
+    def insert_cost_history(self, product_name, old_cost_price, new_cost_price,
+                            old_conversion_ratio=1, new_conversion_ratio=1,
+                            changed_by='', change_reason='', effective_date=None):
+        """매입단가 변경 이력 1건 저장."""
+        from datetime import datetime, timezone
+        if effective_date is None:
+            effective_date = today_kst()
+        payload = {
+            'product_name': str(product_name).strip(),
+            'old_cost_price': float(old_cost_price or 0),
+            'new_cost_price': float(new_cost_price or 0),
+            'old_conversion_ratio': float(old_conversion_ratio or 1),
+            'new_conversion_ratio': float(new_conversion_ratio or 1),
+            'changed_by': changed_by or '',
+            'change_reason': change_reason or '',
+            'effective_date': str(effective_date),
+            'created_at': datetime.now(timezone.utc).isoformat(),
+        }
+        self.client.table("product_cost_history").insert(payload).execute()
+
+    def query_cost_history(self, product_name=None, limit=100):
+        """매입단가 변경 이력 조회.
+        product_name이 주어지면 해당 품목만, 없으면 최신순 전체.
+        Returns: list of dict.
+        """
+        try:
+            q = self.client.table("product_cost_history").select("*")
+            if product_name:
+                # 공백 제거 정규화 양쪽 모두 검색
+                norm = product_name.replace(' ', '')
+                q = q.or_(f"product_name.eq.{product_name},product_name.eq.{norm}")
+            q = q.order("created_at", desc=True).limit(limit)
+            res = q.execute()
+            return res.data if res.data else []
+        except Exception:
+            return []
+
     # --- channel_costs (채널별 비용) ---
 
     def query_channel_costs(self):
@@ -2637,3 +2676,345 @@ class SupabaseDB(DBBase):
         except Exception as e:
             print(f"[DB] get_packing_video_signed_url error: {e}")
             return ''
+
+    # ── expenses (간접비/비용 관리) ──
+
+    def query_expenses(self, month=None, category=None):
+        """비용 목록 조회. month='2026-03', category='인건비' 등 필터 가능."""
+        try:
+            q = self.client.table("expenses").select("*")
+            if month:
+                q = q.eq("expense_month", month)
+            if category:
+                q = q.eq("category", category)
+            q = q.order("expense_date", desc=True)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_expenses error: {e}")
+            return []
+
+    def insert_expense(self, data):
+        """비용 1건 등록. data: {expense_date, expense_month, category, ...}."""
+        res = self.client.table("expenses").insert(data).execute()
+        return res.data[0] if res.data else None
+
+    def update_expense(self, expense_id, data):
+        """비용 1건 수정."""
+        res = self.client.table("expenses").update(data).eq(
+            "id", int(expense_id)
+        ).execute()
+        return res.data[0] if res.data else None
+
+    def delete_expense(self, expense_id):
+        """비용 1건 삭제."""
+        self.client.table("expenses").delete().eq(
+            "id", int(expense_id)
+        ).execute()
+
+    def query_expense_categories(self):
+        """비용 카테고리 목록 조회 (활성만, sort_order 순)."""
+        try:
+            res = self.client.table("expense_categories").select("*") \
+                .eq("is_active", True) \
+                .order("sort_order") \
+                .execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_expense_categories error: {e}")
+            return []
+
+    def generate_recurring_expenses(self, target_month):
+        """반복 비용 자동 생성: 직전월의 is_recurring=True 항목을 target_month로 복사.
+        target_month: '2026-03' 형식.
+        이미 해당 월에 반복 비용이 존재하면 건너뜀(중복 방지).
+        """
+        # 직전월 계산
+        parts = target_month.split('-')
+        year, mon = int(parts[0]), int(parts[1])
+        if mon == 1:
+            prev_month = f"{year - 1}-12"
+        else:
+            prev_month = f"{year}-{mon - 1:02d}"
+
+        # 직전월 반복 비용 조회
+        prev_rows = self.query_expenses(month=prev_month)
+        recurring = [r for r in prev_rows if r.get('is_recurring')]
+        if not recurring:
+            return 0
+
+        # 이미 해당 월에 반복 비용이 있는지 확인 (카테고리+서브카테고리 기준)
+        existing = self.query_expenses(month=target_month)
+        existing_keys = {
+            (r.get('category', ''), r.get('subcategory', ''))
+            for r in existing if r.get('is_recurring')
+        }
+
+        inserted = 0
+        for row in recurring:
+            key = (row.get('category', ''), row.get('subcategory', ''))
+            if key in existing_keys:
+                continue
+
+            # expense_date를 target_month의 1일로 설정
+            new_date = f"{target_month}-01"
+            new_row = {
+                'expense_date': new_date,
+                'expense_month': target_month,
+                'category': row.get('category', ''),
+                'subcategory': row.get('subcategory', ''),
+                'amount': row.get('amount', 0),
+                'is_recurring': True,
+                'memo': row.get('memo', ''),
+                'registered_by': row.get('registered_by', ''),
+            }
+            self.insert_expense(new_row)
+            inserted += 1
+
+        return inserted
+
+    # ── employees (직원 관리) ──
+
+    def query_employees(self, status=None):
+        """직원 목록 조회. status='재직'/'퇴직' 필터 가능."""
+        try:
+            q = self.client.table("employees").select("*")
+            if status:
+                q = q.eq("status", status)
+            q = q.order("name")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_employees error: {e}")
+            return []
+
+    def insert_employee(self, data):
+        """직원 1명 등록."""
+        res = self.client.table("employees").insert(data).execute()
+        return res.data[0] if res.data else None
+
+    def update_employee(self, emp_id, data):
+        """직원 정보 수정."""
+        res = self.client.table("employees").update(data).eq(
+            "id", int(emp_id)
+        ).execute()
+        return res.data[0] if res.data else None
+
+    def delete_employee(self, emp_id):
+        """직원 삭제."""
+        self.client.table("employees").delete().eq(
+            "id", int(emp_id)
+        ).execute()
+
+    # ── payroll_monthly (급여 관리) ──
+
+    def query_payroll(self, pay_month=None):
+        """급여 목록 조회. pay_month='2026-03' 필터."""
+        try:
+            q = self.client.table("payroll_monthly").select("*")
+            if pay_month:
+                q = q.eq("pay_month", pay_month)
+            q = q.order("employee_id")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_payroll error: {e}")
+            return []
+
+    def insert_payroll(self, data):
+        """급여 1건 등록."""
+        res = self.client.table("payroll_monthly").insert(data).execute()
+        return res.data[0] if res.data else None
+
+    def update_payroll(self, payroll_id, data):
+        """급여 1건 수정."""
+        res = self.client.table("payroll_monthly").update(data).eq(
+            "id", int(payroll_id)
+        ).execute()
+        return res.data[0] if res.data else None
+
+    def generate_monthly_payroll(self, pay_month):
+        """재직 직원의 기본급으로 월 급여 자동 생성.
+        이미 해당 월에 급여가 있는 직원은 건너뜀.
+        Returns: 생성 건수.
+        """
+        employees = self.query_employees(status='재직')
+        if not employees:
+            return 0
+
+        existing = self.query_payroll(pay_month=pay_month)
+        existing_emp_ids = {r.get('employee_id') for r in existing}
+
+        inserted = 0
+        for emp in employees:
+            emp_id = emp.get('id')
+            if emp_id in existing_emp_ids:
+                continue
+            base = float(emp.get('base_salary', 0))
+            payload = {
+                'employee_id': emp_id,
+                'pay_month': pay_month,
+                'base_salary': base,
+                'allowances': 0,
+                'total_cost': base,
+                'memo': '',
+            }
+            self.insert_payroll(payload)
+            inserted += 1
+
+        return inserted
+
+    def sync_payroll_to_expenses(self, pay_month):
+        """payroll 합계를 expenses '인건비' 카테고리에 자동 반영.
+        해당 월의 기존 인건비 항목이 있으면 금액 업데이트, 없으면 신규 등록.
+        Returns: dict {total_cost, action: 'inserted'|'updated'|'no_data'}.
+        """
+        payroll = self.query_payroll(pay_month=pay_month)
+        if not payroll:
+            return {'total_cost': 0, 'action': 'no_data'}
+
+        total_cost = sum(float(r.get('total_cost', 0)) for r in payroll)
+
+        # 해당 월의 인건비 항목 조회
+        existing_expenses = self.query_expenses(
+            month=pay_month, category='인건비'
+        )
+        # '급여합계' 서브카테고리 찾기
+        payroll_expense = None
+        for ex in existing_expenses:
+            if ex.get('subcategory') == '급여합계':
+                payroll_expense = ex
+                break
+
+        expense_date = f"{pay_month}-25"  # 급여 지급일 기준 25일
+
+        if payroll_expense:
+            # 기존 항목 업데이트
+            self.update_expense(payroll_expense['id'], {
+                'amount': total_cost,
+                'memo': f'{pay_month} 급여 합계 (자동반영)',
+            })
+            return {'total_cost': total_cost, 'action': 'updated'}
+        else:
+            # 신규 등록
+            self.insert_expense({
+                'expense_date': expense_date,
+                'expense_month': pay_month,
+                'category': '인건비',
+                'subcategory': '급여합계',
+                'amount': total_cost,
+                'is_recurring': False,
+                'memo': f'{pay_month} 급여 합계 (자동반영)',
+                'registered_by': 'system',
+            })
+            return {'total_cost': total_cost, 'action': 'inserted'}
+
+    # ── annual_leave / leave_records (연차 관리) ──
+
+    def query_annual_leave(self, employee_id=None, year=None):
+        """연차 현황 조회."""
+        try:
+            q = self.client.table("annual_leave").select("*")
+            if employee_id:
+                q = q.eq("employee_id", int(employee_id))
+            if year:
+                q = q.eq("leave_year", int(year))
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_annual_leave error: {e}")
+            return []
+
+    def update_annual_leave(self, employee_id, year, data):
+        """연차 현황 upsert (없으면 생성, 있으면 수정)."""
+        existing = self.query_annual_leave(
+            employee_id=employee_id, year=year
+        )
+        if existing:
+            res = self.client.table("annual_leave").update(data).eq(
+                "employee_id", int(employee_id)
+            ).eq("leave_year", int(year)).execute()
+            return res.data[0] if res.data else None
+        else:
+            data['employee_id'] = int(employee_id)
+            data['leave_year'] = int(year)
+            res = self.client.table("annual_leave").insert(data).execute()
+            return res.data[0] if res.data else None
+
+    def insert_leave_record(self, data):
+        """연차 사용 기록 등록 + used_days 자동 업데이트."""
+        res = self.client.table("leave_records").insert(data).execute()
+        record = res.data[0] if res.data else None
+
+        if record:
+            # used_days 자동 업데이트
+            emp_id = data.get('employee_id')
+            leave_date = data.get('leave_date', '')
+            year = int(leave_date[:4]) if leave_date else None
+            days = float(data.get('days', 1))
+            if emp_id and year:
+                al = self.query_annual_leave(employee_id=emp_id, year=year)
+                if al:
+                    new_used = float(al[0].get('used_days', 0)) + days
+                    self.update_annual_leave(emp_id, year, {
+                        'used_days': new_used,
+                    })
+                else:
+                    # annual_leave 레코드가 없으면 생성
+                    self.update_annual_leave(emp_id, year, {
+                        'granted_days': 0,
+                        'used_days': days,
+                    })
+
+        return record
+
+    def query_leave_records(self, employee_id=None, year=None):
+        """연차 사용 기록 조회."""
+        try:
+            q = self.client.table("leave_records").select("*")
+            if employee_id:
+                q = q.eq("employee_id", int(employee_id))
+            if year:
+                date_from = f"{year}-01-01"
+                date_to = f"{year}-12-31"
+                q = q.gte("leave_date", date_from).lte("leave_date", date_to)
+            q = q.order("leave_date", desc=True)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_leave_records error: {e}")
+            return []
+
+    @staticmethod
+    def calculate_legal_leave_days(hire_date_str):
+        """입사일 기반 법정 연차일수 계산.
+        - 1년 미만: 매월 1일씩 (최대 11일)
+        - 1년 이상: 15일 + 2년마다 1일 추가 (최대 25일)
+
+        Args:
+            hire_date_str: 'YYYY-MM-DD' 형식 입사일
+
+        Returns:
+            int: 법정 연차일수
+        """
+        from datetime import date
+        if not hire_date_str:
+            return 0
+        try:
+            hire = date.fromisoformat(str(hire_date_str)[:10])
+        except (ValueError, TypeError):
+            return 0
+
+        today = date.today()
+        delta = today - hire
+        total_months = (today.year - hire.year) * 12 + (today.month - hire.month)
+
+        if delta.days < 365:
+            # 1년 미만: 매월 1일씩, 최대 11일
+            return min(total_months, 11)
+        else:
+            # 1년 이상: 15일 기본
+            years_worked = delta.days // 365
+            # 2년마다 1일 추가 (최대 25일)
+            extra = (years_worked - 1) // 2
+            return min(15 + extra, 25)

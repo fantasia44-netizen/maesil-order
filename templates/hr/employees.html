@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}직원 관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}직원 관리{% endblock %}
+
+{% block extra_css %}
+<style>
+    .status-active { color: #27ae60; font-weight: 600; }
+    .status-inactive { color: #e74c3c; font-weight: 600; }
+    .summary-card { border-left: 4px solid; }
+    .summary-card.active { border-color: #27ae60; }
+    .summary-card.total { border-color: #3498db; }
+    .summary-card.salary { border-color: #e67e22; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card summary-card active">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">재직자</small>
+                <h4 class="mb-0 text-success" id="activeCount">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card summary-card total">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">전체 직원</small>
+                <h4 class="mb-0" id="totalCount">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card summary-card salary">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 기본급 (재직자)</small>
+                <h4 class="mb-0" style="color:#e67e22;" id="totalSalary">-</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 필터 / 액션 바 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div>
+                <label class="form-label mb-0 small text-muted">상태</label>
+                <select id="filterStatus" class="form-select form-select-sm" style="width:120px;">
+                    <option value="">전체</option>
+                    <option value="재직" selected>재직</option>
+                    <option value="퇴직">퇴직</option>
+                </select>
+            </div>
+            <div class="ms-auto">
+                <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+                    <i class="bi bi-plus-lg"></i> 직원 등록
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 직원 리스트 -->
+<div class="card">
+    <div class="card-header py-2">
+        <i class="bi bi-people"></i> 직원 목록
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:40px;">#</th>
+                        <th>이름</th>
+                        <th>직급</th>
+                        <th>부서</th>
+                        <th class="text-end">기본급</th>
+                        <th>입사일</th>
+                        <th>법정연차</th>
+                        <th>상태</th>
+                        <th>메모</th>
+                        <th style="width:90px;">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="empBody">
+                    <tr><td colspan="10" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 등록/수정 모달 -->
+<div class="modal fade" id="empModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">직원 등록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editId">
+                <div class="mb-3">
+                    <label class="form-label">이름 <span class="text-danger">*</span></label>
+                    <input type="text" id="inputName" class="form-control" required>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">직급</label>
+                        <input type="text" id="inputPosition" class="form-control" placeholder="예: 대리">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">부서</label>
+                        <input type="text" id="inputDepartment" class="form-control" placeholder="예: 영업팀">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">기본급</label>
+                    <input type="number" id="inputSalary" class="form-control text-end" step="10000" min="0" value="0">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">입사일 <span class="text-danger">*</span></label>
+                    <input type="date" id="inputHireDate" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">상태</label>
+                    <select id="inputStatus" class="form-select">
+                        <option value="재직">재직</option>
+                        <option value="퇴직">퇴직</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">메모</label>
+                    <textarea id="inputMemo" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="saveEmployee()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+let allEmployees = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadData();
+    document.getElementById('filterStatus').addEventListener('change', loadData);
+});
+
+function loadData() {
+    const status = document.getElementById('filterStatus').value || '';
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+
+    fetch(`/hr/api/employees?${params}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) { alert(data.error || '로드 실패'); return; }
+        allEmployees = data.employees || [];
+        updateSummary();
+        renderTable();
+    })
+    .catch(err => { console.error(err); alert('데이터 로드 오류'); });
+}
+
+function updateSummary() {
+    const active = allEmployees.filter(e => e.status === '재직');
+    document.getElementById('activeCount').textContent = active.length + '명';
+    document.getElementById('totalCount').textContent = allEmployees.length + '명';
+    const totalSalary = active.reduce((s, e) => s + (parseFloat(e.base_salary) || 0), 0);
+    document.getElementById('totalSalary').textContent = fmtWon(totalSalary);
+}
+
+function renderTable() {
+    const tbody = document.getElementById('empBody');
+    if (!allEmployees.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">등록된 직원이 없습니다.</td></tr>';
+        return;
+    }
+    let html = '';
+    allEmployees.forEach((r, idx) => {
+        const statusClass = r.status === '재직' ? 'status-active' : 'status-inactive';
+        html += `<tr>
+            <td class="text-muted">${idx + 1}</td>
+            <td><strong>${r.name || ''}</strong></td>
+            <td>${r.position || ''}</td>
+            <td>${r.department || ''}</td>
+            <td class="text-end">${fmtWon(r.base_salary)}</td>
+            <td>${r.hire_date || ''}</td>
+            <td class="text-center">${r.legal_leave_days || 0}일</td>
+            <td><span class="${statusClass}">${r.status || ''}</span></td>
+            <td><small class="text-muted">${r.memo || ''}</small></td>
+            <td>
+                <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openEditModal(${r.id})" title="수정">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick="deleteEmployee(${r.id})" title="삭제">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function openAddModal() {
+    document.getElementById('modalTitle').textContent = '직원 등록';
+    document.getElementById('editId').value = '';
+    document.getElementById('inputName').value = '';
+    document.getElementById('inputPosition').value = '';
+    document.getElementById('inputDepartment').value = '';
+    document.getElementById('inputSalary').value = '0';
+    document.getElementById('inputHireDate').value = '';
+    document.getElementById('inputStatus').value = '재직';
+    document.getElementById('inputMemo').value = '';
+    new bootstrap.Modal(document.getElementById('empModal')).show();
+}
+
+function openEditModal(id) {
+    const row = allEmployees.find(r => r.id === id);
+    if (!row) return;
+    document.getElementById('modalTitle').textContent = '직원 수정';
+    document.getElementById('editId').value = id;
+    document.getElementById('inputName').value = row.name || '';
+    document.getElementById('inputPosition').value = row.position || '';
+    document.getElementById('inputDepartment').value = row.department || '';
+    document.getElementById('inputSalary').value = row.base_salary || 0;
+    document.getElementById('inputHireDate').value = row.hire_date || '';
+    document.getElementById('inputStatus').value = row.status || '재직';
+    document.getElementById('inputMemo').value = row.memo || '';
+    new bootstrap.Modal(document.getElementById('empModal')).show();
+}
+
+function saveEmployee() {
+    const id = document.getElementById('editId').value;
+    const payload = {
+        name: document.getElementById('inputName').value,
+        position: document.getElementById('inputPosition').value,
+        department: document.getElementById('inputDepartment').value,
+        base_salary: parseFloat(document.getElementById('inputSalary').value) || 0,
+        hire_date: document.getElementById('inputHireDate').value,
+        status: document.getElementById('inputStatus').value,
+        memo: document.getElementById('inputMemo').value,
+    };
+    if (!payload.name || !payload.hire_date) {
+        alert('이름과 입사일은 필수입니다.');
+        return;
+    }
+
+    const url = id ? `/hr/api/employees/${id}` : '/hr/api/employees';
+    const method = id ? 'PUT' : 'POST';
+
+    fetch(url, {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('empModal')).hide();
+            loadData();
+        } else {
+            alert(data.error || '저장 실패');
+        }
+    })
+    .catch(err => { console.error(err); alert('저장 중 오류'); });
+}
+
+function deleteEmployee(id) {
+    if (!confirm('이 직원을 삭제하시겠습니까?')) return;
+    fetch(`/hr/api/employees/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) loadData();
+        else alert(data.error || '삭제 실패');
+    })
+    .catch(err => { console.error(err); alert('삭제 중 오류'); });
+}
+
+function fmtWon(val) {
+    const n = Number(val) || 0;
+    return n.toLocaleString('ko-KR') + '원';
+}
+</script>
+{% endblock %}

@@ -32,6 +32,17 @@
     .ratio-input { width: 80px; text-align: right; }
     .unit-input { width: 70px; }
     .mt-select { width: 70px; font-size: 0.75rem; padding: 1px 2px; }
+    .variance-positive { color: #e74c3c; font-weight: 600; }
+    .variance-negative { color: #27ae60; font-weight: 600; }
+    .variance-bar { height: 20px; border-radius: 3px; min-width: 2px; }
+    .variance-bar.over { background: #e74c3c; }
+    .variance-bar.under { background: #27ae60; }
+    .actual-batch-row { background: #f0f4f8; }
+    .actual-batch-row td { font-size: 0.85rem; padding-left: 2rem !important; }
+    .actual-input-row { background: #f8f9fa; }
+    .actual-input-row td { font-size: 0.8rem; padding-left: 3rem !important; }
+    .history-change-up { color: #e74c3c; }
+    .history-change-down { color: #27ae60; }
 </style>
 {% endblock %}
 
@@ -106,6 +117,21 @@
     <li class="nav-item">
         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabChannels" type="button">
             <i class="bi bi-shop"></i> 채널비용 관리
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabActualCost" type="button">
+            <i class="bi bi-calculator"></i> 실제 원가
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabVariance" type="button">
+            <i class="bi bi-bar-chart"></i> 표준 vs 실제
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabCostHistory" type="button">
+            <i class="bi bi-clock-history"></i> 단가 이력
         </button>
     </li>
 </ul>
@@ -336,6 +362,154 @@
                             <i class="bi bi-plus-lg"></i> 채널 추가
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭4: 실제 원가 -->
+    <div class="tab-pane fade" id="tabActualCost">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-calculator"></i> 실제 생산 원가</span>
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="date" id="actualFrom" class="form-control form-control-sm" style="width:140px;">
+                    <span>~</span>
+                    <input type="date" id="actualTo" class="form-control form-control-sm" style="width:140px;">
+                    <input type="text" id="actualLocation" class="form-control form-control-sm"
+                           placeholder="생산처 (전체)" style="width:120px;">
+                    <button class="btn btn-sm btn-primary" onclick="loadActualCost()">
+                        <i class="bi bi-search"></i> 조회
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+                    <table class="table table-sm table-hover mb-0" id="actualCostTable">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th style="width:25px;"></th>
+                                <th>제품명</th>
+                                <th class="text-end">배치수</th>
+                                <th class="text-end">총산출</th>
+                                <th class="text-end">평균 실제단가</th>
+                                <th class="text-end">BOM 표준단가</th>
+                                <th class="text-end">차이율</th>
+                            </tr>
+                        </thead>
+                        <tbody id="actualCostBody">
+                            <tr><td colspan="7" class="text-center text-muted py-4">
+                                기간을 선택하고 조회하세요.
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭5: 표준 vs 실제 비교 -->
+    <div class="tab-pane fade" id="tabVariance">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-header">
+                <span><i class="bi bi-bar-chart"></i> 표준 vs 실제 원가 비교</span>
+            </div>
+            <div class="card-body">
+                <!-- 요약 카드 -->
+                <div class="row g-3 mb-3" id="varianceSummaryCards">
+                    <div class="col">
+                        <div class="card summary-card total">
+                            <div class="card-body py-2 px-3">
+                                <small class="text-muted">총 배치</small>
+                                <h4 class="mb-0" id="varTotalBatches">-</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card summary-card" style="border-left-color:#e67e22;">
+                            <div class="card-body py-2 px-3">
+                                <small class="text-muted">평균 차이율</small>
+                                <h4 class="mb-0" id="varAvgRate" style="color:#e67e22;">-</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card summary-card missing">
+                            <div class="card-body py-2 px-3">
+                                <small class="text-muted">표준 초과</small>
+                                <h4 class="mb-0 text-danger" id="varOverCount">-</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card summary-card avg-margin">
+                            <div class="card-body py-2 px-3">
+                                <small class="text-muted">표준 미만</small>
+                                <h4 class="mb-0 text-success" id="varUnderCount">-</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- 비교 테이블 -->
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>제품명</th>
+                                <th class="text-end">평균 실제단가</th>
+                                <th class="text-end">BOM 표준단가</th>
+                                <th class="text-end">차이</th>
+                                <th class="text-end">차이율</th>
+                                <th style="width:200px;">차이 시각화</th>
+                            </tr>
+                        </thead>
+                        <tbody id="varianceBody">
+                            <tr><td colspan="6" class="text-center text-muted py-4">
+                                실제 원가 탭에서 먼저 조회하세요.
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 탭6: 단가 이력 -->
+    <div class="tab-pane fade" id="tabCostHistory">
+        <div class="card border-top-0" style="border-top-left-radius:0; border-top-right-radius:0;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history"></i> 매입단가 변경 이력</span>
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="text" id="historyProductName" class="form-control form-control-sm"
+                           placeholder="품목명 검색 (빈칸=전체)" list="productSuggestions"
+                           autocomplete="off" style="width:200px;">
+                    <button class="btn btn-sm btn-primary" onclick="loadCostHistory()">
+                        <i class="bi bi-search"></i> 조회
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height:600px; overflow-y:auto;">
+                    <table class="table table-sm table-hover mb-0" id="costHistoryTable">
+                        <thead class="table-light" style="position:sticky; top:0; z-index:1;">
+                            <tr>
+                                <th>변경일</th>
+                                <th>품목명</th>
+                                <th class="text-end">이전 단가</th>
+                                <th class="text-end">새 단가</th>
+                                <th class="text-end">변동</th>
+                                <th class="text-end">이전 변환비율</th>
+                                <th class="text-end">새 변환비율</th>
+                                <th>변경자</th>
+                                <th>사유</th>
+                            </tr>
+                        </thead>
+                        <tbody id="costHistoryBody">
+                            <tr><td colspan="9" class="text-center text-muted py-4">
+                                품목명을 입력하고 조회하세요.
+                            </td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1197,6 +1371,215 @@
         channelEditMode = !channelEditMode;
         _updateChannelEditUI();
         renderChannelTable();
+    };
+
+    // ====== 실제 원가 데이터 ======
+    let actualCostData = null;
+    let expandedActualProducts = new Set();
+
+    // 기본 날짜 설정 (최근 7일)
+    (function _initActualDates() {
+        const to = new Date();
+        const from = new Date();
+        from.setDate(from.getDate() - 7);
+        const fmt = d => d.toISOString().slice(0, 10);
+        const elFrom = document.getElementById('actualFrom');
+        const elTo = document.getElementById('actualTo');
+        if (elFrom) elFrom.value = fmt(from);
+        if (elTo) elTo.value = fmt(to);
+    })();
+
+    window.loadActualCost = async function() {
+        const dateFrom = document.getElementById('actualFrom').value;
+        const dateTo = document.getElementById('actualTo').value;
+        const location = document.getElementById('actualLocation').value.trim();
+
+        if (!dateFrom || !dateTo) { alert('기간을 선택하세요.'); return; }
+
+        const tbody = document.getElementById('actualCostBody');
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><i class="bi bi-hourglass-split"></i> 분석 중...</td></tr>';
+
+        try {
+            let url = '/bom-cost/api/actual-cost?from=' + dateFrom + '&to=' + dateTo;
+            if (location) url += '&location=' + encodeURIComponent(location);
+
+            const res = await fetch(url);
+            const json = await res.json();
+            if (!json.success) { alert('조회 실패: ' + (json.error || '')); return; }
+
+            actualCostData = json;
+            expandedActualProducts = new Set();
+            renderActualCostTable();
+            renderVarianceTable();
+        } catch(e) { alert('조회 오류: ' + e.message); }
+    };
+
+    function renderActualCostTable() {
+        const tbody = document.getElementById('actualCostBody');
+        if (!actualCostData || !actualCostData.products || actualCostData.products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">생산 데이터가 없습니다.</td></tr>';
+            return;
+        }
+
+        let html = '';
+        actualCostData.products.forEach(prod => {
+            const isExpanded = expandedActualProducts.has(prod.product_name);
+            const vrClass = prod.avg_variance_rate == null ? 'text-muted'
+                : prod.avg_variance_rate > 0 ? 'variance-positive' : 'variance-negative';
+            const vrText = prod.avg_variance_rate != null ? (prod.avg_variance_rate > 0 ? '+' : '') + prod.avg_variance_rate + '%' : '-';
+
+            html += '<tr class="bom-row" onclick="window._toggleActualProduct(\'' + escapeAttr(prod.product_name) + '\')">';
+            html += '<td><i class="bi bi-caret-' + (isExpanded ? 'down' : 'right') + '-fill text-muted"></i></td>';
+            html += '<td><strong>' + escapeHtml(prod.product_name) + '</strong></td>';
+            html += '<td class="text-end">' + prod.batches.length + '</td>';
+            html += '<td class="text-end">' + prod.batches.reduce((s, b) => s + b.output_qty, 0).toLocaleString('ko-KR') + '</td>';
+            html += '<td class="text-end">' + formatNum(prod.avg_actual_unit_cost) + '</td>';
+            html += '<td class="text-end">' + (prod.bom_standard_cost > 0 ? formatNum(prod.bom_standard_cost) : '<span class="text-muted">미등록</span>') + '</td>';
+            html += '<td class="text-end"><span class="' + vrClass + '">' + vrText + '</span></td>';
+            html += '</tr>';
+
+            if (isExpanded) {
+                prod.batches.forEach(batch => {
+                    html += '<tr class="actual-batch-row">';
+                    html += '<td></td>';
+                    html += '<td><i class="bi bi-box me-1 text-primary"></i>' + escapeHtml(batch.batch_id.substring(0, 20)) + '</td>';
+                    html += '<td class="text-end text-muted">' + escapeHtml(batch.date) + '</td>';
+                    html += '<td class="text-end">' + batch.output_qty.toLocaleString('ko-KR') + '</td>';
+                    html += '<td class="text-end">' + formatNum(batch.actual_unit_cost) + '</td>';
+                    html += '<td class="text-end">' + (batch.bom_standard_cost > 0 ? formatNum(batch.bom_standard_cost) : '-') + '</td>';
+                    const bvrClass = batch.variance_rate == null ? 'text-muted'
+                        : batch.variance_rate > 0 ? 'variance-positive' : 'variance-negative';
+                    const bvrText = batch.variance_rate != null ? (batch.variance_rate > 0 ? '+' : '') + batch.variance_rate + '%' : '-';
+                    html += '<td class="text-end"><span class="' + bvrClass + '">' + bvrText + '</span></td>';
+                    html += '</tr>';
+
+                    // 투입 원재료 상세
+                    batch.inputs.forEach(inp => {
+                        html += '<tr class="actual-input-row">';
+                        html += '<td></td>';
+                        html += '<td colspan="2"><i class="bi bi-arrow-return-right text-muted me-1"></i>' + escapeHtml(inp.name) + '</td>';
+                        html += '<td class="text-end text-muted">x' + inp.qty + '</td>';
+                        html += '<td class="text-end text-muted">@' + formatNum(inp.unit_cost) + '</td>';
+                        html += '<td class="text-end">' + formatNum(inp.subtotal) + '</td>';
+                        html += '<td></td>';
+                        html += '</tr>';
+                    });
+                });
+            }
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    window._toggleActualProduct = function(name) {
+        if (expandedActualProducts.has(name)) expandedActualProducts.delete(name);
+        else expandedActualProducts.add(name);
+        renderActualCostTable();
+    };
+
+    // ====== 표준 vs 실제 비교 렌더링 ======
+    function renderVarianceTable() {
+        const tbody = document.getElementById('varianceBody');
+        if (!actualCostData || !actualCostData.products || actualCostData.products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">실제 원가 탭에서 먼저 조회하세요.</td></tr>';
+            return;
+        }
+
+        // 요약 카드 업데이트
+        const summary = actualCostData.summary || {};
+        document.getElementById('varTotalBatches').textContent = (summary.total_batches || 0) + '건';
+        const avgVr = summary.avg_variance_rate;
+        document.getElementById('varAvgRate').textContent = avgVr != null ? (avgVr > 0 ? '+' : '') + avgVr + '%' : '-';
+        document.getElementById('varAvgRate').style.color = avgVr == null ? '#e67e22' : avgVr > 0 ? '#e74c3c' : '#27ae60';
+        document.getElementById('varOverCount').textContent = (summary.products_over_standard || 0) + '개';
+        document.getElementById('varUnderCount').textContent = (summary.products_under_standard || 0) + '개';
+
+        // 차이율이 있는 제품만 필터링 후 절대값 기준 정렬
+        const products = actualCostData.products
+            .filter(p => p.avg_variance_rate != null && p.bom_standard_cost > 0)
+            .sort((a, b) => Math.abs(b.avg_variance_rate) - Math.abs(a.avg_variance_rate));
+
+        if (products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">BOM 표준 원가가 등록된 제품이 없습니다.</td></tr>';
+            return;
+        }
+
+        // 최대 차이율 (바 시각화용)
+        const maxAbs = Math.max(...products.map(p => Math.abs(p.avg_variance_rate)), 1);
+
+        let html = '';
+        products.forEach(prod => {
+            const diff = prod.avg_actual_unit_cost - prod.bom_standard_cost;
+            const vr = prod.avg_variance_rate;
+            const vrClass = vr > 0 ? 'variance-positive' : 'variance-negative';
+            const barWidth = Math.round(Math.abs(vr) / maxAbs * 100);
+            const barClass = vr > 0 ? 'over' : 'under';
+
+            html += '<tr>';
+            html += '<td><strong>' + escapeHtml(prod.product_name) + '</strong></td>';
+            html += '<td class="text-end">' + formatNum(prod.avg_actual_unit_cost) + '</td>';
+            html += '<td class="text-end">' + formatNum(prod.bom_standard_cost) + '</td>';
+            html += '<td class="text-end"><span class="' + vrClass + '">'
+                 + (diff >= 0 ? '+' : '') + Number(Math.round(diff)).toLocaleString('ko-KR') + '원</span></td>';
+            html += '<td class="text-end"><span class="' + vrClass + '">'
+                 + (vr > 0 ? '+' : '') + vr + '%</span></td>';
+            html += '<td><div class="variance-bar ' + barClass + '" style="width:' + barWidth + '%;"></div></td>';
+            html += '</tr>';
+        });
+
+        tbody.innerHTML = html;
+    }
+
+    // ====== 단가 이력 ======
+    window.loadCostHistory = async function() {
+        const productName = document.getElementById('historyProductName').value.trim();
+        const tbody = document.getElementById('costHistoryBody');
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4"><i class="bi bi-hourglass-split"></i> 조회 중...</td></tr>';
+
+        try {
+            let url = '/bom-cost/api/cost-history';
+            if (productName) url += '?product_name=' + encodeURIComponent(productName);
+
+            const res = await fetch(url);
+            const json = await res.json();
+            if (!json.success) { alert('조회 실패: ' + (json.error || '')); return; }
+
+            const history = json.history || [];
+            if (history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">변경 이력이 없습니다.</td></tr>';
+                return;
+            }
+
+            let html = '';
+            history.forEach(h => {
+                const oldCp = Number(h.old_cost_price || 0);
+                const newCp = Number(h.new_cost_price || 0);
+                const diff = newCp - oldCp;
+                const diffClass = diff > 0 ? 'history-change-up' : diff < 0 ? 'history-change-down' : '';
+                const diffSign = diff > 0 ? '+' : '';
+                const oldRatio = Number(h.old_conversion_ratio || 1);
+                const newRatio = Number(h.new_conversion_ratio || 1);
+
+                // 날짜 포맷
+                const dateStr = h.effective_date || (h.created_at ? h.created_at.substring(0, 10) : '');
+
+                html += '<tr>';
+                html += '<td>' + escapeHtml(dateStr) + '</td>';
+                html += '<td><strong>' + escapeHtml(h.product_name) + '</strong></td>';
+                html += '<td class="text-end">' + (oldCp > 0 ? Number(oldCp).toLocaleString('ko-KR') + '원' : '-') + '</td>';
+                html += '<td class="text-end">' + (newCp > 0 ? Number(newCp).toLocaleString('ko-KR') + '원' : '-') + '</td>';
+                html += '<td class="text-end"><span class="' + diffClass + '">'
+                     + (diff !== 0 ? diffSign + Number(diff).toLocaleString('ko-KR') + '원' : '-')
+                     + '</span></td>';
+                html += '<td class="text-end">' + (oldRatio !== 1 ? oldRatio : '<span class="text-muted">1</span>') + '</td>';
+                html += '<td class="text-end">' + (newRatio !== 1 ? newRatio : '<span class="text-muted">1</span>') + '</td>';
+                html += '<td>' + escapeHtml(h.changed_by || '') + '</td>';
+                html += '<td class="text-muted small">' + escapeHtml(h.change_reason || '') + '</td>';
+                html += '</tr>';
+            });
+
+            tbody.innerHTML = html;
+        } catch(e) { alert('조회 오류: ' + e.message); }
     };
 
     // ====== 이벤트 바인딩 ======

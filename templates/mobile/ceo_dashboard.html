@@ -90,6 +90,23 @@
 </div>
 {% endif %}
 
+<!-- 재무현황 바로가기 -->
+<div class="m-card mb-3">
+    <div class="m-card-header"><i class="bi bi-bar-chart-line"></i> 재무 분석</div>
+    <div class="m-row">
+        <span class="label">재무현황 대시보드</span>
+        <a href="{{ url_for('finance.dashboard') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-bar-chart-line"></i> 재무현황
+        </a>
+    </div>
+    <div class="m-row">
+        <span class="label">관리 손익표</span>
+        <a href="{{ url_for('finance.pnl') }}" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-graph-up"></i> 손익표
+        </a>
+    </div>
+</div>
+
 <!-- PC 버전 이동 -->
 <div class="m-card">
     <div class="m-row">

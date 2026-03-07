@@ -1,0 +1,608 @@
+{% extends "base.html" %}
+{% block title %}CEO 재무현황 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}CEO 재무현황 대시보드{% endblock %}
+
+{% block extra_css %}
+<style>
+    .kpi-card {
+        border-left: 4px solid;
+        transition: transform 0.15s, box-shadow 0.15s;
+        border-radius: 8px;
+    }
+    .kpi-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    .kpi-card.revenue { border-color: #3498db; }
+    .kpi-card.profit { border-color: #27ae60; }
+    .kpi-card.receivable { border-color: #e74c3c; }
+    .kpi-card.payable { border-color: #e67e22; }
+
+    .kpi-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .kpi-label {
+        font-size: 0.82rem;
+        color: #888;
+        margin-bottom: 2px;
+    }
+    .kpi-change {
+        font-size: 0.78rem;
+        margin-top: 2px;
+    }
+    .change-up { color: #27ae60; }
+    .change-down { color: #e74c3c; }
+    .change-same { color: #999; }
+
+    .chart-container {
+        position: relative;
+        height: 320px;
+    }
+    .chart-container-sm {
+        position: relative;
+        height: 280px;
+    }
+
+    .channel-rank-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .channel-rank-item:last-child { border-bottom: none; }
+    .channel-rank-badge {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: #fff;
+        margin-right: 8px;
+    }
+
+    .expense-bar {
+        height: 8px;
+        border-radius: 4px;
+        background: #ecf0f1;
+        margin-top: 4px;
+    }
+    .expense-bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 0.6s ease;
+    }
+
+    .cash-badge {
+        background: linear-gradient(135deg, #2ecc71, #27ae60);
+        color: #fff;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+
+    .download-btn {
+        background: linear-gradient(135deg, #2c3e50, #34495e);
+        color: #fff;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .download-btn:hover {
+        background: linear-gradient(135deg, #34495e, #2c3e50);
+        color: #fff;
+        transform: translateY(-1px);
+        box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+    }
+
+    @media (max-width: 768px) {
+        .kpi-value { font-size: 1.2rem; }
+        .chart-container { height: 260px; }
+        .chart-container-sm { height: 220px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 필터 바 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div>
+                <label class="form-label mb-0 small text-muted">월 선택</label>
+                <input type="month" id="filterMonth" class="form-control form-control-sm" style="width:160px;">
+            </div>
+            <div class="ms-auto d-flex gap-2">
+                <button class="btn btn-outline-primary btn-sm" onclick="loadData()">
+                    <i class="bi bi-arrow-clockwise"></i> 새로고침
+                </button>
+                <a id="downloadBtn" class="download-btn text-decoration-none" href="#">
+                    <i class="bi bi-file-earmark-excel"></i> 세무사 리포트 다운로드
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- KPI 카드 4개 -->
+<div class="row g-3 mb-4" id="kpiSection">
+    <div class="col-md-3 col-6">
+        <div class="card kpi-card revenue">
+            <div class="card-body py-3 px-3">
+                <div class="kpi-label"><i class="bi bi-currency-won"></i> 이번 달 매출</div>
+                <div class="kpi-value text-primary" id="kpiRevenue">-</div>
+                <div class="kpi-change" id="kpiRevenueChange"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card kpi-card profit">
+            <div class="card-body py-3 px-3">
+                <div class="kpi-label"><i class="bi bi-graph-up-arrow"></i> 영업이익</div>
+                <div class="kpi-value text-success" id="kpiProfit">-</div>
+                <div class="kpi-change" id="kpiProfitChange"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card kpi-card receivable">
+            <div class="card-body py-3 px-3">
+                <div class="kpi-label"><i class="bi bi-arrow-down-circle"></i> 미수금 잔액</div>
+                <div class="kpi-value text-danger" id="kpiReceivable">-</div>
+                <div class="kpi-change" id="kpiReceivableChange"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="card kpi-card payable">
+            <div class="card-body py-3 px-3">
+                <div class="kpi-label"><i class="bi bi-arrow-up-circle"></i> 미지급금 잔액</div>
+                <div class="kpi-value" style="color:#e67e22;" id="kpiPayable">-</div>
+                <div class="kpi-change" id="kpiPayableChange"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 현금 잔액 배지 (있으면) -->
+<div class="mb-3" id="cashSection" style="display:none;">
+    <div class="d-flex align-items-center gap-2">
+        <span class="text-muted small"><i class="bi bi-bank"></i> 현금 잔액:</span>
+        <span class="cash-badge" id="cashBalance">-</span>
+    </div>
+</div>
+
+<!-- 차트 영역 -->
+<div class="row g-3 mb-4">
+    <!-- 6개월 매출/이익 추이 -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-0"><i class="bi bi-bar-chart"></i> 매출 / 영업이익 추이 (6개월)</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 비용 구성 도넛 차트 -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-0"><i class="bi bi-pie-chart"></i> 비용 구성</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="expenseChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <!-- 채널별 수익성 TOP 5 -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-0"><i class="bi bi-trophy"></i> 채널별 수익성 TOP 5</h6>
+            </div>
+            <div class="card-body p-0">
+                <div id="channelRankList">
+                    <div class="text-center text-muted py-4">데이터 로딩 중...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 채널별 수익성 바 차트 -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-0"><i class="bi bi-bar-chart-line"></i> 채널별 기여이익</h6>
+            </div>
+            <div class="card-body">
+                <div class="chart-container-sm">
+                    <canvas id="channelBarChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 비용 구성 상세 -->
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-white py-2">
+                <h6 class="mb-0"><i class="bi bi-list-ul"></i> 비용 구성 상세</h6>
+            </div>
+            <div class="card-body" id="expenseDetailSection">
+                <div class="text-center text-muted py-4">데이터 로딩 중...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+    const COLORS = ['#3498db','#e74c3c','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c','#95a5a6','#d35400','#2980b9'];
+    const RANK_COLORS = ['#f1c40f','#95a5a6','#cd7f32','#3498db','#9b59b6'];
+
+    let trendChart = null;
+    let expenseChart = null;
+    let channelBarChart = null;
+
+    // 초기 월 설정
+    const now = new Date();
+    const curMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('filterMonth').value = curMonth;
+
+    // 월 변경 시 자동 로드
+    document.getElementById('filterMonth').addEventListener('change', loadData);
+
+    // 초기 로드
+    loadData();
+
+    function getMonth() {
+        return document.getElementById('filterMonth').value || curMonth;
+    }
+
+    function fmt(n) {
+        if (n === null || n === undefined) return '-';
+        return Math.round(n).toLocaleString();
+    }
+
+    function fmtWon(n) {
+        if (n === null || n === undefined) return '-';
+        const abs = Math.abs(n);
+        const sign = n < 0 ? '-' : '';
+        if (abs >= 100000000) return sign + (abs / 100000000).toFixed(1) + '\uC5B5';
+        if (abs >= 10000) return sign + (abs / 10000).toFixed(0) + '\uB9CC';
+        return Math.round(n).toLocaleString();
+    }
+
+    function changeArrow(pct) {
+        if (pct === null || pct === undefined) return '<span class="change-same">- (\uC804\uC6D4 \uB370\uC774\uD130 \uC5C6\uC74C)</span>';
+        if (pct > 0) return '<span class="change-up"><i class="bi bi-arrow-up-short"></i>' + pct.toFixed(1) + '%</span>';
+        if (pct < 0) return '<span class="change-down"><i class="bi bi-arrow-down-short"></i>' + Math.abs(pct).toFixed(1) + '%</span>';
+        return '<span class="change-same"><i class="bi bi-dash"></i>0%</span>';
+    }
+
+    function loadData() {
+        const month = getMonth();
+        // 다운로드 링크 업데이트
+        document.getElementById('downloadBtn').href = '/finance/api/tax-report/download?month=' + month;
+
+        fetch('/finance/api/ceo-summary?month=' + month)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    console.error('API error:', data.error);
+                    return;
+                }
+                const s = data.summary;
+                renderKPI(s);
+                renderCashBalance(s);
+                renderTrendChart(s.trend);
+                renderExpenseChart(s.expense_composition);
+                renderChannelRank(s.top_channels);
+                renderChannelBar(s.top_channels);
+                renderExpenseDetail(s.expense_composition, s.expense_total);
+            })
+            .catch(err => console.error('Fetch error:', err));
+    }
+
+    function renderKPI(s) {
+        document.getElementById('kpiRevenue').textContent = fmtWon(s.revenue) + '\uC6D0';
+        document.getElementById('kpiRevenueChange').innerHTML = '\uC804\uC6D4 \uB300\uBE44 ' + changeArrow(s.revenue_change);
+
+        document.getElementById('kpiProfit').textContent = fmtWon(s.operating_profit) + '\uC6D0';
+        const profitSub = '\uC601\uC5C5\uC774\uC775\uB960 ' + (s.operating_margin || 0).toFixed(1) + '% | \uC804\uC6D4 ' + changeArrow(s.profit_change);
+        document.getElementById('kpiProfitChange').innerHTML = profitSub;
+
+        document.getElementById('kpiReceivable').textContent = fmtWon(s.receivables) + '\uC6D0';
+        document.getElementById('kpiReceivableChange').innerHTML = '\uC804\uC6D4 \uB300\uBE44 ' + changeArrow(s.receivables_change);
+
+        document.getElementById('kpiPayable').textContent = fmtWon(s.payables) + '\uC6D0';
+        document.getElementById('kpiPayableChange').innerHTML = '\uC804\uC6D4 \uB300\uBE44 ' + changeArrow(s.payables_change);
+    }
+
+    function renderCashBalance(s) {
+        const section = document.getElementById('cashSection');
+        if (s.cash_balance !== null && s.cash_balance !== undefined) {
+            section.style.display = 'block';
+            document.getElementById('cashBalance').textContent = fmtWon(s.cash_balance) + '\uC6D0';
+        } else {
+            section.style.display = 'none';
+        }
+    }
+
+    function renderTrendChart(trend) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        if (trendChart) trendChart.destroy();
+
+        const labels = (trend.months || []).map(m => {
+            const parts = m.split('-');
+            return parts[0].slice(2) + '/' + parts[1];
+        });
+
+        trendChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: '\uB9E4\uCD9C',
+                        data: trend.revenue || [],
+                        backgroundColor: 'rgba(52,152,219,0.7)',
+                        borderRadius: 4,
+                        order: 2,
+                    },
+                    {
+                        label: '\uC601\uC5C5\uC774\uC775',
+                        data: trend.operating_profit || [],
+                        backgroundColor: 'rgba(39,174,96,0.7)',
+                        borderRadius: 4,
+                        order: 2,
+                    },
+                    {
+                        label: '\uC601\uC5C5\uC774\uC775\uB960(%)',
+                        data: trend.operating_margin || [],
+                        type: 'line',
+                        borderColor: '#e67e22',
+                        backgroundColor: 'rgba(230,126,34,0.1)',
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 7,
+                        fill: false,
+                        yAxisID: 'y1',
+                        order: 1,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { font: { size: 11 }, usePointStyle: true, padding: 15 }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.dataset.yAxisID === 'y1') return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%';
+                                return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + '\uC6D0';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { font: { size: 11 } }
+                    },
+                    y: {
+                        position: 'left',
+                        ticks: {
+                            font: { size: 10 },
+                            callback: v => v >= 10000 ? (v / 10000).toFixed(0) + '\uB9CC' : v.toLocaleString()
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    y1: {
+                        position: 'right',
+                        ticks: {
+                            font: { size: 10 },
+                            callback: v => v.toFixed(0) + '%'
+                        },
+                        grid: { drawOnChartArea: false }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderExpenseChart(composition) {
+        const ctx = document.getElementById('expenseChart').getContext('2d');
+        if (expenseChart) expenseChart.destroy();
+
+        if (!composition || composition.length === 0) {
+            ctx.font = '14px sans-serif';
+            ctx.fillStyle = '#999';
+            ctx.textAlign = 'center';
+            ctx.fillText('\uBE44\uC6A9 \uB370\uC774\uD130 \uC5C6\uC74C', ctx.canvas.width / 2, ctx.canvas.height / 2);
+            return;
+        }
+
+        expenseChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: composition.map(c => c.category),
+                datasets: [{
+                    data: composition.map(c => c.amount),
+                    backgroundColor: COLORS.slice(0, composition.length),
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { font: { size: 10 }, padding: 8, usePointStyle: true }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                                return ctx.label + ': ' + ctx.parsed.toLocaleString() + '\uC6D0 (' + pct + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderChannelRank(channels) {
+        const container = document.getElementById('channelRankList');
+        if (!channels || channels.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4">\uCC44\uB110 \uB370\uC774\uD130 \uC5C6\uC74C</div>';
+            return;
+        }
+
+        let html = '';
+        channels.forEach((ch, i) => {
+            const color = RANK_COLORS[i] || '#95a5a6';
+            const profitClass = ch.channel_profit >= 0 ? 'text-success' : 'text-danger';
+            html += '<div class="channel-rank-item">' +
+                '<div class="d-flex align-items-center">' +
+                    '<span class="channel-rank-badge" style="background:' + color + ';">' + (i + 1) + '</span>' +
+                    '<div>' +
+                        '<div class="fw-semibold" style="font-size:0.9rem;">' + ch.channel + '</div>' +
+                        '<div class="text-muted" style="font-size:0.75rem;">\uB9E4\uCD9C ' + fmtWon(ch.revenue) + '\uC6D0</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="text-end">' +
+                    '<div class="' + profitClass + ' fw-bold" style="font-size:0.9rem;">' + fmtWon(ch.channel_profit) + '\uC6D0</div>' +
+                    '<div class="text-muted" style="font-size:0.75rem;">\uC774\uC775\uB960 ' + ch.profit_margin + '%</div>' +
+                '</div>' +
+            '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function renderChannelBar(channels) {
+        const ctx = document.getElementById('channelBarChart').getContext('2d');
+        if (channelBarChart) channelBarChart.destroy();
+
+        if (!channels || channels.length === 0) {
+            ctx.font = '14px sans-serif';
+            ctx.fillStyle = '#999';
+            ctx.textAlign = 'center';
+            ctx.fillText('\uCC44\uB110 \uB370\uC774\uD130 \uC5C6\uC74C', ctx.canvas.width / 2, ctx.canvas.height / 2);
+            return;
+        }
+
+        channelBarChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: channels.map(c => c.channel),
+                datasets: [{
+                    label: '\uAE30\uC5EC\uC774\uC775',
+                    data: channels.map(c => c.channel_profit),
+                    backgroundColor: channels.map(c => c.channel_profit >= 0 ? 'rgba(39,174,96,0.7)' : 'rgba(231,76,60,0.7)'),
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.parsed.x.toLocaleString() + '\uC6D0'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            font: { size: 10 },
+                            callback: v => v >= 10000 ? (v / 10000).toFixed(0) + '\uB9CC' : v.toLocaleString()
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    y: {
+                        ticks: { font: { size: 11 } },
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderExpenseDetail(composition, total) {
+        const container = document.getElementById('expenseDetailSection');
+        if (!composition || composition.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-3">\uBE44\uC6A9 \uB370\uC774\uD130 \uC5C6\uC74C</div>';
+            return;
+        }
+
+        let html = '<div class="row g-2">';
+        const maxAmt = Math.max(...composition.map(c => c.amount));
+
+        composition.forEach((c, i) => {
+            const color = COLORS[i % COLORS.length];
+            const widthPct = maxAmt > 0 ? (c.amount / maxAmt * 100) : 0;
+            html += '<div class="col-md-6 col-lg-4">' +
+                '<div class="p-2">' +
+                    '<div class="d-flex justify-content-between align-items-center">' +
+                        '<span class="fw-semibold" style="font-size:0.85rem;">' + c.category + '</span>' +
+                        '<span class="text-muted" style="font-size:0.8rem;">' + c.ratio + '%</span>' +
+                    '</div>' +
+                    '<div class="fw-bold" style="font-size:0.9rem;">' + fmt(c.amount) + '\uC6D0</div>' +
+                    '<div class="expense-bar">' +
+                        '<div class="expense-bar-fill" style="width:' + widthPct + '%;background:' + color + ';"></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        html += '<div class="mt-3 pt-2 border-top d-flex justify-content-between">' +
+            '<span class="fw-bold">\uBE44\uC6A9 \uCD1D\uC561</span>' +
+            '<span class="fw-bold">' + fmt(total) + '\uC6D0</span>' +
+        '</div>';
+        container.innerHTML = html;
+    }
+
+    // 전역 함수로 노출
+    window.loadData = loadData;
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,478 @@
+{% extends "base.html" %}
+{% block title %}연차 관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}연차 관리{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { border-left: 4px solid; }
+    .summary-card.granted { border-color: #3498db; }
+    .summary-card.used { border-color: #e74c3c; }
+    .summary-card.remaining { border-color: #27ae60; }
+    .leave-bar { height: 8px; border-radius: 4px; background: #e9ecef; }
+    .leave-bar-fill { height: 100%; border-radius: 4px; background: #3498db; }
+    .leave-bar-fill.warning { background: #e67e22; }
+    .leave-bar-fill.danger { background: #e74c3c; }
+    .calendar-day { min-height: 80px; border: 1px solid #eee; padding: 4px; font-size: 0.85rem; }
+    .calendar-day.today { background: #eef3f8; }
+    .calendar-day.other-month { background: #f9f9f9; color: #ccc; }
+    .calendar-leave { background: #d4edda; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; font-size: 0.75rem; }
+    .calendar-header { font-weight: 600; text-align: center; padding: 6px; background: #f8f9fa; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 요약 카드 -->
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card summary-card granted">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 부여 연차</small>
+                <h4 class="mb-0" id="totalGranted">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card summary-card used">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 사용 연차</small>
+                <h4 class="mb-0" style="color:#e74c3c;" id="totalUsed">-</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card summary-card remaining">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 잔여 연차</small>
+                <h4 class="mb-0 text-success" id="totalRemaining">-</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 필터 / 액션 바 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div>
+                <label class="form-label mb-0 small text-muted">연도</label>
+                <input type="number" id="filterYear" class="form-control form-control-sm" style="width:100px;" min="2020" max="2030">
+            </div>
+            <div class="ms-auto d-flex gap-2">
+                <button class="btn btn-primary btn-sm" onclick="openLeaveModal()">
+                    <i class="bi bi-plus-lg"></i> 연차 사용 등록
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 직원별 연차 현황 -->
+<div class="card mb-3">
+    <div class="card-header py-2">
+        <i class="bi bi-calendar-check"></i> 직원별 연차 현황
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>직원</th>
+                        <th>부서</th>
+                        <th>입사일</th>
+                        <th class="text-center">법정</th>
+                        <th class="text-center">부여</th>
+                        <th class="text-center">사용</th>
+                        <th class="text-center">잔여</th>
+                        <th style="width:200px;">사용률</th>
+                        <th style="width:90px;">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="leaveBody">
+                    <tr><td colspan="9" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 달력 뷰 -->
+<div class="card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar3"></i> 연차 달력</span>
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" onclick="changeCalMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+            <span id="calMonthLabel" class="fw-bold"></span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="changeCalMonth(1)"><i class="bi bi-chevron-right"></i></button>
+        </div>
+    </div>
+    <div class="card-body p-2">
+        <div class="row g-0" id="calendarGrid">
+            <!-- 달력 헤더 -->
+            <div class="col calendar-header">일</div>
+            <div class="col calendar-header">월</div>
+            <div class="col calendar-header">화</div>
+            <div class="col calendar-header">수</div>
+            <div class="col calendar-header">목</div>
+            <div class="col calendar-header">금</div>
+            <div class="col calendar-header">토</div>
+        </div>
+        <div id="calendarBody"></div>
+    </div>
+</div>
+
+<!-- 연차 사용 등록 모달 -->
+<div class="modal fade" id="leaveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">연차 사용 등록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">직원 <span class="text-danger">*</span></label>
+                    <select id="leaveEmployee" class="form-select"></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">날짜 <span class="text-danger">*</span></label>
+                    <input type="date" id="leaveDate" class="form-control" required>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">일수</label>
+                        <select id="leaveDays" class="form-select">
+                            <option value="1">1일</option>
+                            <option value="0.5">반차 (0.5일)</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">종류</label>
+                        <select id="leaveType" class="form-select">
+                            <option value="연차">연차</option>
+                            <option value="반차">반차</option>
+                            <option value="병가">병가</option>
+                            <option value="경조">경조</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">메모</label>
+                    <textarea id="leaveMemo" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="saveLeave()">등록</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 연차 부여 모달 -->
+<div class="modal fade" id="grantModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">연차 부여</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="grantEmpId">
+                <div class="mb-3">
+                    <label class="form-label">직원</label>
+                    <input type="text" id="grantEmpName" class="form-control" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">법정 연차일수</label>
+                    <input type="text" id="grantLegal" class="form-control" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">부여 일수</label>
+                    <input type="number" id="grantDays" class="form-control text-end" step="0.5" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="saveGrant()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+let allLeave = [];
+let calYear, calMonth;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const now = new Date();
+    document.getElementById('filterYear').value = now.getFullYear();
+    calYear = now.getFullYear();
+    calMonth = now.getMonth() + 1;
+    loadData();
+    loadCalendar();
+    document.getElementById('filterYear').addEventListener('change', loadData);
+});
+
+function loadData() {
+    const year = document.getElementById('filterYear').value || '';
+    const params = new URLSearchParams();
+    if (year) params.set('year', year);
+
+    fetch(`/hr/api/leave?${params}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) { alert(data.error || '로드 실패'); return; }
+        allLeave = data.leave_data || [];
+        updateSummary();
+        renderTable();
+        populateEmployeeSelect();
+    })
+    .catch(err => { console.error(err); alert('데이터 로드 오류'); });
+}
+
+function updateSummary() {
+    const granted = allLeave.reduce((s, r) => s + (r.granted_days || 0), 0);
+    const used = allLeave.reduce((s, r) => s + (r.used_days || 0), 0);
+    const remaining = granted - used;
+    document.getElementById('totalGranted').textContent = granted + '일';
+    document.getElementById('totalUsed').textContent = used + '일';
+    document.getElementById('totalRemaining').textContent = remaining + '일';
+}
+
+function renderTable() {
+    const tbody = document.getElementById('leaveBody');
+    if (!allLeave.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">데이터 없음</td></tr>';
+        return;
+    }
+    let html = '';
+    allLeave.forEach(r => {
+        const granted = r.granted_days || 0;
+        const used = r.used_days || 0;
+        const remaining = granted - used;
+        const pct = granted > 0 ? Math.round((used / granted) * 100) : 0;
+        let barClass = '';
+        if (pct >= 90) barClass = 'danger';
+        else if (pct >= 70) barClass = 'warning';
+
+        html += `<tr>
+            <td><strong>${r.employee_name || ''}</strong></td>
+            <td>${r.department || ''}</td>
+            <td>${r.hire_date || ''}</td>
+            <td class="text-center">${r.legal_days || 0}일</td>
+            <td class="text-center">${granted}일</td>
+            <td class="text-center">${used}일</td>
+            <td class="text-center fw-bold ${remaining <= 0 ? 'text-danger' : 'text-success'}">${remaining}일</td>
+            <td>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="leave-bar flex-grow-1">
+                        <div class="leave-bar-fill ${barClass}" style="width:${Math.min(pct, 100)}%"></div>
+                    </div>
+                    <small class="text-muted">${pct}%</small>
+                </div>
+            </td>
+            <td>
+                <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openGrantModal(${r.employee_id}, '${r.employee_name}', ${r.legal_days}, ${granted})" title="연차 부여">
+                    <i class="bi bi-plus-circle"></i>
+                </button>
+                <button class="btn btn-outline-info btn-sm py-0 px-1" onclick="viewRecords(${r.employee_id})" title="사용 내역">
+                    <i class="bi bi-list-ul"></i>
+                </button>
+            </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function populateEmployeeSelect() {
+    const sel = document.getElementById('leaveEmployee');
+    sel.innerHTML = '<option value="">-- 직원 선택 --</option>';
+    allLeave.forEach(r => {
+        sel.innerHTML += `<option value="${r.employee_id}">${r.employee_name} (${r.department || '-'})</option>`;
+    });
+}
+
+// ── 연차 사용 등록 ──
+function openLeaveModal() {
+    document.getElementById('leaveEmployee').value = '';
+    document.getElementById('leaveDate').value = '';
+    document.getElementById('leaveDays').value = '1';
+    document.getElementById('leaveType').value = '연차';
+    document.getElementById('leaveMemo').value = '';
+    new bootstrap.Modal(document.getElementById('leaveModal')).show();
+}
+
+function saveLeave() {
+    const employee_id = document.getElementById('leaveEmployee').value;
+    const leave_date = document.getElementById('leaveDate').value;
+    if (!employee_id || !leave_date) {
+        alert('직원과 날짜를 선택해주세요.');
+        return;
+    }
+
+    const payload = {
+        employee_id: parseInt(employee_id),
+        leave_date: leave_date,
+        days: parseFloat(document.getElementById('leaveDays').value) || 1,
+        leave_type: document.getElementById('leaveType').value,
+        memo: document.getElementById('leaveMemo').value,
+    };
+
+    fetch('/hr/api/leave', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('leaveModal')).hide();
+            loadData();
+            loadCalendar();
+        } else {
+            alert(data.error || '등록 실패');
+        }
+    })
+    .catch(err => { console.error(err); alert('등록 중 오류'); });
+}
+
+// ── 연차 부여 ──
+function openGrantModal(empId, empName, legalDays, currentGranted) {
+    document.getElementById('grantEmpId').value = empId;
+    document.getElementById('grantEmpName').value = empName;
+    document.getElementById('grantLegal').value = legalDays + '일';
+    document.getElementById('grantDays').value = currentGranted || legalDays;
+    new bootstrap.Modal(document.getElementById('grantModal')).show();
+}
+
+function saveGrant() {
+    const empId = document.getElementById('grantEmpId').value;
+    const year = document.getElementById('filterYear').value;
+    const days = parseFloat(document.getElementById('grantDays').value) || 0;
+
+    fetch('/hr/api/leave/grant', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ employee_id: parseInt(empId), year: parseInt(year), granted_days: days }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('grantModal')).hide();
+            loadData();
+        } else {
+            alert(data.error || '저장 실패');
+        }
+    })
+    .catch(err => { console.error(err); alert('저장 중 오류'); });
+}
+
+// ── 사용 내역 보기 ──
+function viewRecords(empId) {
+    const year = document.getElementById('filterYear').value;
+    const params = new URLSearchParams({ employee_id: empId });
+    if (year) params.set('year', year);
+
+    fetch(`/hr/api/leave/records?${params}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) { alert(data.error); return; }
+        const records = data.records || [];
+        if (!records.length) { alert('사용 내역이 없습니다.'); return; }
+        let msg = `[${records[0].employee_name || ''}] 연차 사용 내역\n\n`;
+        records.forEach(r => {
+            msg += `${r.leave_date}  ${r.days}일  ${r.leave_type}  ${r.memo || ''}\n`;
+        });
+        alert(msg);
+    })
+    .catch(err => { console.error(err); alert('조회 오류'); });
+}
+
+// ── 달력 ──
+function loadCalendar() {
+    document.getElementById('calMonthLabel').textContent = `${calYear}년 ${calMonth}월`;
+
+    fetch(`/hr/api/leave/calendar?year=${calYear}&month=${calMonth}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) return;
+        renderCalendar(data.calendar || []);
+    })
+    .catch(err => console.error(err));
+}
+
+function changeCalMonth(delta) {
+    calMonth += delta;
+    if (calMonth > 12) { calMonth = 1; calYear++; }
+    if (calMonth < 1) { calMonth = 12; calYear--; }
+    loadCalendar();
+}
+
+function renderCalendar(events) {
+    const container = document.getElementById('calendarBody');
+    const firstDay = new Date(calYear, calMonth - 1, 1);
+    const lastDay = new Date(calYear, calMonth, 0);
+    const startDow = firstDay.getDay(); // 0=Sun
+    const totalDays = lastDay.getDate();
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+
+    // 날짜별 이벤트 그룹핑
+    const eventMap = {};
+    events.forEach(ev => {
+        if (!eventMap[ev.date]) eventMap[ev.date] = [];
+        eventMap[ev.date].push(ev);
+    });
+
+    let html = '';
+    let dayCount = 0;
+
+    // 주 단위로 렌더링
+    for (let week = 0; week < 6; week++) {
+        html += '<div class="row g-0">';
+        for (let dow = 0; dow < 7; dow++) {
+            const cellIdx = week * 7 + dow;
+            const dayNum = cellIdx - startDow + 1;
+
+            if (dayNum < 1 || dayNum > totalDays) {
+                html += '<div class="col calendar-day other-month"></div>';
+            } else {
+                const dateStr = `${calYear}-${String(calMonth).padStart(2,'0')}-${String(dayNum).padStart(2,'0')}`;
+                const isToday = dateStr === todayStr;
+                const dayEvents = eventMap[dateStr] || [];
+
+                html += `<div class="col calendar-day ${isToday ? 'today' : ''}">`;
+                html += `<div class="fw-bold small ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : ''}">${dayNum}</div>`;
+                dayEvents.forEach(ev => {
+                    html += `<div class="calendar-leave" title="${ev.employee_name}: ${ev.leave_type} ${ev.days}일">${ev.employee_name} ${ev.days < 1 ? '(반차)' : ''}</div>`;
+                });
+                html += '</div>';
+                dayCount++;
+            }
+        }
+        html += '</div>';
+        if (dayCount >= totalDays) break;
+    }
+
+    container.innerHTML = html;
+}
+</script>
+{% endblock %}

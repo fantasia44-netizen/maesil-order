@@ -92,11 +92,17 @@ PAGE_REGISTRY = [
 
     # ── 매출·분석 ──
     ('revenue',        '매출 관리',      'bi-currency-won',       '/revenue',             ['admin','ceo','manager','sales','general'],                         '매출·분석'),
+    ('expenses',       '비용 관리',      'bi-cash-stack',         '/finance/expenses',    ['admin','manager'],                                                '매출·분석'),
+    ('pnl',            '관리 손익표',    'bi-clipboard-data',     '/finance/pnl',         ['admin','ceo','manager'],                                          '매출·분석'),
+    ('finance_dashboard','재무현황',     'bi-bar-chart-line',     '/finance/dashboard',   ['admin','ceo','manager'],                                          '매출·분석'),
     ('sales_analysis', '판매분석',       'bi-graph-up-arrow',     '/planning/sales',      ['admin','ceo','manager','production'],                              '매출·분석'),
     ('closing',        '일일마감',       'bi-calendar-check',     '/closing',             ['admin','manager','sales','logistics'],                             '매출·분석'),
     ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general'],              '매출·분석'),
 
     # ── 관리 ──
+    ('employees',      '직원 관리',      'bi-person-badge',       '/hr/employees',        ['admin'],                                                          '관리'),
+    ('payroll',        '급여 관리',      'bi-wallet2',            '/hr/payroll',          ['admin'],                                                          '관리'),
+    ('leave',          '연차 관리',      'bi-calendar-event',     '/hr/leave',            ['admin','manager'],                                                '관리'),
     ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager'],                                                '관리'),
     ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin'],                                                          '관리'),
     ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin'],                                                          '관리'),

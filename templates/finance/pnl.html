@@ -1,0 +1,636 @@
+{% extends "base.html" %}
+{% block title %}관리 손익표 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}관리 손익표{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pnl-table th { background: #f8f9fa; font-weight: 600; }
+    .pnl-section-header td { background: #2c3e50; color: #fff; font-weight: 700; font-size: 0.95rem; }
+    .pnl-subtotal td { background: #eef3f8; font-weight: 700; }
+    .pnl-total td { background: #d6e9f8; font-weight: 700; font-size: 1.05rem; }
+    .pnl-item td { padding-left: 2rem !important; }
+    .change-up { color: #27ae60; }
+    .change-down { color: #e74c3c; }
+    .change-same { color: #999; }
+    .summary-card { border-left: 4px solid; transition: transform 0.15s; }
+    .summary-card:hover { transform: translateY(-2px); }
+    .summary-card.revenue { border-color: #3498db; }
+    .summary-card.gross { border-color: #27ae60; }
+    .summary-card.operating { border-color: #e67e22; }
+    .summary-card.margin { border-color: #9b59b6; }
+    .kpi-value { font-size: 1.4rem; font-weight: 700; }
+    .kpi-sub { font-size: 0.8rem; color: #999; }
+    .tab-content { min-height: 300px; }
+    .channel-table .profit-positive { color: #27ae60; font-weight: 600; }
+    .channel-table .profit-negative { color: #e74c3c; font-weight: 600; }
+    .trend-chart-container { position: relative; height: 320px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 요약 KPI 카드 -->
+<div class="row g-3 mb-4" id="kpiCards">
+    <div class="col-md-3">
+        <div class="card summary-card revenue">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">매출액</small>
+                <div class="kpi-value" id="kpiRevenue">-</div>
+                <div class="kpi-sub" id="kpiRevenueChange"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card gross">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">매출총이익</small>
+                <div class="kpi-value text-success" id="kpiGrossProfit">-</div>
+                <div class="kpi-sub" id="kpiGrossMargin"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card operating">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">영업이익</small>
+                <div class="kpi-value" id="kpiOperatingProfit" style="color:#e67e22;">-</div>
+                <div class="kpi-sub" id="kpiOperatingMargin"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card summary-card margin">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">영업이익률</small>
+                <div class="kpi-value" id="kpiMarginPct" style="color:#9b59b6;">-</div>
+                <div class="kpi-sub" id="kpiMarginChange"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 필터 바 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <div>
+                <label class="form-label mb-0 small text-muted">월 선택</label>
+                <input type="month" id="filterMonth" class="form-control form-control-sm" style="width:160px;">
+            </div>
+            <div class="ms-auto d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="exportCSV()">
+                    <i class="bi bi-download"></i> CSV 내보내기
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-0" id="pnlTabs" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" id="tab-pnl" data-bs-toggle="tab"
+                data-bs-target="#pane-pnl" type="button">
+            <i class="bi bi-table"></i> 손익표
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="tab-channel" data-bs-toggle="tab"
+                data-bs-target="#pane-channel" type="button">
+            <i class="bi bi-diagram-3"></i> 채널별 손익
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="tab-trend" data-bs-toggle="tab"
+                data-bs-target="#pane-trend" type="button">
+            <i class="bi bi-graph-up"></i> 추이 분석
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- 손익표 탭 -->
+    <div class="tab-pane fade show active" id="pane-pnl">
+        <div class="card border-top-0 rounded-top-0">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 pnl-table">
+                        <thead>
+                            <tr>
+                                <th style="width:45%;">구분</th>
+                                <th class="text-end" style="width:25%;">금액</th>
+                                <th class="text-end" style="width:15%;">비율(%)</th>
+                                <th class="text-end" style="width:15%;">전월 대비</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pnlBody">
+                            <tr><td colspan="4" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 채널별 손익 탭 -->
+    <div class="tab-pane fade" id="pane-channel">
+        <div class="card border-top-0 rounded-top-0">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0 channel-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th>채널</th>
+                                <th class="text-end">매출</th>
+                                <th class="text-end">수수료</th>
+                                <th class="text-end">배송비</th>
+                                <th class="text-end">포장비</th>
+                                <th class="text-end">기타비용</th>
+                                <th class="text-end">기여이익</th>
+                                <th class="text-end">이익률</th>
+                            </tr>
+                        </thead>
+                        <tbody id="channelBody">
+                            <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 추이 분석 탭 -->
+    <div class="tab-pane fade" id="pane-trend">
+        <div class="card border-top-0 rounded-top-0">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-2"><i class="bi bi-bar-chart"></i> 매출 / 영업이익 추이</h6>
+                        <div class="trend-chart-container">
+                            <canvas id="trendBarChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-2"><i class="bi bi-graph-up"></i> 이익률 추이</h6>
+                        <div class="trend-chart-container">
+                            <canvas id="trendLineChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <!-- 추이 테이블 -->
+                <div class="table-responsive mt-3">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr id="trendTableHead">
+                                <th>구분</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trendTableBody">
+                            <tr><td colspan="7" class="text-center text-muted py-3">데이터 로딩 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+let currentPnl = null;
+let currentChannelPnl = null;
+let currentTrend = null;
+let trendBarChart = null;
+let trendLineChart = null;
+
+// ── 초기화 ──
+document.addEventListener('DOMContentLoaded', () => {
+    const now = new Date();
+    const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    document.getElementById('filterMonth').value = ym;
+
+    loadPnl();
+
+    document.getElementById('filterMonth').addEventListener('change', loadPnl);
+
+    // 탭 전환 시 데이터 로드
+    document.getElementById('tab-channel').addEventListener('shown.bs.tab', () => {
+        if (!currentChannelPnl) loadChannelPnl();
+    });
+    document.getElementById('tab-trend').addEventListener('shown.bs.tab', () => {
+        if (!currentTrend) loadTrend();
+    });
+});
+
+// ── 손익표 로드 ──
+function loadPnl() {
+    const month = document.getElementById('filterMonth').value || '';
+    currentChannelPnl = null; // 월 변경 시 채널/추이 리셋
+    currentTrend = null;
+
+    fetch(`/finance/api/pnl?month=${month}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert(data.error || '데이터 로드 실패');
+            return;
+        }
+        currentPnl = data.pnl;
+        renderKpiCards(currentPnl);
+        renderPnlTable(currentPnl);
+    })
+    .catch(err => {
+        console.error(err);
+        alert('손익표 로드 중 오류 발생');
+    });
+}
+
+// ── 채널별 손익 로드 ──
+function loadChannelPnl() {
+    const month = document.getElementById('filterMonth').value || '';
+    fetch(`/finance/api/pnl/by-channel?month=${month}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) return;
+        currentChannelPnl = data.channel_pnl;
+        renderChannelTable(currentChannelPnl);
+    })
+    .catch(console.error);
+}
+
+// ── 추이 로드 ──
+function loadTrend() {
+    fetch('/finance/api/pnl/trend?months=6', {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) return;
+        currentTrend = data.trend;
+        renderTrendCharts(currentTrend);
+        renderTrendTable(currentTrend);
+    })
+    .catch(console.error);
+}
+
+// ── KPI 카드 렌더링 ──
+function renderKpiCards(pnl) {
+    document.getElementById('kpiRevenue').textContent = fmtWon(pnl.revenue.total);
+    document.getElementById('kpiGrossProfit').textContent = fmtWon(pnl.gross_profit);
+    document.getElementById('kpiOperatingProfit').textContent = fmtWon(pnl.operating_profit);
+    document.getElementById('kpiMarginPct').textContent = pnl.operating_margin + '%';
+
+    // 전월 대비
+    const cmp = pnl.prev_month_comparison || {};
+    setChangeText('kpiRevenueChange', cmp.revenue_change, cmp.prev_revenue);
+    document.getElementById('kpiGrossMargin').textContent =
+        '매출총이익률 ' + pnl.gross_margin + '%';
+    setChangeText('kpiOperatingMargin', cmp.profit_change, cmp.prev_operating_profit);
+    setChangeText('kpiMarginChange', cmp.profit_change, null, true);
+}
+
+function setChangeText(elId, changePct, prevValue, isPctOnly) {
+    const el = document.getElementById(elId);
+    if (changePct === null || changePct === undefined) {
+        el.textContent = '전월 데이터 없음';
+        el.className = 'kpi-sub change-same';
+        return;
+    }
+    const arrow = changePct > 0 ? '\u25B2' : changePct < 0 ? '\u25BC' : '\u25CF';
+    const cls = changePct > 0 ? 'change-up' : changePct < 0 ? 'change-down' : 'change-same';
+
+    if (isPctOnly) {
+        el.textContent = `${arrow} 전월 대비 ${changePct > 0 ? '+' : ''}${changePct}%p`;
+    } else {
+        const prevText = prevValue ? ` (전월: ${fmtWon(prevValue)})` : '';
+        el.textContent = `${arrow} ${changePct > 0 ? '+' : ''}${changePct}%${prevText}`;
+    }
+    el.className = 'kpi-sub ' + cls;
+}
+
+// ── 손익표 테이블 렌더링 ──
+function renderPnlTable(pnl) {
+    const tbody = document.getElementById('pnlBody');
+    const rev = pnl.revenue.total;
+    const cmp = pnl.prev_month_comparison || {};
+
+    let html = '';
+
+    // 매출액 섹션
+    html += sectionRow('I. 매출액');
+    // 채널별 매출 상세
+    const byChannel = pnl.revenue.by_channel || {};
+    const sortedChannels = Object.entries(byChannel).sort((a, b) => b[1] - a[1]);
+    for (const [ch, amt] of sortedChannels) {
+        html += itemRow(ch, amt, _pct(amt, rev));
+    }
+    html += subtotalRow('매출액 합계', rev, '100.0', changeHtml(cmp.revenue_change));
+
+    // 매출원가 섹션
+    html += sectionRow('II. 매출원가');
+    html += itemRow('실제 투입 원가', pnl.cogs.actual_cost, _pct(pnl.cogs.actual_cost, rev));
+    if (pnl.cogs.estimated_cost > 0) {
+        html += itemRow('추정 원가 (BOM 기반)', pnl.cogs.estimated_cost, _pct(pnl.cogs.estimated_cost, rev));
+    }
+    html += subtotalRow('매출원가 합계', pnl.cogs.total, _pct(pnl.cogs.total, rev));
+
+    // 매출총이익
+    html += totalRow('III. 매출총이익', pnl.gross_profit, pnl.gross_margin, changeHtml(cmp.gross_profit_change));
+
+    // 판매관리비 섹션
+    html += sectionRow('IV. 판매관리비');
+    const sga = pnl.sga;
+    if (sga.commission) html += itemRow('채널 수수료', sga.commission, _pct(sga.commission, rev));
+    if (sga.shipping) html += itemRow('배송비', sga.shipping, _pct(sga.shipping, rev));
+    if (sga.packaging) html += itemRow('포장비', sga.packaging, _pct(sga.packaging, rev));
+    if (sga.labor) html += itemRow('인건비', sga.labor, _pct(sga.labor, rev));
+    if (sga.rent) html += itemRow('임차료', sga.rent, _pct(sga.rent, rev));
+    if (sga.utilities) html += itemRow('수도광열비', sga.utilities, _pct(sga.utilities, rev));
+    if (sga.other) html += itemRow('기타 비용', sga.other, _pct(sga.other, rev));
+    html += subtotalRow('판매관리비 합계', sga.total, _pct(sga.total, rev));
+
+    // 영업이익
+    html += totalRow('V. 영업이익', pnl.operating_profit, pnl.operating_margin, changeHtml(cmp.profit_change));
+
+    tbody.innerHTML = html;
+}
+
+function sectionRow(title) {
+    return `<tr class="pnl-section-header"><td colspan="4">${title}</td></tr>`;
+}
+
+function itemRow(label, amount, pct, changeCol) {
+    return `<tr class="pnl-item">
+        <td>${label}</td>
+        <td class="text-end">${fmtWon(amount)}</td>
+        <td class="text-end text-muted">${pct}%</td>
+        <td class="text-end">${changeCol || ''}</td>
+    </tr>`;
+}
+
+function subtotalRow(label, amount, pct, changeCol) {
+    return `<tr class="pnl-subtotal">
+        <td>${label}</td>
+        <td class="text-end">${fmtWon(amount)}</td>
+        <td class="text-end">${pct}%</td>
+        <td class="text-end">${changeCol || ''}</td>
+    </tr>`;
+}
+
+function totalRow(label, amount, margin, changeCol) {
+    const color = amount >= 0 ? 'color:#27ae60;' : 'color:#e74c3c;';
+    return `<tr class="pnl-total">
+        <td>${label}</td>
+        <td class="text-end" style="${color}">${fmtWon(amount)}</td>
+        <td class="text-end" style="${color}">${margin}%</td>
+        <td class="text-end">${changeCol || ''}</td>
+    </tr>`;
+}
+
+function changeHtml(pct) {
+    if (pct === null || pct === undefined) return '<span class="text-muted">-</span>';
+    const arrow = pct > 0 ? '\u25B2' : pct < 0 ? '\u25BC' : '\u25CF';
+    const cls = pct > 0 ? 'change-up' : pct < 0 ? 'change-down' : 'change-same';
+    return `<span class="${cls}">${arrow} ${pct > 0 ? '+' : ''}${pct}%</span>`;
+}
+
+// ── 채널별 손익 렌더링 ──
+function renderChannelTable(data) {
+    const tbody = document.getElementById('channelBody');
+    const channels = data.channels || [];
+
+    if (!channels.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">채널별 데이터 없음</td></tr>';
+        return;
+    }
+
+    let html = '';
+    for (const ch of channels) {
+        const profitCls = ch.channel_profit >= 0 ? 'profit-positive' : 'profit-negative';
+        html += `<tr>
+            <td><strong>${ch.channel}</strong></td>
+            <td class="text-end">${fmtWon(ch.revenue)}</td>
+            <td class="text-end text-danger">${fmtWon(ch.commission)}</td>
+            <td class="text-end">${fmtWon(ch.shipping)}</td>
+            <td class="text-end">${fmtWon(ch.packaging)}</td>
+            <td class="text-end">${fmtWon(ch.other_cost)}</td>
+            <td class="text-end ${profitCls}">${fmtWon(ch.channel_profit)}</td>
+            <td class="text-end ${profitCls}">${ch.profit_margin}%</td>
+        </tr>`;
+    }
+
+    // 합계 행
+    const t = data.total;
+    const totalCls = t.channel_profit >= 0 ? 'profit-positive' : 'profit-negative';
+    html += `<tr class="pnl-subtotal">
+        <td><strong>합계</strong></td>
+        <td class="text-end">${fmtWon(t.revenue)}</td>
+        <td class="text-end text-danger">${fmtWon(t.commission)}</td>
+        <td class="text-end">${fmtWon(t.shipping)}</td>
+        <td class="text-end">${fmtWon(t.packaging)}</td>
+        <td class="text-end">${fmtWon(t.other_cost)}</td>
+        <td class="text-end ${totalCls}">${fmtWon(t.channel_profit)}</td>
+        <td class="text-end ${totalCls}">${t.profit_margin}%</td>
+    </tr>`;
+
+    tbody.innerHTML = html;
+}
+
+// ── 추이 차트 렌더링 ──
+function renderTrendCharts(trend) {
+    const labels = trend.months.map(m => {
+        const [y, mo] = m.split('-');
+        return `${mo}월`;
+    });
+
+    // 바 차트: 매출 / 영업이익
+    if (trendBarChart) trendBarChart.destroy();
+    const barCtx = document.getElementById('trendBarChart').getContext('2d');
+    trendBarChart = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '매출',
+                    data: trend.revenue,
+                    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                    borderColor: '#3498db',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+                {
+                    label: '영업이익',
+                    data: trend.operating_profit,
+                    backgroundColor: trend.operating_profit.map(v =>
+                        v >= 0 ? 'rgba(46, 204, 113, 0.7)' : 'rgba(231, 76, 60, 0.7)'),
+                    borderColor: trend.operating_profit.map(v =>
+                        v >= 0 ? '#2ecc71' : '#e74c3c'),
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ctx.dataset.label + ': ' + fmtWon(ctx.raw),
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    ticks: {
+                        callback: v => (v / 10000).toLocaleString() + '만',
+                    },
+                },
+            },
+        },
+    });
+
+    // 라인 차트: 이익률 추이
+    if (trendLineChart) trendLineChart.destroy();
+    const lineCtx = document.getElementById('trendLineChart').getContext('2d');
+    trendLineChart = new Chart(lineCtx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '매출총이익률',
+                    data: trend.gross_margin,
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+                {
+                    label: '영업이익률',
+                    data: trend.operating_margin,
+                    borderColor: '#e67e22',
+                    backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ctx.dataset.label + ': ' + ctx.raw + '%',
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    ticks: { callback: v => v + '%' },
+                },
+            },
+        },
+    });
+}
+
+// ── 추이 테이블 렌더링 ──
+function renderTrendTable(trend) {
+    const headTr = document.getElementById('trendTableHead');
+    const tbody = document.getElementById('trendTableBody');
+
+    // 헤더
+    let headHtml = '<th style="width:120px;">구분</th>';
+    for (const m of trend.months) {
+        const [y, mo] = m.split('-');
+        headHtml += `<th class="text-end">${y}.${mo}</th>`;
+    }
+    headTr.innerHTML = headHtml;
+
+    // 본문
+    const rows = [
+        { label: '매출', data: trend.revenue, fmt: fmtWon },
+        { label: '매출원가', data: trend.cogs, fmt: fmtWon },
+        { label: '매출총이익', data: trend.gross_profit, fmt: fmtWon, bold: true },
+        { label: '매출총이익률', data: trend.gross_margin, fmt: v => v + '%' },
+        { label: '판매관리비', data: trend.sga, fmt: fmtWon },
+        { label: '영업이익', data: trend.operating_profit, fmt: fmtWon, bold: true },
+        { label: '영업이익률', data: trend.operating_margin, fmt: v => v + '%', bold: true },
+    ];
+
+    let html = '';
+    for (const row of rows) {
+        const weight = row.bold ? 'fw-bold' : '';
+        html += `<tr class="${weight}"><td>${row.label}</td>`;
+        for (const val of row.data) {
+            html += `<td class="text-end">${row.fmt(val)}</td>`;
+        }
+        html += '</tr>';
+    }
+
+    tbody.innerHTML = html;
+}
+
+// ── CSV 내보내기 ──
+function exportCSV() {
+    if (!currentPnl) {
+        alert('데이터가 로드되지 않았습니다.');
+        return;
+    }
+    const pnl = currentPnl;
+    const lines = [
+        ['관리 손익표', pnl.year_month],
+        [],
+        ['구분', '금액', '비율(%)'],
+        ['매출액', pnl.revenue.total, '100.0'],
+        ['매출원가', pnl.cogs.total, _pct(pnl.cogs.total, pnl.revenue.total)],
+        ['  실제 투입 원가', pnl.cogs.actual_cost, ''],
+        ['  추정 원가', pnl.cogs.estimated_cost, ''],
+        ['매출총이익', pnl.gross_profit, pnl.gross_margin],
+        ['판매관리비', pnl.sga.total, _pct(pnl.sga.total, pnl.revenue.total)],
+        ['  채널 수수료', pnl.sga.commission, ''],
+        ['  배송비', pnl.sga.shipping, ''],
+        ['  포장비', pnl.sga.packaging, ''],
+        ['  인건비', pnl.sga.labor, ''],
+        ['  임차료', pnl.sga.rent, ''],
+        ['  수도광열비', pnl.sga.utilities, ''],
+        ['  기타', pnl.sga.other, ''],
+        ['영업이익', pnl.operating_profit, pnl.operating_margin],
+    ];
+
+    const csv = '\uFEFF' + lines.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `손익표_${pnl.year_month}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// ── 유틸 ──
+function fmtWon(val) {
+    const n = Number(val) || 0;
+    return n.toLocaleString('ko-KR') + '원';
+}
+
+function _pct(part, total) {
+    if (!total) return '0.0';
+    return ((part / total) * 100).toFixed(1);
+}
+</script>
+{% endblock %}

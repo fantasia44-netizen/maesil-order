@@ -134,6 +134,26 @@ def api_save_cost():
             'food_type': food_type,
         }
 
+        # 단가 또는 변환비율이 변경되었으면 이력 자동 저장
+        if old_data:
+            old_cp = float(old_data.get('cost_price', 0))
+            old_cr = float(old_data.get('conversion_ratio', 1) or 1)
+            if old_cp != cost_price or old_cr != conversion_ratio:
+                try:
+                    changed_by = (current_user.username
+                                  if hasattr(current_user, 'username')
+                                  else str(getattr(current_user, 'id', '')))
+                    db.insert_cost_history(
+                        product_name=product_name,
+                        old_cost_price=old_cp,
+                        new_cost_price=cost_price,
+                        old_conversion_ratio=old_cr,
+                        new_conversion_ratio=conversion_ratio,
+                        changed_by=changed_by,
+                    )
+                except Exception:
+                    pass  # 이력 저장 실패해도 단가 저장은 진행
+
         db.upsert_product_cost(product_name, cost_price, unit, memo,
                                weight=weight, weight_unit=weight_unit,
                                cost_type=cost_type, material_type=material_type,
@@ -305,3 +325,46 @@ def api_delete_channel(channel):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ── 실제 원가 분석 API ──
+
+@bom_cost_bp.route('/api/actual-cost')
+@role_required('admin', 'manager')
+def api_actual_cost():
+    """기간별 실제 생산 원가 분석 API.
+    GET /bom-cost/api/actual-cost?from=2026-03-01&to=2026-03-07&location=본사
+    """
+    db = current_app.db
+    date_from = request.args.get('from', '')
+    date_to = request.args.get('to', '')
+    location = request.args.get('location', '') or None
+
+    if not date_from or not date_to:
+        return jsonify({'error': '기간(from, to)은 필수입니다.'}), 400
+
+    try:
+        from services.actual_cost_service import calculate_actual_costs
+        result = calculate_actual_costs(db, date_from, date_to, location)
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── 매입단가 이력 조회 API ──
+
+@bom_cost_bp.route('/api/cost-history')
+@role_required('admin', 'manager')
+def api_cost_history():
+    """매입단가 변경 이력 조회 API.
+    GET /bom-cost/api/cost-history?product_name=당근
+    product_name 없으면 최신 전체 이력 반환.
+    """
+    db = current_app.db
+    product_name = request.args.get('product_name', '') or None
+
+    try:
+        history = db.query_cost_history(product_name=product_name)
+        return jsonify({'success': True, 'history': history})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
