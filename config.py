@@ -32,6 +32,9 @@ BUSINESSES = {
         'exclude_pages': [
             'orders', 'order_manage', 'n_delivery', 'rocket_manual',
             'aggregation', 'shipment', 'promotions',
+            # 회계 ERP (배마마 전용)
+            'bank_transactions', 'tax_invoices', 'ar_management',
+            'ap_management', 'settlements', 'accounting_reports',
         ],
     },
 }
@@ -73,6 +76,22 @@ class Config:
     # 패킹센터 영상 설정
     PACKING_VIDEO_MAX_BYTES = 100 * 1024 * 1024   # 100MB
     PACKING_VIDEO_BITRATE = 1_000_000              # 1 Mbps
+
+    # ── CODEF (코드에프) 설정 ──
+    CODEF_DEMO_CLIENT_ID = os.environ.get('CODEF_DEMO_CLIENT_ID', '')
+    CODEF_DEMO_CLIENT_SECRET = os.environ.get('CODEF_DEMO_CLIENT_SECRET', '')
+    CODEF_CLIENT_ID = os.environ.get('CODEF_CLIENT_ID', '')
+    CODEF_CLIENT_SECRET = os.environ.get('CODEF_CLIENT_SECRET', '')
+    CODEF_PUBLIC_KEY = os.environ.get('CODEF_PUBLIC_KEY', '')
+    CODEF_IS_TEST = os.environ.get('CODEF_IS_TEST', 'true').lower() == 'true'
+    CODEF_MODE = os.environ.get('CODEF_MODE', 'sandbox')  # sandbox/demo/product
+
+    # ── Popbill (팝빌) 설정 ──
+    POPBILL_LINK_ID = os.environ.get('POPBILL_LINK_ID', 'TESTER')
+    POPBILL_SECRET_KEY = os.environ.get('POPBILL_SECRET_KEY', '')
+    POPBILL_IS_TEST = os.environ.get('POPBILL_IS_TEST', 'true').lower() == 'true'
+    POPBILL_IP_RESTRICT = False   # Render 유동 IP 대응
+    POPBILL_CORP_NUM = os.environ.get('POPBILL_CORP_NUM', '')  # 우리 사업자번호
 
     # 팀/권한 정의
     ROLES = {

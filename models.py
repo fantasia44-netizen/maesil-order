@@ -52,7 +52,7 @@ CHANGE_LOG = [
 # (page_key, name, icon, url, default_roles, group)
 # group: None=최상단 고정, 그 외 그룹명 문자열
 
-MENU_GROUPS = ['주문·판매', '거래처', '재고·물류', '생산', '매출·분석', '관리']
+MENU_GROUPS = ['주문·판매', '거래처', '재고·물류', '생산', '매출·분석', '총무/경리', '관리']
 
 PAGE_REGISTRY = [
     # ── 홈 (최상단 고정) ──
@@ -92,17 +92,25 @@ PAGE_REGISTRY = [
 
     # ── 매출·분석 ──
     ('revenue',        '매출 관리',      'bi-currency-won',       '/revenue',             ['admin','ceo','manager','sales','general'],                         '매출·분석'),
-    ('expenses',       '비용 관리',      'bi-cash-stack',         '/finance/expenses',    ['admin','general'],                                                '매출·분석'),
-    ('pnl',            '관리 손익표',    'bi-clipboard-data',     '/finance/pnl',         ['admin','general'],                                                '매출·분석'),
-    ('finance_dashboard','재무현황',     'bi-bar-chart-line',     '/finance/dashboard',   ['admin','general'],                                                '매출·분석'),
     ('sales_analysis', '판매분석',       'bi-graph-up-arrow',     '/planning/sales',      ['admin','ceo','manager','production'],                              '매출·분석'),
     ('closing',        '일일마감',       'bi-calendar-check',     '/closing',             ['admin','manager','sales','logistics'],                             '매출·분석'),
     ('history',        '이력 관리',      'bi-clock-history',      '/history',             ['admin','manager','logistics','production','general'],              '매출·분석'),
 
+    # ── 총무/경리 ──
+    ('employees',      '직원 관리',      'bi-person-badge',       '/hr/employees',        ['admin','general'],                                                '총무/경리'),
+    ('payroll',        '급여 관리',      'bi-wallet2',            '/hr/payroll',          ['admin','general'],                                                '총무/경리'),
+    ('leave',          '연차 관리',      'bi-calendar-event',     '/hr/leave',            ['admin','general'],                                                '총무/경리'),
+    ('expenses',       '비용 관리',      'bi-cash-stack',         '/finance/expenses',    ['admin','general'],                                                '총무/경리'),
+    ('bank_transactions','은행 거래',    'bi-bank',               '/bank/',               ['admin','general'],                                                '총무/경리'),
+    ('tax_invoices',   '세금계산서',     'bi-receipt',            '/tax-invoice/',        ['admin','general'],                                                '총무/경리'),
+    ('ar_management',  '미수금 관리',    'bi-cash-coin',          '/accounting/',         ['admin','general'],                                                '총무/경리'),
+    ('ap_management',  '미지급금 관리',  'bi-credit-card',        '/accounting/payables', ['admin','general'],                                                '총무/경리'),
+    ('settlements',    '플랫폼 정산',    'bi-shop',               '/accounting/settlements', ['admin','general'],                                             '총무/경리'),
+    ('pnl',            '관리 손익표',    'bi-clipboard-data',     '/finance/pnl',         ['admin','general'],                                                '총무/경리'),
+    ('accounting_reports','리포트',      'bi-file-earmark-bar-graph', '/accounting/reports', ['admin','general'],                                             '총무/경리'),
+    ('finance_dashboard','재무현황',     'bi-bar-chart-line',     '/finance/dashboard',   ['admin','general'],                                                '총무/경리'),
+
     # ── 관리 ──
-    ('employees',      '직원 관리',      'bi-person-badge',       '/hr/employees',        ['admin','general'],                                                '관리'),
-    ('payroll',        '급여 관리',      'bi-wallet2',            '/hr/payroll',          ['admin','general'],                                                '관리'),
-    ('leave',          '연차 관리',      'bi-calendar-event',     '/hr/leave',            ['admin','general'],                                                '관리'),
     ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager'],                                                '관리'),
     ('master',         '마스터 관리',    'bi-database',           '/master',              ['admin'],                                                          '관리'),
     ('admin_users',    '사용자 관리',    'bi-people',             '/admin/users',         ['admin'],                                                          '관리'),

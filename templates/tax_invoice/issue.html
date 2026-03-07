@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block page_title %}세금계산서 발행{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ url_for('tax_invoice.issue') }}" id="issueForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="items" id="itemsJson" value="[]">
+
+    <div class="row g-3 mb-3">
+        <!-- 공급자 정보 -->
+        <div class="col-md-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <i class="bi bi-building"></i> 공급자 (우리 회사)
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm table-borderless mb-0">
+                        <tr>
+                            <th class="text-muted" style="width:100px">사업자번호</th>
+                            <td>{{ my_biz.business_number|default('-') }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">상호</th>
+                            <td>{{ my_biz.company_name|default('-') }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">대표자</th>
+                            <td>{{ my_biz.representative|default('-') }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">주소</th>
+                            <td>{{ my_biz.address|default('-') }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 공급받는자 / 작성일 -->
+        <div class="col-md-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <i class="bi bi-person-vcard"></i> 공급받는자
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="partnerId" class="form-label">거래처 선택</label>
+                        <select name="partner_id" id="partnerId" class="form-select" required>
+                            <option value="">-- 거래처를 선택하세요 --</option>
+                            {% for p in partners %}
+                            <option value="{{ p.id }}" data-biz="{{ p.business_number|default('') }}">
+                                {{ p.partner_name }} ({{ p.business_number|default('') }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-0">
+                        <label for="writeDate" class="form-label">작성일자</label>
+                        <input type="date" name="write_date" id="writeDate" class="form-control" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 품목 입력 테이블 -->
+    <div class="card shadow-sm mb-3">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list-check"></i> 품목</span>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="addRowBtn">
+                <i class="bi bi-plus"></i> 품목 추가
+            </button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-bordered mb-0" id="itemsTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:30px">#</th>
+                            <th>품명</th>
+                            <th class="text-end" style="width:100px">수량</th>
+                            <th class="text-end" style="width:130px">단가</th>
+                            <th class="text-end" style="width:140px">공급가액</th>
+                            <th class="text-end" style="width:120px">세액</th>
+                            <th style="width:50px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemsBody">
+                        <!-- JS로 행 추가 -->
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <th colspan="4" class="text-end">합계</th>
+                            <th class="text-end" id="totalSupply">0</th>
+                            <th class="text-end" id="totalTax">0</th>
+                            <th></th>
+                        </tr>
+                        <tr>
+                            <th colspan="4" class="text-end">총 합계 (공급가 + 세액)</th>
+                            <th class="text-end fw-bold text-primary" colspan="2" id="grandTotal">0원</th>
+                            <th></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-end">
+        <a href="{{ url_for('tax_invoice.index') }}" class="btn btn-secondary">취소</a>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-send"></i> 세금계산서 발행
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let rowIndex = 0;
+
+function addRow(name, qty, price) {
+    rowIndex++;
+    const tr = document.createElement('tr');
+    tr.dataset.row = rowIndex;
+    tr.innerHTML = `
+        <td class="text-center align-middle">${rowIndex}</td>
+        <td><input type="text" class="form-control form-control-sm item-name" value="${name || ''}" placeholder="품명" required></td>
+        <td><input type="number" class="form-control form-control-sm text-end item-qty" value="${qty || 1}" min="1" required></td>
+        <td><input type="number" class="form-control form-control-sm text-end item-price" value="${price || 0}" min="0" required></td>
+        <td class="text-end align-middle item-supply">0</td>
+        <td class="text-end align-middle item-tax">0</td>
+        <td class="text-center align-middle">
+            <button type="button" class="btn btn-outline-danger btn-sm remove-row" title="삭제">
+                <i class="bi bi-x"></i>
+            </button>
+        </td>
+    `;
+    document.getElementById('itemsBody').appendChild(tr);
+
+    /* 이벤트 바인딩 */
+    tr.querySelector('.item-qty').addEventListener('input', calcRow);
+    tr.querySelector('.item-price').addEventListener('input', calcRow);
+    tr.querySelector('.remove-row').addEventListener('click', function() {
+        tr.remove();
+        recalcTotal();
+    });
+
+    calcRow.call(tr.querySelector('.item-qty'));
+}
+
+function calcRow() {
+    const tr = this.closest('tr');
+    const qty = parseInt(tr.querySelector('.item-qty').value) || 0;
+    const price = parseInt(tr.querySelector('.item-price').value) || 0;
+    const supply = qty * price;
+    const tax = Math.round(supply * 0.1);
+
+    tr.querySelector('.item-supply').textContent = supply.toLocaleString();
+    tr.querySelector('.item-tax').textContent = tax.toLocaleString();
+    recalcTotal();
+}
+
+function recalcTotal() {
+    let totalSupply = 0, totalTax = 0;
+    document.querySelectorAll('#itemsBody tr').forEach(tr => {
+        const qty = parseInt(tr.querySelector('.item-qty').value) || 0;
+        const price = parseInt(tr.querySelector('.item-price').value) || 0;
+        const supply = qty * price;
+        const tax = Math.round(supply * 0.1);
+        totalSupply += supply;
+        totalTax += tax;
+    });
+    document.getElementById('totalSupply').textContent = totalSupply.toLocaleString();
+    document.getElementById('totalTax').textContent = totalTax.toLocaleString();
+    document.getElementById('grandTotal').textContent = (totalSupply + totalTax).toLocaleString() + '원';
+}
+
+/* 품목 추가 버튼 */
+document.getElementById('addRowBtn').addEventListener('click', () => addRow());
+
+/* 폼 제출 시 items JSON 생성 */
+document.getElementById('issueForm').addEventListener('submit', function(e) {
+    const rows = document.querySelectorAll('#itemsBody tr');
+    if (rows.length === 0) {
+        e.preventDefault();
+        alert('품목을 하나 이상 추가하세요.');
+        return;
+    }
+    const items = [];
+    rows.forEach(tr => {
+        items.push({
+            name: tr.querySelector('.item-name').value,
+            qty: parseInt(tr.querySelector('.item-qty').value) || 0,
+            unit_price: parseInt(tr.querySelector('.item-price').value) || 0,
+        });
+    });
+    document.getElementById('itemsJson').value = JSON.stringify(items);
+});
+
+/* 초기 1행 추가 + 오늘 날짜 설정 */
+addRow();
+document.getElementById('writeDate').value = new Date().toISOString().slice(0, 10);
+</script>
+{% endblock %}

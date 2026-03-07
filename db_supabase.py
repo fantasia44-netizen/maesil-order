@@ -3018,3 +3018,695 @@ class SupabaseDB(DBBase):
             # 2년마다 1일 추가 (최대 25일)
             extra = (years_worked - 1) // 2
             return min(15 + extra, 25)
+
+    # ── salary_components (급여 항목 관리) ──
+
+    def query_salary_components(self, employee_id, active_only=True):
+        """직원의 급여 항목 목록 조회.
+
+        Args:
+            employee_id: 직원 ID
+            active_only: True이면 현재 유효한 항목만 (effective_to IS NULL)
+
+        Returns:
+            list of dict
+        """
+        try:
+            q = self.client.table("salary_components").select("*").eq(
+                "employee_id", int(employee_id)
+            )
+            if active_only:
+                q = q.is_("effective_to", "null")
+            q = q.order("component_type")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_salary_components error: {e}")
+            return []
+
+    def upsert_salary_component(self, data):
+        """급여 항목 추가/수정.
+        id가 있으면 수정, 없으면 신규 추가.
+
+        Args:
+            data: dict with employee_id, component_type, component_name,
+                  amount, is_taxable, is_fixed, effective_from, etc.
+
+        Returns:
+            dict: 저장된 레코드
+        """
+        comp_id = data.get('id')
+        from datetime import datetime, timezone
+        data['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+        if comp_id:
+            # 수정
+            update_data = {k: v for k, v in data.items() if k != 'id'}
+            res = self.client.table("salary_components").update(
+                update_data
+            ).eq("id", int(comp_id)).execute()
+        else:
+            # 신규
+            res = self.client.table("salary_components").insert(data).execute()
+        return res.data[0] if res.data else None
+
+    def delete_salary_component(self, comp_id):
+        """급여 항목 삭제 (종료일 설정으로 비활성화).
+
+        Args:
+            comp_id: salary_component ID
+        """
+        from datetime import date, datetime, timezone
+        self.client.table("salary_components").update({
+            'effective_to': date.today().isoformat(),
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        }).eq("id", int(comp_id)).execute()
+
+    def bulk_set_salary_components(self, employee_id, components):
+        """직원의 급여 항목 일괄 설정.
+        기존 활성 항목 중 전달되지 않은 것은 비활성화.
+
+        Args:
+            employee_id: 직원 ID
+            components: list of dict [{component_type, component_name,
+                        amount, is_taxable, is_fixed}, ...]
+
+        Returns:
+            int: 설정된 항목 수
+        """
+        from datetime import date
+        today = date.today().isoformat()
+
+        # 기존 활성 항목 조회
+        existing = self.query_salary_components(employee_id, active_only=True)
+        existing_map = {c['component_type']: c for c in existing}
+
+        count = 0
+        new_types = set()
+
+        for comp in components:
+            ctype = comp.get('component_type', '')
+            if not ctype:
+                continue
+            new_types.add(ctype)
+
+            if ctype in existing_map:
+                # 기존 항목 업데이트
+                self.upsert_salary_component({
+                    'id': existing_map[ctype]['id'],
+                    'component_name': comp.get('component_name', ctype),
+                    'amount': int(comp.get('amount', 0)),
+                    'is_taxable': comp.get('is_taxable', True),
+                    'is_fixed': comp.get('is_fixed', True),
+                })
+            else:
+                # 신규 항목 추가
+                self.upsert_salary_component({
+                    'employee_id': int(employee_id),
+                    'component_type': ctype,
+                    'component_name': comp.get('component_name', ctype),
+                    'amount': int(comp.get('amount', 0)),
+                    'is_taxable': comp.get('is_taxable', True),
+                    'is_fixed': comp.get('is_fixed', True),
+                    'effective_from': today,
+                })
+            count += 1
+
+        # 전달되지 않은 기존 항목은 비활성화
+        for ctype, existing_comp in existing_map.items():
+            if ctype not in new_types:
+                self.delete_salary_component(existing_comp['id'])
+
+        return count
+
+    # ── insurance_rates (4대보험 요율 관리) ──
+
+    def query_insurance_rates(self, year=None):
+        """4대보험 요율 조회.
+
+        Args:
+            year: 연도 (int). None이면 전체.
+
+        Returns:
+            list of dict
+        """
+        try:
+            q = self.client.table("insurance_rates").select("*")
+            if year:
+                q = q.eq("year", int(year))
+            q = q.order("insurance_type")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_insurance_rates error: {e}")
+            return []
+
+    def update_insurance_rates(self, year, rates):
+        """4대보험 요율 일괄 업데이트 (upsert).
+
+        Args:
+            year: 연도 (int)
+            rates: list of dict [{insurance_type, employee_rate,
+                    employer_rate, min_base, max_base, notes}, ...]
+
+        Returns:
+            int: 업데이트된 건수
+        """
+        count = 0
+        for rate in rates:
+            ins_type = rate.get('insurance_type', '')
+            if not ins_type:
+                continue
+            payload = {
+                'year': int(year),
+                'insurance_type': ins_type,
+                'employee_rate': float(rate.get('employee_rate', 0)),
+                'employer_rate': float(rate.get('employer_rate', 0)),
+                'min_base': int(rate.get('min_base', 0)),
+                'max_base': int(rate.get('max_base', 0)),
+                'notes': rate.get('notes', ''),
+            }
+            try:
+                res = self.client.table("insurance_rates").upsert(
+                    payload, on_conflict="year,insurance_type"
+                ).execute()
+                if res.data:
+                    count += 1
+            except Exception as e:
+                print(f"[DB] update_insurance_rates error ({ins_type}): {e}")
+        return count
+
+    # ── nontaxable_limits (비과세 한도 관리) ──
+
+    def query_nontaxable_limits(self, year=None):
+        """비과세 한도 조회.
+
+        Args:
+            year: 연도 (int). None이면 전체.
+
+        Returns:
+            list of dict
+        """
+        try:
+            q = self.client.table("nontaxable_limits").select("*")
+            if year:
+                q = q.eq("year", int(year))
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_nontaxable_limits error: {e}")
+            return []
+
+    # ── enhanced payroll generation ──
+
+    def generate_monthly_payroll_v2(self, pay_month):
+        """한국 급여체계 기반 월 급여 자동 생성.
+        각 직원의 salary_components, insurance_rates 기반 자동 계산.
+        이미 해당 월에 급여가 있는 직원은 건너뜀.
+
+        Args:
+            pay_month: 'YYYY-MM' 형식 대상 월
+
+        Returns:
+            int: 생성 건수
+        """
+        from services.hr_service import calculate_payroll
+
+        employees = self.query_employees(status='재직')
+        if not employees:
+            return 0
+
+        year = int(pay_month[:4])
+        existing = self.query_payroll(pay_month=pay_month)
+        existing_emp_ids = {r.get('employee_id') for r in existing}
+
+        # 보험 요율 조회
+        insurance_rates = self.query_insurance_rates(year=year)
+        rate_map = {r['insurance_type']: r for r in insurance_rates}
+
+        # 비과세 한도 조회
+        nontax_limits = self.query_nontaxable_limits(year=year)
+        nontax_map = {r['limit_type']: r['monthly_limit'] for r in nontax_limits}
+
+        inserted = 0
+        for emp in employees:
+            emp_id = emp.get('id')
+            if emp_id in existing_emp_ids:
+                continue
+
+            # 직원의 급여 항목 조회
+            components = self.query_salary_components(emp_id, active_only=True)
+
+            # 급여 계산
+            result = calculate_payroll(emp, components, rate_map, nontax_map)
+
+            payload = {
+                'employee_id': emp_id,
+                'pay_month': pay_month,
+                'base_salary': result['base_salary'],
+                'allowances': result['total_allowances'],
+                'total_cost': result['gross_salary'],
+                'position_allowance': result['position_allowance'],
+                'responsibility_allowance': result['responsibility_allowance'],
+                'longevity_allowance': result['longevity_allowance'],
+                'meal_allowance': result['meal_allowance'],
+                'vehicle_allowance': result['vehicle_allowance'],
+                'overtime_pay': result['overtime_pay'],
+                'night_pay': result['night_pay'],
+                'holiday_pay': result['holiday_pay'],
+                'bonus': result['bonus'],
+                'other_allowance': result['other_allowance'],
+                'other_allowance_detail': result.get('other_allowance_detail', {}),
+                'gross_salary': result['gross_salary'],
+                'taxable_amount': result['taxable_amount'],
+                'nontaxable_amount': result['nontaxable_amount'],
+                'national_pension': result['national_pension'],
+                'health_insurance': result['health_insurance'],
+                'long_term_care': result['long_term_care'],
+                'employment_insurance': result['employment_insurance'],
+                'income_tax': result['income_tax'],
+                'local_income_tax': result['local_income_tax'],
+                'total_deductions': result['total_deductions'],
+                'net_salary': result['net_salary'],
+                'national_pension_employer': result['national_pension_employer'],
+                'health_insurance_employer': result['health_insurance_employer'],
+                'long_term_care_employer': result['long_term_care_employer'],
+                'employment_insurance_employer': result['employment_insurance_employer'],
+                'industrial_accident_insurance': result['industrial_accident_insurance'],
+                'total_employer_cost': result['total_employer_cost'],
+                'status': 'draft',
+                'memo': '',
+            }
+
+            self.insert_payroll(payload)
+            inserted += 1
+
+        return inserted
+
+    def recalculate_payroll(self, payroll_id):
+        """기존 급여 1건 재계산 (급여 항목/보험 요율 변경 시).
+
+        Args:
+            payroll_id: payroll_monthly ID
+
+        Returns:
+            dict: 업데이트된 급여 레코드
+        """
+        from services.hr_service import calculate_payroll
+
+        # 기존 급여 조회
+        try:
+            res = self.client.table("payroll_monthly").select("*").eq(
+                "id", int(payroll_id)
+            ).execute()
+            if not res.data:
+                return None
+            payroll = res.data[0]
+        except Exception:
+            return None
+
+        emp_id = payroll.get('employee_id')
+        pay_month = payroll.get('pay_month', '')
+        year = int(pay_month[:4]) if pay_month else 2025
+
+        # 직원 정보
+        employees = self.query_employees()
+        emp = next((e for e in employees if e['id'] == emp_id), None)
+        if not emp:
+            return None
+
+        # 급여 항목 & 요율
+        components = self.query_salary_components(emp_id, active_only=True)
+        insurance_rates = self.query_insurance_rates(year=year)
+        rate_map = {r['insurance_type']: r for r in insurance_rates}
+        nontax_limits = self.query_nontaxable_limits(year=year)
+        nontax_map = {r['limit_type']: r['monthly_limit'] for r in nontax_limits}
+
+        result = calculate_payroll(emp, components, rate_map, nontax_map)
+
+        update_data = {
+            'base_salary': result['base_salary'],
+            'allowances': result['total_allowances'],
+            'total_cost': result['gross_salary'],
+            'position_allowance': result['position_allowance'],
+            'responsibility_allowance': result['responsibility_allowance'],
+            'longevity_allowance': result['longevity_allowance'],
+            'meal_allowance': result['meal_allowance'],
+            'vehicle_allowance': result['vehicle_allowance'],
+            'overtime_pay': result['overtime_pay'],
+            'night_pay': result['night_pay'],
+            'holiday_pay': result['holiday_pay'],
+            'bonus': result['bonus'],
+            'other_allowance': result['other_allowance'],
+            'other_allowance_detail': result.get('other_allowance_detail', {}),
+            'gross_salary': result['gross_salary'],
+            'taxable_amount': result['taxable_amount'],
+            'nontaxable_amount': result['nontaxable_amount'],
+            'national_pension': result['national_pension'],
+            'health_insurance': result['health_insurance'],
+            'long_term_care': result['long_term_care'],
+            'employment_insurance': result['employment_insurance'],
+            'income_tax': result['income_tax'],
+            'local_income_tax': result['local_income_tax'],
+            'total_deductions': result['total_deductions'],
+            'net_salary': result['net_salary'],
+            'national_pension_employer': result['national_pension_employer'],
+            'health_insurance_employer': result['health_insurance_employer'],
+            'long_term_care_employer': result['long_term_care_employer'],
+            'employment_insurance_employer': result['employment_insurance_employer'],
+            'industrial_accident_insurance': result['industrial_accident_insurance'],
+            'total_employer_cost': result['total_employer_cost'],
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        }
+
+        return self.update_payroll(payroll_id, update_data)
+
+    # ══════════════════════════════════════════════════════════
+    # 회계 ERP 메서드 (은행/세금계산서/매칭/정산)
+    # ══════════════════════════════════════════════════════════
+
+    # ── codef_connections ──
+
+    def insert_codef_connection(self, payload):
+        """CODEF 연결 정보 저장 (upsert)."""
+        try:
+            self.client.table("codef_connections").upsert(
+                payload, on_conflict="connected_id"
+            ).execute()
+        except Exception as e:
+            print(f"[DB] insert_codef_connection error: {e}")
+
+    def query_codef_connections(self):
+        """CODEF 연결 목록."""
+        try:
+            res = self.client.table("codef_connections") \
+                .select("*").order("created_at", desc=True).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_codef_connections error: {e}")
+            return []
+
+    # ── bank_accounts ──
+
+    def query_bank_accounts(self):
+        """은행 계좌 전체 조회."""
+        try:
+            res = self.client.table("bank_accounts") \
+                .select("*").order("bank_name").execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_bank_accounts error: {e}")
+            return []
+
+    def query_bank_account_by_id(self, account_id):
+        """은행 계좌 1건 조회."""
+        try:
+            res = self.client.table("bank_accounts") \
+                .select("*").eq("id", account_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_bank_account_by_id error: {e}")
+            return None
+
+    def insert_bank_account(self, payload):
+        """은행 계좌 등록."""
+        try:
+            self.client.table("bank_accounts").insert(payload).execute()
+        except Exception as e:
+            print(f"[DB] insert_bank_account error: {e}")
+            raise
+
+    def update_bank_account(self, account_id, update_data):
+        """은행 계좌 수정."""
+        try:
+            self.client.table("bank_accounts") \
+                .update(update_data).eq("id", account_id).execute()
+        except Exception as e:
+            print(f"[DB] update_bank_account error: {e}")
+
+    def delete_bank_account(self, account_id):
+        """은행 계좌 삭제."""
+        try:
+            self.client.table("bank_accounts") \
+                .delete().eq("id", account_id).execute()
+        except Exception as e:
+            print(f"[DB] delete_bank_account error: {e}")
+
+    # ── bank_transactions ──
+
+    def query_bank_transactions(self, date_from=None, date_to=None,
+                                 bank_account_id=None, transaction_type=None,
+                                 category=None, unmatched_only=False):
+        """은행 거래내역 조회 (필터)."""
+        try:
+            q = self.client.table("bank_transactions") \
+                .select("*").order("transaction_date", desc=True)
+            if date_from:
+                q = q.gte("transaction_date", date_from)
+            if date_to:
+                q = q.lte("transaction_date", date_to)
+            if bank_account_id:
+                q = q.eq("bank_account_id", bank_account_id)
+            if transaction_type:
+                q = q.eq("transaction_type", transaction_type)
+            if category:
+                q = q.eq("category", category)
+            if unmatched_only:
+                q = q.is_("matched_invoice_id", "null")
+                q = q.is_("matched_settlement_id", "null")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_bank_transactions error: {e}")
+            return []
+
+    def query_bank_transaction_by_id(self, tx_id):
+        """은행 거래내역 1건 조회."""
+        try:
+            res = self.client.table("bank_transactions") \
+                .select("*").eq("id", tx_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_bank_transaction_by_id error: {e}")
+            return None
+
+    def insert_bank_transaction(self, payload):
+        """은행 거래내역 1건 등록."""
+        self.client.table("bank_transactions").insert(payload).execute()
+
+    def update_bank_transaction(self, tx_id, update_data):
+        """은행 거래내역 수정 (카테고리 분류 등)."""
+        try:
+            self.client.table("bank_transactions") \
+                .update(update_data).eq("id", tx_id).execute()
+        except Exception as e:
+            print(f"[DB] update_bank_transaction error: {e}")
+
+    # ── tax_invoices ──
+
+    def query_tax_invoices(self, direction=None, status=None,
+                            date_from=None, date_to=None,
+                            partner_name=None, unmatched_only=False):
+        """세금계산서 목록 조회."""
+        try:
+            q = self.client.table("tax_invoices") \
+                .select("*").order("write_date", desc=True)
+            if direction:
+                q = q.eq("direction", direction)
+            if status:
+                q = q.eq("status", status)
+            if date_from:
+                q = q.gte("write_date", date_from)
+            if date_to:
+                q = q.lte("write_date", date_to)
+            if partner_name:
+                q = q.or_(
+                    f"supplier_corp_name.ilike.%{partner_name}%,"
+                    f"buyer_corp_name.ilike.%{partner_name}%"
+                )
+            if unmatched_only:
+                q = q.is_("matched_transaction_id", "null")
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_tax_invoices error: {e}")
+            return []
+
+    def query_tax_invoice_by_id(self, invoice_id):
+        """세금계산서 1건 조회."""
+        try:
+            res = self.client.table("tax_invoices") \
+                .select("*").eq("id", invoice_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_tax_invoice_by_id error: {e}")
+            return None
+
+    def insert_tax_invoice(self, payload):
+        """세금계산서 등록."""
+        try:
+            res = self.client.table("tax_invoices").insert(payload).execute()
+            return res.data[0]['id'] if res.data else None
+        except Exception as e:
+            print(f"[DB] insert_tax_invoice error: {e}")
+            return None
+
+    def update_tax_invoice(self, invoice_id, update_data):
+        """세금계산서 수정."""
+        try:
+            self.client.table("tax_invoices") \
+                .update(update_data).eq("id", invoice_id).execute()
+        except Exception as e:
+            print(f"[DB] update_tax_invoice error: {e}")
+
+    def delete_tax_invoice(self, invoice_id):
+        """세금계산서 삭제."""
+        try:
+            self.client.table("tax_invoices") \
+                .delete().eq("id", invoice_id).execute()
+        except Exception as e:
+            print(f"[DB] delete_tax_invoice error: {e}")
+
+    # ── payment_matches ──
+
+    def query_payment_matches(self, date_from=None, date_to=None, status=None):
+        """매출-입금 매칭 목록 조회."""
+        try:
+            q = self.client.table("payment_matches") \
+                .select("*").order("matched_at", desc=True)
+            if date_from:
+                q = q.gte("matched_at", date_from)
+            if date_to:
+                q = q.lte("matched_at", date_to)
+            if status:
+                q = q.eq("match_status", status)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_payment_matches error: {e}")
+            return []
+
+    def query_payment_match_by_id(self, match_id):
+        """매칭 1건 조회."""
+        try:
+            res = self.client.table("payment_matches") \
+                .select("*").eq("id", match_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_payment_match_by_id error: {e}")
+            return None
+
+    def insert_payment_match(self, payload):
+        """매칭 레코드 등록."""
+        try:
+            self.client.table("payment_matches").insert(payload).execute()
+        except Exception as e:
+            print(f"[DB] insert_payment_match error: {e}")
+
+    def delete_payment_match(self, match_id):
+        """매칭 해제."""
+        try:
+            self.client.table("payment_matches") \
+                .delete().eq("id", match_id).execute()
+        except Exception as e:
+            print(f"[DB] delete_payment_match error: {e}")
+
+    # ── account_codes ──
+
+    def query_account_codes(self, category=None):
+        """계정과목 조회."""
+        try:
+            q = self.client.table("account_codes") \
+                .select("*").order("sort_order")
+            if category:
+                q = q.eq("category", category)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_account_codes error: {e}")
+            return []
+
+    # ── platform_settlements ──
+
+    def query_platform_settlements(self, channel=None, match_status=None,
+                                    date_from=None, date_to=None):
+        """플랫폼 정산 조회."""
+        try:
+            q = self.client.table("platform_settlements") \
+                .select("*").order("settlement_date", desc=True)
+            if channel:
+                q = q.eq("channel", channel)
+            if match_status:
+                q = q.eq("match_status", match_status)
+            if date_from:
+                q = q.gte("settlement_date", date_from)
+            if date_to:
+                q = q.lte("settlement_date", date_to)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_platform_settlements error: {e}")
+            return []
+
+    def insert_platform_settlement(self, payload):
+        """플랫폼 정산 등록 (upsert)."""
+        try:
+            self.client.table("platform_settlements").upsert(
+                payload, on_conflict="channel,settlement_date,api_reference"
+            ).execute()
+        except Exception as e:
+            print(f"[DB] insert_platform_settlement error: {e}")
+
+    def update_platform_settlement(self, settlement_id, update_data):
+        """플랫폼 정산 수정 (매칭 상태 등)."""
+        try:
+            self.client.table("platform_settlements") \
+                .update(update_data).eq("id", settlement_id).execute()
+        except Exception as e:
+            print(f"[DB] update_platform_settlement error: {e}")
+
+    def query_platform_settlement_by_id(self, settlement_id):
+        """플랫폼 정산 1건 조회."""
+        try:
+            res = self.client.table("platform_settlements") \
+                .select("*").eq("id", settlement_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_platform_settlement_by_id error: {e}")
+            return None
+
+    # ── platform_fee_config ──
+
+    def query_platform_fee_config(self, channel=None):
+        """플랫폼 수수료 설정 조회."""
+        try:
+            q = self.client.table("platform_fee_config") \
+                .select("*").order("channel")
+            if channel:
+                q = q.eq("channel", channel)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_platform_fee_config error: {e}")
+            return []
+
+    # ── 거래처 조회 헬퍼 (회계 ERP용) ──
+
+    def query_partner_by_id(self, partner_id):
+        """거래처 1건 조회."""
+        try:
+            res = self.client.table("business_partners") \
+                .select("*").eq("id", partner_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_partner_by_id error: {e}")
+            return None
+
+    def query_business_info(self):
+        """사업장 정보 조회 (business_info 테이블 - 세금계산서 발행용)."""
+        try:
+            res = self.client.table("business_info") \
+                .select("*").limit(1).execute()
+            return res.data[0] if res.data else None
+        except Exception:
+            return None

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block page_title %}은행 관리{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="mb-0">연결된 계좌</h6>
+    <div>
+        <form method="post" action="{{ url_for('bank.sync_all') }}" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-arrow-repeat"></i> 전체 동기화
+            </button>
+        </form>
+        <button class="btn btn-primary btn-sm ms-1" data-bs-toggle="modal" data-bs-target="#connectModal">
+            <i class="bi bi-plus-circle"></i> 은행 연결
+        </button>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>은행명</th>
+                        <th>계좌번호</th>
+                        <th>예금주</th>
+                        <th>마지막 동기화</th>
+                        <th class="text-center" style="width:160px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acc in accounts %}
+                    <tr>
+                        <td>{{ acc.bank_name }}</td>
+                        <td><code>{{ acc.account_number }}</code></td>
+                        <td>{{ acc.account_holder }}</td>
+                        <td>{{ acc.last_synced_at or '-' }}</td>
+                        <td class="text-center">
+                            <form method="post" action="{{ url_for('bank.sync_account', account_id=acc.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-outline-primary btn-sm" title="동기화">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                            </form>
+                            <form method="post" action="{{ url_for('bank.delete_account', account_id=acc.id) }}" class="d-inline"
+                                  onsubmit="return confirm('이 계좌를 삭제하시겠습니까?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" title="삭제">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            <i class="bi bi-bank"></i> 연결된 계좌가 없습니다. 은행 연결을 시작하세요.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 은행 연결 모달 -->
+<div class="modal fade" id="connectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('bank.connect') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-bank"></i> 은행 연결</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="bankCode" class="form-label">은행 선택</label>
+                        <select name="bank_code" id="bankCode" class="form-select" required>
+                            <option value="">-- 은행을 선택하세요 --</option>
+                            {% for code, name in bank_codes.items() %}
+                            <option value="{{ code }}">{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="loginId" class="form-label">로그인 ID</label>
+                        <input type="text" name="login_id" id="loginId" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="loginPw" class="form-label">비밀번호</label>
+                        <input type="password" name="login_pw" id="loginPw" class="form-control" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-link-45deg"></i> 연결
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

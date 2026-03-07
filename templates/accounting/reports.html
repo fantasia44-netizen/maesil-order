@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block page_title %}세무사 전달용 리포트{% endblock %}
+
+{% block content %}
+<!-- 월 선택기 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0">월 선택</label>
+                <input type="month" name="month" class="form-control form-control-sm"
+                       value="{{ month }}" id="reportMonth">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if summary %}
+<!-- 월간 요약 카드 -->
+<div class="row g-3 mb-3">
+    <div class="col-md-6 col-lg-3">
+        <div class="card shadow-sm h-100 border-start border-primary border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">매출 세금계산서</div>
+                <div class="fs-5 fw-bold text-primary">{{ summary.sales_invoices.total_amount|fmt_money }}원</div>
+                <div class="text-muted small mt-1">
+                    공급가액 {{ summary.sales_invoices.supply_amount|fmt_money }}원 /
+                    세액 {{ summary.sales_invoices.tax_amount|fmt_money }}원
+                </div>
+                <div class="text-muted small">{{ summary.sales_invoices.count }}건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <div class="card shadow-sm h-100 border-start border-danger border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">매입 세금계산서</div>
+                <div class="fs-5 fw-bold text-danger">{{ summary.purchase_invoices.total_amount|fmt_money }}원</div>
+                <div class="text-muted small mt-1">
+                    공급가액 {{ summary.purchase_invoices.supply_amount|fmt_money }}원 /
+                    세액 {{ summary.purchase_invoices.tax_amount|fmt_money }}원
+                </div>
+                <div class="text-muted small">{{ summary.purchase_invoices.count }}건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <div class="card shadow-sm h-100 border-start border-warning border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">미수금 잔액</div>
+                <div class="fs-5 fw-bold text-warning">{{ summary.receivable_balance|fmt_money }}원</div>
+                <div class="text-muted small mt-1">미매칭 매출 세금계산서 합계</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-lg-3">
+        <div class="card shadow-sm h-100 border-start border-secondary border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">미지급금 잔액</div>
+                <div class="fs-5 fw-bold text-secondary">{{ summary.payable_balance|fmt_money }}원</div>
+                <div class="text-muted small mt-1">미매칭 매입 세금계산서 합계</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 은행 입출금 요약 카드 -->
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body py-3 text-center">
+                <div class="text-muted small">은행 입금</div>
+                <div class="fs-5 fw-bold text-primary">{{ summary.bank_summary.total_in|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body py-3 text-center">
+                <div class="text-muted small">은행 출금</div>
+                <div class="fs-5 fw-bold text-danger">{{ summary.bank_summary.total_out|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body py-3 text-center">
+                <div class="text-muted small">순 입출금</div>
+                <div class="fs-5 fw-bold {% if summary.bank_summary.net >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    {{ summary.bank_summary.net|fmt_money }}원
+                </div>
+                <div class="text-muted small">{{ summary.bank_summary.transaction_count }}건</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 카테고리별 입출금 -->
+{% if summary.bank_summary.by_category %}
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white">
+        <i class="bi bi-pie-chart"></i> 카테고리별 입출금
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>카테고리</th>
+                        <th class="text-end">금액</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat_name, cat_amount in summary.bank_summary.by_category.items()|sort(attribute='1', reverse=True) %}
+                    <tr>
+                        <td>{{ cat_name }}</td>
+                        <td class="text-end fw-bold">{{ cat_amount|fmt_money }}원</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 리포트 다운로드 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white">
+        <i class="bi bi-download"></i> 엑셀 리포트 다운로드
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body text-center">
+                        <i class="bi bi-file-earmark-spreadsheet text-success" style="font-size:2.5rem"></i>
+                        <h6 class="mt-2">매출 세금계산서</h6>
+                        <p class="text-muted small mb-2">국세청 양식 기준 매출 세금계산서 목록</p>
+                        <a href="{{ url_for('accounting.api_export_tax_invoices', month=month, direction='sales') }}"
+                           class="btn btn-outline-success btn-sm">
+                            <i class="bi bi-download"></i> 다운로드
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body text-center">
+                        <i class="bi bi-file-earmark-spreadsheet text-danger" style="font-size:2.5rem"></i>
+                        <h6 class="mt-2">매입 세금계산서</h6>
+                        <p class="text-muted small mb-2">국세청 양식 기준 매입 세금계산서 목록</p>
+                        <a href="{{ url_for('accounting.api_export_tax_invoices', month=month, direction='purchase') }}"
+                           class="btn btn-outline-danger btn-sm">
+                            <i class="bi bi-download"></i> 다운로드
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border h-100">
+                    <div class="card-body text-center">
+                        <i class="bi bi-file-earmark-spreadsheet text-primary" style="font-size:2.5rem"></i>
+                        <h6 class="mt-2">은행 거래내역</h6>
+                        <p class="text-muted small mb-2">월간 거래내역 + 카테고리별 요약</p>
+                        <a href="{{ url_for('accounting.api_export_bank_summary', month=month) }}"
+                           class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-download"></i> 다운로드
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> 월을 선택하고 조회 버튼을 눌러주세요.
+</div>
+{% endif %}
+{% endblock %}

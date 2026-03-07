@@ -8,35 +8,72 @@
     .summary-card.total { border-color: #3498db; }
     .summary-card.count { border-color: #27ae60; }
     .summary-card.avg { border-color: #e67e22; }
+    .summary-card.net { border-color: #9b59b6; }
     .sync-badge { font-size: 0.7rem; }
     .amount-input { width: 130px; text-align: right; }
+    .detail-row { font-size: 0.85rem; }
+    .detail-row td { padding: 2px 6px !important; }
+    .deduction-amount { color: #e74c3c; }
+    .employer-amount { color: #8e44ad; }
+    .nontax-badge { font-size: 0.65rem; background: #27ae60; color: white; padding: 1px 4px; border-radius: 3px; }
+    .rate-input { width: 100px; text-align: right; }
+    .nav-tabs .nav-link { font-size: 0.9rem; }
+    .payroll-detail-section { font-size: 0.85rem; }
+    .payroll-detail-section .label { color: #6c757d; }
+    .payroll-detail-section .value { font-weight: 500; text-align: right; }
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- 탭 네비게이션 -->
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-payroll" type="button">
+            <i class="bi bi-wallet2"></i> 급여 내역
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-rates" type="button">
+            <i class="bi bi-gear"></i> 보험요율 설정
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+<!-- ══════════ 급여 내역 탭 ══════════ -->
+<div class="tab-pane fade show active" id="tab-payroll">
+
 <!-- 요약 카드 -->
 <div class="row g-3 mb-4">
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card summary-card total">
             <div class="card-body py-2 px-3">
-                <small class="text-muted">총 인건비</small>
-                <h4 class="mb-0" id="totalCost">-</h4>
+                <small class="text-muted">총 지급액</small>
+                <h5 class="mb-0" id="totalGross">-</h5>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
+        <div class="card summary-card net">
+            <div class="card-body py-2 px-3">
+                <small class="text-muted">총 실수령액</small>
+                <h5 class="mb-0" style="color:#9b59b6;" id="totalNet">-</h5>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
         <div class="card summary-card count">
             <div class="card-body py-2 px-3">
                 <small class="text-muted">급여 인원</small>
-                <h4 class="mb-0 text-success" id="payrollCount">-</h4>
+                <h5 class="mb-0 text-success" id="payrollCount">-</h5>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card summary-card avg">
             <div class="card-body py-2 px-3">
-                <small class="text-muted">1인 평균</small>
-                <h4 class="mb-0" style="color:#e67e22;" id="avgCost">-</h4>
+                <small class="text-muted">사업주 총부담</small>
+                <h5 class="mb-0" style="color:#e67e22;" id="totalEmployer">-</h5>
             </div>
         </div>
     </div>
@@ -66,32 +103,38 @@
 <div class="card">
     <div class="card-header py-2">
         <i class="bi bi-wallet2"></i> 월별 급여 내역
+        <small class="text-muted ms-2">(행 클릭 시 상세 보기)</small>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th style="width:40px;">#</th>
+                        <th style="width:30px;">#</th>
                         <th>직원</th>
                         <th>부서</th>
-                        <th>직급</th>
                         <th class="text-end">기본급</th>
-                        <th class="text-end">수당</th>
-                        <th class="text-end">총 인건비</th>
-                        <th>메모</th>
-                        <th style="width:60px;">수정</th>
+                        <th class="text-end">수당합계</th>
+                        <th class="text-end">총지급액</th>
+                        <th class="text-end deduction-amount">공제합계</th>
+                        <th class="text-end" style="font-weight:700;">실수령액</th>
+                        <th class="text-end employer-amount">사업주부담</th>
+                        <th>상태</th>
+                        <th style="width:80px;">관리</th>
                     </tr>
                 </thead>
                 <tbody id="payrollBody">
-                    <tr><td colspan="9" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                 </tbody>
                 <tfoot id="payrollFoot" class="table-light" style="display:none;">
                     <tr class="fw-bold">
-                        <td colspan="4">합계</td>
+                        <td colspan="3">합계</td>
                         <td class="text-end" id="footBase">-</td>
                         <td class="text-end" id="footAllow">-</td>
-                        <td class="text-end" id="footTotal">-</td>
+                        <td class="text-end" id="footGross">-</td>
+                        <td class="text-end deduction-amount" id="footDeduct">-</td>
+                        <td class="text-end" id="footNet">-</td>
+                        <td class="text-end employer-amount" id="footEmployer">-</td>
                         <td colspan="2"></td>
                     </tr>
                 </tfoot>
@@ -100,36 +143,68 @@
     </div>
 </div>
 
-<!-- 수정 모달 -->
-<div class="modal fade" id="payrollModal" tabindex="-1">
-    <div class="modal-dialog">
+</div>
+
+<!-- ══════════ 보험요율 설정 탭 ══════════ -->
+<div class="tab-pane fade" id="tab-rates">
+    <div class="card">
+        <div class="card-header py-2 d-flex align-items-center">
+            <i class="bi bi-gear"></i> <span class="ms-1">4대보험 요율 설정</span>
+            <div class="ms-auto">
+                <label class="form-label mb-0 small text-muted me-1">연도</label>
+                <select id="rateYear" class="form-select form-select-sm d-inline-block" style="width:100px;" onchange="loadInsuranceRates()">
+                </select>
+            </div>
+        </div>
+        <div class="card-body">
+            <table class="table table-sm table-bordered mb-3">
+                <thead class="table-light">
+                    <tr>
+                        <th>보험 종류</th>
+                        <th class="text-end">근로자 부담률 (%)</th>
+                        <th class="text-end">사업주 부담률 (%)</th>
+                        <th class="text-end">최저 기준보수 (원)</th>
+                        <th class="text-end">최고 기준보수 (원)</th>
+                        <th>비고</th>
+                    </tr>
+                </thead>
+                <tbody id="ratesBody">
+                    <tr><td colspan="6" class="text-center text-muted py-3">로딩 중...</td></tr>
+                </tbody>
+            </table>
+
+            <div class="d-flex justify-content-end">
+                <button class="btn btn-primary btn-sm" onclick="saveInsuranceRates()">
+                    <i class="bi bi-check-lg"></i> 요율 저장
+                </button>
+            </div>
+
+            <hr>
+            <h6 class="mb-3"><i class="bi bi-info-circle"></i> 비과세 한도</h6>
+            <div id="nontaxLimits" class="row g-3">
+                <!-- 동적 로드 -->
+            </div>
+        </div>
+    </div>
+</div>
+
+</div><!-- /tab-content -->
+
+<!-- 급여 상세 모달 -->
+<div class="modal fade" id="payrollDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">급여 수정</h5>
+                <h5 class="modal-title" id="detailModalTitle">급여 상세</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <input type="hidden" id="editPayrollId">
-                <div class="mb-3">
-                    <label class="form-label">직원</label>
-                    <input type="text" id="editEmpName" class="form-control" readonly>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">기본급</label>
-                    <input type="number" id="editBaseSalary" class="form-control text-end" step="10000" min="0">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">수당</label>
-                    <input type="number" id="editAllowances" class="form-control text-end" step="10000" min="0">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">메모</label>
-                    <textarea id="editPayrollMemo" class="form-control" rows="2"></textarea>
-                </div>
+            <div class="modal-body payroll-detail-section" id="detailModalBody">
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-                <button type="button" class="btn btn-primary" onclick="savePayroll()">저장</button>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="btnRecalculate" onclick="recalculatePayroll()">
+                    <i class="bi bi-arrow-repeat"></i> 재계산
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
             </div>
         </div>
     </div>
@@ -140,6 +215,15 @@
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let allPayroll = [];
+let currentDetailId = null;
+
+const INSURANCE_LABELS = {
+    'national_pension': '국민연금',
+    'health_insurance': '건강보험',
+    'long_term_care': '장기요양보험',
+    'employment_insurance': '고용보험',
+    'industrial_accident': '산재보험',
+};
 
 document.addEventListener('DOMContentLoaded', () => {
     const now = new Date();
@@ -147,6 +231,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filterMonth').value = ym;
     loadData();
     document.getElementById('filterMonth').addEventListener('change', loadData);
+
+    // 요율 연도 드롭다운 초기화
+    const yearSel = document.getElementById('rateYear');
+    const currentYear = now.getFullYear();
+    for (let y = currentYear + 1; y >= currentYear - 2; y--) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y + '년';
+        if (y === currentYear) opt.selected = true;
+        yearSel.appendChild(opt);
+    }
+
+    // 요율 탭 진입 시 로드
+    document.querySelector('[data-bs-target="#tab-rates"]').addEventListener('shown.bs.tab', loadInsuranceRates);
 });
 
 function loadData() {
@@ -168,12 +266,16 @@ function loadData() {
 }
 
 function updateSummary(data) {
-    const total = data.total_cost || 0;
-    const count = data.count || 0;
-    const avg = count > 0 ? total / count : 0;
-    document.getElementById('totalCost').textContent = fmtWon(total);
+    const rows = data.payroll || [];
+    const totalGross = rows.reduce((s, r) => s + (parseInt(r.gross_salary) || parseInt(r.total_cost) || 0), 0);
+    const totalNet = rows.reduce((s, r) => s + (parseInt(r.net_salary) || 0), 0);
+    const totalEmployer = rows.reduce((s, r) => s + (parseInt(r.total_employer_cost) || 0), 0);
+    const count = rows.length;
+
+    document.getElementById('totalGross').textContent = fmtWon(totalGross);
+    document.getElementById('totalNet').textContent = totalNet > 0 ? fmtWon(totalNet) : fmtWon(totalGross);
     document.getElementById('payrollCount').textContent = count + '명';
-    document.getElementById('avgCost').textContent = fmtWon(avg);
+    document.getElementById('totalEmployer').textContent = fmtWon(totalEmployer);
 }
 
 function renderTable() {
@@ -181,34 +283,50 @@ function renderTable() {
     const tfoot = document.getElementById('payrollFoot');
 
     if (!allPayroll.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">해당 월의 급여 데이터가 없습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">해당 월의 급여 데이터가 없습니다.</td></tr>';
         tfoot.style.display = 'none';
         return;
     }
 
     let html = '';
-    let sumBase = 0, sumAllow = 0, sumTotal = 0;
+    let sumBase = 0, sumAllow = 0, sumGross = 0, sumDeduct = 0, sumNet = 0, sumEmployer = 0;
 
     allPayroll.forEach((r, idx) => {
-        const base = parseFloat(r.base_salary) || 0;
-        const allow = parseFloat(r.allowances) || 0;
-        const total = parseFloat(r.total_cost) || 0;
+        const base = parseInt(r.base_salary) || 0;
+        const allow = parseInt(r.allowances) || 0;
+        const gross = parseInt(r.gross_salary) || parseInt(r.total_cost) || 0;
+        const deduct = parseInt(r.total_deductions) || 0;
+        const net = parseInt(r.net_salary) || gross;
+        const employer = parseInt(r.total_employer_cost) || 0;
+        const status = r.status || 'draft';
+        const statusBadge = status === 'confirmed' ? '<span class="badge bg-success">확정</span>'
+            : status === 'paid' ? '<span class="badge bg-primary">지급완료</span>'
+            : '<span class="badge bg-secondary">임시</span>';
+
         sumBase += base;
         sumAllow += allow;
-        sumTotal += total;
+        sumGross += gross;
+        sumDeduct += deduct;
+        sumNet += net;
+        sumEmployer += employer;
 
-        html += `<tr>
+        html += `<tr style="cursor:pointer;" onclick="showPayrollDetail(${r.id})">
             <td class="text-muted">${idx + 1}</td>
             <td><strong>${r.employee_name || ''}</strong></td>
             <td>${r.department || ''}</td>
-            <td>${r.position || ''}</td>
             <td class="text-end">${fmtWon(base)}</td>
             <td class="text-end">${fmtWon(allow)}</td>
-            <td class="text-end fw-bold">${fmtWon(total)}</td>
-            <td><small class="text-muted">${r.memo || ''}</small></td>
+            <td class="text-end">${fmtWon(gross)}</td>
+            <td class="text-end deduction-amount">${deduct > 0 ? '-' + fmtWon(deduct) : '-'}</td>
+            <td class="text-end fw-bold">${fmtWon(net)}</td>
+            <td class="text-end employer-amount">${employer > 0 ? fmtWon(employer) : '-'}</td>
+            <td>${statusBadge}</td>
             <td>
-                <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openEditPayroll(${r.id})" title="수정">
-                    <i class="bi bi-pencil"></i>
+                <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation(); showPayrollDetail(${r.id})" title="상세">
+                    <i class="bi bi-eye"></i>
+                </button>
+                <button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="event.stopPropagation(); recalculatePayrollById(${r.id})" title="재계산">
+                    <i class="bi bi-arrow-repeat"></i>
                 </button>
             </td>
         </tr>`;
@@ -218,53 +336,125 @@ function renderTable() {
     tfoot.style.display = '';
     document.getElementById('footBase').textContent = fmtWon(sumBase);
     document.getElementById('footAllow').textContent = fmtWon(sumAllow);
-    document.getElementById('footTotal').textContent = fmtWon(sumTotal);
+    document.getElementById('footGross').textContent = fmtWon(sumGross);
+    document.getElementById('footDeduct').textContent = '-' + fmtWon(sumDeduct);
+    document.getElementById('footNet').textContent = fmtWon(sumNet);
+    document.getElementById('footEmployer').textContent = fmtWon(sumEmployer);
 }
 
-function openEditPayroll(id) {
+function showPayrollDetail(id) {
     const row = allPayroll.find(r => r.id === id);
     if (!row) return;
-    document.getElementById('editPayrollId').value = id;
-    document.getElementById('editEmpName').value = row.employee_name || '';
-    document.getElementById('editBaseSalary').value = row.base_salary || 0;
-    document.getElementById('editAllowances').value = row.allowances || 0;
-    document.getElementById('editPayrollMemo').value = row.memo || '';
-    new bootstrap.Modal(document.getElementById('payrollModal')).show();
+    currentDetailId = id;
+
+    document.getElementById('detailModalTitle').textContent =
+        `급여 상세 - ${row.employee_name || ''} (${row.pay_month || ''})`;
+
+    const g = (key) => parseInt(row[key]) || 0;
+
+    let html = `
+    <div class="row">
+        <div class="col-md-6">
+            <h6 class="text-primary mb-2">지급 항목</h6>
+            <table class="table table-sm table-borderless mb-0">
+                <tr><td class="label">기본급</td><td class="value">${fmtWon(g('base_salary'))}</td></tr>
+                ${g('position_allowance') ? `<tr><td class="label">직급수당</td><td class="value">${fmtWon(g('position_allowance'))}</td></tr>` : ''}
+                ${g('responsibility_allowance') ? `<tr><td class="label">직책수당</td><td class="value">${fmtWon(g('responsibility_allowance'))}</td></tr>` : ''}
+                ${g('longevity_allowance') ? `<tr><td class="label">근속수당</td><td class="value">${fmtWon(g('longevity_allowance'))}</td></tr>` : ''}
+                ${g('meal_allowance') ? `<tr><td class="label">식대 <span class="nontax-badge">비과세</span></td><td class="value">${fmtWon(g('meal_allowance'))}</td></tr>` : ''}
+                ${g('vehicle_allowance') ? `<tr><td class="label">차량유지비 <span class="nontax-badge">비과세</span></td><td class="value">${fmtWon(g('vehicle_allowance'))}</td></tr>` : ''}
+                ${g('overtime_pay') ? `<tr><td class="label">연장근로수당</td><td class="value">${fmtWon(g('overtime_pay'))}</td></tr>` : ''}
+                ${g('night_pay') ? `<tr><td class="label">야간근로수당</td><td class="value">${fmtWon(g('night_pay'))}</td></tr>` : ''}
+                ${g('holiday_pay') ? `<tr><td class="label">휴일근로수당</td><td class="value">${fmtWon(g('holiday_pay'))}</td></tr>` : ''}
+                ${g('bonus') ? `<tr><td class="label">상여금/성과급</td><td class="value">${fmtWon(g('bonus'))}</td></tr>` : ''}
+                ${g('other_allowance') ? `<tr><td class="label">기타수당</td><td class="value">${fmtWon(g('other_allowance'))}</td></tr>` : ''}
+            </table>
+            <hr class="my-1">
+            <table class="table table-sm table-borderless mb-0">
+                <tr class="fw-bold"><td>총 지급액</td><td class="value">${fmtWon(g('gross_salary') || g('total_cost'))}</td></tr>
+                <tr><td class="label">과세 대상</td><td class="value">${fmtWon(g('taxable_amount'))}</td></tr>
+                <tr><td class="label">비과세</td><td class="value">${fmtWon(g('nontaxable_amount'))}</td></tr>
+            </table>
+        </div>
+
+        <div class="col-md-6">
+            <h6 class="text-danger mb-2">공제 항목 (근로자)</h6>
+            <table class="table table-sm table-borderless mb-0">
+                <tr><td class="label">국민연금</td><td class="value deduction-amount">-${fmtWon(g('national_pension'))}</td></tr>
+                <tr><td class="label">건강보험</td><td class="value deduction-amount">-${fmtWon(g('health_insurance'))}</td></tr>
+                <tr><td class="label">장기요양보험</td><td class="value deduction-amount">-${fmtWon(g('long_term_care'))}</td></tr>
+                <tr><td class="label">고용보험</td><td class="value deduction-amount">-${fmtWon(g('employment_insurance'))}</td></tr>
+                <tr><td class="label">근로소득세</td><td class="value deduction-amount">-${fmtWon(g('income_tax'))}</td></tr>
+                <tr><td class="label">지방소득세</td><td class="value deduction-amount">-${fmtWon(g('local_income_tax'))}</td></tr>
+            </table>
+            <hr class="my-1">
+            <table class="table table-sm table-borderless mb-0">
+                <tr class="fw-bold text-danger"><td>총 공제액</td><td class="value">-${fmtWon(g('total_deductions'))}</td></tr>
+            </table>
+
+            <div class="bg-light p-2 rounded mt-2 mb-3">
+                <table class="table table-sm table-borderless mb-0">
+                    <tr class="fw-bold" style="font-size:1.1em;"><td>실수령액</td><td class="value">${fmtWon(g('net_salary') || (g('gross_salary') - g('total_deductions')))}</td></tr>
+                </table>
+            </div>
+
+            <h6 class="mb-2" style="color:#8e44ad;">사업주 부담분</h6>
+            <table class="table table-sm table-borderless mb-0">
+                <tr><td class="label">국민연금</td><td class="value employer-amount">${fmtWon(g('national_pension_employer'))}</td></tr>
+                <tr><td class="label">건강보험</td><td class="value employer-amount">${fmtWon(g('health_insurance_employer'))}</td></tr>
+                <tr><td class="label">장기요양보험</td><td class="value employer-amount">${fmtWon(g('long_term_care_employer'))}</td></tr>
+                <tr><td class="label">고용보험</td><td class="value employer-amount">${fmtWon(g('employment_insurance_employer'))}</td></tr>
+                <tr><td class="label">산재보험</td><td class="value employer-amount">${fmtWon(g('industrial_accident_insurance'))}</td></tr>
+            </table>
+            <hr class="my-1">
+            <table class="table table-sm table-borderless mb-0">
+                <tr class="fw-bold" style="color:#8e44ad;"><td>사업주 총부담</td><td class="value">${fmtWon(g('total_employer_cost'))}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    ${row.memo ? `<div class="mt-2"><small class="text-muted">메모: ${row.memo}</small></div>` : ''}
+    `;
+
+    document.getElementById('detailModalBody').innerHTML = html;
+    new bootstrap.Modal(document.getElementById('payrollDetailModal')).show();
 }
 
-function savePayroll() {
-    const id = document.getElementById('editPayrollId').value;
-    const payload = {
-        base_salary: parseFloat(document.getElementById('editBaseSalary').value) || 0,
-        allowances: parseFloat(document.getElementById('editAllowances').value) || 0,
-        memo: document.getElementById('editPayrollMemo').value,
-    };
+function recalculatePayroll() {
+    if (!currentDetailId) return;
+    recalculatePayrollById(currentDetailId);
+}
 
-    fetch(`/hr/api/payroll/${id}`, {
-        method: 'PUT',
+function recalculatePayrollById(id) {
+    if (!confirm('급여항목과 보험요율을 기준으로 재계산합니다.\n계속하시겠습니까?')) return;
+
+    fetch(`/hr/api/payroll/${id}/recalculate`, {
+        method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': CSRF,
             'X-Requested-With': 'XMLHttpRequest',
         },
-        body: JSON.stringify(payload),
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            bootstrap.Modal.getInstance(document.getElementById('payrollModal')).hide();
+            alert('재계산 완료');
+            // 모달 닫기
+            const modal = bootstrap.Modal.getInstance(document.getElementById('payrollDetailModal'));
+            if (modal) modal.hide();
             loadData();
         } else {
-            alert(data.error || '저장 실패');
+            alert(data.error || '재계산 실패');
         }
     })
-    .catch(err => { console.error(err); alert('저장 중 오류'); });
+    .catch(err => { console.error(err); alert('재계산 중 오류'); });
 }
 
 function generatePayroll() {
     const month = document.getElementById('filterMonth').value;
     if (!month) { alert('월을 선택해주세요.'); return; }
-    if (!confirm(`${month} 급여를 재직 직원 기본급으로 자동 생성합니다.\n이미 존재하는 직원은 건너뜁니다.\n계속하시겠습니까?`)) return;
+    if (!confirm(`${month} 급여를 재직 직원의 급여항목/보험요율 기반으로 자동 생성합니다.\n이미 존재하는 직원은 건너뜁니다.\n계속하시겠습니까?`)) return;
 
     fetch('/hr/api/payroll/generate', {
         method: 'POST',
@@ -273,7 +463,7 @@ function generatePayroll() {
             'X-CSRFToken': CSRF,
             'X-Requested-With': 'XMLHttpRequest',
         },
-        body: JSON.stringify({ pay_month: month }),
+        body: JSON.stringify({ pay_month: month, use_v2: true }),
     })
     .then(r => r.json())
     .then(data => {
@@ -312,6 +502,126 @@ function syncExpenses() {
         }
     })
     .catch(err => { console.error(err); alert('비용 반영 중 오류'); });
+}
+
+// ── 보험요율 관리 ──
+
+function loadInsuranceRates() {
+    const year = document.getElementById('rateYear').value;
+
+    fetch(`/hr/api/insurance-rates?year=${year}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) { alert(data.error || '요율 로드 실패'); return; }
+        renderRatesTable(data.rates || []);
+    })
+    .catch(err => console.error(err));
+
+    // 비과세 한도도 같이 로드
+    fetch(`/hr/api/nontaxable-limits?year=${year}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) renderNontaxLimits(data.limits || []);
+    })
+    .catch(err => console.error(err));
+}
+
+function renderRatesTable(rates) {
+    const tbody = document.getElementById('ratesBody');
+    const order = ['national_pension', 'health_insurance', 'long_term_care', 'employment_insurance', 'industrial_accident'];
+
+    // rates를 map으로 변환
+    const rateMap = {};
+    rates.forEach(r => { rateMap[r.insurance_type] = r; });
+
+    let html = '';
+    order.forEach(type => {
+        const r = rateMap[type] || {};
+        const label = INSURANCE_LABELS[type] || type;
+        const isLtc = type === 'long_term_care';
+        const noteHint = isLtc ? ' (건강보험료의 %)' : '';
+
+        html += `<tr data-type="${type}">
+            <td><strong>${label}</strong>${noteHint}</td>
+            <td><input type="number" class="form-control form-control-sm rate-input rate-emp" value="${r.employee_rate || 0}" step="0.001" min="0"></td>
+            <td><input type="number" class="form-control form-control-sm rate-input rate-er" value="${r.employer_rate || 0}" step="0.001" min="0"></td>
+            <td><input type="number" class="form-control form-control-sm rate-input rate-min" value="${r.min_base || 0}" step="10000" min="0"></td>
+            <td><input type="number" class="form-control form-control-sm rate-input rate-max" value="${r.max_base || 0}" step="10000" min="0"></td>
+            <td><input type="text" class="form-control form-control-sm rate-notes" value="${r.notes || ''}" style="min-width:150px;"></td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+}
+
+function saveInsuranceRates() {
+    const year = document.getElementById('rateYear').value;
+    const rows = document.querySelectorAll('#ratesBody tr');
+    const rates = [];
+
+    rows.forEach(row => {
+        rates.push({
+            insurance_type: row.dataset.type,
+            employee_rate: parseFloat(row.querySelector('.rate-emp').value) || 0,
+            employer_rate: parseFloat(row.querySelector('.rate-er').value) || 0,
+            min_base: parseInt(row.querySelector('.rate-min').value) || 0,
+            max_base: parseInt(row.querySelector('.rate-max').value) || 0,
+            notes: row.querySelector('.rate-notes').value,
+        });
+    });
+
+    fetch('/hr/api/insurance-rates', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': CSRF,
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ year: parseInt(year), rates }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(`${year}년 보험요율 ${data.count}건이 저장되었습니다.`);
+        } else {
+            alert(data.error || '저장 실패');
+        }
+    })
+    .catch(err => { console.error(err); alert('요율 저장 중 오류'); });
+}
+
+function renderNontaxLimits(limits) {
+    const container = document.getElementById('nontaxLimits');
+    const labels = {
+        'meal_allowance': '식대',
+        'vehicle_allowance': '차량유지비/자가운전보조금',
+        'childcare': '보육수당 (6세 이하)',
+    };
+
+    let html = '';
+    limits.forEach(l => {
+        const label = labels[l.limit_type] || l.limit_type;
+        html += `
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted">${label}</small>
+                    <h6 class="mb-0">${fmtWon(l.monthly_limit)}/월</h6>
+                    <small class="text-muted">${l.notes || ''}</small>
+                </div>
+            </div>
+        </div>`;
+    });
+
+    if (!limits.length) {
+        html = '<div class="col-12"><p class="text-muted">비과세 한도 데이터가 없습니다. 마이그레이션 SQL을 실행해주세요.</p></div>';
+    }
+
+    container.innerHTML = html;
 }
 
 function fmtWon(val) {

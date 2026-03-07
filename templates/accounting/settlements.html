@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block page_title %}플랫폼 정산{% endblock %}
+
+{% block content %}
+<!-- 필터 + 동기화 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col">
+                <form method="get" class="row g-2 align-items-end" id="filterForm">
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">시작일</label>
+                        <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">종료일</label>
+                        <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">채널</label>
+                        <select name="channel" class="form-select form-select-sm">
+                            <option value="">전체</option>
+                            {% for ch_code, ch_name in channels.items() %}
+                            <option value="{{ ch_code }}" {% if selected_channel == ch_code %}selected{% endif %}>
+                                {{ ch_name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="bi bi-search"></i> 조회
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="col-auto">
+                <form method="post" action="{{ url_for('accounting.sync_settlements') }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="date_from" value="{{ date_from }}">
+                    <input type="hidden" name="date_to" value="{{ date_to }}">
+                    <button type="submit" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-arrow-repeat"></i> 정산 동기화
+                    </button>
+                </form>
+                <form method="post" action="{{ url_for('accounting.auto_match_settlements_action') }}" class="d-inline ms-1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="date_from" value="{{ date_from }}">
+                    <input type="hidden" name="date_to" value="{{ date_to }}">
+                    <button type="submit" class="btn btn-success btn-sm">
+                        <i class="bi bi-magic"></i> 자동 매칭
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 요약 카드 -->
+<div class="row g-3 mb-3">
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-primary border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">총 매출</div>
+                <div class="fs-5 fw-bold text-primary">{{ summary.total_gross|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-danger border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">수수료 합계</div>
+                <div class="fs-5 fw-bold text-danger">{{ summary.total_fee|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-success border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">실 정산금</div>
+                <div class="fs-5 fw-bold text-success">{{ summary.total_net|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card shadow-sm border-start border-info border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">매칭 현황</div>
+                <div class="fs-5 fw-bold">
+                    <span class="text-success">{{ summary.matched_count }}</span>
+                    / {{ summary.total_settlements }}건
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 채널별 현황 -->
+{% if summary.by_channel %}
+<div class="card shadow-sm mb-3">
+    <div class="card-header bg-white">
+        <i class="bi bi-shop"></i> 채널별 정산 현황
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>채널</th>
+                        <th class="text-end">총 매출</th>
+                        <th class="text-end">수수료</th>
+                        <th class="text-end">실 정산금</th>
+                        <th class="text-end">정산 건수</th>
+                        <th class="text-center">매칭</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ch in summary.by_channel %}
+                    <tr>
+                        <td class="fw-bold">{{ channels.get(ch.channel, ch.channel) }}</td>
+                        <td class="text-end">{{ ch.gross|fmt_money }}원</td>
+                        <td class="text-end text-danger">{{ ch.fee|fmt_money }}원</td>
+                        <td class="text-end fw-bold text-success">{{ ch.net|fmt_money }}원</td>
+                        <td class="text-end">{{ ch.count }}건</td>
+                        <td class="text-center">
+                            <span class="text-success">{{ ch.matched }}</span> /
+                            <span class="text-warning">{{ ch.pending }}</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 정산 상세 목록 -->
+<div class="card shadow-sm">
+    <div class="card-header bg-white">
+        <i class="bi bi-list-ul"></i> 정산 상세 내역
+        <span class="badge bg-secondary ms-1">{{ settlements|length }}건</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>정산일</th>
+                        <th>채널</th>
+                        <th class="text-end">총 매출</th>
+                        <th class="text-end">수수료</th>
+                        <th class="text-end">실 정산금</th>
+                        <th class="text-center">매칭 상태</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in settlements %}
+                    <tr>
+                        <td>{{ s.settlement_date }}</td>
+                        <td>{{ channels.get(s.channel, s.channel) }}</td>
+                        <td class="text-end">{{ s.gross_sales|fmt_money }}원</td>
+                        <td class="text-end text-danger">{{ s.platform_fee|fmt_money }}원</td>
+                        <td class="text-end fw-bold">{{ s.net_settlement|fmt_money }}원</td>
+                        <td class="text-center">
+                            {% if s.match_status == 'matched' %}
+                            <span class="badge bg-success">매칭 완료</span>
+                            {% elif s.match_status == 'partial' %}
+                            <span class="badge bg-warning text-dark">부분 매칭</span>
+                            {% elif s.match_status == 'discrepancy' %}
+                            <span class="badge bg-danger">불일치</span>
+                            {% else %}
+                            <span class="badge bg-secondary">미매칭</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">
+                            정산 내역이 없습니다. '정산 동기화'를 실행하세요.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

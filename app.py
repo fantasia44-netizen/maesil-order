@@ -50,6 +50,14 @@ def create_app(config_class=None):
     if not app.db:
         raise RuntimeError(f'기본 사업자 "{DEFAULT_BUSINESS}" DB 연결 실패')
 
+    # ── CODEF 싱글톤 ──
+    from services.codef_service import CodefService
+    app.codef = CodefService(app.config)
+
+    # ── Popbill 싱글톤 ──
+    from services.popbill_service import PopbillService
+    app.popbill = PopbillService(app.config)
+
     # 권한 테이블 기본값 초기화
     try:
         from models import PAGE_REGISTRY
@@ -298,6 +306,9 @@ def create_app(config_class=None):
     from blueprints.reconciliation import reconciliation_bp
     from blueprints.finance import finance_bp
     from blueprints.hr import hr_bp
+    from blueprints.accounting import accounting_bp
+    from blueprints.bank import bank_bp
+    from blueprints.tax_invoice import tax_invoice_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -306,7 +317,8 @@ def create_app(config_class=None):
                etc_outbound_bp, trade_bp, orders_bp, aggregation_bp,
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
                closing_bp, shipment_bp, integrity_bp, planning_bp,
-               packing_bp, reconciliation_bp, finance_bp, hr_bp]:
+               packing_bp, reconciliation_bp, finance_bp, hr_bp,
+               accounting_bp, bank_bp, tax_invoice_bp]:
         app.register_blueprint(bp)
 
     # ── 패킹 사용자 메인 시스템 접근 차단 ──
@@ -330,6 +342,14 @@ def create_app(config_class=None):
         except (ValueError, TypeError):
             return str(val) if val else '0'
     app.jinja_env.filters['fmt_qty'] = fmt_qty
+
+    def fmt_money(val):
+        """금액 포맷 (1,000,000)"""
+        try:
+            return f"{int(val):,}"
+        except (ValueError, TypeError):
+            return '0'
+    app.jinja_env.filters['fmt_money'] = fmt_money
 
     # 폴더 생성
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block page_title %}세금계산서{% endblock %}
+
+{% block content %}
+<!-- 필터 바 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0">구분</label>
+                <select name="direction" class="form-select form-select-sm">
+                    {% for d in ['전체', '매출', '매입'] %}
+                    <option value="{{ d }}" {% if direction == d %}selected{% endif %}>{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 요약 카드 -->
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-success border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">매출 합계</div>
+                <div class="fs-5 fw-bold text-success">{{ sales_total|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-warning border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">매입 합계</div>
+                <div class="fs-5 fw-bold text-warning">{{ purchase_total|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card shadow-sm border-start border-info border-3">
+            <div class="card-body py-3">
+                <div class="text-muted small">차액 (매출 - 매입)</div>
+                <div class="fs-5 fw-bold text-info">{{ (sales_total - purchase_total)|fmt_money }}원</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 세금계산서 테이블 -->
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-receipt"></i> 세금계산서 목록</span>
+        <div>
+            <a href="{{ url_for('tax_invoice.issue') }}" class="btn btn-primary btn-sm">
+                <i class="bi bi-plus-circle"></i> 세금계산서 발행
+            </a>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>작성일</th>
+                        <th class="text-center">구분</th>
+                        <th>거래처</th>
+                        <th class="text-end">공급가액</th>
+                        <th class="text-end">세액</th>
+                        <th class="text-end">합계</th>
+                        <th class="text-center">상태</th>
+                        <th class="text-center" style="width:130px">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inv in invoices %}
+                    <tr>
+                        <td>{{ inv.write_date }}</td>
+                        <td class="text-center">
+                            {% if inv.direction == 'sales' %}
+                            <span class="badge bg-success">매출</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">매입</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ inv.partner_name or '-' }}</td>
+                        <td class="text-end">{{ inv.supply_amount|fmt_money }}원</td>
+                        <td class="text-end">{{ inv.tax_amount|fmt_money }}원</td>
+                        <td class="text-end fw-bold">{{ inv.total_amount|fmt_money }}원</td>
+                        <td class="text-center">
+                            {% if inv.status == 'issued' %}
+                            <span class="badge bg-success">발행</span>
+                            {% elif inv.status == 'cancelled' %}
+                            <span class="badge bg-secondary">취소</span>
+                            {% elif inv.status == 'draft' %}
+                            <span class="badge bg-info">임시</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark">{{ inv.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ url_for('tax_invoice.detail', invoice_id=inv.id) }}"
+                               class="btn btn-outline-secondary btn-sm" title="상세">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                            {% if inv.status != 'cancelled' %}
+                            <form method="post" action="{{ url_for('tax_invoice.cancel', invoice_id=inv.id) }}" class="d-inline"
+                                  onsubmit="return confirm('이 세금계산서를 취소하시겠습니까?')">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" title="취소">
+                                    <i class="bi bi-x-circle"></i>
+                                </button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">
+                            데이터가 없습니다.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
