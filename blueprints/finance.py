@@ -17,14 +17,14 @@ finance_bp = Blueprint('finance', __name__, url_prefix='/finance')
 
 
 @finance_bp.route('/expenses')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def expenses():
     """비용 관리 메인 페이지"""
     return render_template('finance/expenses.html')
 
 
 @finance_bp.route('/api/expenses')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_expenses():
     """비용 목록 JSON API (월별/카테고리 필터)"""
     db = current_app.db
@@ -78,7 +78,7 @@ def api_expenses():
 
 
 @finance_bp.route('/api/expenses', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_create_expense():
     """비용 1건 등록"""
     db = current_app.db
@@ -124,7 +124,7 @@ def api_create_expense():
 
 
 @finance_bp.route('/api/expenses/<int:expense_id>', methods=['PUT'])
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_update_expense(expense_id):
     """비용 1건 수정"""
     db = current_app.db
@@ -186,7 +186,7 @@ def api_delete_expense(expense_id):
 
 
 @finance_bp.route('/api/expenses/generate-recurring', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_generate_recurring():
     """반복 비용 자동 생성"""
     db = current_app.db
@@ -210,14 +210,14 @@ def api_generate_recurring():
 # ══════════════════════════════════════════════
 
 @finance_bp.route('/pnl')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def pnl():
     """관리 손익표 메인 페이지"""
     return render_template('finance/pnl.html')
 
 
 @finance_bp.route('/api/pnl')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def api_pnl():
     """월별 손익표 JSON API.
     Query params: month=2026-03 (기본: 현재월)
@@ -240,7 +240,7 @@ def api_pnl():
 
 
 @finance_bp.route('/api/pnl/trend')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def api_pnl_trend():
     """손익 추이 JSON API (최근 N개월).
     Query params: months=6
@@ -259,7 +259,7 @@ def api_pnl_trend():
 
 
 @finance_bp.route('/api/pnl/by-channel')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def api_pnl_by_channel():
     """채널별 손익 JSON API.
     Query params: month=2026-03
@@ -286,14 +286,14 @@ def api_pnl_by_channel():
 # ══════════════════════════════════════════════
 
 @finance_bp.route('/dashboard')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def dashboard():
     """CEO 재무현황 대시보드 메인 페이지"""
     return render_template('finance/dashboard.html')
 
 
 @finance_bp.route('/api/ceo-summary')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def api_ceo_summary():
     """CEO 재무현황 요약 JSON API.
     Query params: month=2026-03 (기본: 현재월)
@@ -316,7 +316,7 @@ def api_ceo_summary():
 
 
 @finance_bp.route('/api/tax-report/download')
-@role_required('admin', 'ceo', 'manager')
+@role_required('admin', 'general')
 def api_tax_report_download():
     """세무사 전달용 월간 엑셀 리포트 다운로드.
     Query params: month=2026-03

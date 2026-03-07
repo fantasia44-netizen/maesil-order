@@ -255,14 +255,14 @@ def api_sync_expenses():
 # ══════════════════════════════════════════════
 
 @hr_bp.route('/leave')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def leave():
     """연차 관리 메인 페이지"""
     return render_template('hr/leave.html')
 
 
 @hr_bp.route('/api/leave')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_leave():
     """연차 현황 JSON API (직원별 연차 + 법정일수)"""
     db = current_app.db
@@ -338,7 +338,7 @@ def api_grant_leave():
 
 
 @hr_bp.route('/api/leave', methods=['POST'])
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_create_leave():
     """연차 사용 등록"""
     db = current_app.db
@@ -377,7 +377,7 @@ def api_create_leave():
 
 
 @hr_bp.route('/api/leave/records')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_leave_records():
     """연차 사용 기록 조회"""
     db = current_app.db
@@ -402,7 +402,7 @@ def api_leave_records():
 
 
 @hr_bp.route('/api/leave/calendar')
-@role_required('admin', 'manager')
+@role_required('admin', 'general')
 def api_leave_calendar():
     """월별 연차 달력 데이터"""
     db = current_app.db
