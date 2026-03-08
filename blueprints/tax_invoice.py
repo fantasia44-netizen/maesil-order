@@ -112,14 +112,22 @@ def cancel(invoice_id):
         return redirect(url_for('tax_invoice.index'))
 
     try:
-        # 팝빌 취소
+        # 팝빌 취소 시도 (실패해도 DB 취소는 진행)
+        popbill_ok = True
         if current_app.popbill.is_ready and invoice.get('mgt_key'):
-            current_app.popbill.cancel_issue(invoice['mgt_key'])
+            try:
+                current_app.popbill.cancel_issue(invoice['mgt_key'])
+            except Exception as pe:
+                popbill_ok = False
+                flash(f'팝빌 취소 실패 (DB에서는 취소 처리합니다): {pe}', 'warning')
 
         db.update_tax_invoice(invoice_id, {'status': 'cancelled'})
         _log_action('cancel_tax_invoice',
                     detail=f'ID={invoice_id}')
-        flash('세금계산서가 취소되었습니다.', 'success')
+        if popbill_ok:
+            flash('세금계산서가 취소되었습니다.', 'success')
+        else:
+            flash('세금계산서가 DB에서 취소되었습니다.', 'info')
     except Exception as e:
         flash(f'취소 오류: {e}', 'danger')
 
