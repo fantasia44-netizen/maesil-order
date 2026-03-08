@@ -99,31 +99,43 @@ class CodefService:
     # ══════════════════════════════════════════
 
     def create_connected_id(self, bank_code, login_type, login_id, login_pw,
-                            client_type='P', business_type='BK'):
+                            client_type='P', business_type='BK',
+                            cert_der_base64='', cert_key_base64=''):
         """은행/카드 계좌 연결 → connectedId 반환.
 
         Args:
             bank_code: 기관코드 (예: '0004')
             login_type: '0'=인증서, '1'=ID/PW
-            login_id: 로그인 ID
-            login_pw: 비밀번호 (평문 → RSA 암호화 후 전송)
+            login_id: 로그인 ID (인증서 모드에서는 빈 문자열 가능)
+            login_pw: 비밀번호 또는 인증서 비밀번호 (평문 → RSA 암호화 후 전송)
             client_type: 'P'=개인, 'B'=기업
             business_type: 'BK'=은행, 'CD'=카드
+            cert_der_base64: 인증서 .der 파일 Base64 문자열 (인증서 모드)
+            cert_key_base64: 인증서 .key 파일 Base64 문자열 (인증서 모드)
 
         Returns:
             str: connectedId
         """
         # 비밀번호 RSA 암호화
         encrypted_pw = encrypt_rsa(login_pw, self.codef.public_key)
-        account_list = [{
+        account = {
             'countryCode': 'KR',
             'businessType': business_type,
             'clientType': client_type,
             'organization': bank_code,
             'loginType': login_type,
-            'id': login_id,
             'password': encrypted_pw,
-        }]
+        }
+
+        if login_type == '0':
+            # 공인인증서 로그인
+            account['derFile'] = cert_der_base64
+            account['keyFile'] = cert_key_base64
+        else:
+            # ID/PW 로그인
+            account['id'] = login_id
+
+        account_list = [account]
         response = self.codef.create_account(
             self.service_type,
             {'accountList': account_list}

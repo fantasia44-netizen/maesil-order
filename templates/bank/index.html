@@ -71,8 +71,9 @@
 <div class="modal fade" id="connectModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
-            <form method="post" action="{{ url_for('bank.connect') }}">
+            <form method="post" action="{{ url_for('bank.connect') }}" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="login_type" id="loginType" value="1">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-bank"></i> 은행 연결</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -87,13 +88,49 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <!-- 로그인 방식 선택 -->
                     <div class="mb-3">
-                        <label for="loginId" class="form-label">로그인 ID</label>
-                        <input type="text" name="login_id" id="loginId" class="form-control" required>
+                        <label class="form-label">로그인 방식</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="loginTypeRadio" id="typeIdPw" value="1" checked>
+                            <label class="btn btn-outline-primary" for="typeIdPw">
+                                <i class="bi bi-person-lock"></i> ID/PW
+                            </label>
+                            <input type="radio" class="btn-check" name="loginTypeRadio" id="typeCert" value="0">
+                            <label class="btn btn-outline-primary" for="typeCert">
+                                <i class="bi bi-shield-lock"></i> 공인인증서
+                            </label>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="loginPw" class="form-label">비밀번호</label>
-                        <input type="password" name="login_pw" id="loginPw" class="form-control" required>
+                    <!-- ID/PW 필드 -->
+                    <div id="idpwFields">
+                        <div class="mb-3">
+                            <label for="loginId" class="form-label">로그인 ID</label>
+                            <input type="text" name="login_id" id="loginId" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label for="loginPw" class="form-label">비밀번호</label>
+                            <input type="password" name="login_pw" id="loginPw" class="form-control">
+                        </div>
+                    </div>
+                    <!-- 공인인증서 필드 -->
+                    <div id="certFields" style="display:none">
+                        <div class="mb-3">
+                            <label class="form-label">인증서 파일 (.der)</label>
+                            <input type="file" name="cert_der" class="form-control" accept=".der,.cer,.pem">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">키 파일 (.key)</label>
+                            <input type="file" name="cert_key" class="form-control" accept=".key,.pem">
+                        </div>
+                        <div class="mb-3">
+                            <label for="certPw" class="form-label">인증서 비밀번호</label>
+                            <input type="password" name="cert_pw" id="certPw" class="form-control">
+                        </div>
+                        <div class="alert alert-info small py-2 mb-0">
+                            <i class="bi bi-info-circle"></i>
+                            인증서 파일은 서버에 저장되지 않으며, 연결 후 즉시 폐기됩니다.
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -106,4 +143,18 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* 로그인 방식 토글 */
+document.querySelectorAll('input[name="loginTypeRadio"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const isIdPw = this.value === '1';
+        document.getElementById('loginType').value = this.value;
+        document.getElementById('idpwFields').style.display = isIdPw ? '' : 'none';
+        document.getElementById('certFields').style.display = isIdPw ? 'none' : '';
+    });
+});
+</script>
 {% endblock %}

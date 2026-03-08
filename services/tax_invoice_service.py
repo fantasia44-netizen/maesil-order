@@ -66,6 +66,7 @@ def build_invoice_from_trade(db, partner_id, trade_date, items):
         'buyer_biz_type': partner.get('type', ''),
         'buyer_biz_class': partner.get('business_item', ''),
         'buyer_email': partner.get('email', ''),
+        'supplier_corp_num': my_biz.get('business_number', '').replace('-', '') if my_biz else '',
         'supplier_corp_name': my_biz.get('business_name', '') if my_biz else '',
         'supplier_ceo_name': my_biz.get('representative', '') if my_biz else '',
         'supplier_addr': my_biz.get('address', '') if my_biz else '',

@@ -3,102 +3,100 @@
 {% block page_title %}세금계산서 상세{% endblock %}
 
 {% block content %}
-<div class="container-fluid">
-    <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">세금계산서 상세</h5>
-            <div>
-                <span class="badge bg-{{ 'success' if invoice.status == 'issued' else 'secondary' if invoice.status == 'draft' else 'danger' }}">
-                    {{ '발행완료' if invoice.status == 'issued' else '임시저장' if invoice.status == 'draft' else '취소' }}
-                </span>
-                <a href="{{ url_for('tax_invoice.index') }}" class="btn btn-sm btn-outline-secondary ms-2">
-                    <i class="bi bi-arrow-left"></i> 목록
-                </a>
-            </div>
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-receipt"></i> 세금계산서 상세</span>
+        <div>
+            <span class="badge bg-{{ 'success' if invoice.status == 'issued' else 'info' if invoice.status == 'draft' else 'secondary' }}">
+                {{ '발행' if invoice.status == 'issued' else '임시' if invoice.status == 'draft' else '취소' }}
+            </span>
+            <a href="{{ url_for('tax_invoice.index') }}" class="btn btn-sm btn-outline-secondary ms-2">
+                <i class="bi bi-arrow-left"></i> 목록
+            </a>
         </div>
-        <div class="card-body">
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <h6 class="text-muted mb-3">기본 정보</h6>
-                    <table class="table table-sm">
-                        <tr><th style="width:35%">방향</th><td>{{ '매출' if invoice.direction == 'sales' else '매입' }}</td></tr>
-                        <tr><th>작성일</th><td>{{ invoice.write_date }}</td></tr>
-                        <tr><th>발행일</th><td>{{ invoice.issue_date or '-' }}</td></tr>
-                        <tr><th>관리번호</th><td><code>{{ invoice.mgt_key or '-' }}</code></td></tr>
-                        <tr><th>국세청 승인번호</th><td>{{ invoice.invoice_number or '-' }}</td></tr>
-                        <tr><th>세금유형</th><td>{{ invoice.tax_type or '과세' }}</td></tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h6 class="text-muted mb-3">금액</h6>
-                    <table class="table table-sm">
-                        <tr><th style="width:35%">공급가액</th><td class="text-end">{{ invoice.supply_cost_total|fmt_money }}원</td></tr>
-                        <tr><th>세액</th><td class="text-end">{{ invoice.tax_total|fmt_money }}원</td></tr>
-                        <tr class="table-active"><th>합계금액</th><td class="text-end fw-bold">{{ invoice.total_amount|fmt_money }}원</td></tr>
-                    </table>
-                </div>
-            </div>
-
-            <div class="row mb-4">
-                <div class="col-md-6">
-                    <h6 class="text-muted mb-3">공급자</h6>
-                    <table class="table table-sm">
-                        <tr><th style="width:35%">상호</th><td>{{ invoice.supplier_corp_name or '-' }}</td></tr>
-                        <tr><th>사업자번호</th><td>{{ invoice.supplier_corp_num or '-' }}</td></tr>
-                        <tr><th>대표자</th><td>{{ invoice.supplier_ceo_name or '-' }}</td></tr>
-                    </table>
-                </div>
-                <div class="col-md-6">
-                    <h6 class="text-muted mb-3">공급받는자</h6>
-                    <table class="table table-sm">
-                        <tr><th style="width:35%">상호</th><td>{{ invoice.buyer_corp_name or '-' }}</td></tr>
-                        <tr><th>사업자번호</th><td>{{ invoice.buyer_corp_num or '-' }}</td></tr>
-                        <tr><th>대표자</th><td>{{ invoice.buyer_ceo_name or '-' }}</td></tr>
-                    </table>
-                </div>
-            </div>
-
-            {% if invoice.items %}
-            <h6 class="text-muted mb-3">품목 상세</h6>
-            <div class="table-responsive">
-                <table class="table table-sm table-bordered">
-                    <thead class="table-light">
-                        <tr>
-                            <th>No.</th>
-                            <th>품목명</th>
-                            <th class="text-end">수량</th>
-                            <th class="text-end">단가</th>
-                            <th class="text-end">공급가액</th>
-                            <th class="text-end">세액</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in invoice.items %}
-                        <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>{{ item.name or item.get('product_name', '') }}</td>
-                            <td class="text-end">{{ item.qty }}</td>
-                            <td class="text-end">{{ item.unit_cost|fmt_money }}원</td>
-                            <td class="text-end">{{ item.supply_cost|fmt_money }}원</td>
-                            <td class="text-end">{{ item.tax|fmt_money }}원</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
+    </div>
+    <div class="card-body">
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">기본 정보</h6>
+                <table class="table table-sm">
+                    <tr><th style="width:35%">구분</th><td>{{ '매출' if invoice.direction == 'sales' else '매입' }}</td></tr>
+                    <tr><th>작성일</th><td>{{ invoice.write_date }}</td></tr>
+                    <tr><th>발행일</th><td>{{ invoice.issue_date or '-' }}</td></tr>
+                    <tr><th>관리번호</th><td><code>{{ invoice.mgt_key or '-' }}</code></td></tr>
+                    <tr><th>승인번호</th><td>{{ invoice.invoice_number or '-' }}</td></tr>
+                    <tr><th>세금유형</th><td>{{ invoice.tax_type or '과세' }}</td></tr>
                 </table>
             </div>
-            {% endif %}
-
-            <div class="mt-4 d-flex gap-2">
-                {% if invoice.status == 'issued' %}
-                <form method="post" action="{{ url_for('tax_invoice.cancel', invoice_id=invoice.id) }}"
-                      onsubmit="return confirm('정말 취소하시겠습니까?')">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-danger btn-sm">
-                        <i class="bi bi-x-circle"></i> 발행 취소
-                    </button>
-                </form>
-                {% endif %}
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">금액</h6>
+                <table class="table table-sm">
+                    <tr><th style="width:35%">공급가액</th><td class="text-end">{{ invoice.supply_cost_total|fmt_money }}원</td></tr>
+                    <tr><th>세액</th><td class="text-end">{{ invoice.tax_total|fmt_money }}원</td></tr>
+                    <tr class="table-active"><th>합계금액</th><td class="text-end fw-bold">{{ invoice.total_amount|fmt_money }}원</td></tr>
+                </table>
             </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">공급자</h6>
+                <table class="table table-sm">
+                    <tr><th style="width:35%">상호</th><td>{{ invoice.supplier_corp_name or '-' }}</td></tr>
+                    <tr><th>사업자번호</th><td>{{ invoice.supplier_corp_num or '-' }}</td></tr>
+                    <tr><th>대표자</th><td>{{ invoice.supplier_ceo_name or '-' }}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-6">
+                <h6 class="text-muted mb-3">공급받는자</h6>
+                <table class="table table-sm">
+                    <tr><th style="width:35%">상호</th><td>{{ invoice.buyer_corp_name or '-' }}</td></tr>
+                    <tr><th>사업자번호</th><td>{{ invoice.buyer_corp_num or '-' }}</td></tr>
+                    <tr><th>대표자</th><td>{{ invoice.buyer_ceo_name or '-' }}</td></tr>
+                </table>
+            </div>
+        </div>
+
+        {% if invoice['items'] %}
+        <h6 class="text-muted mb-3">품목 상세</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th>No.</th>
+                        <th>품목명</th>
+                        <th class="text-end">수량</th>
+                        <th class="text-end">단가</th>
+                        <th class="text-end">공급가액</th>
+                        <th class="text-end">세액</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in invoice['items'] %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ item.name or '-' }}</td>
+                        <td class="text-end">{{ item.qty }}</td>
+                        <td class="text-end">{{ item.unit_cost|fmt_money }}원</td>
+                        <td class="text-end">{{ item.supply_cost|fmt_money }}원</td>
+                        <td class="text-end">{{ item.tax|fmt_money }}원</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="mt-4">
+            {% if invoice.status == 'issued' %}
+            <form method="post" action="{{ url_for('tax_invoice.cancel', invoice_id=invoice.id) }}"
+                  class="d-inline" onsubmit="return confirm('정말 취소하시겠습니까?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger btn-sm">
+                    <i class="bi bi-x-circle"></i> 발행 취소
+                </button>
+            </form>
+            {% endif %}
         </div>
     </div>
 </div>

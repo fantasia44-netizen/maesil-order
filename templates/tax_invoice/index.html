@@ -64,15 +64,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span><i class="bi bi-receipt"></i> 세금계산서 목록</span>
-        <div class="d-flex gap-2">
-            <form method="post" action="{{ url_for('tax_invoice.sync') }}" class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="date_from" value="{{ date_from }}">
-                <input type="hidden" name="date_to" value="{{ date_to }}">
-                <button type="submit" class="btn btn-outline-success btn-sm" id="btnSync">
-                    <i class="bi bi-cloud-download"></i> 팝빌 동기화
-                </button>
-            </form>
+        <div>
             <a href="{{ url_for('tax_invoice.issue') }}" class="btn btn-primary btn-sm">
                 <i class="bi bi-plus-circle"></i> 세금계산서 발행
             </a>
@@ -104,7 +96,7 @@
                             <span class="badge bg-warning text-dark">매입</span>
                             {% endif %}
                         </td>
-                        <td>{{ inv.partner_name or '-' }}</td>
+                        <td>{{ inv.buyer_corp_name if inv.direction == 'sales' else inv.supplier_corp_name or '-' }}</td>
                         <td class="text-end">{{ inv.supply_cost_total|fmt_money }}원</td>
                         <td class="text-end">{{ inv.tax_total|fmt_money }}원</td>
                         <td class="text-end fw-bold">{{ inv.total_amount|fmt_money }}원</td>
