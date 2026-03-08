@@ -127,8 +127,14 @@
                             <label for="certPw" class="form-label">인증서 비밀번호</label>
                             <input type="password" name="cert_pw" id="certPw" class="form-control">
                         </div>
+                        <div class="alert alert-secondary small py-2 mb-2">
+                            <i class="bi bi-folder2-open"></i> <strong>인증서 파일 찾기:</strong><br>
+                            <code class="text-dark">C:\Users\{사용자}\AppData\LocalLow\NPKI\</code> 폴더 아래<br>
+                            <span class="text-muted">• signCert.der (인증서) + signPri.key (개인키)</span><br>
+                            <span class="text-muted">• USB 사용 시: USB드라이브\NPKI\ 폴더</span>
+                        </div>
                         <div class="alert alert-info small py-2 mb-0">
-                            <i class="bi bi-info-circle"></i>
+                            <i class="bi bi-shield-check"></i>
                             인증서 파일은 서버에 저장되지 않으며, 연결 후 즉시 폐기됩니다.
                         </div>
                     </div>
