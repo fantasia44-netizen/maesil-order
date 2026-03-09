@@ -33,7 +33,7 @@
                     공급가액 {{ summary.sales_invoices.supply_amount|fmt_money }}원 /
                     세액 {{ summary.sales_invoices.tax_amount|fmt_money }}원
                 </div>
-                <div class="text-muted small">{{ summary.sales_invoices.count }}건</div>
+                <div class="text-muted small">{{ summary.sales_invoices['count'] }}건</div>
             </div>
         </div>
     </div>
@@ -46,7 +46,7 @@
                     공급가액 {{ summary.purchase_invoices.supply_amount|fmt_money }}원 /
                     세액 {{ summary.purchase_invoices.tax_amount|fmt_money }}원
                 </div>
-                <div class="text-muted small">{{ summary.purchase_invoices.count }}건</div>
+                <div class="text-muted small">{{ summary.purchase_invoices['count'] }}건</div>
             </div>
         </div>
     </div>

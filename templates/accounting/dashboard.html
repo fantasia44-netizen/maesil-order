@@ -166,7 +166,7 @@
                         <td class="text-end fw-bold text-success">{{ ch.net|fmt_money }}원</td>
                         <td class="text-center">
                             <span class="text-success">{{ ch.matched }}</span> /
-                            <span class="text-secondary">{{ ch.count }}</span>
+                            <span class="text-secondary">{{ ch['count']|default(0) }}</span>
                         </td>
                     </tr>
                     {% endfor %}

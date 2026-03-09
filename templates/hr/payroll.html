@@ -468,7 +468,10 @@ function generatePayroll() {
     .then(r => r.json())
     .then(data => {
         if (data.success) {
-            alert(`급여 ${data.count}건이 생성되었습니다.`);
+            const msg = data.inserted != null
+                ? `급여 신규 ${data.inserted}건, 갱신 ${data.updated}건 처리되었습니다.`
+                : `급여 ${data.count}건이 생성되었습니다.`;
+            alert(msg);
             loadData();
         } else {
             alert(data.error || '생성 실패');

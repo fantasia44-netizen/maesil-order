@@ -56,9 +56,9 @@
                     {% set days = r.days_overdue|default(0) %}
                     <tr>
                         <td class="fw-bold">{{ r.partner_name }}</td>
-                        <td class="text-muted">{{ r.business_number|default('-') }}</td>
+                        <td class="text-muted">{{ r.corp_num|default('-') }}</td>
                         <td class="text-end fw-bold text-danger">{{ r.total_amount|fmt_money }}원</td>
-                        <td class="text-end">{{ r.count }}건</td>
+                        <td class="text-end">{{ r.invoice_count }}건</td>
                         <td>{{ r.oldest_date }}</td>
                         <td class="text-center">
                             {% if days >= 90 %}
@@ -85,7 +85,7 @@
                     <tr>
                         <th colspan="2" class="text-end">합계</th>
                         <th class="text-end text-danger">{{ total|fmt_money }}원</th>
-                        <th class="text-end">{{ receivables|sum(attribute='count') }}건</th>
+                        <th class="text-end">{{ receivables|sum(attribute='invoice_count') }}건</th>
                         <th colspan="2"></th>
                     </tr>
                 </tfoot>

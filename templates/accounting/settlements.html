@@ -122,7 +122,7 @@
                         <td class="text-end">{{ ch.gross|fmt_money }}원</td>
                         <td class="text-end text-danger">{{ ch.fee|fmt_money }}원</td>
                         <td class="text-end fw-bold text-success">{{ ch.net|fmt_money }}원</td>
-                        <td class="text-end">{{ ch.count }}건</td>
+                        <td class="text-end">{{ ch['count']|default(0) }}건</td>
                         <td class="text-center">
                             <span class="text-success">{{ ch.matched }}</span> /
                             <span class="text-warning">{{ ch.pending }}</span>
