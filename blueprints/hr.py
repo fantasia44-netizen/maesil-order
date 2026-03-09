@@ -441,6 +441,71 @@ def api_update_insurance_rates():
         return jsonify({'error': str(e)}), 500
 
 
+@hr_bp.route('/api/employee-insurance-overrides/<int:employee_id>')
+@role_required('admin', 'general')
+def api_employee_insurance_overrides(employee_id):
+    """직원 개인별 보험요율 오버라이드 조회"""
+    db = current_app.db
+    try:
+        overrides = db.query_employee_insurance_overrides(employee_id)
+        return jsonify({'success': True, 'overrides': overrides})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@hr_bp.route('/api/employee-insurance-overrides/<int:employee_id>', methods=['POST'])
+@role_required('admin', 'general')
+def api_set_employee_insurance_override(employee_id):
+    """직원 개인별 보험요율 오버라이드 설정"""
+    db = current_app.db
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '데이터가 없습니다.'}), 400
+
+    insurance_type = data.get('insurance_type', '')
+    employee_rate = data.get('employee_rate')
+    employer_rate = data.get('employer_rate')
+
+    if not insurance_type:
+        return jsonify({'error': '보험 유형이 필요합니다.'}), 400
+
+    try:
+        db.upsert_employee_insurance_override(
+            employee_id=employee_id,
+            insurance_type=insurance_type,
+            employee_rate=float(employee_rate) if employee_rate is not None else 0,
+            employer_rate=float(employer_rate) if employer_rate is not None else 0,
+            notes=data.get('notes', ''),
+        )
+        _log_action('set_insurance_override',
+                     target=f'employee_id={employee_id}',
+                     detail=f'{insurance_type}: 근로자={employee_rate}%, 사업주={employer_rate}%')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@hr_bp.route('/api/employee-insurance-overrides/<int:employee_id>/delete', methods=['POST'])
+@role_required('admin', 'general')
+def api_delete_employee_insurance_override(employee_id):
+    """직원 개인별 보험요율 오버라이드 삭제 (기본값 복원)"""
+    db = current_app.db
+    data = request.get_json()
+    insurance_type = data.get('insurance_type', '') if data else ''
+
+    if not insurance_type:
+        return jsonify({'error': '보험 유형이 필요합니다.'}), 400
+
+    try:
+        db.delete_employee_insurance_override(employee_id, insurance_type)
+        _log_action('delete_insurance_override',
+                     target=f'employee_id={employee_id}',
+                     detail=f'{insurance_type} 기본값 복원')
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @hr_bp.route('/api/nontaxable-limits')
 @role_required('admin', 'general')
 def api_nontaxable_limits():
@@ -486,10 +551,14 @@ def api_payroll_preview():
         nontax_limits = db.query_nontaxable_limits(year=year)
         nontax_map = {r['limit_type']: r['monthly_limit'] for r in nontax_limits}
 
-        result = calculate_payroll(emp, components, rate_map, nontax_map)
+        # 개인별 보험요율 오버라이드 조회
+        overrides = db.query_employee_insurance_overrides(employee_id)
+        result = calculate_payroll(emp, components, rate_map, nontax_map,
+                                   insurance_overrides=overrides)
         result['employee_name'] = emp.get('name', '')
         result['department'] = emp.get('department', '')
         result['position'] = emp.get('position', '')
+        result['insurance_overrides'] = overrides  # 프론트엔드에서 표시용
 
         return jsonify({'success': True, 'preview': result})
     except Exception as e:

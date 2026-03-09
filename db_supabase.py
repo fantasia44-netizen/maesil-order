@@ -3251,6 +3251,56 @@ class SupabaseDB(DBBase):
             print(f"[DB] query_nontaxable_limits error: {e}")
             return []
 
+    # ── 개인별 보험요율 오버라이드 ──
+
+    def query_employee_insurance_overrides(self, employee_id):
+        """직원의 개인별 보험요율 오버라이드 조회.
+        Returns: list of dict [{insurance_type, employee_rate, employer_rate, notes}, ...]
+        """
+        try:
+            res = self.client.table("employee_insurance_overrides") \
+                .select("*").eq("employee_id", employee_id).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_employee_insurance_overrides error: {e}")
+            return []
+
+    def upsert_employee_insurance_override(self, employee_id, insurance_type,
+                                            employee_rate, employer_rate, notes=''):
+        """직원 보험요율 오버라이드 설정 (upsert).
+        기존 레코드가 있으면 업데이트, 없으면 생성.
+        """
+        try:
+            # 기존 레코드 확인
+            res = self.client.table("employee_insurance_overrides") \
+                .select("id").eq("employee_id", employee_id) \
+                .eq("insurance_type", insurance_type).execute()
+            payload = {
+                'employee_id': employee_id,
+                'insurance_type': insurance_type,
+                'employee_rate': float(employee_rate),
+                'employer_rate': float(employer_rate),
+                'notes': notes,
+            }
+            if res.data:
+                self.client.table("employee_insurance_overrides") \
+                    .update(payload).eq("id", res.data[0]['id']).execute()
+            else:
+                self.client.table("employee_insurance_overrides") \
+                    .insert(payload).execute()
+        except Exception as e:
+            print(f"[DB] upsert_employee_insurance_override error: {e}")
+            raise
+
+    def delete_employee_insurance_override(self, employee_id, insurance_type):
+        """직원 보험요율 오버라이드 삭제 (기본값으로 복원)."""
+        try:
+            self.client.table("employee_insurance_overrides") \
+                .delete().eq("employee_id", employee_id) \
+                .eq("insurance_type", insurance_type).execute()
+        except Exception as e:
+            print(f"[DB] delete_employee_insurance_override error: {e}")
+
     # ── enhanced payroll generation ──
 
     def generate_monthly_payroll_v2(self, pay_month):
@@ -3291,8 +3341,12 @@ class SupabaseDB(DBBase):
             # 직원의 급여 항목 조회
             components = self.query_salary_components(emp_id, active_only=True)
 
-            # 급여 계산
-            result = calculate_payroll(emp, components, rate_map, nontax_map)
+            # 개인별 보험요율 오버라이드 조회
+            overrides = self.query_employee_insurance_overrides(emp_id)
+
+            # 급여 계산 (개인별 보험요율 적용)
+            result = calculate_payroll(emp, components, rate_map, nontax_map,
+                                       insurance_overrides=overrides)
 
             payload = {
                 'employee_id': emp_id,

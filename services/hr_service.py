@@ -121,7 +121,8 @@ DEFAULT_NONTAXABLE_LIMITS = {
 }
 
 
-def calculate_payroll(employee, salary_components, rate_map, nontax_map=None):
+def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
+                      insurance_overrides=None):
     """직원 1인의 월 급여를 전체 계산.
 
     Args:
@@ -129,10 +130,24 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None):
         salary_components: list of dict - salary_components 테이블 레코드
         rate_map: dict - {insurance_type: {employee_rate, employer_rate, ...}}
         nontax_map: dict - {limit_type: monthly_limit} 비과세 한도
+        insurance_overrides: list of dict - 개인별 보험요율 오버라이드
+            [{insurance_type, employee_rate, employer_rate}, ...]
 
     Returns:
         dict - 급여 계산 결과 (모든 항목 포함)
     """
+    # 개인별 오버라이드가 있으면 rate_map에 병합 (개인 우선)
+    if insurance_overrides:
+        rate_map = dict(rate_map)  # 원본 수정 방지
+        for ov in insurance_overrides:
+            ins_type = ov.get('insurance_type', '')
+            if ins_type:
+                merged = dict(rate_map.get(ins_type, {}))
+                if ov.get('employee_rate') is not None:
+                    merged['employee_rate'] = ov['employee_rate']
+                if ov.get('employer_rate') is not None:
+                    merged['employer_rate'] = ov['employer_rate']
+                rate_map[ins_type] = merged
     if nontax_map is None:
         nontax_map = {}
 
