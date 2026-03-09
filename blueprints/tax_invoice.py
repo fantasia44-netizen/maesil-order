@@ -140,19 +140,25 @@ def upload():
         # 파서가 헤더 행 자동 탐지 + 면세/과세 자동 판별
         invoices_data = parse_hometax_excel(df, direction)
 
-        new_count = 0
+        # ── 배치 중복 체크: 승인번호 목록을 한번에 조회 ──
+        all_numbers = [inv.get('invoice_number', '') for inv in invoices_data]
+        existing_numbers = db.query_existing_invoice_numbers(
+            [n for n in all_numbers if n])
+
+        # 신규 건만 필터링
+        new_invoices = []
         skip_count = 0
         for inv in invoices_data:
-            # 중복 체크 (승인번호 기준)
             nts_num = inv.get('invoice_number', '')
-            existing = db.check_tax_invoice_exists(
-                invoice_number=nts_num if nts_num else None)
-            if existing:
+            if nts_num and nts_num in existing_numbers:
                 skip_count += 1
-                continue
+            else:
+                new_invoices.append(inv)
 
-            db.insert_tax_invoice(inv)
-            new_count += 1
+        # ── 배치 INSERT ──
+        new_count = 0
+        if new_invoices:
+            new_count = db.batch_insert_tax_invoices(new_invoices)
 
         dir_label = '매출' if direction == 'sales' else '매입'
         tax_label = '계산서(면세)' if any(

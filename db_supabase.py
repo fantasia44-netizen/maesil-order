@@ -3656,6 +3656,35 @@ class SupabaseDB(DBBase):
             print(f"[DB] insert_tax_invoice error: {e}")
             return None
 
+    def batch_insert_tax_invoices(self, payloads):
+        """세금계산서 일괄 등록 (배치). Returns: 삽입된 건수."""
+        if not payloads:
+            return 0
+        try:
+            res = self.client.table("tax_invoices").insert(payloads).execute()
+            return len(res.data) if res.data else 0
+        except Exception as e:
+            print(f"[DB] batch_insert_tax_invoices error: {e}")
+            return 0
+
+    def query_existing_invoice_numbers(self, invoice_numbers):
+        """승인번호 목록으로 기존 세금계산서 일괄 조회. Returns: set of existing numbers."""
+        if not invoice_numbers:
+            return set()
+        try:
+            nums = [n for n in invoice_numbers if n]
+            if not nums:
+                return set()
+            # Supabase in_ 필터로 한번에 조회
+            res = self.client.table("tax_invoices") \
+                .select("invoice_number") \
+                .in_("invoice_number", nums) \
+                .execute()
+            return {r['invoice_number'] for r in (res.data or [])}
+        except Exception as e:
+            print(f"[DB] query_existing_invoice_numbers error: {e}")
+            return set()
+
     def update_tax_invoice(self, invoice_id, update_data):
         """세금계산서 수정."""
         try:
