@@ -343,63 +343,9 @@ def save_invoice_to_db(db, invoice_data, direction, popbill_result=None, registe
 # 홈택스 엑셀 업로드 파싱
 # ══════════════════════════════════════════
 
-# 홈택스 엑셀 컬럼명 매핑 (다양한 이름 대응)
-_HOMETAX_COL_MAP = {
-    # 승인번호
-    '승인번호': 'invoice_number',
-    '국세청승인번호': 'invoice_number',
-    'nts승인번호': 'invoice_number',
-
-    # 날짜
-    '작성일자': 'write_date',
-    '작성일': 'write_date',
-    '발급일자': 'issue_date',
-    '발급일': 'issue_date',
-    '전송일자': 'send_date',
-
-    # 공급자
-    '공급자사업자등록번호': 'supplier_corp_num',
-    '공급자 사업자등록번호': 'supplier_corp_num',
-    '공급자사업자번호': 'supplier_corp_num',
-    '공급자 사업자번호': 'supplier_corp_num',
-    '공급자상호': 'supplier_corp_name',
-    '공급자 상호': 'supplier_corp_name',
-    '공급자대표자': 'supplier_ceo_name',
-    '공급자 대표자': 'supplier_ceo_name',
-
-    # 공급받는자
-    '공급받는자사업자등록번호': 'buyer_corp_num',
-    '공급받는자 사업자등록번호': 'buyer_corp_num',
-    '공급받는자사업자번호': 'buyer_corp_num',
-    '공급받는자 사업자번호': 'buyer_corp_num',
-    '공급받는자상호': 'buyer_corp_name',
-    '공급받는자 상호': 'buyer_corp_name',
-    '공급받는자대표자': 'buyer_ceo_name',
-    '공급받는자 대표자': 'buyer_ceo_name',
-
-    # 금액
-    '공급가액': 'supply_cost_total',
-    '세액': 'tax_total',
-    '합계금액': 'total_amount',
-    '총금액': 'total_amount',
-
-    # 기타
-    '과세유형': 'tax_type',
-    '세금유형': 'tax_type',
-    '비고': 'notes',
-    '영수/청구': 'receipt_type',
-    '발급유형': 'issue_type',
-}
-
-
-def _normalize_col(col_name):
-    """컬럼명 정규화: 공백/특수문자 제거, 소문자."""
-    return str(col_name).replace(' ', '').replace('\n', '').replace('\t', '').strip()
-
-
 def _safe_int(val):
     """안전한 정수 변환 (빈값, 콤마, 문자열 처리)."""
-    if not val or val == '':
+    if val is None or str(val).strip() in ('', 'nan', 'NaN'):
         return 0
     try:
         return int(float(str(val).replace(',', '').replace(' ', '')))
@@ -409,13 +355,11 @@ def _safe_int(val):
 
 def _normalize_date(val):
     """다양한 날짜 형식 → YYYY-MM-DD."""
-    if not val:
+    if not val or str(val).strip() in ('', 'nan', 'NaN'):
         return ''
     s = str(val).strip().replace('.', '-').replace('/', '-')
-    # YYYYMMDD → YYYY-MM-DD
     if len(s) == 8 and s.isdigit():
         return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
-    # 이미 YYYY-MM-DD 형태
     if len(s) >= 10 and s[4] == '-':
         return s[:10]
     return s
@@ -423,101 +367,210 @@ def _normalize_date(val):
 
 def _normalize_corp_num(val):
     """사업자번호 하이픈 제거."""
-    if not val:
+    if not val or str(val).strip() in ('', 'nan', 'NaN'):
         return ''
     return str(val).replace('-', '').replace(' ', '').strip()
 
 
-def _map_tax_type_hometax(val):
-    """홈택스 과세유형 → DB 값."""
-    if not val:
-        return '과세'
-    s = str(val).strip()
-    if '면세' in s or s == 'N':
-        return '면세'
-    if '영세' in s or s == 'Z':
-        return '영세'
-    return '과세'
+def _safe_str(val):
+    """안전한 문자열 변환."""
+    if val is None or str(val).strip() in ('nan', 'NaN'):
+        return ''
+    return str(val).strip()
 
 
-def parse_hometax_excel(df, direction='sales'):
-    """홈택스에서 다운받은 세금계산서 엑셀 → DB insert용 dict 목록.
+def _find_header_row(df):
+    """홈택스 엑셀에서 실제 헤더 행 번호를 자동 탐지.
+    '작성일자'와 '승인번호'가 포함된 행을 찾는다.
+    """
+    for i in range(min(10, len(df))):
+        row_vals = [str(v).strip() for v in df.iloc[i].values]
+        if '작성일자' in row_vals and '승인번호' in row_vals:
+            return i
+    return None
+
+
+def _detect_tax_type_from_filename(direction_hint):
+    """파일명/방향으로 과세/면세 추정 (계산서=면세, 세금계산서=과세)."""
+    # 이 함수는 호출측에서 is_tax_exempt 플래그로 대체
+    pass
+
+
+def parse_hometax_excel(df_or_filepath, direction='sales', is_tax_exempt=False):
+    """홈택스에서 다운받은 세금계산서/계산서 엑셀 → DB insert용 dict 목록.
+
+    홈택스 엑셀 구조:
+    - Row 0: 사업자 등록번호 / 상호 / 대표자 (메타 정보)
+    - Row 1: 빈행
+    - Row 2: 합계 금액 요약
+    - Row 3: 빈행
+    - Row 4: 분류 제목행 (ex: "매출 전자(세금)계산서 발급목록조회")
+    - Row 5: 실제 컬럼 헤더 ← 여기가 핵심
+    - Row 6~: 데이터
+
+    세금계산서(과세): 35컬럼 — 세액 포함
+    계산서(면세):     33컬럼 — 세액 없음
+
+    컬럼명이 중복됨 (상호, 대표자명, 종사업장번호 등) → 위치 기반 매핑
 
     Args:
-        df: pandas DataFrame (엑셀에서 읽은 것)
+        df_or_filepath: pandas DataFrame (header=None으로 읽은 것)
         direction: 'sales' (매출) / 'purchase' (매입)
+        is_tax_exempt: True면 면세 계산서 (세액 없음)
 
     Returns:
         list[dict]: insert_tax_invoice()에 전달할 데이터 목록
     """
-    # ── 컬럼명 매핑 ──
-    # 첫 행이 헤더가 아닌 경우 자동 감지 (홈택스는 보통 2행에 컬럼명)
-    col_mapping = {}
-    original_cols = list(df.columns)
+    import pandas as pd
 
-    for orig in original_cols:
-        norm = _normalize_col(orig)
-        for hometax_name, db_field in _HOMETAX_COL_MAP.items():
-            if _normalize_col(hometax_name) == norm:
-                col_mapping[orig] = db_field
-                break
+    if isinstance(df_or_filepath, str):
+        df = pd.read_excel(df_or_filepath, header=None, dtype=str).fillna('')
+    else:
+        df = df_or_filepath
 
-    # 매핑 안된 열은 무시
-    if not col_mapping:
-        # 헤더가 첫 행에 데이터로 들어간 경우: 첫 행을 헤더로 재시도
-        if len(df) > 0:
-            new_header = df.iloc[0]
-            df = df[1:].reset_index(drop=True)
-            df.columns = new_header
-            original_cols = list(df.columns)
-            for orig in original_cols:
-                norm = _normalize_col(str(orig))
-                for hometax_name, db_field in _HOMETAX_COL_MAP.items():
-                    if _normalize_col(hometax_name) == norm:
-                        col_mapping[orig] = db_field
-                        break
-
-    if not col_mapping:
+    # ── 헤더 행 탐지 ──
+    header_idx = _find_header_row(df)
+    if header_idx is None:
         raise ValueError(
-            '엑셀 컬럼을 인식할 수 없습니다. '
-            '홈택스 표준 양식(승인번호, 작성일자, 공급가액 등)인지 확인하세요.'
+            '홈택스 엑셀 형식을 인식할 수 없습니다. '
+            '"작성일자", "승인번호" 컬럼이 포함된 홈택스 표준 양식인지 확인하세요.'
         )
 
-    df = df.rename(columns=col_mapping)
-    logger.info(f"홈택스 엑셀 매핑: {len(col_mapping)}개 컬럼 인식, {len(df)}행 데이터")
+    header_vals = [str(v).strip() for v in df.iloc[header_idx].values]
+    data_df = df.iloc[header_idx + 1:].reset_index(drop=True)
+    num_cols = len(header_vals)
+
+    logger.info(f"홈택스 엑셀: 헤더행={header_idx}, 컬럼수={num_cols}, "
+                f"데이터행={len(data_df)}, 면세={is_tax_exempt}")
+
+    # ── 위치 기반 컬럼 매핑 ──
+    # 세금계산서 (과세, 35컬럼):
+    #   0:작성일자  1:승인번호  2:발급일자  3:전송일자
+    #   4:공급자사업자등록번호  5:종사업장번호  6:상호(공급자)  7:대표자명(공급자)  8:주소(공급자)
+    #   9:공급받는자사업자등록번호 10:종사업장번호 11:상호(공급받는자) 12:대표자명(공급받는자) 13:주소(공급받는자)
+    #   14:합계금액  15:공급가액  16:세액
+    #   17:전자세금계산서분류  18:전자세금계산서종류  19:발급유형
+    #   20:비고  21:영수/청구구분  22:공급자이메일
+    #   23:공급받는자이메일1  24:공급받는자이메일2
+    #   25:수탁사업자등록번호  26:상호(수탁)
+    #   27~34: 품목 정보
+    #
+    # 계산서 (면세, 33컬럼): 16(세액) 없음 → 이후 인덱스 1씩 앞당겨짐
+
+    # '세액' 컬럼 존재 여부로 면세/과세 자동 판별
+    has_tax_col = '세액' in header_vals
+    if not has_tax_col:
+        is_tax_exempt = True
+
+    # 위치 인덱스 (과세 기준)
+    IDX = {
+        'write_date': 0,
+        'invoice_number': 1,
+        'issue_date': 2,
+        'send_date': 3,
+        'supplier_corp_num': 4,
+        'supplier_corp_name': 6,
+        'supplier_ceo_name': 7,
+        'buyer_corp_num': 9,
+        'buyer_corp_name': 11,
+        'buyer_ceo_name': 12,
+        'total_amount': 14,
+        'supply_cost_total': 15,
+    }
+
+    if has_tax_col:
+        # 세금계산서 (과세): 세액이 16번
+        IDX['tax_total'] = 16
+        IDX['classification'] = 17
+        IDX['invoice_kind'] = 18
+    else:
+        # 계산서 (면세): 세액 없음, 분류가 16번부터
+        IDX['tax_total'] = None
+        IDX['classification'] = 16
+        IDX['invoice_kind'] = 17
 
     results = []
-    for _, row in df.iterrows():
-        write_date = _normalize_date(row.get('write_date', ''))
-        issue_date = _normalize_date(row.get('issue_date', ''))
-        if not write_date and not issue_date:
-            continue  # 날짜 없는 행은 건너뜀 (빈 행이거나 합계행)
+    seen_numbers = set()
 
-        supply = _safe_int(row.get('supply_cost_total', 0))
-        tax = _safe_int(row.get('tax_total', 0))
-        total = _safe_int(row.get('total_amount', 0))
+    for row_idx in range(len(data_df)):
+        row = data_df.iloc[row_idx].values
 
-        # 합계금액이 없으면 계산
-        if not total and supply:
-            total = supply + tax
+        # 작성일자가 없으면 빈 행 / 합계 행 → 건너뜀
+        write_date_raw = _safe_str(row[IDX['write_date']] if IDX['write_date'] < len(row) else '')
+        if not write_date_raw or write_date_raw in ('nan', ''):
+            continue
 
-        # 공급가액이 0이면 건너뜀 (합계행 등)
+        write_date = _normalize_date(write_date_raw)
+        issue_date = _normalize_date(
+            _safe_str(row[IDX['issue_date']] if IDX['issue_date'] < len(row) else ''))
+
+        # 승인번호
+        invoice_number = _safe_str(row[IDX['invoice_number']] if IDX['invoice_number'] < len(row) else '')
+
+        # 같은 엑셀 내 중복 건 건너뛰기 (승인번호 기준)
+        if invoice_number and invoice_number in seen_numbers:
+            continue
+        if invoice_number:
+            seen_numbers.add(invoice_number)
+
+        # 금액
+        supply = _safe_int(row[IDX['supply_cost_total']] if IDX['supply_cost_total'] < len(row) else 0)
+        total = _safe_int(row[IDX['total_amount']] if IDX['total_amount'] < len(row) else 0)
+
+        if IDX['tax_total'] is not None and IDX['tax_total'] < len(row):
+            tax = _safe_int(row[IDX['tax_total']])
+        else:
+            tax = 0  # 면세
+
+        # 공급가액과 합계 모두 0이면 건너뜀
         if supply == 0 and total == 0:
             continue
 
+        # 합계금액 보정
+        if total == 0 and supply != 0:
+            total = supply + tax
+
+        # 과세유형 결정
+        if is_tax_exempt:
+            tax_type = '면세'
+        else:
+            # 전자세금계산서 분류에서 추가 판별
+            classification = _safe_str(
+                row[IDX['classification']] if IDX['classification'] < len(row) else '')
+            if '영세' in classification:
+                tax_type = '영세'
+            elif '면세' in classification:
+                tax_type = '면세'
+            else:
+                tax_type = '과세'
+
+        # 공급자/공급받는자 정보
+        supplier_num = _normalize_corp_num(
+            row[IDX['supplier_corp_num']] if IDX['supplier_corp_num'] < len(row) else '')
+        supplier_name = _safe_str(
+            row[IDX['supplier_corp_name']] if IDX['supplier_corp_name'] < len(row) else '')
+        supplier_ceo = _safe_str(
+            row[IDX['supplier_ceo_name']] if IDX['supplier_ceo_name'] < len(row) else '')
+        buyer_num = _normalize_corp_num(
+            row[IDX['buyer_corp_num']] if IDX['buyer_corp_num'] < len(row) else '')
+        buyer_name = _safe_str(
+            row[IDX['buyer_corp_name']] if IDX['buyer_corp_name'] < len(row) else '')
+        buyer_ceo = _safe_str(
+            row[IDX['buyer_ceo_name']] if IDX['buyer_ceo_name'] < len(row) else '')
+
         payload = {
             'direction': direction,
-            'invoice_number': str(row.get('invoice_number', '')).strip(),
+            'invoice_number': invoice_number,
             'mgt_key': '',
             'write_date': write_date or issue_date,
             'issue_date': issue_date or write_date,
-            'tax_type': _map_tax_type_hometax(row.get('tax_type', '')),
-            'supplier_corp_num': _normalize_corp_num(row.get('supplier_corp_num', '')),
-            'supplier_corp_name': str(row.get('supplier_corp_name', '')).strip(),
-            'supplier_ceo_name': str(row.get('supplier_ceo_name', '')).strip(),
-            'buyer_corp_num': _normalize_corp_num(row.get('buyer_corp_num', '')),
-            'buyer_corp_name': str(row.get('buyer_corp_name', '')).strip(),
-            'buyer_ceo_name': str(row.get('buyer_ceo_name', '')).strip(),
+            'tax_type': tax_type,
+            'supplier_corp_num': supplier_num,
+            'supplier_corp_name': supplier_name,
+            'supplier_ceo_name': supplier_ceo,
+            'buyer_corp_num': buyer_num,
+            'buyer_corp_name': buyer_name,
+            'buyer_ceo_name': buyer_ceo,
             'supply_cost_total': supply,
             'tax_total': tax,
             'total_amount': total,
@@ -526,5 +579,6 @@ def parse_hometax_excel(df, direction='sales'):
         }
         results.append(payload)
 
-    logger.info(f"홈택스 엑셀 파싱 완료: {len(results)}건 ({direction})")
+    logger.info(f"홈택스 엑셀 파싱 완료: {len(results)}건 ({direction}, "
+                f"{'면세' if is_tax_exempt else '과세'})")
     return results

@@ -71,11 +71,12 @@
                         data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="bi bi-upload"></i> 홈택스 업로드
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end" style="min-width:280px">
+                <ul class="dropdown-menu dropdown-menu-end" style="min-width:300px">
                     <li class="px-3 py-2">
                         <div class="text-muted small mb-2">
                             <i class="bi bi-info-circle"></i>
-                            홈택스에서 다운받은 세금계산서 엑셀 파일을 업로드하세요.
+                            홈택스에서 다운받은 엑셀 파일을 업로드하세요.<br>
+                            <span class="text-primary">세금계산서(과세) · 계산서(면세) 자동 인식</span>
                         </div>
                         <form method="post" action="{{ url_for('tax_invoice.upload') }}" enctype="multipart/form-data" id="uploadSalesForm">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -84,7 +85,7 @@
                                 <input type="file" name="file" accept=".xlsx,.xls" class="form-control form-control-sm" required>
                             </div>
                             <button type="submit" class="btn btn-success btn-sm w-100">
-                                <i class="bi bi-arrow-up-circle"></i> 매출 세금계산서 업로드
+                                <i class="bi bi-arrow-up-circle"></i> 매출 업로드
                             </button>
                         </form>
                     </li>
@@ -97,16 +98,9 @@
                                 <input type="file" name="file" accept=".xlsx,.xls" class="form-control form-control-sm" required>
                             </div>
                             <button type="submit" class="btn btn-warning btn-sm w-100">
-                                <i class="bi bi-arrow-down-circle"></i> 매입 세금계산서 업로드
+                                <i class="bi bi-arrow-down-circle"></i> 매입 업로드
                             </button>
                         </form>
-                    </li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li class="px-3 py-1 pb-2">
-                        <a href="{{ url_for('tax_invoice.download_template', direction='sales') }}"
-                           class="btn btn-outline-secondary btn-sm w-100 mb-1">
-                            <i class="bi bi-file-earmark-excel"></i> 양식 다운로드 (참고용)
-                        </a>
                     </li>
                 </ul>
             </div>
@@ -205,6 +199,8 @@
 <div class="mt-3 text-muted small">
     <i class="bi bi-info-circle"></i>
     홈택스(<a href="https://www.hometax.go.kr" target="_blank">hometax.go.kr</a>) →
-    조회/발급 → 전자세금계산서 → 발급목록조회 → Excel 다운로드 후 업로드하세요.
+    조회/발급 → 전자(세금)계산서 → 발급/매입 목록조회 → Excel 다운로드 후 업로드하세요.<br>
+    <i class="bi bi-check-circle text-success"></i>
+    세금계산서(과세, 35컬럼) · 계산서(면세, 33컬럼) 자동 인식 — 매출/매입만 선택하면 됩니다.
 </div>
 {% endblock %}

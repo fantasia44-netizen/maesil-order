@@ -133,9 +133,11 @@ def upload():
 
     try:
         file.save(filepath)
-        df = pd.read_excel(filepath, dtype=str).fillna('')
+        # 홈택스 엑셀은 header가 5행(또는 그 근처)에 있음 → header=None으로 읽고 파서가 자동 탐지
+        df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
 
         from services.tax_invoice_service import parse_hometax_excel
+        # 파서가 헤더 행 자동 탐지 + 면세/과세 자동 판별
         invoices_data = parse_hometax_excel(df, direction)
 
         new_count = 0
@@ -153,9 +155,11 @@ def upload():
             new_count += 1
 
         dir_label = '매출' if direction == 'sales' else '매입'
-        flash(f'{dir_label} 세금계산서 업로드 완료: 신규 {new_count}건, 중복 스킵 {skip_count}건', 'success')
+        tax_label = '계산서(면세)' if any(
+            i.get('tax_type') == '면세' for i in invoices_data) else '세금계산서'
+        flash(f'{dir_label} {tax_label} 업로드 완료: 신규 {new_count}건, 중복 스킵 {skip_count}건', 'success')
         _log_action('upload_tax_invoice',
-                     detail=f'{dir_label} 엑셀업로드: 신규 {new_count}건, 스킵 {skip_count}건')
+                     detail=f'{dir_label} {tax_label} 업로드: 신규 {new_count}건, 스킵 {skip_count}건')
 
     except Exception as e:
         flash(f'엑셀 업로드 오류: {e}', 'danger')
