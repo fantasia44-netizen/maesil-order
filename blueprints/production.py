@@ -216,6 +216,11 @@ def batch():
         from services.production_service import process_production_batch
         result = process_production_batch(
             current_app.db, date_str, mode, location, items)
+        _log_action('batch_production',
+                     detail=f'{date_str} {location} 생산 — '
+                            f'산출 {result.get("produced", 0)}건, '
+                            f'원재료 차감 {result.get("materials_used", 0)}건 '
+                            f'(모드: {mode}, 항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'produced': result.get('produced', 0),
@@ -259,6 +264,11 @@ def excel_upload():
             for w in result['warnings']:
                 flash(w, 'warning')
 
+        _log_action('excel_production',
+                     detail=f'{file.filename}: {date_str} 생산 — '
+                            f'산출 {result.get("produced", 0)}건, '
+                            f'원재료 차감 {result.get("materials_used", 0)}건 '
+                            f'(모드: {mode})')
         flash(f"생산 처리 완료: 산출 {result.get('produced', 0)}건, "
               f"원재료 차감 {result.get('materials_used', 0)}건"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),

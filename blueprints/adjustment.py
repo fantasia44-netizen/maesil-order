@@ -173,6 +173,11 @@ def batch():
     try:
         from services.adjustment_service import process_adjustment_batch
         result = process_adjustment_batch(current_app.db, date_str, items)
+        _log_action('batch_adjustment',
+                     detail=f'{date_str} 재고조정 {result.get("count", 0)}건 '
+                            f'(증가 {result.get("increase_count", 0)}건, '
+                            f'감소 {result.get("decrease_count", 0)}건, '
+                            f'항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'count': result.get('count', 0),

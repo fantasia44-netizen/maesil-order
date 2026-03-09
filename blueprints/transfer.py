@@ -14,7 +14,7 @@ from flask import (
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
-from auth import role_required
+from auth import role_required, _log_action
 
 transfer_bp = Blueprint('transfer', __name__, url_prefix='/transfer')
 
@@ -97,6 +97,10 @@ def manual():
             for w in result['warnings']:
                 flash(w, 'warning')
 
+        _log_action('manual_transfer',
+                     detail=f'{date_str} {product_name} x{qty} '
+                            f'{from_location}→{to_location} '
+                            f'({result.get("moved_count", 0)}건 처리, 모드: {mode})')
         flash(f"창고 이동 완료: {result.get('moved_count', 0)}건 처리"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
               'success')
@@ -165,6 +169,9 @@ def batch():
             all_warnings.extend(result.get('warnings', []))
             deleted_count += result.get('deleted_count', 0)
 
+        _log_action('batch_transfer',
+                     detail=f'{date_str} 일괄 창고이동 {total_count}건 처리 '
+                            f'(항목 {len(items)}건, 모드: {mode})')
         return jsonify({
             'success': True,
             'count': total_count,
@@ -210,6 +217,9 @@ def excel():
             for w in result['warnings']:
                 flash(w, 'warning')
 
+        _log_action('excel_transfer',
+                     detail=f'{file.filename}: {date_str} 엑셀 창고이동 '
+                            f'{result.get("count", 0)}건 처리 (모드: {mode})')
         flash(f"엑셀 이동 완료: {result.get('count', 0)}건 처리"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
               'success')

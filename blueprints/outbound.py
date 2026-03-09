@@ -345,6 +345,10 @@ def single():
             f"재고차감 {result['count']}건 | 거래 {len(items)}건 | "
             f"총금액 {total_amount:,}원 | {item_summary}"
         )
+        _log_action('single_outbound',
+                     detail=f'{date_str} {partner_name} {location} — '
+                            f'거래 {len(items)}건, 재고차감 {result["count"]}건, '
+                            f'총금액 {total_amount:,}원 ({item_summary})')
         flash(
             f"출고 처리 완료: 재고차감 {result['count']}건, "
             f"거래등록 {len(items)}건 (매출처: {partner_name}, 창고: {location}) — {item_summary}",
@@ -600,6 +604,9 @@ def batch():
         for e in errors:
             flash(e, 'danger')
 
+    _log_action('batch_outbound',
+                 detail=f'{date_str} 일괄출고 {total_count}건 처리 '
+                        f'(파일 {len([f for f in files if f and f.filename])}개, 모드: {mode})')
     flash(f"일괄 출고 완료: 총 {total_count}건 처리", 'success')
     return redirect(url_for('outbound.index'))
 

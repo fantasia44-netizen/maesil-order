@@ -168,6 +168,9 @@ def batch():
     try:
         from services.inbound_service import process_inbound_batch
         result = process_inbound_batch(current_app.db, date_str, mode, items)
+        _log_action('batch_inbound',
+                     detail=f'{date_str} 일괄입고 {result.get("count", 0)}건 등록 '
+                            f'(모드: {mode}, 항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'count': result.get('count', 0),
@@ -208,6 +211,9 @@ def excel():
             for w in result['warnings']:
                 flash(w, 'warning')
 
+        _log_action('excel_inbound',
+                     detail=f'{file.filename}: {date_str} 입고 {result.get("count", 0)}건 등록 '
+                            f'(모드: {mode})')
         flash(f"입고 처리 완료: {result.get('count', 0)}건 등록"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
               'success')

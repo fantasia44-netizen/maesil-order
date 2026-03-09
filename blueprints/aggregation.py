@@ -29,7 +29,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 
-from auth import role_required
+from auth import role_required, _log_action
 
 aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
@@ -923,36 +923,21 @@ def generate_report():
             ch_agg = _dd(lambda: _dd(lambda: _dd(int)))
             ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
 
-            # order_transactions (온라인 채널) — collection_date 기준 (NULL이면 order_date)
+            # order_transactions (온라인 채널) — outbound_date(출고일) 기준
+            # 통합집계(stock_ledger SALES_OUT)와 동일한 출고일 기준으로 일치시킴
             _ot_rows = []
             ot_offset = 0
             while True:
                 ot_resp = db.client.table('order_transactions') \
-                    .select('collection_date,product_name,channel,qty') \
+                    .select('outbound_date,product_name,channel,qty') \
                     .eq('status', '정상') \
-                    .gte('collection_date', date_from) \
-                    .lte('collection_date', date_to) \
+                    .eq('is_outbound_done', True) \
+                    .gte('outbound_date', date_from) \
+                    .lte('outbound_date', date_to) \
                     .range(ot_offset, ot_offset + 999) \
                     .execute()
                 for r in (ot_resp.data or []):
-                    r['_date'] = r.get('collection_date', '')
-                    _ot_rows.append(r)
-                if len(ot_resp.data or []) < 1000:
-                    break
-                ot_offset += 1000
-            # collection_date가 NULL인 기존 데이터 (order_date fallback)
-            ot_offset = 0
-            while True:
-                ot_resp = db.client.table('order_transactions') \
-                    .select('order_date,product_name,channel,qty') \
-                    .eq('status', '정상') \
-                    .is_('collection_date', 'null') \
-                    .gte('order_date', date_from) \
-                    .lte('order_date', date_to) \
-                    .range(ot_offset, ot_offset + 999) \
-                    .execute()
-                for r in (ot_resp.data or []):
-                    r['_date'] = r.get('order_date', '')
+                    r['_date'] = r.get('outbound_date', '')
                     _ot_rows.append(r)
                 if len(ot_resp.data or []) < 1000:
                     break
@@ -1197,6 +1182,10 @@ def generate_report():
             traceback.print_exc()
             flash(f'채널별 주문수량 생성 오류: {ch_err}', 'warning')
 
+        _log_action('generate_aggregation',
+                     detail=f'[{date_label}] 통합집계 보고서 생성 — '
+                            f'출고 {total_items}종 {total_qty:,}개, '
+                            f'파일 {len(generated_files)}개')
         flash(f"[{date_label}] 보고서 생성 완료 — 출고 {total_items}종 {total_qty:,}개, "
               f"파일 {len(generated_files)}개", 'success')
 
@@ -1265,6 +1254,8 @@ def delete_file():
             deleted += 1
 
     if deleted > 0:
+        _log_action('delete_aggregation_file',
+                    detail=f'집계파일 {deleted}건 삭제: {", ".join(filenames[:5])}')
         flash(f'파일 {deleted}건 삭제 완료', 'success')
     else:
         flash('삭제할 파일이 없습니다.', 'warning')

@@ -210,6 +210,11 @@ def batch():
         from services.repack_service import process_repack_batch
         result = process_repack_batch(
             current_app.db, date_str, mode, location, items)
+        _log_action('batch_repack',
+                     detail=f'{date_str} {location} 소분 — '
+                            f'투입 {result.get("repack_out_count", 0)}건, '
+                            f'산출 {result.get("repack_in_count", 0)}건 '
+                            f'(모드: {mode}, 항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'repack_in_count': result.get('repack_in_count', 0),
@@ -253,6 +258,11 @@ def process():
             for w in result['warnings']:
                 flash(w, 'warning')
 
+        _log_action('excel_repack',
+                     detail=f'{file.filename}: {date_str} 소분 — '
+                            f'투입 {result.get("repack_out_count", 0)}건, '
+                            f'산출 {result.get("repack_in_count", 0)}건 '
+                            f'(모드: {mode})')
         flash(f"소분 처리 완료: 투입 {result.get('repack_out_count', 0)}건, "
               f"산출 {result.get('repack_in_count', 0)}건"
               + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),

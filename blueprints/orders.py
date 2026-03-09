@@ -242,6 +242,11 @@ def process():
             flash(result['error'], 'danger')
 
         if result.get('success'):
+            db_res = result.get('db_result') or {}
+            _log_action('process_order',
+                         detail=f'[{platform}] {target_type} 처리 완료 — '
+                                f'신규 {db_res.get("inserted", 0)}건, '
+                                f'갱신 {db_res.get("updated", 0)}건')
             flash(f"[{platform}] {target_type} 처리 완료!", 'success')
 
         # 다채널 중복 경고 표시
@@ -341,6 +346,9 @@ def api_option_register():
         # 등록 성공 후 캐시 강제 갱신 (재처리 대비)
         match_key = original_name.replace(' ', '').upper()
         print(f"[OPTION-REG] OK: '{original_name}' -> '{product_name}' match_key='{match_key}'")
+        _log_action('register_option',
+                     detail=f'옵션 등록: {original_name} → {product_name} '
+                            f'(라인:{line_code}, 순서:{sort_order})')
         return jsonify({'success': True, 'message': f'{original_name} -> {product_name} 등록 완료'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -397,6 +405,8 @@ def api_reprocess():
                       'url': url_for('orders.download', filename=os.path.basename(f))}
                      for f in result.get('files', [])]
 
+        _log_action('reprocess_order',
+                     detail=f'[{reprocess["platform"]}] {reprocess["target_type"]} 재처리 완료')
         return jsonify({
             'success': True,
             'message': f"[{reprocess['platform']}] {reprocess['target_type']} 처리 완료!",
@@ -570,6 +580,10 @@ def api_order_edit(order_id):
             user=current_user.username if current_user.is_authenticated else ''
         )
 
+    _log_action('edit_order', target=str(order_id),
+                 old_value={'product_name': order.get('product_name', '') if order else '',
+                            'qty': order.get('qty', 0) if order else 0},
+                 detail=f'주문수정 #{order_id}: {reason}')
     return jsonify(result)
 
 
@@ -610,6 +624,11 @@ def api_order_cancel(order_id):
         except Exception as e:
             result['reversal_error'] = str(e)
 
+    _log_action('cancel_order', target=str(order_id),
+                 old_value={'product_name': order.get('product_name', '') if order else '',
+                            'qty': order.get('qty', 0) if order else 0,
+                            'channel': order.get('channel', '') if order else ''},
+                 detail=f'주문{change_type} #{order_id}: {reason}')
     return jsonify(result)
 
 
@@ -652,10 +671,16 @@ def api_update_invoice():
             channel, order_no, invoice_no, courier,
             shipping_status='발송'
         )
+        if ok:
+            _log_action('update_invoice',
+                         detail=f'송장 업데이트: {channel}/{order_no} → {invoice_no}')
         return jsonify({'success': ok, 'updated': 1 if ok else 0})
     else:
         # 일괄 업데이트
         count = current_app.db.bulk_update_shipping_invoices(updates)
+        if count > 0:
+            _log_action('bulk_update_invoice',
+                         detail=f'송장 일괄 업데이트 {count}건')
         return jsonify({'success': True, 'updated': count})
 
 
@@ -811,6 +836,10 @@ def api_process_outbound():
             channel=channel,
             force_shortage=force_shortage,
         )
+        _log_action('process_outbound',
+                     detail=f'주문→출고 자동처리 {date_from}~{date_to} '
+                            f'(채널: {channel or "전체"}, '
+                            f'출고 {result.get("outbound_count", 0)}건)')
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -959,6 +988,8 @@ def api_n_delivery():
                 result['realtime_error'] = str(rt_err)
                 rt_msg = f' (⚠️ 출고 자동처리 실패: {rt_err})'
 
+    _log_action('n_delivery',
+                 detail=f'N배송 수동입력 {order_date}: {ins}건 저장, {upd}건 갱신{rt_msg}')
     return jsonify({
         'success': True,
         'message': f'N배송 {ins}건 저장, {upd}건 갱신{rt_msg}',
@@ -1153,6 +1184,8 @@ def api_n_delivery_reprocess():
         msg = f'N배송 미처리 {len(pending)}건 중 {processed}건 출고 처리 완료'
         if errors:
             msg += f' (오류 {len(errors)}건)'
+        _log_action('n_delivery_reprocess',
+                     detail=f'N배송 미처리 재처리: {len(pending)}건 중 {processed}건 출고 완료')
         return jsonify({'success': True, 'message': msg,
                         'processed': processed, 'total': len(pending),
                         'errors': errors[:10]})
@@ -1260,19 +1293,9 @@ def api_rocket_manual():
             current_app.logger.warning(f'로켓 재고차감 오류: {stk_err}')
 
         # 3. 감사 로그
-        db.insert_audit_log({
-            'action': '로켓매출_수동입력',
-            'user_name': username,
-            'target': f'daily_revenue#{revenue_date}',
-            'detail': f'{revenue_date} 로켓 {len(revenue_payload)}건 저장 ({warehouse}){stock_msg}',
-            'new_value': {
-                'date': revenue_date,
-                'warehouse': warehouse,
-                'count': len(revenue_payload),
-                'items': [{'product': p['product_name'], 'qty': p['qty']}
-                          for p in revenue_payload],
-            },
-        })
+        _log_action('rocket_manual',
+                     detail=f'{revenue_date} 로켓매출 {len(revenue_payload)}건 저장 '
+                            f'({warehouse}){stock_msg}')
 
         return jsonify({
             'success': True,

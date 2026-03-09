@@ -113,10 +113,12 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-folder"></i> 파일 목록 ({{ result_files|length }}건)</span>
+        {% if current_user.role == 'admin' %}
         <button type="button" class="btn btn-sm btn-outline-danger" id="deleteFilesBtn" disabled
                 onclick="submitDelete()">
             <i class="bi bi-trash"></i> 선택 삭제
         </button>
+        {% endif %}
     </div>
     <div class="card-body p-0">
         <form id="deleteForm" method="POST" action="{{ url_for('aggregation.delete_file') }}"
@@ -129,9 +131,11 @@
             <table class="table table-hover table-sm mb-0">
                 <thead class="table-light sticky-top">
                     <tr>
+                        {% if current_user.role == 'admin' %}
                         <th style="width: 40px" class="text-center">
                             <input type="checkbox" id="checkAll" class="form-check-input">
                         </th>
+                        {% endif %}
                         <th>파일명</th>
                         <th style="width: 80px" class="text-center">구분</th>
                         <th style="width: 60px" class="text-center">다운</th>
@@ -140,9 +144,11 @@
                 <tbody>
                     {% for f in result_files %}
                     <tr>
+                        {% if current_user.role == 'admin' %}
                         <td class="text-center">
                             <input type="checkbox" class="form-check-input file-check" value="{{ f }}">
                         </td>
+                        {% endif %}
                         <td class="small">{{ f }}</td>
                         <td class="text-center">
                             {% if f.startswith('매출집계표') %}
