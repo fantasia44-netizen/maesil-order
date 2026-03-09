@@ -1,12 +1,31 @@
-"""tax_invoice.py -- 세금계산서 관리 Blueprint."""
+"""tax_invoice.py -- 세금계산서 관리 Blueprint.
+홈택스 엑셀 업로드 방식 (매출/매입).
+팝빌 연동 코드는 주석 처리 → 추후 팝빌 사용 시 복원.
+"""
+import os
 import json
-from flask import Blueprint, render_template, request, current_app, flash, redirect, url_for, jsonify
+from io import BytesIO
+from flask import (
+    Blueprint, render_template, request, current_app,
+    flash, redirect, url_for, jsonify, send_file,
+)
 from flask_login import login_required, current_user
+from werkzeug.utils import secure_filename
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
 
 tax_invoice_bp = Blueprint('tax_invoice', __name__, url_prefix='/tax-invoice')
 
+ALLOWED_EXT = {'xlsx', 'xls'}
+
+
+def _allowed(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXT
+
+
+# ══════════════════════════════════════════════
+#  목록 / 상세 / 취소  (기존 유지)
+# ══════════════════════════════════════════════
 
 @tax_invoice_bp.route('/')
 @role_required('admin', 'ceo', 'manager', 'general')
@@ -29,84 +48,12 @@ def index():
     purchase_total = sum(i.get('total_amount', 0) for i in invoices
                          if i.get('direction') == 'purchase' and i.get('status') != 'cancelled')
 
-    # 팝빌 상태는 AJAX로 비동기 로드 (블로킹 방지)
-    show_popbill_status = current_user.role in ('admin', 'manager')
-
     return render_template('tax_invoice/index.html',
                            invoices=invoices,
                            sales_total=sales_total,
                            purchase_total=purchase_total,
                            direction=direction,
-                           date_from=date_from, date_to=date_to,
-                           show_popbill_status=show_popbill_status)
-
-
-@tax_invoice_bp.route('/issue', methods=['GET', 'POST'])
-@role_required('admin', 'manager', 'general')
-def issue():
-    """세금계산서 발행"""
-    db = current_app.db
-
-    if request.method == 'GET':
-        partners = db.query_partners()
-        my_biz = db.query_default_business()
-        return render_template('tax_invoice/issue.html',
-                               partners=partners, my_biz=my_biz)
-
-    # POST: 발행 처리
-    try:
-        from services.tax_invoice_service import build_invoice_from_trade, save_invoice_to_db
-
-        partner_id = int(request.form.get('partner_id', 0))
-        trade_date = request.form.get('write_date', today_kst())
-        tax_type = request.form.get('tax_type', '과세')
-        items_json = request.form.get('items', '[]')
-        items = json.loads(items_json)
-
-        if not items:
-            flash('품목을 추가하세요.', 'danger')
-            return redirect(url_for('tax_invoice.issue'))
-
-        invoice_data = build_invoice_from_trade(db, partner_id, trade_date, items, tax_type=tax_type)
-
-        # 팝빌 발행 시도
-        popbill_result = None
-        cert_error = False
-        if current_app.popbill.is_ready:
-            try:
-                popbill_result = current_app.popbill.issue_sales_invoice(invoice_data)
-            except Exception as e:
-                if current_app.popbill.is_cert_error(e):
-                    cert_error = True
-                    flash('팝빌 인증서가 등록되지 않았습니다. '
-                          '팝빌 사이트에서 공동인증서를 등록한 후 다시 시도하세요. '
-                          '(DB에는 임시 저장됩니다)', 'warning')
-                else:
-                    flash(f'팝빌 발행 오류 (DB에는 저장합니다): {e}', 'warning')
-
-        # DB 저장
-        invoice_id = save_invoice_to_db(
-            db, invoice_data, 'sales', popbill_result,
-            registered_by=current_user.username,
-        )
-
-        _log_action('issue_tax_invoice',
-                    detail=f'ID={invoice_id}, 금액={invoice_data.get("total_amount", 0):,}')
-
-        nts = popbill_result.get('nts_confirm_num', '') if popbill_result else ''
-        if nts:
-            flash(f'세금계산서 발행 완료 (승인번호: {nts})', 'success')
-        elif cert_error:
-            pass  # 위에서 이미 안내함
-        elif not current_app.popbill.is_ready:
-            flash('세금계산서 저장 완료 (팝빌 미연동 — SecretKey 설정 필요)', 'info')
-        else:
-            flash('세금계산서 DB 저장 완료 (팝빌 발행 실패 — 수동 발행 필요)', 'info')
-
-    except Exception as e:
-        flash(f'세금계산서 발행 오류: {e}', 'danger')
-
-    return redirect(url_for('tax_invoice.index'))
+                           date_from=date_from, date_to=date_to)
 
 
 @tax_invoice_bp.route('/detail/<int:invoice_id>')
@@ -123,7 +70,7 @@ def detail(invoice_id):
 @tax_invoice_bp.route('/cancel/<int:invoice_id>', methods=['POST'])
 @role_required('admin', 'manager')
 def cancel(invoice_id):
-    """세금계산서 발행 취소"""
+    """세금계산서 취소"""
     db = current_app.db
     invoice = db.query_tax_invoice_by_id(invoice_id)
     if not invoice:
@@ -131,194 +78,179 @@ def cancel(invoice_id):
         return redirect(url_for('tax_invoice.index'))
 
     try:
-        # 팝빌 취소 시도 (실패해도 DB 취소는 진행)
-        popbill_ok = True
-        if current_app.popbill.is_ready and invoice.get('mgt_key'):
-            try:
-                current_app.popbill.cancel_issue(invoice['mgt_key'])
-            except Exception as pe:
-                popbill_ok = False
-                flash(f'팝빌 취소 실패 (DB에서는 취소 처리합니다): {pe}', 'warning')
-
         db.update_tax_invoice(invoice_id, {'status': 'cancelled'})
-        _log_action('cancel_tax_invoice',
-                    detail=f'ID={invoice_id}')
-        if popbill_ok:
-            flash('세금계산서가 취소되었습니다.', 'success')
-        else:
-            flash('세금계산서가 DB에서 취소되었습니다.', 'info')
+        _log_action('cancel_tax_invoice', detail=f'ID={invoice_id}')
+        flash('세금계산서가 취소되었습니다.', 'success')
     except Exception as e:
         flash(f'취소 오류: {e}', 'danger')
 
     return redirect(url_for('tax_invoice.index'))
 
 
-@tax_invoice_bp.route('/sync', methods=['POST'])
-@role_required('admin', 'manager')
-def sync():
-    """팝빌에서 세금계산서 동기화 (매출+매입)"""
-    try:
-        from services.tax_invoice_service import sync_all_tax_invoices
+# ══════════════════════════════════════════════
+#  홈택스 엑셀 업로드 (매출 / 매입)
+# ══════════════════════════════════════════════
 
-        # 동기화 기간 (기본: 3개월)
-        months = int(request.form.get('months', 3))
-        end_date = today_kst().replace('-', '')
-        start_date = days_ago_kst(months * 30).replace('-', '')
+@tax_invoice_bp.route('/upload', methods=['POST'])
+@role_required('admin', 'manager', 'general')
+def upload():
+    """홈택스 세금계산서 엑셀 업로드 (매출 또는 매입)"""
+    import pandas as pd
 
-        results = sync_all_tax_invoices(
-            current_app.db, current_app.popbill,
-            start_date=start_date, end_date=end_date,
-        )
+    db = current_app.db
+    direction = request.form.get('direction', 'sales')  # sales / purchase
+    file = request.files.get('file')
 
-        sell = results.get('sell', {})
-        buy = results.get('buy', {})
-
-        if sell.get('error') or buy.get('error'):
-            errors = []
-            if sell.get('error'):
-                errors.append(f"매출: {sell['error']}")
-            if buy.get('error'):
-                errors.append(f"매입: {buy['error']}")
-            flash(f'동기화 오류: {"; ".join(errors)}', 'danger')
-        else:
-            sell_new = sell.get('new_count', 0)
-            buy_new = buy.get('new_count', 0)
-            sell_total = sell.get('total_fetched', 0)
-            buy_total = buy.get('total_fetched', 0)
-            flash(
-                f'세금계산서 동기화 완료: '
-                f'매출 {sell_total}건 중 신규 {sell_new}건, '
-                f'매입 {buy_total}건 중 신규 {buy_new}건',
-                'success'
-            )
-
-        _log_action('sync_tax_invoices',
-                    detail=f'매출 신규 {sell.get("new_count", 0)}건, '
-                           f'매입 신규 {buy.get("new_count", 0)}건')
-
-    except Exception as e:
-        flash(f'세금계산서 동기화 오류: {e}', 'danger')
-
-    return redirect(url_for('tax_invoice.index'))
-
-
-@tax_invoice_bp.route('/sync-sell', methods=['POST'])
-@role_required('admin', 'manager')
-def sync_sell():
-    """팝빌에서 매출 세금계산서만 동기화"""
-    try:
-        from services.tax_invoice_service import sync_tax_invoices
-
-        months = int(request.form.get('months', 3))
-        end_date = today_kst().replace('-', '')
-        start_date = days_ago_kst(months * 30).replace('-', '')
-
-        result = sync_tax_invoices(
-            current_app.db, current_app.popbill,
-            start_date, end_date, direction='SELL',
-        )
-
-        flash(
-            f'매출 세금계산서 동기화 완료: '
-            f'{result["total_fetched"]}건 중 신규 {result["new_count"]}건',
-            'success'
-        )
-        _log_action('sync_sell_invoices', detail=f'신규 {result["new_count"]}건')
-
-    except Exception as e:
-        flash(f'매출 동기화 오류: {e}', 'danger')
-
-    return redirect(url_for('tax_invoice.index'))
-
-
-@tax_invoice_bp.route('/sync-buy', methods=['POST'])
-@role_required('admin', 'manager')
-def sync_buy():
-    """팝빌에서 매입 세금계산서만 동기화"""
-    try:
-        from services.tax_invoice_service import sync_tax_invoices
-
-        months = int(request.form.get('months', 3))
-        end_date = today_kst().replace('-', '')
-        start_date = days_ago_kst(months * 30).replace('-', '')
-
-        result = sync_tax_invoices(
-            current_app.db, current_app.popbill,
-            start_date, end_date, direction='BUY',
-        )
-
-        flash(
-            f'매입 세금계산서 동기화 완료: '
-            f'{result["total_fetched"]}건 중 신규 {result["new_count"]}건',
-            'success'
-        )
-        _log_action('sync_buy_invoices', detail=f'신규 {result["new_count"]}건')
-
-    except Exception as e:
-        flash(f'매입 동기화 오류: {e}', 'danger')
-
-    return redirect(url_for('tax_invoice.index'))
-
-
-@tax_invoice_bp.route('/popbill-join', methods=['POST'])
-@role_required('admin')
-def popbill_join():
-    """팝빌 연동회원 가입 (API) — 폼에서 사업장 정보 입력받아 가입."""
-    popbill = current_app.popbill
-
-    if not popbill.is_ready:
-        flash('팝빌 SDK가 초기화되지 않았습니다.', 'danger')
+    if not file or not _allowed(file.filename):
+        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
         return redirect(url_for('tax_invoice.index'))
 
-    corp_num = popbill.corp_num
-    result = popbill.join_member(
-        corp_num=corp_num,
-        corp_name=request.form.get('corp_name', '').strip() or '사업자',
-        ceo_name=request.form.get('ceo_name', '').strip() or '대표자',
-        addr=request.form.get('addr', '').strip() or '-',
-        biz_type=request.form.get('biz_type', '').strip() or '도소매',
-        biz_class=request.form.get('biz_class', '').strip() or '식품',
-        contact_name=request.form.get('contact_name', '').strip() or '',
-        contact_tel=request.form.get('contact_tel', '').strip() or '',
-        contact_email=request.form.get('contact_email', '').strip() or '',
-    )
+    upload_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(upload_dir, filename)
 
-    if result['success']:
-        flash('팝빌 연동회원 가입 완료! 이제 인증서를 등록하세요.', 'success')
-        _log_action('popbill_join', detail=f'사업자 {corp_num} 팝빌 연동회원 가입')
-    else:
-        flash(f'팝빌 회원가입 결과: {result["message"]}', 'warning')
+    try:
+        file.save(filepath)
+        df = pd.read_excel(filepath, dtype=str).fillna('')
+
+        from services.tax_invoice_service import parse_hometax_excel
+        invoices_data = parse_hometax_excel(df, direction)
+
+        new_count = 0
+        skip_count = 0
+        for inv in invoices_data:
+            # 중복 체크 (승인번호 기준)
+            nts_num = inv.get('invoice_number', '')
+            existing = db.check_tax_invoice_exists(
+                invoice_number=nts_num if nts_num else None)
+            if existing:
+                skip_count += 1
+                continue
+
+            db.insert_tax_invoice(inv)
+            new_count += 1
+
+        dir_label = '매출' if direction == 'sales' else '매입'
+        flash(f'{dir_label} 세금계산서 업로드 완료: 신규 {new_count}건, 중복 스킵 {skip_count}건', 'success')
+        _log_action('upload_tax_invoice',
+                     detail=f'{dir_label} 엑셀업로드: 신규 {new_count}건, 스킵 {skip_count}건')
+
+    except Exception as e:
+        flash(f'엑셀 업로드 오류: {e}', 'danger')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
     return redirect(url_for('tax_invoice.index'))
 
 
-@tax_invoice_bp.route('/api/popbill-status')
-@role_required('admin', 'manager')
-def api_popbill_status():
-    """팝빌 연동 상태 JSON"""
-    status = current_app.popbill.get_status_summary()
-    return jsonify(status)
+# ══════════════════════════════════════════════
+#  엑셀 다운로드 (현재 조회된 세금계산서)
+# ══════════════════════════════════════════════
+
+@tax_invoice_bp.route('/download')
+@role_required('admin', 'ceo', 'manager', 'general')
+def download():
+    """세금계산서 목록 엑셀 다운로드"""
+    import pandas as pd
+
+    db = current_app.db
+    direction = request.args.get('direction', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    invoices = db.query_tax_invoices(
+        direction={'매출': 'sales', '매입': 'purchase'}.get(direction),
+        date_from=date_from or None,
+        date_to=date_to or None,
+    )
+
+    rows = []
+    for inv in invoices:
+        rows.append({
+            '구분': '매출' if inv.get('direction') == 'sales' else '매입',
+            '작성일자': inv.get('write_date', ''),
+            '발급일자': inv.get('issue_date', ''),
+            '승인번호': inv.get('invoice_number', ''),
+            '공급자 사업자번호': inv.get('supplier_corp_num', ''),
+            '공급자 상호': inv.get('supplier_corp_name', ''),
+            '공급자 대표자': inv.get('supplier_ceo_name', ''),
+            '공급받는자 사업자번호': inv.get('buyer_corp_num', ''),
+            '공급받는자 상호': inv.get('buyer_corp_name', ''),
+            '공급받는자 대표자': inv.get('buyer_ceo_name', ''),
+            '공급가액': inv.get('supply_cost_total', 0),
+            '세액': inv.get('tax_total', 0),
+            '합계금액': inv.get('total_amount', 0),
+            '과세유형': inv.get('tax_type', '과세'),
+            '상태': {'issued': '발행', 'draft': '임시', 'cancelled': '취소'}.get(
+                inv.get('status', ''), inv.get('status', '')),
+        })
+
+    df = pd.DataFrame(rows)
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='세금계산서')
+    buf.seek(0)
+
+    filename = f'세금계산서_{today_kst()}.xlsx'
+    _log_action('download_tax_invoice', detail=f'{len(rows)}건 엑셀 다운로드')
+
+    return send_file(buf, as_attachment=True, download_name=filename,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-@tax_invoice_bp.route('/api/popbill-cert-url')
-@role_required('admin', 'manager')
-def api_popbill_cert_url():
-    """팝빌 인증서 등록 팝업 URL 발급 (getTaxCertURL)."""
-    popbill = current_app.popbill
-    if not popbill.is_ready:
-        return jsonify({'error': 'Popbill SDK 미초기화'}), 400
+# ══════════════════════════════════════════════
+#  엑셀 샘플 양식 다운로드
+# ══════════════════════════════════════════════
 
-    url = popbill.get_tax_cert_url()
-    if url:
-        return jsonify({'url': url})
+@tax_invoice_bp.route('/download-template')
+@role_required('admin', 'manager', 'general')
+def download_template():
+    """홈택스 업로드용 엑셀 양식 다운로드 (참고용)"""
+    import pandas as pd
 
-    # getTaxCertURL 실패 시 getPopbillURL(CERT) 폴백
-    url = popbill.get_cert_url()
-    if url:
-        return jsonify({'url': url})
+    direction = request.args.get('direction', 'sales')
+    columns = [
+        '승인번호', '작성일자', '발급일자',
+        '공급자 사업자번호', '공급자 상호', '공급자 대표자',
+        '공급받는자 사업자번호', '공급받는자 상호', '공급받는자 대표자',
+        '공급가액', '세액', '합계금액', '과세유형', '비고',
+    ]
 
-    return jsonify({'error': '인증서 등록 URL 발급 실패. 팝빌 사이트에서 직접 등록하세요.'}), 500
+    # 샘플 1행
+    sample = {
+        '승인번호': '20260309-41000000-12345678',
+        '작성일자': '2026-03-09',
+        '발급일자': '2026-03-09',
+        '공급자 사업자번호': '123-45-67890',
+        '공급자 상호': '(주)공급사',
+        '공급자 대표자': '홍길동',
+        '공급받는자 사업자번호': '098-76-54321',
+        '공급받는자 상호': '(주)구매사',
+        '공급받는자 대표자': '김철수',
+        '공급가액': '1000000',
+        '세액': '100000',
+        '합계금액': '1100000',
+        '과세유형': '과세',
+        '비고': '',
+    }
 
+    df = pd.DataFrame([sample], columns=columns)
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='세금계산서')
+    buf.seek(0)
+
+    dir_label = '매출' if direction == 'sales' else '매입'
+    return send_file(buf, as_attachment=True,
+                     download_name=f'세금계산서_{dir_label}_양식.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ══════════════════════════════════════════════
+#  거래처 API (자동완성용 — 기존 유지)
+# ══════════════════════════════════════════════
 
 @tax_invoice_bp.route('/api/partners')
 @login_required
@@ -331,3 +263,27 @@ def api_partners():
         'business_number': p.get('business_number', ''),
         'representative': p.get('representative', ''),
     } for p in partners])
+
+
+# ══════════════════════════════════════════════
+#  팝빌 관련 라우트 (보류 — 추후 복원용)
+#  아래는 팝빌 비용 확인 후 사용할 때 주석 해제
+# ══════════════════════════════════════════════
+
+# @tax_invoice_bp.route('/issue', methods=['GET', 'POST'])
+# @role_required('admin', 'manager', 'general')
+# def issue():
+#     """세금계산서 발행 (팝빌 연동)"""
+#     ... (팝빌 사용 시 복원)
+
+# @tax_invoice_bp.route('/sync', methods=['POST'])
+# @role_required('admin', 'manager')
+# def sync():
+#     """팝빌에서 세금계산서 동기화 (매출+매입)"""
+#     ... (팝빌 사용 시 복원)
+
+# @tax_invoice_bp.route('/sync-sell', methods=['POST'])
+# @tax_invoice_bp.route('/sync-buy', methods=['POST'])
+# @tax_invoice_bp.route('/popbill-join', methods=['POST'])
+# @tax_invoice_bp.route('/api/popbill-status')
+# @tax_invoice_bp.route('/api/popbill-cert-url')

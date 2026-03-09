@@ -3315,6 +3315,7 @@ class SupabaseDB(DBBase):
             dict: {inserted: 신규건수, updated: 갱신건수}
         """
         from services.hr_service import calculate_payroll
+        from datetime import datetime, timezone
 
         employees = self.query_employees(status='재직')
         if not employees:
@@ -3409,6 +3410,7 @@ class SupabaseDB(DBBase):
             dict: 업데이트된 급여 레코드
         """
         from services.hr_service import calculate_payroll
+        from datetime import datetime, timezone
 
         # 기존 급여 조회
         try:

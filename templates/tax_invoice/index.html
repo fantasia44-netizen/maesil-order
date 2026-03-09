@@ -3,18 +3,6 @@
 {% block page_title %}세금계산서{% endblock %}
 
 {% block content %}
-<!-- 팝빌 연동 상태 알림 (AJAX 비동기 로드) -->
-{% if show_popbill_status %}
-<div id="popbill-status-area">
-    <div class="alert alert-light mb-3 py-2 border" id="popbill-loading">
-        <small>
-            <span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
-            팝빌 연동 상태 확인 중...
-        </small>
-    </div>
-</div>
-{% endif %}
-
 <!-- 필터 바 -->
 <div class="card shadow-sm mb-3">
     <div class="card-body py-2">
@@ -77,53 +65,56 @@
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span><i class="bi bi-receipt"></i> 세금계산서 목록</span>
         <div class="d-flex gap-2">
-            <!-- 팝빌 동기화 버튼 -->
+            <!-- 홈택스 엑셀 업로드 -->
             <div class="dropdown">
                 <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button"
                         data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="bi bi-cloud-download"></i> 팝빌 동기화
+                    <i class="bi bi-upload"></i> 홈택스 업로드
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li>
-                        <form method="post" action="{{ url_for('tax_invoice.sync') }}" class="px-3 py-2">
+                <ul class="dropdown-menu dropdown-menu-end" style="min-width:280px">
+                    <li class="px-3 py-2">
+                        <div class="text-muted small mb-2">
+                            <i class="bi bi-info-circle"></i>
+                            홈택스에서 다운받은 세금계산서 엑셀 파일을 업로드하세요.
+                        </div>
+                        <form method="post" action="{{ url_for('tax_invoice.upload') }}" enctype="multipart/form-data" id="uploadSalesForm">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="direction" value="sales">
                             <div class="mb-2">
-                                <label class="form-label small mb-1">동기화 기간</label>
-                                <select name="months" class="form-select form-select-sm">
-                                    <option value="1">최근 1개월</option>
-                                    <option value="3" selected>최근 3개월</option>
-                                    <option value="6">최근 6개월</option>
-                                    <option value="12">최근 1년</option>
-                                </select>
+                                <input type="file" name="file" accept=".xlsx,.xls" class="form-control form-control-sm" required>
                             </div>
                             <button type="submit" class="btn btn-success btn-sm w-100">
-                                <i class="bi bi-cloud-download"></i> 매출+매입 전체 동기화
+                                <i class="bi bi-arrow-up-circle"></i> 매출 세금계산서 업로드
                             </button>
                         </form>
                     </li>
                     <li><hr class="dropdown-divider"></li>
-                    <li>
-                        <form method="post" action="{{ url_for('tax_invoice.sync_sell') }}" class="px-3 py-1">
+                    <li class="px-3 py-2">
+                        <form method="post" action="{{ url_for('tax_invoice.upload') }}" enctype="multipart/form-data" id="uploadPurchaseForm">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="months" value="3">
-                            <button type="submit" class="btn btn-outline-success btn-sm w-100">
-                                <i class="bi bi-arrow-up-circle"></i> 매출만 동기화
+                            <input type="hidden" name="direction" value="purchase">
+                            <div class="mb-2">
+                                <input type="file" name="file" accept=".xlsx,.xls" class="form-control form-control-sm" required>
+                            </div>
+                            <button type="submit" class="btn btn-warning btn-sm w-100">
+                                <i class="bi bi-arrow-down-circle"></i> 매입 세금계산서 업로드
                             </button>
                         </form>
                     </li>
-                    <li>
-                        <form method="post" action="{{ url_for('tax_invoice.sync_buy') }}" class="px-3 py-1 pb-2">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="months" value="3">
-                            <button type="submit" class="btn btn-outline-warning btn-sm w-100">
-                                <i class="bi bi-arrow-down-circle"></i> 매입만 동기화
-                            </button>
-                        </form>
+                    <li><hr class="dropdown-divider"></li>
+                    <li class="px-3 py-1 pb-2">
+                        <a href="{{ url_for('tax_invoice.download_template', direction='sales') }}"
+                           class="btn btn-outline-secondary btn-sm w-100 mb-1">
+                            <i class="bi bi-file-earmark-excel"></i> 양식 다운로드 (참고용)
+                        </a>
                     </li>
                 </ul>
             </div>
-            <a href="{{ url_for('tax_invoice.issue') }}" class="btn btn-primary btn-sm">
-                <i class="bi bi-plus-circle"></i> 세금계산서 발행
+
+            <!-- 엑셀 다운로드 -->
+            <a href="{{ url_for('tax_invoice.download', direction=direction, date_from=date_from, date_to=date_to) }}"
+               class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-download"></i> 엑셀 다운로드
             </a>
         </div>
     </div>
@@ -191,7 +182,7 @@
                     {% else %}
                     <tr>
                         <td colspan="9" class="text-center text-muted py-4">
-                            데이터가 없습니다. 팝빌 동기화 버튼으로 세금계산서를 가져오세요.
+                            데이터가 없습니다. 홈택스에서 다운받은 엑셀 파일을 업로드하세요.
                         </td>
                     </tr>
                     {% endfor %}
@@ -201,177 +192,10 @@
     </div>
 </div>
 
-<!-- 팝빌 연동회원 가입 모달 -->
-{% if show_popbill_status %}
-<div class="modal fade" id="popbillJoinModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="post" action="{{ url_for('tax_invoice.popbill_join') }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-person-plus"></i> 팝빌 연동회원 가입</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-3">
-                        세금계산서 발행/동기화를 위해 사업장 정보를 입력하고 팝빌 연동회원으로 가입합니다.
-                    </p>
-                    <div class="row g-3">
-                        <div class="col-12">
-                            <label class="form-label small">상호명 <span class="text-danger">*</span></label>
-                            <input type="text" name="corp_name" class="form-control form-control-sm" required
-                                   placeholder="예: 해서물산">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small">대표자명 <span class="text-danger">*</span></label>
-                            <input type="text" name="ceo_name" class="form-control form-control-sm" required
-                                   placeholder="예: 홍길동">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small">사업자번호</label>
-                            <input type="text" class="form-control form-control-sm bg-light" readonly
-                                   value="{{ config.get('POPBILL_CORP_NUM', '') }}">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small">업태 <span class="text-danger">*</span></label>
-                            <input type="text" name="biz_type" class="form-control form-control-sm" required
-                                   placeholder="예: 도소매" value="도소매">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small">종목 <span class="text-danger">*</span></label>
-                            <input type="text" name="biz_class" class="form-control form-control-sm" required
-                                   placeholder="예: 식품" value="식품">
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label small">사업장 주소</label>
-                            <input type="text" name="addr" class="form-control form-control-sm"
-                                   placeholder="예: 서울특별시 강남구 ...">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small">담당자명</label>
-                            <input type="text" name="contact_name" class="form-control form-control-sm"
-                                   placeholder="예: 홍길동">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small">연락처 <span class="text-danger">*</span></label>
-                            <input type="tel" name="contact_tel" class="form-control form-control-sm" required
-                                   placeholder="예: 02-1234-5678">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label small">이메일</label>
-                            <input type="email" name="contact_email" class="form-control form-control-sm"
-                                   placeholder="예: user@example.com">
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button>
-                    <button type="submit" class="btn btn-primary btn-sm">
-                        <i class="bi bi-person-plus"></i> 가입하기
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+<!-- 안내 문구 -->
+<div class="mt-3 text-muted small">
+    <i class="bi bi-info-circle"></i>
+    홈택스(<a href="https://www.hometax.go.kr" target="_blank">hometax.go.kr</a>) →
+    조회/발급 → 전자세금계산서 → 발급목록조회 → Excel 다운로드 후 업로드하세요.
 </div>
-{% endif %}
-
-{% if show_popbill_status %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const area = document.getElementById('popbill-status-area');
-    if (!area) return;
-
-    fetch('{{ url_for("tax_invoice.api_popbill_status") }}')
-        .then(r => r.json())
-        .then(s => {
-            let html = '';
-
-            if (!s.initialized) {
-                html = `<div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
-                    <i class="bi bi-exclamation-triangle-fill"></i>
-                    <strong>팝빌 미연동</strong> — SecretKey가 설정되지 않았습니다.
-                    <code>.env</code> 파일에 <code>POPBILL_SECRET_KEY</code>를 입력하세요.
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>`;
-            } else if (!s.is_member) {
-                html = `<div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
-                    <i class="bi bi-person-x-fill"></i>
-                    <strong>팝빌 회원 미가입</strong> — 사업자번호 <code>${s.corp_num}</code>가 팝빌 연동회원으로 등록되어 있지 않습니다.
-                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" data-bs-toggle="modal" data-bs-target="#popbillJoinModal">
-                        <i class="bi bi-person-plus"></i> 팝빌 연동회원 가입
-                    </button>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>`;
-            } else if (s.cert_status && !s.cert_status.registered) {
-                // 인증서 미등록 → 버튼 클릭 시 API로 URL 발급 후 팝업
-                html = `<div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
-                    <i class="bi bi-shield-exclamation"></i>
-                    <strong>공동인증서 미등록</strong> — 세금계산서 발행/동기화를 위해 인증서 등록이 필요합니다.
-                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="btn-cert-register" onclick="openCertPopup()">
-                        <i class="bi bi-shield-check"></i> 인증서 등록하기
-                    </button>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>`;
-            }
-
-            // 테스트 모드 정보 바
-            if (s.initialized && s.is_test) {
-                let info = `팝빌 <strong>테스트</strong> 모드 | 사업자: ${s.corp_num}`;
-                if (s.is_member) info += ' | 회원: <span class="text-success">가입완료</span>';
-                if (s.balance != null) info += ` | 포인트: ${Number(s.balance).toLocaleString()}P`;
-                if (s.cert_status && s.cert_status.registered) {
-                    info += ' | 인증서: <span class="text-success">등록완료</span>';
-                } else {
-                    info += ' | 인증서: <span class="text-danger">미등록</span>';
-                }
-                html += `<div class="alert alert-info alert-dismissible fade show mb-3 py-2" role="alert">
-                    <small><i class="bi bi-info-circle"></i> ${info}</small>
-                    <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
-                </div>`;
-            }
-
-            area.innerHTML = html || '';
-        })
-        .catch(err => {
-            area.innerHTML = `<div class="alert alert-secondary mb-3 py-2">
-                <small><i class="bi bi-exclamation-circle"></i> 팝빌 상태 조회 실패</small>
-            </div>`;
-        });
-});
-
-function openCertPopup() {
-    const btn = document.getElementById('btn-cert-register');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> URL 발급 중...';
-    }
-    fetch('{{ url_for("tax_invoice.api_popbill_cert_url") }}')
-        .then(r => r.json())
-        .then(data => {
-            if (data.url) {
-                // 팝빌 인증서 등록 팝업 (800x600)
-                window.open(data.url, 'popbill_cert', 'width=900,height=700,scrollbars=yes');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="bi bi-shield-check"></i> 인증서 등록하기';
-                }
-            } else {
-                alert(data.error || '인증서 등록 URL 발급 실패');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="bi bi-shield-check"></i> 인증서 등록하기';
-                }
-            }
-        })
-        .catch(err => {
-            alert('인증서 등록 URL 요청 실패: ' + err.message);
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="bi bi-shield-check"></i> 인증서 등록하기';
-            }
-        });
-}
-</script>
-{% endif %}
 {% endblock %}

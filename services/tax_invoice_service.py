@@ -337,3 +337,194 @@ def save_invoice_to_db(db, invoice_data, direction, popbill_result=None, registe
             logger.error(f"세금계산서 자동 전표 생성 실패 (ID={invoice_id}): {e}")
 
     return invoice_id
+
+
+# ══════════════════════════════════════════
+# 홈택스 엑셀 업로드 파싱
+# ══════════════════════════════════════════
+
+# 홈택스 엑셀 컬럼명 매핑 (다양한 이름 대응)
+_HOMETAX_COL_MAP = {
+    # 승인번호
+    '승인번호': 'invoice_number',
+    '국세청승인번호': 'invoice_number',
+    'nts승인번호': 'invoice_number',
+
+    # 날짜
+    '작성일자': 'write_date',
+    '작성일': 'write_date',
+    '발급일자': 'issue_date',
+    '발급일': 'issue_date',
+    '전송일자': 'send_date',
+
+    # 공급자
+    '공급자사업자등록번호': 'supplier_corp_num',
+    '공급자 사업자등록번호': 'supplier_corp_num',
+    '공급자사업자번호': 'supplier_corp_num',
+    '공급자 사업자번호': 'supplier_corp_num',
+    '공급자상호': 'supplier_corp_name',
+    '공급자 상호': 'supplier_corp_name',
+    '공급자대표자': 'supplier_ceo_name',
+    '공급자 대표자': 'supplier_ceo_name',
+
+    # 공급받는자
+    '공급받는자사업자등록번호': 'buyer_corp_num',
+    '공급받는자 사업자등록번호': 'buyer_corp_num',
+    '공급받는자사업자번호': 'buyer_corp_num',
+    '공급받는자 사업자번호': 'buyer_corp_num',
+    '공급받는자상호': 'buyer_corp_name',
+    '공급받는자 상호': 'buyer_corp_name',
+    '공급받는자대표자': 'buyer_ceo_name',
+    '공급받는자 대표자': 'buyer_ceo_name',
+
+    # 금액
+    '공급가액': 'supply_cost_total',
+    '세액': 'tax_total',
+    '합계금액': 'total_amount',
+    '총금액': 'total_amount',
+
+    # 기타
+    '과세유형': 'tax_type',
+    '세금유형': 'tax_type',
+    '비고': 'notes',
+    '영수/청구': 'receipt_type',
+    '발급유형': 'issue_type',
+}
+
+
+def _normalize_col(col_name):
+    """컬럼명 정규화: 공백/특수문자 제거, 소문자."""
+    return str(col_name).replace(' ', '').replace('\n', '').replace('\t', '').strip()
+
+
+def _safe_int(val):
+    """안전한 정수 변환 (빈값, 콤마, 문자열 처리)."""
+    if not val or val == '':
+        return 0
+    try:
+        return int(float(str(val).replace(',', '').replace(' ', '')))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _normalize_date(val):
+    """다양한 날짜 형식 → YYYY-MM-DD."""
+    if not val:
+        return ''
+    s = str(val).strip().replace('.', '-').replace('/', '-')
+    # YYYYMMDD → YYYY-MM-DD
+    if len(s) == 8 and s.isdigit():
+        return f'{s[:4]}-{s[4:6]}-{s[6:8]}'
+    # 이미 YYYY-MM-DD 형태
+    if len(s) >= 10 and s[4] == '-':
+        return s[:10]
+    return s
+
+
+def _normalize_corp_num(val):
+    """사업자번호 하이픈 제거."""
+    if not val:
+        return ''
+    return str(val).replace('-', '').replace(' ', '').strip()
+
+
+def _map_tax_type_hometax(val):
+    """홈택스 과세유형 → DB 값."""
+    if not val:
+        return '과세'
+    s = str(val).strip()
+    if '면세' in s or s == 'N':
+        return '면세'
+    if '영세' in s or s == 'Z':
+        return '영세'
+    return '과세'
+
+
+def parse_hometax_excel(df, direction='sales'):
+    """홈택스에서 다운받은 세금계산서 엑셀 → DB insert용 dict 목록.
+
+    Args:
+        df: pandas DataFrame (엑셀에서 읽은 것)
+        direction: 'sales' (매출) / 'purchase' (매입)
+
+    Returns:
+        list[dict]: insert_tax_invoice()에 전달할 데이터 목록
+    """
+    # ── 컬럼명 매핑 ──
+    # 첫 행이 헤더가 아닌 경우 자동 감지 (홈택스는 보통 2행에 컬럼명)
+    col_mapping = {}
+    original_cols = list(df.columns)
+
+    for orig in original_cols:
+        norm = _normalize_col(orig)
+        for hometax_name, db_field in _HOMETAX_COL_MAP.items():
+            if _normalize_col(hometax_name) == norm:
+                col_mapping[orig] = db_field
+                break
+
+    # 매핑 안된 열은 무시
+    if not col_mapping:
+        # 헤더가 첫 행에 데이터로 들어간 경우: 첫 행을 헤더로 재시도
+        if len(df) > 0:
+            new_header = df.iloc[0]
+            df = df[1:].reset_index(drop=True)
+            df.columns = new_header
+            original_cols = list(df.columns)
+            for orig in original_cols:
+                norm = _normalize_col(str(orig))
+                for hometax_name, db_field in _HOMETAX_COL_MAP.items():
+                    if _normalize_col(hometax_name) == norm:
+                        col_mapping[orig] = db_field
+                        break
+
+    if not col_mapping:
+        raise ValueError(
+            '엑셀 컬럼을 인식할 수 없습니다. '
+            '홈택스 표준 양식(승인번호, 작성일자, 공급가액 등)인지 확인하세요.'
+        )
+
+    df = df.rename(columns=col_mapping)
+    logger.info(f"홈택스 엑셀 매핑: {len(col_mapping)}개 컬럼 인식, {len(df)}행 데이터")
+
+    results = []
+    for _, row in df.iterrows():
+        write_date = _normalize_date(row.get('write_date', ''))
+        issue_date = _normalize_date(row.get('issue_date', ''))
+        if not write_date and not issue_date:
+            continue  # 날짜 없는 행은 건너뜀 (빈 행이거나 합계행)
+
+        supply = _safe_int(row.get('supply_cost_total', 0))
+        tax = _safe_int(row.get('tax_total', 0))
+        total = _safe_int(row.get('total_amount', 0))
+
+        # 합계금액이 없으면 계산
+        if not total and supply:
+            total = supply + tax
+
+        # 공급가액이 0이면 건너뜀 (합계행 등)
+        if supply == 0 and total == 0:
+            continue
+
+        payload = {
+            'direction': direction,
+            'invoice_number': str(row.get('invoice_number', '')).strip(),
+            'mgt_key': '',
+            'write_date': write_date or issue_date,
+            'issue_date': issue_date or write_date,
+            'tax_type': _map_tax_type_hometax(row.get('tax_type', '')),
+            'supplier_corp_num': _normalize_corp_num(row.get('supplier_corp_num', '')),
+            'supplier_corp_name': str(row.get('supplier_corp_name', '')).strip(),
+            'supplier_ceo_name': str(row.get('supplier_ceo_name', '')).strip(),
+            'buyer_corp_num': _normalize_corp_num(row.get('buyer_corp_num', '')),
+            'buyer_corp_name': str(row.get('buyer_corp_name', '')).strip(),
+            'buyer_ceo_name': str(row.get('buyer_ceo_name', '')).strip(),
+            'supply_cost_total': supply,
+            'tax_total': tax,
+            'total_amount': total,
+            'status': 'issued',
+            'registered_by': 'hometax_upload',
+        }
+        results.append(payload)
+
+    logger.info(f"홈택스 엑셀 파싱 완료: {len(results)}건 ({direction})")
+    return results
