@@ -485,18 +485,22 @@ class OrderProcessor:
                 except Exception:
                     pass  # 갱신 실패해도 처리는 계속
 
-            # 미매칭 항목 → 처리 중단
+            # 미매칭 항목 처리
             if unmatched:
-                self.log(f"⚠️ 옵션 미등록 {len(unmatched)}건 발견 → 처리 중단")
-                msg = f"옵션리스트에 등록되지 않은 상품 {len(unmatched)}건:\n\n"
-                for nm in unmatched[:20]:
-                    msg += f"  • {nm[:80]}\n"
-                if len(unmatched) > 20:
-                    msg += f"  ... 외 {len(unmatched) - 20}건\n"
-                msg += f"\n옵션마스터에 위 상품명을 등록 후 다시 실행하세요."
-                result['error'] = msg
-                result['unmatched'] = unmatched
-                return result
+                if target_type in ("리얼패킹", "외부일괄"):
+                    # 리얼패킹/외부일괄은 송장 후처리 → 미매칭 경고만, 매칭된 건으로 계속 진행
+                    self.log(f"⚠️ 옵션 미등록 {len(unmatched)}건 (리얼패킹이므로 매칭된 건만 처리)")
+                else:
+                    self.log(f"⚠️ 옵션 미등록 {len(unmatched)}건 발견 → 처리 중단")
+                    msg = f"옵션리스트에 등록되지 않은 상품 {len(unmatched)}건:\n\n"
+                    for nm in unmatched[:20]:
+                        msg += f"  • {nm[:80]}\n"
+                    if len(unmatched) > 20:
+                        msg += f"  ... 외 {len(unmatched) - 20}건\n"
+                    msg += f"\n옵션마스터에 위 상품명을 등록 후 다시 실행하세요."
+                    result['error'] = msg
+                    result['unmatched'] = unmatched
+                    return result
 
             if not res:
                 self.log("❌ 매칭 데이터 0건")
@@ -602,11 +606,17 @@ class OrderProcessor:
 
             elif target_type == "리얼패킹":
                 if not invoice_file:
-                    result['error'] = "3번 송장결과를 선택하세요."
+                    result['error'] = "리얼패킹에는 '3번 송장결과' 파일이 필요합니다.\n로젠택배 접수 결과 엑셀을 선택해주세요."
                     return result
                 inv_df = self.load_generic(invoice_file)
+                if inv_df is None or inv_df.empty:
+                    result['error'] = "송장결과 파일을 읽을 수 없습니다.\n파일 형식을 확인해주세요."
+                    return result
                 inv_df.columns = [str(c).replace(" ", "") for c in inv_df.columns]
                 inv_cols = list(inv_df.columns)
+                if len(inv_cols) < 22:
+                    result['error'] = f"송장결과 파일 컬럼 수 부족 ({len(inv_cols)}열).\n로젠택배 접수 결과 파일이 맞는지 확인해주세요."
+                    return result
                 s_c, n_c, p_c = inv_cols[7], inv_cols[20], inv_cols[21]
                 inv_df['p_cl'] = inv_df[p_c].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
@@ -638,7 +648,7 @@ class OrderProcessor:
                                 ])
 
                 if not rp_f:
-                    result['error'] = "매칭 데이터 없음"
+                    result['error'] = "송장결과와 주문서 간 매칭 데이터가 없습니다.\n이름+연락처(뒤4자리)로 매칭합니다. 파일을 확인해주세요."
                     return result
 
                 rp_path = os.path.join(output_dir, f"리얼패킹_{safe_nm}_{ts}.xlsx")

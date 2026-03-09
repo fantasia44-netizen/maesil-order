@@ -207,10 +207,12 @@ def process():
             pass  # 감지 실패해도 처리는 계속
 
         processor = OrderProcessor()
+        # 리얼패킹/외부일괄은 송장 후처리이므로 DB 저장·재고차감 불필요
+        should_save = target_type == '송장'
         result = processor.run(mode, order_path, option_path,
                                invoice_path, target_type, output_dir,
                                db=current_app.db, option_source=option_source,
-                               save_to_db=True,
+                               save_to_db=should_save,
                                uploaded_by=current_user.username if current_user.is_authenticated else '',
                                collection_date=collection_date)
 

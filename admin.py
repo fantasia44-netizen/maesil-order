@@ -106,15 +106,25 @@ def _get_user_or_404(user_id):
 
 
 def _parse_datetime(value):
-    """Best-effort parse of an ISO datetime string into a datetime object."""
+    """Best-effort parse of an ISO datetime string into a KST datetime object."""
     if value is None:
         return None
     if isinstance(value, str):
         from datetime import datetime
         try:
-            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            # UTC → KST 변환
+            from services.tz_utils import KST
+            return dt.astimezone(KST)
         except (ValueError, TypeError):
             return None
+    # datetime 객체가 이미 들어온 경우도 KST 변환
+    if hasattr(value, 'astimezone'):
+        try:
+            from services.tz_utils import KST
+            return value.astimezone(KST)
+        except Exception:
+            pass
     return value
 
 
