@@ -432,6 +432,7 @@ def process_realtime_outbound(db, import_run_id):
     outbound_groups = {}   # (date, warehouse): [{product_name, qty, order_id}, ...]
     order_ids_done = []
     order_cats = {}
+    order_dates = {}  # oid → outbound_date (N배송: 매출일, 일반: 오늘)
     today_str = _stock_date()
 
     for order in pending:
@@ -446,9 +447,12 @@ def process_realtime_outbound(db, import_run_id):
 
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
         is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-        # 재고차감: 수집일 기준 (송장생성 당일)
-        coll_date = order.get('collection_date', '')
-        stk_date = coll_date if coll_date else today_str
+        # N배송: 매출일(order_date) 기준, 일반: 수집일(collection_date) 기준
+        if is_n:
+            stk_date = odate if odate else today_str
+        else:
+            coll_date = order.get('collection_date', '')
+            stk_date = coll_date if coll_date else today_str
 
         # BOM 분해
         if is_n:
@@ -468,6 +472,7 @@ def process_realtime_outbound(db, import_run_id):
 
         order_ids_done.append(oid)
         order_cats[oid] = rev_cat
+        order_dates[oid] = stk_date  # N배송=매출일, 일반=수집일/오늘
 
     # 4. FIFO 재고 차감
     total_outbound = 0
@@ -540,16 +545,17 @@ def process_realtime_outbound(db, import_run_id):
                 logger.error(f"[재고차감실패] {date_str} | {warehouse} | {len(payload)}건 | {str(e)} | import_run#{import_run_id}")
                 errors.append(f"[{warehouse}] stock_ledger 오류: {e}")
 
-    # 5. 주문 처리 완료 표시
+    # 5. 주문 처리 완료 표시 (N배송: 매출일 기준, 일반: 오늘 기준)
     if order_ids_done:
-        odate_mark = today_str
-        cat_groups = {}
+        # (outbound_date, revenue_category) 그룹별 처리
+        done_groups = {}
         for oid in order_ids_done:
             cat = order_cats.get(oid, '일반매출')
-            cat_groups.setdefault(cat, []).append(oid)
-        for cat, ids in cat_groups.items():
+            odt = order_dates.get(oid, today_str)
+            done_groups.setdefault((odt, cat), []).append(oid)
+        for (odt, cat), ids in done_groups.items():
             try:
-                db.mark_orders_outbound_done(ids, odate_mark, cat)
+                db.mark_orders_outbound_done(ids, odt, cat)
             except Exception as e:
                 errors.append(f"mark_done 오류 ({cat}): {e}")
 
@@ -676,9 +682,12 @@ def process_single_order_realtime(db, order_id):
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
     is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-    # 재고차감: 수집일 기준 (송장생성 당일)
-    coll_date = order.get('collection_date', '')
-    stk_date = coll_date if coll_date else _stock_date()
+    # N배송: 매출일(order_date) 기준, 일반: 수집일(collection_date) 기준
+    if is_n:
+        stk_date = odate if odate else _stock_date()
+    else:
+        coll_date = order.get('collection_date', '')
+        stk_date = coll_date if coll_date else _stock_date()
 
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)
