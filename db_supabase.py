@@ -3306,23 +3306,23 @@ class SupabaseDB(DBBase):
     def generate_monthly_payroll_v2(self, pay_month):
         """한국 급여체계 기반 월 급여 자동 생성.
         각 직원의 salary_components, insurance_rates 기반 자동 계산.
-        이미 해당 월에 급여가 있는 직원은 건너뜀.
+        이미 해당 월에 급여가 있는 직원은 재계산하여 UPDATE.
 
         Args:
             pay_month: 'YYYY-MM' 형식 대상 월
 
         Returns:
-            int: 생성 건수
+            dict: {inserted: 신규건수, updated: 갱신건수}
         """
         from services.hr_service import calculate_payroll
 
         employees = self.query_employees(status='재직')
         if not employees:
-            return 0
+            return {'inserted': 0, 'updated': 0}
 
         year = int(pay_month[:4])
         existing = self.query_payroll(pay_month=pay_month)
-        existing_emp_ids = {r.get('employee_id') for r in existing}
+        existing_map = {r.get('employee_id'): r for r in existing}
 
         # 보험 요율 조회
         insurance_rates = self.query_insurance_rates(year=year)
@@ -3333,10 +3333,9 @@ class SupabaseDB(DBBase):
         nontax_map = {r['limit_type']: r['monthly_limit'] for r in nontax_limits}
 
         inserted = 0
+        updated = 0
         for emp in employees:
             emp_id = emp.get('id')
-            if emp_id in existing_emp_ids:
-                continue
 
             # 직원의 급여 항목 조회
             components = self.query_salary_components(emp_id, active_only=True)
@@ -3348,9 +3347,7 @@ class SupabaseDB(DBBase):
             result = calculate_payroll(emp, components, rate_map, nontax_map,
                                        insurance_overrides=overrides)
 
-            payload = {
-                'employee_id': emp_id,
-                'pay_month': pay_month,
+            payroll_data = {
                 'base_salary': result['base_salary'],
                 'allowances': result['total_allowances'],
                 'total_cost': result['gross_salary'],
@@ -3382,14 +3379,25 @@ class SupabaseDB(DBBase):
                 'employment_insurance_employer': result['employment_insurance_employer'],
                 'industrial_accident_insurance': result['industrial_accident_insurance'],
                 'total_employer_cost': result['total_employer_cost'],
-                'status': 'draft',
-                'memo': '',
             }
 
-            self.insert_payroll(payload)
-            inserted += 1
+            existing_payroll = existing_map.get(emp_id)
+            if existing_payroll:
+                # 기존 레코드가 confirmed가 아니면 재계산 UPDATE
+                if existing_payroll.get('status') != 'confirmed':
+                    payroll_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+                    self.update_payroll(existing_payroll['id'], payroll_data)
+                    updated += 1
+            else:
+                # 신규 레코드 INSERT
+                payroll_data['employee_id'] = emp_id
+                payroll_data['pay_month'] = pay_month
+                payroll_data['status'] = 'draft'
+                payroll_data['memo'] = ''
+                self.insert_payroll(payroll_data)
+                inserted += 1
 
-        return inserted
+        return {'inserted': inserted, 'updated': updated}
 
     def recalculate_payroll(self, payroll_id):
         """기존 급여 1건 재계산 (급여 항목/보험 요율 변경 시).
@@ -3430,7 +3438,11 @@ class SupabaseDB(DBBase):
         nontax_limits = self.query_nontaxable_limits(year=year)
         nontax_map = {r['limit_type']: r['monthly_limit'] for r in nontax_limits}
 
-        result = calculate_payroll(emp, components, rate_map, nontax_map)
+        # 개인별 보험요율 오버라이드
+        overrides = self.query_employee_insurance_overrides(emp_id)
+
+        result = calculate_payroll(emp, components, rate_map, nontax_map,
+                                   insurance_overrides=overrides)
 
         update_data = {
             'base_salary': result['base_salary'],

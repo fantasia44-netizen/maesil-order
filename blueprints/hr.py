@@ -15,6 +15,28 @@ from auth import role_required, _log_action
 hr_bp = Blueprint('hr', __name__, url_prefix='/hr')
 
 
+def _auto_recalc_payroll(db, employee_id):
+    """급여 항목 변경 후 해당 직원의 draft 급여가 있으면 자동 재계산.
+    현재 월(또는 가장 최근 draft)의 급여를 재계산한다.
+    """
+    try:
+        today = date.today()
+        pay_month = f'{today.year}-{today.month:02d}'
+        existing = db.query_payroll(pay_month=pay_month)
+        payroll_rec = next(
+            (r for r in existing
+             if r.get('employee_id') == int(employee_id)
+             and r.get('status') == 'draft'),
+            None
+        )
+        if payroll_rec:
+            db.recalculate_payroll(payroll_rec['id'])
+            return True
+    except Exception as e:
+        print(f"[HR] auto recalc payroll error (emp={employee_id}): {e}")
+    return False
+
+
 # ══════════════════════════════════════════════
 #  직원 관리
 # ══════════════════════════════════════════════
@@ -250,12 +272,22 @@ def api_generate_payroll():
 
     try:
         if use_v2:
-            count = db.generate_monthly_payroll_v2(pay_month)
+            result = db.generate_monthly_payroll_v2(pay_month)
+            inserted = result.get('inserted', 0)
+            updated = result.get('updated', 0)
+            _log_action('generate_payroll',
+                         detail=f'대상월={pay_month}, 신규={inserted}건, 갱신={updated}건, v2=True')
+            return jsonify({
+                'success': True,
+                'count': inserted + updated,
+                'inserted': inserted,
+                'updated': updated,
+            })
         else:
             count = db.generate_monthly_payroll(pay_month)
-        _log_action('generate_payroll',
-                     detail=f'대상월={pay_month}, 생성={count}건, v2={use_v2}')
-        return jsonify({'success': True, 'count': count})
+            _log_action('generate_payroll',
+                         detail=f'대상월={pay_month}, 생성={count}건, v2=False')
+            return jsonify({'success': True, 'count': count})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -330,7 +362,12 @@ def api_set_salary_components(emp_id):
         _log_action('set_salary_components',
                      target=f'employee_id={emp_id}',
                      detail=f'항목 {count}개 설정')
-        return jsonify({'success': True, 'count': count})
+
+        # 급여 항목 일괄 변경 → draft 급여 자동 재계산
+        recalced = _auto_recalc_payroll(db, emp_id)
+
+        return jsonify({'success': True, 'count': count,
+                        'payroll_recalculated': recalced})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -376,7 +413,12 @@ def api_upsert_salary_component():
                      target=f'employee_id={employee_id}',
                      detail=f'{component_name}={amount:,}원',
                      new_value=payload)
-        return jsonify({'success': True, 'component': result})
+
+        # 급여 항목 변경 → draft 급여 자동 재계산
+        recalced = _auto_recalc_payroll(db, employee_id)
+
+        return jsonify({'success': True, 'component': result,
+                        'payroll_recalculated': recalced})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -387,10 +429,26 @@ def api_delete_salary_component(comp_id):
     """급여 항목 1건 비활성화 (삭제)"""
     db = current_app.db
     try:
+        # 삭제 전 employee_id 조회 (자동 재계산용)
+        emp_id = None
+        try:
+            res = db.client.table("salary_components").select("employee_id") \
+                .eq("id", int(comp_id)).execute()
+            if res.data:
+                emp_id = res.data[0].get('employee_id')
+        except Exception:
+            pass
+
         db.delete_salary_component(comp_id)
         _log_action('delete_salary_component',
                      target=f'id={comp_id}', detail='비활성화')
-        return jsonify({'success': True})
+
+        # 급여 항목 삭제 → draft 급여 자동 재계산
+        recalced = False
+        if emp_id:
+            recalced = _auto_recalc_payroll(db, emp_id)
+
+        return jsonify({'success': True, 'payroll_recalculated': recalced})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
