@@ -385,3 +385,125 @@ def api_export_bank_summary():
         )
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════
+#  숫자 대조표 (Reconciliation)
+# ═══════════════════════════════════════════════════════════════
+
+@accounting_bp.route('/reconciliation')
+@role_required('admin', 'ceo', 'manager')
+def reconciliation():
+    """숫자 대조표 — 전표/매출채권/매입채무/예금 정합성 검증"""
+    db = current_app.db
+    from services.journal_service import get_trial_balance
+    from services.matching_service import get_receivables, get_payables
+    from services.bank_service import get_transaction_summary
+
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', today_kst())
+
+    checks = []
+    trial = []
+
+    # ── 1) 전표 차/대변 합계 일치 검증 ──
+    try:
+        trial = get_trial_balance(db, date_from=date_from or None, date_to=date_to or None)
+        grand_debit = sum(r['total_debit'] for r in trial)
+        grand_credit = sum(r['total_credit'] for r in trial)
+        balanced = grand_debit == grand_credit
+        checks.append({
+            'name': '전표 차/대변 합계',
+            'description': '모든 전표의 차변 합계와 대변 합계가 일치하는지 검증',
+            'left_label': '차변 합계', 'left_value': grand_debit,
+            'right_label': '대변 합계', 'right_value': grand_credit,
+            'ok': balanced,
+        })
+    except Exception as e:
+        checks.append({
+            'name': '전표 차/대변 합계', 'description': str(e),
+            'left_label': '차변', 'left_value': 0,
+            'right_label': '대변', 'right_value': 0, 'ok': False,
+        })
+
+    # ── 2) 매출채권 잔액 = 미매칭 매출 세금계산서 합계 ──
+    try:
+        receivables = get_receivables(db)
+        total_receivable = sum(r['total_amount'] for r in receivables)
+
+        ar_balance = 0
+        for t in trial:
+            if t['account_code'] == '108':
+                ar_balance = t['balance']
+                break
+
+        checks.append({
+            'name': '매출채권 잔액 대조',
+            'description': '시산표 매출채권(108) 잔액 vs 미매칭 매출 세금계산서 합계',
+            'left_label': '시산표 108 잔액', 'left_value': ar_balance,
+            'right_label': '미매칭 매출 합계', 'right_value': total_receivable,
+            'ok': ar_balance == total_receivable,
+        })
+    except Exception as e:
+        checks.append({
+            'name': '매출채권 잔액 대조', 'description': str(e),
+            'left_label': '시산표', 'left_value': 0,
+            'right_label': '미매칭', 'right_value': 0, 'ok': False,
+        })
+
+    # ── 3) 매입채무 잔액 = 미지급 매입 세금계산서 합계 ──
+    try:
+        payables = get_payables(db, date_from=date_from or None, date_to=date_to or None)
+        total_unpaid = sum(p['unpaid_amount'] for p in payables)
+
+        ap_balance = 0
+        for t in trial:
+            if t['account_code'] == '201':
+                ap_balance = t['balance']
+                break
+
+        checks.append({
+            'name': '매입채무 잔액 대조',
+            'description': '시산표 매입채무(201) 잔액 vs 미지급 매입 세금계산서 합계',
+            'left_label': '시산표 201 잔액', 'left_value': ap_balance,
+            'right_label': '미지급 매입 합계', 'right_value': total_unpaid,
+            'ok': ap_balance == total_unpaid,
+        })
+    except Exception as e:
+        checks.append({
+            'name': '매입채무 잔액 대조', 'description': str(e),
+            'left_label': '시산표', 'left_value': 0,
+            'right_label': '미지급', 'right_value': 0, 'ok': False,
+        })
+
+    # ── 4) 보통예금 잔액 대조 ──
+    try:
+        bank_summary = get_transaction_summary(db, date_from=date_from or None, date_to=date_to or None)
+        bank_net = bank_summary.get('net', 0)
+
+        bank_balance = 0
+        for t in trial:
+            if t['account_code'] == '102':
+                bank_balance = t['balance']
+                break
+
+        checks.append({
+            'name': '보통예금 잔액 대조',
+            'description': '시산표 보통예금(102) 잔액 vs 은행 거래(입금-출금) 순액',
+            'left_label': '시산표 102 잔액', 'left_value': bank_balance,
+            'right_label': '은행 입출금 순액', 'right_value': bank_net,
+            'ok': bank_balance == bank_net,
+            'note': '은행 거래 시작 잔액이 반영되지 않아 차이가 발생할 수 있습니다',
+        })
+    except Exception as e:
+        checks.append({
+            'name': '보통예금 잔액 대조', 'description': str(e),
+            'left_label': '시산표', 'left_value': 0,
+            'right_label': '은행', 'right_value': 0, 'ok': False,
+        })
+
+    all_ok = all(c['ok'] for c in checks)
+
+    return render_template('accounting/reconciliation.html',
+                           checks=checks, all_ok=all_ok,
+                           date_from=date_from, date_to=date_to)

@@ -154,13 +154,23 @@ def confirm_match(db, tax_invoice_id, bank_transaction_id, matched_by=''):
         'matched_by': matched_by,
     }
 
-    db.insert_payment_match(payload)
+    match_id = db.insert_payment_match(payload)
 
     # 양쪽에 매칭 ID 업데이트
     db.update_tax_invoice(tax_invoice_id, {'matched_transaction_id': bank_transaction_id})
     db.update_bank_transaction(bank_transaction_id, {'matched_invoice_id': tax_invoice_id})
 
-    logger.info(f"매칭 확정: 세금계산서 {tax_invoice_id} ↔ 거래 {bank_transaction_id}")
+    status = 'matched' if inv_amount == tx_amount else 'partial'
+    logger.info(f"[매칭확정] 세금계산서 {tax_invoice_id} ↔ 거래 {bank_transaction_id} | "
+                f"{inv.get('buyer_corp_name', '')} | {inv_amount:,}원 | 상태={status}")
+
+    # ── 입금 전표 자동 생성 ──
+    if match_id:
+        try:
+            from services.journal_service import create_receipt_journal
+            create_receipt_journal(db, match_id, created_by=matched_by or 'system')
+        except Exception as e:
+            logger.error(f"입금 전표 자동 생성 실패 (매칭 {match_id}): {e}")
 
 
 def manual_match(db, tax_invoice_id, bank_transaction_id, matched_by=''):
@@ -187,9 +197,17 @@ def manual_match(db, tax_invoice_id, bank_transaction_id, matched_by=''):
         'matched_by': matched_by,
     }
 
-    db.insert_payment_match(payload)
+    match_id = db.insert_payment_match(payload)
     db.update_tax_invoice(tax_invoice_id, {'matched_transaction_id': bank_transaction_id})
     db.update_bank_transaction(bank_transaction_id, {'matched_invoice_id': tax_invoice_id})
+
+    # ── 입금 전표 자동 생성 (수동 매칭) ──
+    if match_id:
+        try:
+            from services.journal_service import create_receipt_journal
+            create_receipt_journal(db, match_id, created_by=matched_by or 'system')
+        except Exception as e:
+            logger.error(f"입금 전표 자동 생성 실패 (수동매칭 {match_id}): {e}")
 
 
 def unmatch(db, match_id):
@@ -205,7 +223,18 @@ def unmatch(db, match_id):
         db.update_bank_transaction(match['bank_transaction_id'], {'matched_invoice_id': None})
 
     db.delete_payment_match(match_id)
-    logger.info(f"매칭 해제: {match_id}")
+    logger.info(f"[매칭해제] ID={match_id} | 세금계산서={match.get('tax_invoice_id')} | "
+                f"거래={match.get('bank_transaction_id')} | 금액={match.get('matched_amount', 0):,}원")
+
+    # ── 매칭 관련 전표 역분개 ──
+    try:
+        from services.journal_service import get_journals, reverse_journal
+        entries = get_journals(db, ref_type='payment_match', ref_id=match_id)
+        for entry in entries:
+            if entry.get('status') == 'posted':
+                reverse_journal(db, entry['id'], reversed_by='unmatch')
+    except Exception as e:
+        logger.error(f"매칭 해제 역분개 실패 (매칭 {match_id}): {e}")
 
 
 def get_receivables(db, as_of_date=None):
@@ -438,13 +467,22 @@ def confirm_payable_match(db, tax_invoice_id, bank_transaction_id, matched_by=''
         'matched_by': matched_by,
     }
 
-    db.insert_payment_match(payload)
+    match_id = db.insert_payment_match(payload)
 
     # 양쪽에 매칭 ID 업데이트
     db.update_tax_invoice(tax_invoice_id, {'matched_transaction_id': bank_transaction_id})
     db.update_bank_transaction(bank_transaction_id, {'matched_invoice_id': tax_invoice_id})
 
-    logger.info(f"매입-출금 매칭 확정: 세금계산서 {tax_invoice_id} ↔ 거래 {bank_transaction_id}")
+    logger.info(f"[매입매칭확정] 세금계산서 {tax_invoice_id} ↔ 거래 {bank_transaction_id} | "
+                f"{inv.get('supplier_corp_name', '')} | {inv_amount:,}원")
+
+    # ── 지급 전표 자동 생성 ──
+    if match_id:
+        try:
+            from services.journal_service import create_payment_journal
+            create_payment_journal(db, match_id, created_by=matched_by or 'system')
+        except Exception as e:
+            logger.error(f"지급 전표 자동 생성 실패 (매칭 {match_id}): {e}")
 
 
 def get_payables_summary(db, date_from=None, date_to=None):
@@ -491,7 +529,7 @@ def confirm_settlement_match(db, settlement_id, bank_transaction_id, matched_by=
         'partner_name': tx.get('counterpart_name', ''),
         'matched_by': matched_by,
     }
-    db.insert_payment_match(payload)
+    match_id = db.insert_payment_match(payload)
 
     # 정산 레코드 매칭 상태 업데이트
     db.update_platform_settlement(settlement_id, {
@@ -504,7 +542,23 @@ def confirm_settlement_match(db, settlement_id, bank_transaction_id, matched_by=
         'matched_settlement_id': settlement_id,
     })
 
-    logger.info(f"정산-입금 매칭 확정: 정산 {settlement_id} ↔ 거래 {bank_transaction_id}")
+    logger.info(f"[정산매칭확정] 정산 {settlement_id} ↔ 거래 {bank_transaction_id} | "
+                f"{tx.get('counterpart_name', '')} | {tx.get('amount', 0):,}원")
+
+    # ── 정산 입금 전표 자동 생성 ──
+    if match_id:
+        try:
+            from services.journal_service import create_auto_journal
+            amount = tx.get('amount', 0)
+            journal_date = str(tx.get('transaction_date', ''))[:10]
+            create_auto_journal(
+                db, 'settlement_receipt', amount, journal_date,
+                ref_type='payment_match', ref_id=match_id,
+                description=f'정산금 입금 {tx.get("counterpart_name", "")} {amount:,}원',
+                created_by=matched_by or 'system',
+            )
+        except Exception as e:
+            logger.error(f"정산 입금 전표 자동 생성 실패 (매칭 {match_id}): {e}")
 
 
 def _name_match(invoice_name, bank_name):

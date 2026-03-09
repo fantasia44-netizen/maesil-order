@@ -13,7 +13,7 @@
             </button>
         </form>
         <button class="btn btn-primary btn-sm ms-1" data-bs-toggle="modal" data-bs-target="#connectModal">
-            <i class="bi bi-plus-circle"></i> 은행 연결
+            <i class="bi bi-plus-circle"></i> 은행/카드 연결
         </button>
     </div>
 </div>
@@ -24,9 +24,10 @@
             <table class="table table-hover mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>은행명</th>
-                        <th>계좌번호</th>
-                        <th>예금주</th>
+                        <th>기관명</th>
+                        <th>계좌/카드번호</th>
+                        <th>명칭</th>
+                        <th>유형</th>
                         <th>마지막 동기화</th>
                         <th class="text-center" style="width:160px">관리</th>
                     </tr>
@@ -37,27 +38,51 @@
                         <td>{{ acc.bank_name }}</td>
                         <td><code>{{ acc.account_number }}</code></td>
                         <td>{{ acc.account_holder }}</td>
-                        <td>{{ acc.last_synced_at or '-' }}</td>
+                        <td>
+                            {% if acc.account_type == '카드' %}
+                            <span class="badge bg-warning text-dark">카드</span>
+                            {% elif acc.account_type == '대출' %}
+                            <span class="badge bg-secondary">대출</span>
+                            {% elif acc.account_type == '외화' %}
+                            <span class="badge bg-info">외화</span>
+                            {% else %}
+                            <span class="badge bg-primary">예금</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ acc.last_synced_at|fmt_kst }}</td>
                         <td class="text-center">
+                            {% if current_user.role in ['admin', 'manager'] %}
+                            {% if acc.account_type == '카드' %}
+                            <form method="post" action="{{ url_for('bank.sync_card', account_id=acc.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-outline-warning btn-sm" title="카드 동기화">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                            </form>
+                            {% else %}
                             <form method="post" action="{{ url_for('bank.sync_account', account_id=acc.id) }}" class="d-inline">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-outline-primary btn-sm" title="동기화">
                                     <i class="bi bi-arrow-repeat"></i>
                                 </button>
                             </form>
+                            {% endif %}
+                            {% endif %}
+                            {% if current_user.role == 'admin' %}
                             <form method="post" action="{{ url_for('bank.delete_account', account_id=acc.id) }}" class="d-inline"
-                                  onsubmit="return confirm('이 계좌를 삭제하시겠습니까?')">
+                                  onsubmit="return confirm('이 항목을 삭제하시겠습니까?')">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-outline-danger btn-sm" title="삭제">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="5" class="text-center text-muted py-4">
-                            <i class="bi bi-bank"></i> 연결된 계좌가 없습니다. 은행 연결을 시작하세요.
+                        <td colspan="6" class="text-center text-muted py-4">
+                            <i class="bi bi-bank"></i> 연결된 계좌가 없습니다. 은행/카드 연결을 시작하세요.
                         </td>
                     </tr>
                     {% endfor %}
@@ -67,26 +92,65 @@
     </div>
 </div>
 
-<!-- 은행 연결 모달 -->
+<!-- 은행/카드 연결 모달 -->
 <div class="modal fade" id="connectModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <form method="post" action="{{ url_for('bank.connect') }}" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="login_type" id="loginType" value="1">
+                <input type="hidden" name="connect_type" id="connectType" value="bank">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-bank"></i> 은행 연결</h5>
+                    <h5 class="modal-title"><i class="bi bi-link-45deg"></i> 금융기관 연결</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <!-- 은행/카드 선택 -->
                     <div class="mb-3">
+                        <label class="form-label">연결 유형</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="connectTypeRadio" id="connectBank" value="bank" checked>
+                            <label class="btn btn-outline-primary" for="connectBank">
+                                <i class="bi bi-bank"></i> 은행
+                            </label>
+                            <input type="radio" class="btn-check" name="connectTypeRadio" id="connectCard" value="card">
+                            <label class="btn btn-outline-primary" for="connectCard">
+                                <i class="bi bi-credit-card"></i> 카드사
+                            </label>
+                        </div>
+                    </div>
+                    <!-- 은행 선택 -->
+                    <div class="mb-3" id="bankSelectGroup">
                         <label for="bankCode" class="form-label">은행 선택</label>
-                        <select name="bank_code" id="bankCode" class="form-select" required>
+                        <select name="bank_code" id="bankCode" class="form-select">
                             <option value="">-- 은행을 선택하세요 --</option>
                             {% for code, name in bank_codes.items() %}
                             <option value="{{ code }}">{{ name }}</option>
                             {% endfor %}
                         </select>
+                    </div>
+                    <!-- 카드사 선택 -->
+                    <div class="mb-3" id="cardSelectGroup" style="display:none">
+                        <label for="cardCode" class="form-label">카드사 선택</label>
+                        <select name="card_code" id="cardCode" class="form-select">
+                            <option value="">-- 카드사를 선택하세요 --</option>
+                            {% for code, name in card_codes.items() %}
+                            <option value="{{ code }}">{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">계정 유형</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="client_type" id="typePersonal" value="P">
+                            <label class="btn btn-outline-secondary" for="typePersonal">
+                                <i class="bi bi-person"></i> 개인
+                            </label>
+                            <input type="radio" class="btn-check" name="client_type" id="typeBusiness" value="B" checked>
+                            <label class="btn btn-outline-secondary" for="typeBusiness">
+                                <i class="bi bi-building"></i> 기업(법인)
+                            </label>
+                        </div>
                     </div>
                     <!-- 로그인 방식 선택 -->
                     <div class="mb-3">
@@ -153,6 +217,22 @@
 
 {% block extra_js %}
 <script>
+/* 은행/카드 토글 */
+document.querySelectorAll('input[name="connectTypeRadio"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const isCard = this.value === 'card';
+        document.getElementById('connectType').value = this.value;
+        document.getElementById('bankSelectGroup').style.display = isCard ? 'none' : '';
+        document.getElementById('cardSelectGroup').style.display = isCard ? '' : 'none';
+        // 카드 선택 시 은행 값 초기화, 반대도
+        if (isCard) {
+            document.getElementById('bankCode').value = '';
+        } else {
+            document.getElementById('cardCode').value = '';
+        }
+    });
+});
+
 /* 로그인 방식 토글 */
 document.querySelectorAll('input[name="loginTypeRadio"]').forEach(radio => {
     radio.addEventListener('change', function() {

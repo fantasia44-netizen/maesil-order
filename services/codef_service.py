@@ -90,8 +90,10 @@ class CodefService:
         if code not in ('CF-00000', 'CF-00001'):
             # CF-00001 = 데이터 없음 (정상이지만 결과 없음)
             msg = result.get('message', '알 수 없는 오류')
-            logger.error(f"CODEF 오류: [{code}] {msg}")
-            raise CodefError(code, msg)
+            extra = result.get('extraMessage', '')
+            data = resp.get('data', {})
+            logger.error(f"CODEF 오류: [{code}] {msg} | extra={extra} | data={data}")
+            raise CodefError(code, f"{msg} {extra}".strip())
         return resp.get('data', {})
 
     # ══════════════════════════════════════════
@@ -235,11 +237,14 @@ class CodefService:
         }
         response = self.codef.request_product(
             f'/v1/kr/bank/{prefix}/account/transaction-list',
-            self.service_type,
-            params
+            self.service_type, params
         )
         data = self._parse_response(response)
-        result = data if isinstance(data, list) else data.get('resList', [])
+        # API 스펙: 거래내역은 resTrHistoryList 키에 있음
+        if isinstance(data, list):
+            result = data
+        else:
+            result = data.get('resTrHistoryList', data.get('resList', []))
         logger.info(f"거래내역 조회: {bank_code}/{account} → {len(result)}건")
         return result
 

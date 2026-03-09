@@ -39,9 +39,9 @@ class SupabaseDB(DBBase):
 
     def connect(self, url=None, key=None):
         try:
-            _url = url or SUPABASE_URL
-            _key = key or SUPABASE_KEY
-            self.client = create_client(_url, _key)
+            self._url = url or SUPABASE_URL
+            self._key = key or SUPABASE_KEY
+            self.client = create_client(self._url, self._key)
             try:
                 self.client.rpc("ensure_stock_ledger_columns", {}).execute()
             except Exception as col_err:
@@ -51,6 +51,40 @@ class SupabaseDB(DBBase):
         except Exception as e:
             print(f"[DB connect error] {e}")
             return False
+
+    def _reconnect(self):
+        """HTTP/2 연결 풀 재생성 (Server disconnected 오류 복구)."""
+        try:
+            print("[DB] Supabase 재연결 시도...")
+            self.client = create_client(
+                getattr(self, '_url', SUPABASE_URL),
+                getattr(self, '_key', SUPABASE_KEY),
+            )
+            print("[DB] Supabase 재연결 성공")
+            return True
+        except Exception as e:
+            print(f"[DB] Supabase 재연결 실패: {e}")
+            return False
+
+    def _is_connection_error(self, exc):
+        """httpx 연결 오류 여부 판별."""
+        err_name = type(exc).__name__
+        err_msg = str(exc).lower()
+        return ('RemoteProtocolError' in err_name or
+                'ConnectError' in err_name or
+                'server disconnected' in err_msg or
+                'connection reset' in err_msg)
+
+    def _retry_on_disconnect(self, fn, *args, **kwargs):
+        """연결 오류 시 재연결 후 1회 재시도하는 범용 래퍼."""
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if self._is_connection_error(e):
+                print(f"[DB] 연결 오류 감지, 재시도: {type(e).__name__}")
+                self._reconnect()
+                return fn(*args, **kwargs)
+            raise
 
     def get_db_columns(self):
         try:
@@ -3460,7 +3494,9 @@ class SupabaseDB(DBBase):
         """은행 거래내역 조회 (필터)."""
         try:
             q = self.client.table("bank_transactions") \
-                .select("*").order("transaction_date", desc=True)
+                .select("*, bank_accounts(bank_name, account_number)") \
+                .order("transaction_date", desc=True) \
+                .order("transaction_time", desc=True)
             if date_from:
                 q = q.gte("transaction_date", date_from)
             if date_to:
@@ -3526,6 +3562,7 @@ class SupabaseDB(DBBase):
                 )
             if unmatched_only:
                 q = q.is_("matched_transaction_id", "null")
+                q = q.neq("status", "cancelled")  # 취소건 제외
             res = q.execute()
             return res.data or []
         except Exception as e:
@@ -3597,11 +3634,15 @@ class SupabaseDB(DBBase):
             return None
 
     def insert_payment_match(self, payload):
-        """매칭 레코드 등록."""
+        """매칭 레코드 등록. Returns: match_id (int) or None."""
         try:
-            self.client.table("payment_matches").insert(payload).execute()
+            res = self.client.table("payment_matches").insert(payload).execute()
+            if res.data:
+                return res.data[0].get('id')
+            return None
         except Exception as e:
             print(f"[DB] insert_payment_match error: {e}")
+            return None
 
     def delete_payment_match(self, match_id):
         """매칭 해제."""
@@ -3710,3 +3751,257 @@ class SupabaseDB(DBBase):
             return res.data[0] if res.data else None
         except Exception:
             return None
+
+    # ══════════════════════════════════════════
+    # 은행 거래 삭제 (재동기화용)
+    # ══════════════════════════════════════════
+
+    def delete_all_bank_transactions(self, bank_account_id=None):
+        """은행 거래내역 전체 삭제 (재동기화용)."""
+        def _do():
+            q = self.client.table("bank_transactions")
+            if bank_account_id:
+                q = q.delete().eq("bank_account_id", bank_account_id)
+            else:
+                q = q.delete().neq("id", 0)
+            q.execute()
+        try:
+            self._retry_on_disconnect(_do)
+        except Exception as e:
+            print(f"[DB] delete_all_bank_transactions error: {e}")
+
+    def delete_bank_account(self, account_id):
+        """은행 계좌 삭제."""
+        try:
+            self.client.table("bank_accounts") \
+                .delete().eq("id", account_id).execute()
+        except Exception as e:
+            print(f"[DB] delete_bank_account error: {e}")
+            raise
+
+    # ══════════════════════════════════════════
+    # 세금계산서 중복 확인
+    # ══════════════════════════════════════════
+
+    def check_tax_invoice_exists(self, invoice_number=None, mgt_key=None):
+        """세금계산서 중복 확인 (국세청 승인번호 또는 관리번호).
+        Returns: 기존 레코드 id or None
+        """
+        def _do():
+            if invoice_number:
+                res = self.client.table("tax_invoices") \
+                    .select("id") \
+                    .eq("invoice_number", invoice_number) \
+                    .limit(1).execute()
+                if res.data:
+                    return res.data[0]['id']
+            if mgt_key:
+                res = self.client.table("tax_invoices") \
+                    .select("id") \
+                    .eq("mgt_key", mgt_key) \
+                    .limit(1).execute()
+                if res.data:
+                    return res.data[0]['id']
+            return None
+        try:
+            return self._retry_on_disconnect(_do)
+        except Exception:
+            return None
+
+    # ══════════════════════════════════════════
+    # 카드 이용내역 (card_transactions)
+    # ══════════════════════════════════════════
+
+    def query_card_transactions(self, date_from=None, date_to=None,
+                                 bank_account_id=None, category=None,
+                                 search=None):
+        """카드 이용내역 목록 조회."""
+        def _do():
+            q = self.client.table("card_transactions") \
+                .select("*, bank_accounts(bank_name, account_number)") \
+                .order("approval_date", desc=True) \
+                .order("approval_time", desc=True)
+            if date_from:
+                q = q.gte("approval_date", date_from)
+            if date_to:
+                q = q.lte("approval_date", date_to)
+            if bank_account_id:
+                q = q.eq("bank_account_id", bank_account_id)
+            if category and category != '전체':
+                q = q.eq("category", category)
+            if search:
+                q = q.ilike("merchant_name", f"%{search}%")
+            res = q.execute()
+            return res.data or []
+        try:
+            return self._retry_on_disconnect(_do)
+        except Exception as e:
+            print(f"[DB] query_card_transactions error: {e}")
+            return []
+
+    def check_card_transaction_exists(self, approval_date, approval_no, amount):
+        """카드 거래 중복 확인 (승인번호 기준)."""
+        def _do():
+            if not approval_no:
+                return False
+            res = self.client.table("card_transactions") \
+                .select("id") \
+                .eq("approval_date", approval_date) \
+                .eq("approval_no", approval_no) \
+                .eq("amount", amount) \
+                .limit(1).execute()
+            return len(res.data or []) > 0
+        try:
+            return self._retry_on_disconnect(_do)
+        except Exception:
+            return False
+
+    def insert_card_transaction(self, payload):
+        """카드 이용내역 1건 등록."""
+        def _do():
+            self.client.table("card_transactions").insert(payload).execute()
+        self._retry_on_disconnect(_do)
+
+    def update_card_transaction(self, tx_id, update_data):
+        """카드 이용내역 수정 (카테고리 분류 등)."""
+        def _do():
+            self.client.table("card_transactions") \
+                .update(update_data).eq("id", tx_id).execute()
+        try:
+            self._retry_on_disconnect(_do)
+        except Exception as e:
+            print(f"[DB] update_card_transaction error: {e}")
+
+    def delete_all_card_transactions(self, bank_account_id=None):
+        """카드 이용내역 전체 삭제."""
+        try:
+            q = self.client.table("card_transactions")
+            if bank_account_id:
+                q = q.delete().eq("bank_account_id", bank_account_id)
+            else:
+                q = q.delete().neq("id", 0)
+            q.execute()
+        except Exception as e:
+            print(f"[DB] delete_all_card_transactions error: {e}")
+
+    # ══════════════════════════════════════════
+    # CODEF 연결 정보
+    # ══════════════════════════════════════════
+
+    def query_codef_connections(self):
+        """CODEF 연결 정보 목록 조회."""
+        try:
+            res = self.client.table("codef_connections") \
+                .select("*").order("created_at", desc=True).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_codef_connections error: {e}")
+            return []
+
+    def insert_codef_connection(self, payload):
+        """CODEF 연결 정보 등록."""
+        try:
+            self.client.table("codef_connections").insert(payload).execute()
+        except Exception as e:
+            print(f"[DB] insert_codef_connection error: {e}")
+            raise
+
+    # ══════════════════════════════════════════
+    # journal_entries / journal_lines (전표 시스템)
+    # ══════════════════════════════════════════
+
+    def insert_journal_entry(self, payload):
+        """전표 헤더 등록. Returns: entry_id (int) or None."""
+        try:
+            res = self.client.table("journal_entries").insert(payload).execute()
+            if res.data:
+                return res.data[0]['id']
+            return None
+        except Exception as e:
+            print(f"[DB] insert_journal_entry error: {e}")
+            return None
+
+    def insert_journal_line(self, payload):
+        """전표 라인 1건 등록."""
+        try:
+            self.client.table("journal_lines").insert(payload).execute()
+        except Exception as e:
+            print(f"[DB] insert_journal_line error: {e}")
+
+    def query_journal_entries(self, date_from=None, date_to=None,
+                              journal_type=None, status=None,
+                              ref_type=None, ref_id=None):
+        """전표 목록 조회."""
+        try:
+            q = self.client.table("journal_entries") \
+                .select("*").order("journal_date", desc=True) \
+                .order("id", desc=True)
+            if date_from:
+                q = q.gte("journal_date", date_from)
+            if date_to:
+                q = q.lte("journal_date", date_to)
+            if journal_type:
+                q = q.eq("journal_type", journal_type)
+            if status:
+                q = q.eq("status", status)
+            if ref_type:
+                q = q.eq("ref_type", ref_type)
+            if ref_id is not None:
+                q = q.eq("ref_id", ref_id)
+            res = q.limit(500).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_journal_entries error: {e}")
+            return []
+
+    def query_journal_entry_by_id(self, entry_id):
+        """전표 1건 조회."""
+        try:
+            res = self.client.table("journal_entries") \
+                .select("*").eq("id", entry_id).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_journal_entry_by_id error: {e}")
+            return None
+
+    def update_journal_entry(self, entry_id, update_data):
+        """전표 수정 (status 변경 등)."""
+        try:
+            self.client.table("journal_entries") \
+                .update(update_data).eq("id", entry_id).execute()
+        except Exception as e:
+            print(f"[DB] update_journal_entry error: {e}")
+
+    def query_journal_lines_by_entry(self, entry_id):
+        """전표 라인 조회."""
+        try:
+            res = self.client.table("journal_lines") \
+                .select("*").eq("journal_entry_id", entry_id) \
+                .order("line_no").execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_journal_lines_by_entry error: {e}")
+            return []
+
+    # ── event_account_mapping ──
+
+    def query_event_account_mapping(self, event_type):
+        """이벤트→계정 매핑 1건 조회."""
+        try:
+            res = self.client.table("event_account_mapping") \
+                .select("*").eq("event_type", event_type) \
+                .eq("is_active", True).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] query_event_account_mapping error: {e}")
+            return None
+
+    def query_all_event_account_mappings(self):
+        """이벤트→계정 매핑 전체 조회."""
+        try:
+            res = self.client.table("event_account_mapping") \
+                .select("*").order("event_type").execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_all_event_account_mappings error: {e}")
+            return []

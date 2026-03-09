@@ -55,6 +55,14 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <div class="mb-3">
+                        <label for="taxType" class="form-label">과세유형</label>
+                        <select name="tax_type" id="taxType" class="form-select">
+                            <option value="과세" selected>과세 (VAT 10%)</option>
+                            <option value="면세">면세 (농·수산물 등)</option>
+                            <option value="영세">영세율 (수출 등)</option>
+                        </select>
+                    </div>
                     <div class="mb-0">
                         <label for="writeDate" class="form-label">작성일자</label>
                         <input type="date" name="write_date" id="writeDate" class="form-control" required>
@@ -109,7 +117,7 @@
 
     <div class="text-end">
         <a href="{{ url_for('tax_invoice.index') }}" class="btn btn-secondary">취소</a>
-        <button type="submit" class="btn btn-primary">
+        <button type="submit" class="btn btn-primary" id="submitBtn">
             <i class="bi bi-send"></i> 세금계산서 발행
         </button>
     </div>
@@ -150,12 +158,17 @@ function addRow(name, qty, price) {
     calcRow.call(tr.querySelector('.item-qty'));
 }
 
+function getTaxRate() {
+    const taxType = document.getElementById('taxType').value;
+    return taxType === '과세' ? 0.1 : 0;
+}
+
 function calcRow() {
     const tr = this.closest('tr');
     const qty = parseInt(tr.querySelector('.item-qty').value) || 0;
     const price = parseInt(tr.querySelector('.item-price').value) || 0;
     const supply = qty * price;
-    const tax = Math.round(supply * 0.1);
+    const tax = Math.round(supply * getTaxRate());
 
     tr.querySelector('.item-supply').textContent = supply.toLocaleString();
     tr.querySelector('.item-tax').textContent = tax.toLocaleString();
@@ -163,12 +176,15 @@ function calcRow() {
 }
 
 function recalcTotal() {
+    const rate = getTaxRate();
     let totalSupply = 0, totalTax = 0;
     document.querySelectorAll('#itemsBody tr').forEach(tr => {
         const qty = parseInt(tr.querySelector('.item-qty').value) || 0;
         const price = parseInt(tr.querySelector('.item-price').value) || 0;
         const supply = qty * price;
-        const tax = Math.round(supply * 0.1);
+        const tax = Math.round(supply * rate);
+        tr.querySelector('.item-supply').textContent = supply.toLocaleString();
+        tr.querySelector('.item-tax').textContent = tax.toLocaleString();
         totalSupply += supply;
         totalTax += tax;
     });
@@ -197,6 +213,13 @@ document.getElementById('issueForm').addEventListener('submit', function(e) {
         });
     });
     document.getElementById('itemsJson').value = JSON.stringify(items);
+});
+
+/* 과세유형 변경 시 세액 재계산 + 버튼 라벨 변경 */
+document.getElementById('taxType').addEventListener('change', function() {
+    recalcTotal();
+    const label = this.value === '면세' ? '계산서 발행' : '세금계산서 발행';
+    document.querySelector('#submitBtn').innerHTML = '<i class="bi bi-send"></i> ' + label;
 });
 
 /* 초기 1행 추가 + 오늘 날짜 설정 */

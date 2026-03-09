@@ -109,6 +109,10 @@ PAGE_REGISTRY = [
     ('pnl',            '관리 손익표',    'bi-clipboard-data',     '/finance/pnl',         ['admin','general'],                                                '총무/경리'),
     ('accounting_reports','리포트',      'bi-file-earmark-bar-graph', '/accounting/reports', ['admin','general'],                                             '총무/경리'),
     ('finance_dashboard','재무현황',     'bi-bar-chart-line',     '/finance/dashboard',   ['admin','general'],                                                '총무/경리'),
+    ('journal',          '전표관리',     'bi-journal-text',       '/journal/',            ['admin','general'],                                                '총무/경리'),
+    ('trial_balance',    '시산표',       'bi-calculator',         '/journal/trial-balance', ['admin','general'],                                              '총무/경리'),
+    ('card_transactions','카드내역',     'bi-credit-card-2-front','/bank/card-transactions', ['admin','general'],                                            '총무/경리'),
+    ('reconciliation_acct','대조표',     'bi-check2-square',      '/accounting/reconciliation', ['admin','general'],                                         '총무/경리'),
 
     # ── 관리 ──
     ('base_data',      '기초 데이터',    'bi-hdd',                '/base-data',           ['admin','manager'],                                                '관리'),

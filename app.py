@@ -309,6 +309,7 @@ def create_app(config_class=None):
     from blueprints.accounting import accounting_bp
     from blueprints.bank import bank_bp
     from blueprints.tax_invoice import tax_invoice_bp
+    from blueprints.journal import journal_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -318,7 +319,7 @@ def create_app(config_class=None):
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
                closing_bp, shipment_bp, integrity_bp, planning_bp,
                packing_bp, reconciliation_bp, finance_bp, hr_bp,
-               accounting_bp, bank_bp, tax_invoice_bp]:
+               accounting_bp, bank_bp, tax_invoice_bp, journal_bp]:
         app.register_blueprint(bp)
 
     # ── 패킹 사용자 메인 시스템 접근 차단 ──
@@ -350,6 +351,23 @@ def create_app(config_class=None):
         except (ValueError, TypeError):
             return '0'
     app.jinja_env.filters['fmt_money'] = fmt_money
+
+    def fmt_kst(val):
+        """UTC → KST 날짜/시간 표시"""
+        if not val:
+            return ''
+        try:
+            from datetime import datetime, timedelta
+            if isinstance(val, str):
+                val = val.replace('Z', '+00:00')
+                dt = datetime.fromisoformat(val)
+            else:
+                dt = val
+            kst = dt + timedelta(hours=9)
+            return kst.strftime('%Y-%m-%d %H:%M')
+        except Exception:
+            return str(val)[:16] if val else ''
+    app.jinja_env.filters['fmt_kst'] = fmt_kst
 
     # 폴더 생성
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)

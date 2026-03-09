@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block page_title %}전표 관리{% endblock %}
+
+{% block content %}
+<!-- 필터 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">유형</label>
+                <select name="type" class="form-select form-select-sm">
+                    <option value="">전체</option>
+                    <option value="sales_invoice" {% if selected_type == 'sales_invoice' %}selected{% endif %}>매출전표</option>
+                    <option value="purchase_invoice" {% if selected_type == 'purchase_invoice' %}selected{% endif %}>매입전표</option>
+                    <option value="receipt" {% if selected_type == 'receipt' %}selected{% endif %}>입금전표</option>
+                    <option value="payment" {% if selected_type == 'payment' %}selected{% endif %}>지급전표</option>
+                    <option value="payroll" {% if selected_type == 'payroll' %}selected{% endif %}>급여전표</option>
+                    <option value="manual" {% if selected_type == 'manual' %}selected{% endif %}>수동전표</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">상태</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">전체</option>
+                    <option value="posted" {% if selected_status == 'posted' %}selected{% endif %}>전기</option>
+                    <option value="reversed" {% if selected_status == 'reversed' %}selected{% endif %}>역분개</option>
+                    <option value="draft" {% if selected_status == 'draft' %}selected{% endif %}>임시</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search"></i> 조회
+                </button>
+            </div>
+            <div class="col-auto ms-auto">
+                <a href="{{ url_for('journal.trial_balance') }}" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-table"></i> 시산표
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- 전표 목록 -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-journal-text text-primary"></i> 전표 목록
+                    <span class="badge bg-secondary ms-1">{{ entries|length }}건</span>
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div style="max-height: 600px; overflow-y: auto">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light" style="position: sticky; top: 0; z-index: 1">
+                            <tr>
+                                <th>ID</th>
+                                <th>전표일</th>
+                                <th>유형</th>
+                                <th>적요</th>
+                                <th class="text-end">차변</th>
+                                <th class="text-end">대변</th>
+                                <th>상태</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for e in entries %}
+                            <tr class="{% if e.status == 'reversed' %}text-muted{% endif %}" style="cursor: pointer"
+                                onclick="location.href='{{ url_for('journal.detail', entry_id=e.id) }}'">
+                                <td>{{ e.id }}</td>
+                                <td>{{ e.journal_date }}</td>
+                                <td>
+                                    {% set type_labels = {
+                                        'sales_invoice': '매출',
+                                        'purchase_invoice': '매입',
+                                        'receipt': '입금',
+                                        'payment': '지급',
+                                        'payroll': '급여',
+                                        'manual': '수동',
+                                        'platform_sales': '정산매출',
+                                        'platform_fee': '수수료',
+                                        'settlement_receipt': '정산입금'
+                                    } %}
+                                    {% set type_colors = {
+                                        'sales_invoice': 'success',
+                                        'purchase_invoice': 'danger',
+                                        'receipt': 'primary',
+                                        'payment': 'warning',
+                                        'manual': 'secondary'
+                                    } %}
+                                    <span class="badge bg-{{ type_colors.get(e.journal_type, 'info') }}">
+                                        {{ type_labels.get(e.journal_type, e.journal_type) }}
+                                    </span>
+                                </td>
+                                <td class="text-truncate" style="max-width: 250px">{{ e.description }}</td>
+                                <td class="text-end">{{ e.total_debit|fmt_money }}</td>
+                                <td class="text-end">{{ e.total_credit|fmt_money }}</td>
+                                <td>
+                                    {% if e.status == 'posted' %}
+                                        <span class="badge bg-success">전기</span>
+                                    {% elif e.status == 'reversed' %}
+                                        <span class="badge bg-secondary">역분개</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">{{ e.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">조회된 전표가 없습니다.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 수동 전표 생성 (admin만) -->
+    {% if current_user.role in ['admin'] %}
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">
+                <i class="bi bi-plus-circle text-primary"></i> 수동 전표 생성
+            </div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('journal.manual_entry') }}" id="manualJournalForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">전표일</label>
+                        <input type="date" name="journal_date" class="form-control form-control-sm"
+                               value="{{ date_to }}">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-0">적요</label>
+                        <input type="text" name="description" class="form-control form-control-sm"
+                               placeholder="전표 설명">
+                    </div>
+                    <hr class="my-2">
+                    <div id="journalLines">
+                        <div class="journal-line mb-2 p-2 border rounded bg-light">
+                            <div class="row g-1">
+                                <div class="col-4">
+                                    <input type="text" name="account_code[]" class="form-control form-control-sm"
+                                           placeholder="계정코드">
+                                </div>
+                                <div class="col-4">
+                                    <input type="text" name="debit[]" class="form-control form-control-sm text-end"
+                                           placeholder="차변">
+                                </div>
+                                <div class="col-4">
+                                    <input type="text" name="credit[]" class="form-control form-control-sm text-end"
+                                           placeholder="대변">
+                                </div>
+                                <div class="col-12 mt-1">
+                                    <input type="text" name="line_desc[]" class="form-control form-control-sm"
+                                           placeholder="라인 적요">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2" onclick="addLine()">
+                        <i class="bi bi-plus"></i> 라인 추가
+                    </button>
+                    <div class="d-flex justify-content-between small text-muted mb-2">
+                        <span>차변 합계: <strong id="totalDebit">0</strong></span>
+                        <span>대변 합계: <strong id="totalCredit">0</strong></span>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="bi bi-check-lg"></i> 전표 생성
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function addLine() {
+    const container = document.getElementById('journalLines');
+    const line = container.querySelector('.journal-line').cloneNode(true);
+    line.querySelectorAll('input').forEach(i => { i.value = ''; });
+    container.appendChild(line);
+    bindCalc();
+}
+
+function bindCalc() {
+    document.querySelectorAll('input[name="debit[]"], input[name="credit[]"]').forEach(el => {
+        el.removeEventListener('input', calcTotals);
+        el.addEventListener('input', calcTotals);
+    });
+}
+
+function calcTotals() {
+    let d = 0, c = 0;
+    document.querySelectorAll('input[name="debit[]"]').forEach(el => {
+        d += parseInt(el.value.replace(/,/g, '') || '0');
+    });
+    document.querySelectorAll('input[name="credit[]"]').forEach(el => {
+        c += parseInt(el.value.replace(/,/g, '') || '0');
+    });
+    document.getElementById('totalDebit').textContent = d.toLocaleString();
+    document.getElementById('totalCredit').textContent = c.toLocaleString();
+    const eq = d === c && d > 0;
+    document.getElementById('totalDebit').style.color = eq ? 'green' : 'red';
+    document.getElementById('totalCredit').style.color = eq ? 'green' : 'red';
+}
+
+bindCalc();
+</script>
+{% endblock %}

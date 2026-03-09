@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block page_title %}숫자 대조표{% endblock %}
+
+{% block content %}
+<!-- 필터 바 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label small mb-0">시작일</label>
+                <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-0">종료일</label>
+                <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="bi bi-search"></i> 검증
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 전체 결과 요약 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body py-3">
+        <div class="d-flex align-items-center gap-3">
+            {% if all_ok %}
+            <span class="badge bg-success fs-6 px-3 py-2">
+                <i class="bi bi-check-circle-fill"></i> 전체 정합
+            </span>
+            <span class="text-success fw-bold">모든 항목이 일치합니다</span>
+            {% else %}
+            <span class="badge bg-danger fs-6 px-3 py-2">
+                <i class="bi bi-exclamation-triangle-fill"></i> 불일치 발견
+            </span>
+            <span class="text-danger fw-bold">
+                {{ checks|selectattr('ok', 'false')|list|length }}개 항목에서 차이가 발생했습니다
+            </span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 대조 항목별 카드 -->
+{% for check in checks %}
+<div class="card shadow-sm mb-3 border-start border-3 {{ 'border-success' if check.ok else 'border-danger' }}">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+                <h6 class="mb-1">
+                    {% if check.ok %}
+                    <i class="bi bi-check-circle-fill text-success"></i>
+                    {% else %}
+                    <i class="bi bi-x-circle-fill text-danger"></i>
+                    {% endif %}
+                    {{ check.name }}
+                </h6>
+                <small class="text-muted">{{ check.description }}</small>
+            </div>
+            {% if check.ok %}
+            <span class="badge bg-success">일치</span>
+            {% else %}
+            <span class="badge bg-danger">불일치</span>
+            {% endif %}
+        </div>
+
+        <div class="row g-3 mt-1">
+            <div class="col-md-5">
+                <div class="bg-light rounded p-3 text-center">
+                    <div class="text-muted small">{{ check.left_label }}</div>
+                    <div class="fs-5 fw-bold">{{ check.left_value|fmt_money }}원</div>
+                </div>
+            </div>
+            <div class="col-md-2 d-flex align-items-center justify-content-center">
+                {% if check.ok %}
+                <span class="text-success fs-4">=</span>
+                {% else %}
+                <span class="text-danger fs-4">&ne;</span>
+                {% endif %}
+            </div>
+            <div class="col-md-5">
+                <div class="bg-light rounded p-3 text-center">
+                    <div class="text-muted small">{{ check.right_label }}</div>
+                    <div class="fs-5 fw-bold">{{ check.right_value|fmt_money }}원</div>
+                </div>
+            </div>
+        </div>
+
+        {% if not check.ok %}
+        <div class="mt-2">
+            <small class="text-danger">
+                <i class="bi bi-info-circle"></i>
+                차이: {{ (check.left_value - check.right_value)|abs|fmt_money }}원
+            </small>
+        </div>
+        {% endif %}
+
+        {% if check.note %}
+        <div class="mt-2">
+            <small class="text-muted fst-italic">
+                <i class="bi bi-info-circle"></i> {{ check.note }}
+            </small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% if not checks %}
+<div class="card shadow-sm">
+    <div class="card-body text-center text-muted py-4">
+        전표 데이터가 없습니다. 세금계산서 발행 또는 매칭 후 대조표를 확인하세요.
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -35,6 +35,7 @@ BUSINESSES = {
             # 회계 ERP (배마마 전용)
             'bank_transactions', 'tax_invoices', 'ar_management',
             'ap_management', 'settlements', 'accounting_reports',
+            'journal', 'trial_balance', 'card_transactions', 'reconciliation_acct',
         ],
     },
 }
