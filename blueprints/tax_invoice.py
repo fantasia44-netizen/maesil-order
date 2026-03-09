@@ -87,6 +87,27 @@ def cancel(invoice_id):
     return redirect(url_for('tax_invoice.index'))
 
 
+@tax_invoice_bp.route('/delete-test-data', methods=['POST'])
+@role_required('admin')
+def delete_test_data():
+    """테스트 데이터 일괄 삭제 (임시 + 취소 건)"""
+    db = current_app.db
+    try:
+        invoices = db.query_tax_invoices()
+        deleted = 0
+        for inv in invoices:
+            if inv.get('status') in ('draft', 'cancelled'):
+                db.delete_tax_invoice(inv['id'])
+                deleted += 1
+
+        flash(f'테스트 데이터 {deleted}건 삭제 완료', 'success')
+        _log_action('delete_test_tax_invoices', detail=f'{deleted}건 삭제')
+    except Exception as e:
+        flash(f'삭제 오류: {e}', 'danger')
+
+    return redirect(url_for('tax_invoice.index'))
+
+
 # ══════════════════════════════════════════════
 #  홈택스 엑셀 업로드 (매출 / 매입)
 # ══════════════════════════════════════════════

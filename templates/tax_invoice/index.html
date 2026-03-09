@@ -116,6 +116,15 @@
                class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-download"></i> 엑셀 다운로드
             </a>
+
+            <!-- 테스트 데이터 삭제 (임시+취소) -->
+            <form method="post" action="{{ url_for('tax_invoice.delete_test_data') }}" class="d-inline"
+                  onsubmit="return confirm('임시/취소 상태의 세금계산서를 모두 삭제합니다. 계속하시겠습니까?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash"></i> 테스트 데이터 삭제
+                </button>
+            </form>
         </div>
     </div>
     <div class="card-body p-0">
