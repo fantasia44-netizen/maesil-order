@@ -4171,7 +4171,7 @@ class SupabaseDB(DBBase):
         new = 0
         updated = 0
         skipped = 0
-        batch_size = 50
+        batch_size = 500
 
         for i in range(0, len(orders), batch_size):
             batch = orders[i:i + batch_size]

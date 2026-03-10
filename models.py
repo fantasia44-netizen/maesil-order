@@ -107,7 +107,6 @@ PAGE_REGISTRY = [
     ('ar_management',  '미수금 관리',    'bi-cash-coin',          '/accounting/receivables', ['admin','general'],                                             '총무/경리'),
     ('ap_management',  '미지급금 관리',  'bi-credit-card',        '/accounting/payables', ['admin','general'],                                                '총무/경리'),
     ('settlements',    '플랫폼 정산',    'bi-shop',               '/accounting/settlements', ['admin','general'],                                             '총무/경리'),
-    ('marketplace_api','API 연동',      'bi-cloud-arrow-down',   '/marketplace',         ['admin','general'],                                                '총무/경리'),
     ('pnl',            '관리 손익표',    'bi-clipboard-data',     '/finance/pnl',         ['admin','general'],                                                '총무/경리'),
     ('accounting_reports','리포트',      'bi-file-earmark-bar-graph', '/accounting/reports', ['admin','general'],                                             '총무/경리'),
     ('finance_dashboard','재무현황',     'bi-bar-chart-line',     '/finance/dashboard',   ['admin','general'],                                                '총무/경리'),
@@ -123,6 +122,8 @@ PAGE_REGISTRY = [
     ('admin_perms',    '권한 설정',      'bi-shield-lock',        '/admin/permissions',   ['admin'],                                                          '관리'),
     ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin'],                                                          '관리'),
     ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager'],                                                '관리'),
+    ('marketplace_api','API 연동',      'bi-cloud-arrow-down',   '/marketplace',         ['admin'],                                                              '관리'),
+    ('marketplace_val','교차검증',      'bi-check2-circle',      '/marketplace/validation', ['admin','manager','sales'],                                          '관리'),
 ]
 
 
