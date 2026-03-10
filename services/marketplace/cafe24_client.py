@@ -34,16 +34,29 @@ class Cafe24Client(MarketplaceBaseClient):
 
     def get_auth_url(self, redirect_uri: str, state: str = '') -> str:
         """OAuth2 인증 URL 생성 (최초 연결용, 사용자가 브라우저에서 승인)."""
+        from urllib.parse import urlencode
         mall_id = self.config.get('mall_id', '')
         client_id = self.config.get('client_id', '')
-        return (
-            f'https://{mall_id}.cafe24api.com/api/v2/oauth/authorize'
-            f'?response_type=code'
-            f'&client_id={client_id}'
-            f'&redirect_uri={redirect_uri}'
-            f'&scope=mall.read_order,mall.read_product,mall.read_store'
-            f'&state={state}'
-        )
+        # 앱에 등록된 scope와 정확히 일치해야 함
+        scopes = ','.join([
+            'mall.read_order', 'mall.write_order',
+            'mall.read_product', 'mall.write_product',
+            'mall.read_category', 'mall.write_category',
+            'mall.read_store', 'mall.write_store',
+            'mall.read_supply', 'mall.write_supply',
+            'mall.read_shipping', 'mall.write_shipping',
+            'mall.read_community', 'mall.write_community',
+            'mall.read_salesreport',
+            'mall.read_application', 'mall.write_application',
+        ])
+        params = urlencode({
+            'response_type': 'code',
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'scope': scopes,
+            'state': state,
+        })
+        return f'https://{mall_id}.cafe24api.com/api/v2/oauth/authorize?{params}'
 
     def exchange_code(self, db, code: str, redirect_uri: str) -> bool:
         """인가 코드 → 액세스 토큰 교환."""
