@@ -147,33 +147,76 @@ def oauth_callback(channel):
 @role_required('admin', 'general')
 def sync():
     """수동 동기화 실행."""
+    try:
+        db = current_app.db
+        mgr = current_app.marketplace
+
+        channel = request.form.get('channel', '')
+        sync_type = request.form.get('sync_type', 'orders')
+        date_from = request.form.get('date_from', days_ago_kst(7))
+        date_to = request.form.get('date_to', today_kst())
+
+        from services.marketplace_sync_service import sync_orders, sync_settlements
+
+        results = {}
+
+        if sync_type in ('orders', 'all'):
+            results['orders'] = sync_orders(
+                db, mgr, channel, date_from, date_to,
+                triggered_by=current_user.username
+            )
+
+        if sync_type in ('settlements', 'all'):
+            results['settlements'] = sync_settlements(
+                db, mgr, channel, date_from, date_to,
+                triggered_by=current_user.username
+            )
+
+        _log_action(f'마켓플레이스 동기화: {channel} {sync_type} {date_from}~{date_to}')
+        return jsonify(results)
+
+    except Exception as e:
+        logger.error(f'[Sync] 동기화 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/diag/<channel>')
+@role_required('admin')
+def diag(channel):
+    """API 진단 — 실제 API 응답 확인."""
     db = current_app.db
     mgr = current_app.marketplace
+    client = mgr.get_client(channel)
 
-    channel = request.form.get('channel', '')
-    sync_type = request.form.get('sync_type', 'orders')  # orders / settlements / all
-    date_from = request.form.get('date_from', days_ago_kst(7))
-    date_to = request.form.get('date_to', today_kst())
+    if not client:
+        return jsonify({'error': f'{channel} 클라이언트 없음'})
 
-    from services.marketplace_sync_service import sync_orders, sync_settlements
+    info = {
+        'channel': channel,
+        'is_ready': client.is_ready,
+        'config_keys': list(client.config.keys()),
+        'has_token': bool(client.config.get('access_token')),
+        'token_expires': client.config.get('token_expires_at', ''),
+    }
 
-    results = {}
+    # 토큰 갱신 시도
+    try:
+        refresh_ok = client.refresh_token(db)
+        info['refresh_ok'] = refresh_ok
+    except Exception as e:
+        info['refresh_error'] = str(e)
 
-    if sync_type in ('orders', 'all'):
-        results['orders'] = sync_orders(
-            db, mgr, channel, date_from, date_to,
-            triggered_by=current_user.username
-        )
+    # 주문 조회 (최근 1일, 최대 3건)
+    try:
+        from services.tz_utils import today_kst, days_ago_kst
+        orders = client.fetch_orders(days_ago_kst(1), today_kst())
+        info['orders_count'] = len(orders)
+        if orders:
+            info['sample_order'] = {k: str(v)[:50] for k, v in orders[0].items()}
+    except Exception as e:
+        info['orders_error'] = str(e)
 
-    if sync_type in ('settlements', 'all'):
-        results['settlements'] = sync_settlements(
-            db, mgr, channel, date_from, date_to,
-            triggered_by=current_user.username
-        )
-
-    _log_action(f'마켓플레이스 동기화: {channel} {sync_type} {date_from}~{date_to}')
-    flash(f'{channel} 동기화 완료', 'success')
-    return jsonify(results)
+    return jsonify(info)
 
 
 @marketplace_bp.route('/sync/log')
