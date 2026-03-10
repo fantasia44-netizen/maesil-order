@@ -130,13 +130,25 @@ class NaverCommerceClient(MarketplaceBaseClient):
     # ── 주문 조회 ──
 
     def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """변경 주문 조회 + 상세 일괄조회."""
+        """변경 주문 조회 + 상세 일괄조회.
+
+        네이버 API는 최대 24시간 범위만 허용하므로 자동 분할 처리.
+        """
         if not self.config.get('access_token'):
             logger.warning('[네이버] 액세스 토큰 없음')
             return []
 
-        # 1단계: 변경된 주문 ID 목록 가져오기
-        product_order_ids = self._fetch_changed_order_ids(date_from, date_to)
+        # 1단계: 24시간 윈도우로 분할하여 변경 주문 ID 수집
+        product_order_ids = []
+        windows = self._split_date_range(date_from, date_to)
+        for win_from, win_to in windows:
+            ids = self._fetch_changed_order_ids_window(win_from, win_to)
+            for pid in ids:
+                if pid not in product_order_ids:
+                    product_order_ids.append(pid)
+
+        logger.info(f'[네이버] 총 변경주문 {len(product_order_ids)}건 발견')
+
         if not product_order_ids:
             return []
 
@@ -150,16 +162,32 @@ class NaverCommerceClient(MarketplaceBaseClient):
 
         return all_orders
 
-    def _fetch_changed_order_ids(self, date_from: str, date_to: str) -> list:
-        """변경 주문 ID 목록 조회 (페이지네이션)."""
-        ids = []
-        last_changed_from = f'{date_from}T00:00:00.000+09:00'
-        last_changed_to = f'{date_to}T23:59:59.999+09:00'
+    @staticmethod
+    def _split_date_range(date_from: str, date_to: str) -> list:
+        """날짜 범위를 24시간 윈도우로 분할."""
+        from_dt = datetime.strptime(date_from, '%Y-%m-%d')
+        to_dt = datetime.strptime(date_to, '%Y-%m-%d')
+        # to_dt의 끝(23:59:59)까지 포함
+        to_dt = to_dt.replace(hour=23, minute=59, second=59)
 
-        url = f'{self.BASE_URL}/external/v1/pay-order/seller/orders/last-changed-statuses'
+        windows = []
+        cursor = from_dt
+        while cursor < to_dt:
+            win_end = min(cursor + timedelta(hours=23, minutes=59, seconds=59), to_dt)
+            win_from = cursor.strftime('%Y-%m-%dT%H:%M:%S.000+09:00')
+            win_to = win_end.strftime('%Y-%m-%dT%H:%M:%S.999+09:00')
+            windows.append((win_from, win_to))
+            cursor = win_end + timedelta(seconds=1)
+
+        return windows
+
+    def _fetch_changed_order_ids_window(self, from_str: str, to_str: str) -> list:
+        """단일 24시간 윈도우에서 변경 주문 ID 조회 (페이지네이션)."""
+        ids = []
+        url = f'{self.BASE_URL}/external/v1/pay-order/seller/product-orders/last-changed-statuses'
         params = {
-            'lastChangedFrom': last_changed_from,
-            'lastChangedTo': last_changed_to,
+            'lastChangedFrom': from_str,
+            'lastChangedTo': to_str,
         }
 
         while True:
@@ -169,7 +197,7 @@ class NaverCommerceClient(MarketplaceBaseClient):
                 if self._handle_rate_limit(resp):
                     continue
                 if resp.status_code != 200:
-                    logger.error(f'[네이버] 변경주문 조회 실패: {resp.status_code}')
+                    logger.error(f'[네이버] 변경주문 조회 실패: {resp.status_code} {resp.text[:200]}')
                     break
 
                 data = resp.json().get('data', {})
@@ -179,10 +207,11 @@ class NaverCommerceClient(MarketplaceBaseClient):
                     if pid and pid not in ids:
                         ids.append(pid)
 
-                # 다음 페이지
+                # 페이지네이션: moreFrom + moreSequence
                 more = data.get('more', {})
                 if more.get('moreSequence'):
-                    params['lastChangedFrom'] = more['moreSequence']
+                    params['lastChangedFrom'] = more['moreFrom']
+                    params['moreSequence'] = more['moreSequence']
                 else:
                     break
 
@@ -190,12 +219,11 @@ class NaverCommerceClient(MarketplaceBaseClient):
                 logger.error(f'[네이버] 변경주문 조회 오류: {e}')
                 break
 
-        logger.info(f'[네이버] 변경주문 {len(ids)}건 발견')
         return ids
 
     def _fetch_order_details(self, product_order_ids: list) -> list:
         """주문 상세 일괄조회."""
-        url = f'{self.BASE_URL}/external/v1/pay-order/seller/orders/query'
+        url = f'{self.BASE_URL}/external/v1/pay-order/seller/product-orders/query'
 
         try:
             resp = self.session.post(
@@ -274,30 +302,38 @@ class NaverCommerceClient(MarketplaceBaseClient):
 
     def _normalize_order(self, raw: dict) -> dict:
         """API 응답 → api_orders 스키마."""
-        order_info = raw.get('order', raw)
-        product_order = raw.get('productOrder', raw)
+        order_info = raw.get('order', {})
+        po = raw.get('productOrder', {})
+
+        # 수수료 합산 (결제수수료 + 판매수수료 + 지식쇼핑연동수수료 + 채널수수료)
+        payment_comm = int(po.get('paymentCommission', 0))
+        sale_comm = int(po.get('saleCommission', 0))
+        knowledge_comm = int(po.get('knowledgeShoppingSellingInterlockCommission', 0))
+        channel_comm = int(po.get('channelCommission', 0))
+        total_commission = payment_comm + sale_comm + knowledge_comm + channel_comm
 
         return {
             'channel': self.CHANNEL_NAME,
             'api_order_id': str(order_info.get('orderId', '')),
-            'api_line_id': str(product_order.get('productOrderId', '')),
+            'api_line_id': str(po.get('productOrderId', '')),
             'order_date': str(order_info.get('orderDate', ''))[:10],
-            'product_name': product_order.get('productName', ''),
-            'option_name': product_order.get('optionContent', ''),
-            'qty': int(product_order.get('quantity', 0)),
-            'unit_price': int(product_order.get('unitPrice', 0)),
-            'total_amount': int(product_order.get('totalPaymentAmount', 0)),
-            'discount_amount': int(product_order.get('totalDiscountAmount', 0)),
-            'settlement_amount': int(product_order.get('expectedSettlementAmount', 0)),
-            'commission': int(product_order.get('commissionAmount', 0)),
-            'shipping_fee': int(product_order.get('deliveryFeeAmount', 0)),
+            'product_name': po.get('productName', ''),
+            'option_name': po.get('productOption', ''),
+            'qty': int(po.get('quantity', 0)),
+            'unit_price': int(po.get('unitPrice', 0)),
+            'total_amount': int(po.get('totalPaymentAmount', 0)),
+            'discount_amount': int(po.get('productDiscountAmount', 0)),
+            'settlement_amount': int(po.get('expectedSettlementAmount', 0)),
+            'commission': total_commission,
+            'shipping_fee': int(po.get('deliveryFeeAmount', 0)),
             'fee_detail': {
-                'naverpay_fee': int(product_order.get('naverPayFee', 0)),
-                'sales_linked_fee': int(product_order.get('salesLinkedFee', 0)),
-                'seller_burden_discount': int(product_order.get('sellerBurdenDiscount', 0)),
-                'knowledge_shopping_fee': int(product_order.get('knowledgeShoppingFee', 0)),
+                'payment_commission': payment_comm,
+                'sale_commission': sale_comm,
+                'knowledge_shopping_commission': knowledge_comm,
+                'channel_commission': channel_comm,
+                'seller_burden_discount': int(po.get('sellerBurdenDiscountAmount', 0)),
             },
-            'order_status': product_order.get('productOrderStatus', ''),
+            'order_status': po.get('productOrderStatus', ''),
             'raw_data': raw,
             'raw_hash': self.compute_raw_hash(raw),
         }

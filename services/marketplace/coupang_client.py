@@ -29,25 +29,23 @@ class CoupangWingClient(MarketplaceBaseClient):
 
     # ── 인증 (HMAC-SHA256) ──
 
-    def _generate_hmac_signature(self, method: str, path: str, query: str = '') -> dict:
+    def _generate_hmac_signature(self, method: str, url_with_query: str) -> dict:
         """HMAC-SHA256 서명 + Authorization 헤더 생성.
 
         쿠팡 인증 방식:
-        message = datetime + method + path + query
+        message = datetime + method + path + querystring (? 제외)
         signature = HMAC-SHA256(secret_key, message)
-        Authorization: CEA algorithm=HmacSHA256, access-key={}, signed-date={}, signature={}
         """
         access_key = self.config['client_id']
         secret_key = self.config['client_secret']
 
-        dt = datetime.now(timezone.utc).strftime('%y%m%dT%H%M%SZ')
+        from time import gmtime, strftime
+        dt = strftime('%y%m%d', gmtime()) + 'T' + strftime('%H%M%S', gmtime()) + 'Z'
 
-        # 메시지 생성
-        message = dt + method.upper() + path
-        if query:
-            message += query
+        # URL에서 path와 query 분리 (? 제외)
+        path, *query = url_with_query.split('?')
+        message = dt + method.upper() + path + (query[0] if query else '')
 
-        # HMAC-SHA256 서명
         signature = hmac.new(
             secret_key.encode('utf-8'),
             message.encode('utf-8'),
@@ -64,7 +62,6 @@ class CoupangWingClient(MarketplaceBaseClient):
         return {
             'Authorization': auth_header,
             'Content-Type': 'application/json;charset=UTF-8',
-            'X-Requested-By': 'autotool',
         }
 
     def refresh_token(self, db) -> bool:
@@ -72,6 +69,12 @@ class CoupangWingClient(MarketplaceBaseClient):
         return True
 
     # ── 주문 조회 ──
+
+    @staticmethod
+    def _build_query(params: dict) -> str:
+        """파라미터 dict → 정렬된 쿼리 문자열 (URL 인코딩 없이)."""
+        parts = [f'{k}={v}' for k, v in sorted(params.items())]
+        return '&'.join(parts)
 
     def fetch_orders(self, date_from: str, date_to: str) -> list:
         """주문 목록 조회."""
@@ -98,17 +101,14 @@ class CoupangWingClient(MarketplaceBaseClient):
             if next_token:
                 params['nextToken'] = next_token
 
-            # 쿼리 문자열 생성 (서명용)
-            query_parts = [f'{k}={v}' for k, v in sorted(params.items())]
-            query_str = '?' + '&'.join(query_parts) if query_parts else ''
-
-            headers = self._generate_hmac_signature('GET', path, query_str)
+            query_str = self._build_query(params)
+            full_url = f'{path}?{query_str}'
+            headers = self._generate_hmac_signature('GET', full_url)
 
             try:
                 resp = self.session.get(
-                    f'{self.BASE_URL}{path}',
+                    f'{self.BASE_URL}{full_url}',
                     headers=headers,
-                    params=params,
                     timeout=30,
                 )
 
@@ -148,20 +148,15 @@ class CoupangWingClient(MarketplaceBaseClient):
         path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/settlements'
         settlements = []
 
-        params = {
-            'startDate': date_from,
-            'endDate': date_to,
-        }
-        query_parts = [f'{k}={v}' for k, v in sorted(params.items())]
-        query_str = '?' + '&'.join(query_parts)
-
-        headers = self._generate_hmac_signature('GET', path, query_str)
+        params = {'endDate': date_to, 'startDate': date_from}
+        query_str = self._build_query(params)
+        full_url = f'{path}?{query_str}'
+        headers = self._generate_hmac_signature('GET', full_url)
 
         try:
             resp = self.session.get(
-                f'{self.BASE_URL}{path}',
+                f'{self.BASE_URL}{full_url}',
                 headers=headers,
-                params=params,
                 timeout=30,
             )
 
@@ -244,19 +239,18 @@ class CoupangWingClient(MarketplaceBaseClient):
             'maxPerPage': 1,
             'status': 'ACCEPT',
         }
-        query_parts = [f'{k}={v}' for k, v in sorted(params.items())]
-        query_str = '?' + '&'.join(query_parts)
-        headers = self._generate_hmac_signature('GET', path, query_str)
+        query_str = self._build_query(params)
+        full_url = f'{path}?{query_str}'
+        headers = self._generate_hmac_signature('GET', full_url)
 
         try:
             resp = self.session.get(
-                f'{self.BASE_URL}{path}',
+                f'{self.BASE_URL}{full_url}',
                 headers=headers,
-                params=params,
                 timeout=15,
             )
             if resp.status_code == 200:
                 return {'success': True, 'message': '쿠팡 Wing API 연결 성공'}
-            return {'success': False, 'message': f'HTTP {resp.status_code}: {resp.text[:100]}'}
+            return {'success': False, 'message': f'HTTP {resp.status_code}: {resp.text[:200]}'}
         except Exception as e:
             return {'success': False, 'message': str(e)}
