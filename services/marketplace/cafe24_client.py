@@ -154,7 +154,7 @@ class Cafe24Client(MarketplaceBaseClient):
         return {
             'Authorization': f'Bearer {self.config.get("access_token", "")}',
             'Content-Type': 'application/json',
-            'X-Cafe24-Api-Version': '2024-03-01',
+            'X-Cafe24-Api-Version': '2025-12-01',
         }
 
     # ── 주문 조회 ──
