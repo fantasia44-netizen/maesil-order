@@ -4187,24 +4187,34 @@ class SupabaseDB(DBBase):
         return {'new': new, 'updated': updated, 'skipped': skipped}
 
     def query_api_orders(self, channel=None, date_from=None, date_to=None,
-                         match_status=None, limit=5000):
-        """API 주문 조회."""
+                         match_status=None, limit=50000):
+        """API 주문 조회 (페이지네이션으로 Supabase 1000행 제한 우회)."""
+        all_rows = []
+        page_size = 1000
+        offset = 0
         try:
-            q = self.client.table("api_orders") \
-                .select("*").order("order_date", desc=True).limit(limit)
-            if channel:
-                q = q.eq("channel", channel)
-            if date_from:
-                q = q.gte("order_date", date_from)
-            if date_to:
-                q = q.lte("order_date", date_to)
-            if match_status:
-                q = q.eq("match_status", match_status)
-            res = q.execute()
-            return res.data or []
+            while offset < limit:
+                q = self.client.table("api_orders") \
+                    .select("*").order("order_date", desc=True) \
+                    .range(offset, offset + page_size - 1)
+                if channel:
+                    q = q.eq("channel", channel)
+                if date_from:
+                    q = q.gte("order_date", date_from)
+                if date_to:
+                    q = q.lte("order_date", date_to)
+                if match_status:
+                    q = q.eq("match_status", match_status)
+                res = q.execute()
+                rows = res.data or []
+                all_rows.extend(rows)
+                if len(rows) < page_size:
+                    break
+                offset += page_size
+            return all_rows
         except Exception as e:
             print(f"[DB] query_api_orders error: {e}")
-            return []
+            return all_rows
 
     def update_api_order_match(self, api_order_id, match_data):
         """API 주문 매칭 결과 업데이트."""

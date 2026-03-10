@@ -9,6 +9,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _query_all_order_transactions(db, channel, date_from, date_to):
+    """order_transactions 전체 조회 (1000행 제한 우회)."""
+    all_rows = []
+    page_size = 1000
+    offset = 0
+    while True:
+        rows = db.query_order_transactions(
+            channel=channel, date_from=date_from, date_to=date_to,
+            limit=page_size, offset=offset)
+        all_rows.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return all_rows
+
+
 def validate_orders(db, channel, date_from, date_to):
     """API 주문 vs 엑셀 주문 교차검증.
 
@@ -19,13 +35,13 @@ def validate_orders(db, channel, date_from, date_to):
     Returns:
         dict: {channel, date_range, summary, amount_comparison, mismatches}
     """
-    # API 주문 조회
+    # API 주문 조회 (페이지네이션 지원)
     api_orders = db.query_api_orders(
-        channel=channel, date_from=date_from, date_to=date_to, limit=10000)
+        channel=channel, date_from=date_from, date_to=date_to, limit=50000)
 
-    # 엑셀 주문 조회
-    excel_orders = db.query_order_transactions(
-        channel=channel, date_from=date_from, date_to=date_to, limit=10000)
+    # 엑셀 주문 조회 (페이지네이션으로 전체 조회)
+    excel_orders = _query_all_order_transactions(
+        db, channel=channel, date_from=date_from, date_to=date_to)
 
     # 매칭 키 생성
     # 네이버: api_line_id(상품주문번호)로 매칭, 쿠팡: api_order_id로 매칭
