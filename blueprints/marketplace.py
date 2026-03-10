@@ -180,7 +180,7 @@ def sync():
         date_to = request.form.get('date_to', today_kst())
 
         from services.marketplace_sync_service import (
-            sync_orders, sync_settlements, sync_revenue_fees)
+            sync_orders, sync_settlements, sync_revenue_fees, sync_ad_costs)
 
         results = {}
 
@@ -202,6 +202,15 @@ def sync():
                 db, mgr, channel, date_from, date_to,
                 triggered_by=current_user.username
             )
+
+        # 네이버 검색광고 비용 동기화
+        if channel == '스마트스토어' and sync_type in ('settlements', 'all'):
+            ad_client = getattr(current_app, 'naver_ad', None)
+            if ad_client and ad_client.is_ready:
+                results['ad_costs'] = sync_ad_costs(
+                    db, ad_client, date_from, date_to,
+                    triggered_by=current_user.username
+                )
 
         _log_action(f'마켓플레이스 동기화: {channel} {sync_type} {date_from}~{date_to}')
         return jsonify(results)
@@ -555,7 +564,17 @@ def upload_ad_cost():
             else:
                 date_str = str(date_val).strip()[:10]
 
-            channel = str(row[col_map['channel']]).strip() if 'channel' in col_map else '쿠팡'
+            raw_channel = str(row[col_map['channel']]).strip() if 'channel' in col_map else '쿠팡'
+            # 채널명 표준화 (엑셀 입력값 → DB 표준 채널명)
+            ch_lower = raw_channel.replace(' ', '')
+            if '쿠팡' in ch_lower:
+                channel = '쿠팡'
+            elif '네이버' in ch_lower or '스마트스토어' in ch_lower or 'naver' in ch_lower.lower():
+                channel = '스마트스토어'
+            elif '자사몰' in ch_lower or 'cafe24' in ch_lower.lower():
+                channel = '자사몰'
+            else:
+                channel = raw_channel
             cost_val = row[col_map['cost']]
             try:
                 cost_int = int(float(str(cost_val).replace(',', '')))
