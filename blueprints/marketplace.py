@@ -78,7 +78,63 @@ def test_connection(channel):
         return jsonify({'success': False, 'message': f'{channel} 클라이언트 없음'})
 
     result = client.test_connection(db)
+
+    # Cafe24 OAuth 인증이 필요한 경우 올바른 redirect_uri로 auth_url 재생성
+    if result.get('auth_url'):
+        callback_url = url_for('marketplace.oauth_callback',
+                               channel=channel, _external=True)
+        result['auth_url'] = client.get_auth_url(callback_url, state='connect')
+
     return jsonify(result)
+
+
+@marketplace_bp.route('/oauth/authorize/<channel>')
+@role_required('admin')
+def oauth_authorize(channel):
+    """OAuth2 인증 시작 (Cafe24 등)."""
+    mgr = current_app.marketplace
+    client = mgr.get_client(channel)
+    if not client:
+        flash(f'{channel} 클라이언트 없음', 'danger')
+        return redirect(url_for('marketplace.index'))
+
+    callback_url = url_for('marketplace.oauth_callback',
+                           channel=channel, _external=True)
+    auth_url = client.get_auth_url(callback_url, state='connect')
+    return redirect(auth_url)
+
+
+@marketplace_bp.route('/oauth/callback/<channel>')
+@role_required('admin')
+def oauth_callback(channel):
+    """OAuth2 콜백 — 인가 코드를 토큰으로 교환."""
+    db = current_app.db
+    mgr = current_app.marketplace
+    client = mgr.get_client(channel)
+
+    code = request.args.get('code', '')
+    error = request.args.get('error', '')
+
+    if error:
+        flash(f'{channel} OAuth 인증 거부: {error}', 'danger')
+        return redirect(url_for('marketplace.index'))
+
+    if not code:
+        flash(f'{channel} 인가 코드가 없습니다', 'danger')
+        return redirect(url_for('marketplace.index'))
+
+    callback_url = url_for('marketplace.oauth_callback',
+                           channel=channel, _external=True)
+    ok = client.exchange_code(db, code, callback_url)
+
+    if ok:
+        mgr._load_configs(db)
+        _log_action(f'{channel} OAuth 인증 완료')
+        flash(f'{channel} OAuth 인증 성공!', 'success')
+    else:
+        flash(f'{channel} 토큰 교환 실패', 'danger')
+
+    return redirect(url_for('marketplace.index'))
 
 
 @marketplace_bp.route('/sync', methods=['POST'])
