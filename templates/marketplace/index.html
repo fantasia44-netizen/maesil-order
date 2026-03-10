@@ -266,10 +266,15 @@ function runSync() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 동기화 중...';
 
+    // 5분 타임아웃 (대량 동기화 대비)
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 300000);
+
     fetch('/marketplace/sync', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
+        signal: ctrl.signal,
     })
     .then(r => r.json())
     .then(data => {
@@ -282,6 +287,9 @@ function runSync() {
         if (data.settlements) {
             html += `정산: 조회 ${data.settlements.fetched||0}건, 신규 ${data.settlements.new||0}건<br>`;
         }
+        if (data.revenue_fees) {
+            html += `매출내역(수수료): ${data.revenue_fees.fetched||0}건 → ${data.revenue_fees.saved||0}일 저장<br>`;
+        }
         if (data.error) {
             html = `<div class="alert alert-danger"><strong>오류</strong>: ${data.error}`;
         }
@@ -290,10 +298,14 @@ function runSync() {
     })
     .catch(e => {
         document.getElementById('syncResult').style.display = 'block';
+        const msg = e.name === 'AbortError'
+            ? '동기화 시간 초과 (5분). 기간을 줄여서 다시 시도하세요.'
+            : `오류: ${e}`;
         document.getElementById('syncResult').innerHTML =
-            `<div class="alert alert-danger">오류: ${e}</div>`;
+            `<div class="alert alert-danger">${msg}</div>`;
     })
     .finally(() => {
+        clearTimeout(timer);
         btn.disabled = false;
         btn.innerHTML = origHtml;
     });

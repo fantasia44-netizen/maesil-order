@@ -659,7 +659,24 @@ def sales_data():
         'shipping': 0, 'orders_count': 0,
     }))
 
+    # 취소/환불 상태 제외 함수
+    def _is_cancelled(order_status, channel):
+        """취소/환불/반품 주문 여부 판단."""
+        s = (order_status or '').upper()
+        if not s:
+            return False
+        # 네이버: CANCEL*, RETURN*, EXCHANGE*
+        if 'CANCEL' in s or 'RETURN' in s or 'EXCHANGE' in s:
+            return True
+        # Cafe24: C로 시작하는 상태코드 (C00, C40 등)
+        if channel == '자사몰' and s.startswith('C'):
+            return True
+        return False
+
     for o in orders:
+        if _is_cancelled(o.get('order_status', ''), o.get('channel', '')):
+            continue
+
         ch = o.get('channel', '')
         dt = o.get('order_date', '')[:10]
         fee = o.get('fee_detail') or {}
