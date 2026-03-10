@@ -78,6 +78,25 @@
                             <input type="text" name="mall_id" class="form-control form-control-sm"
                                    value="{{ cfg.get('mall_id', '') }}" placeholder="Cafe24 몰 ID">
                         </div>
+                        {% elif ch.channel == '스마트스토어' %}
+                        {% set ec = cfg.get('extra_config', {}) or {} %}
+                        <hr class="my-2">
+                        <div class="text-muted mb-1" style="font-size:0.75rem;"><i class="bi bi-megaphone"></i> 네이버 검색광고 API</div>
+                        <div class="mb-2 config-field">
+                            <label>광고 고객번호</label>
+                            <input type="text" name="ad_customer_id" class="form-control form-control-sm"
+                                   value="{{ ec.get('ad_customer_id', '') }}" placeholder="검색광고 고객번호">
+                        </div>
+                        <div class="mb-2 config-field">
+                            <label>광고 API Key</label>
+                            <input type="text" name="ad_api_key" class="form-control form-control-sm"
+                                   value="{{ ec.get('ad_api_key', '') }}" placeholder="액세스 라이선스">
+                        </div>
+                        <div class="mb-2 config-field">
+                            <label>광고 Secret Key</label>
+                            <input type="password" name="ad_secret_key" class="form-control form-control-sm"
+                                   value="{{ ec.get('ad_secret_key', '') }}" placeholder="비밀키">
+                        </div>
                         {% endif %}
 
                         <div class="mb-3 form-check">
@@ -289,6 +308,9 @@ function runSync() {
         }
         if (data.revenue_fees) {
             html += `매출내역(수수료): ${data.revenue_fees.fetched||0}건 → ${data.revenue_fees.saved||0}일 저장<br>`;
+        }
+        if (data.ad_costs) {
+            html += `광고비: ${data.ad_costs.fetched||0}건 → ${data.ad_costs.saved||0}일 저장 (${(data.ad_costs.total_cost||0).toLocaleString()}원)<br>`;
         }
         if (data.error) {
             html = `<div class="alert alert-danger"><strong>오류</strong>: ${data.error}`;

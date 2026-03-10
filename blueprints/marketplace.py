@@ -83,16 +83,42 @@ def save_config(channel):
     }
 
     # 채널별 추가 필드
+    extra = {}
     if channel == '쿠팡':
         payload['vendor_id'] = request.form.get('vendor_id', '').strip()
     elif channel == '자사몰':
         payload['mall_id'] = request.form.get('mall_id', '').strip()
+    elif channel == '스마트스토어':
+        # 네이버 검색광고 API 키 (extra_config에 저장)
+        ad_cid = request.form.get('ad_customer_id', '').strip()
+        ad_key = request.form.get('ad_api_key', '').strip()
+        ad_secret = request.form.get('ad_secret_key', '').strip()
+        if ad_cid or ad_key or ad_secret:
+            extra['ad_customer_id'] = ad_cid
+            extra['ad_api_key'] = ad_key
+            extra['ad_secret_key'] = ad_secret
+
+    if extra:
+        # 기존 extra_config와 병합
+        existing_list = db.query_marketplace_api_configs(channel=channel)
+        existing = existing_list[0] if existing_list else None
+        old_extra = (existing.get('extra_config') or {}) if existing else {}
+        old_extra.update(extra)
+        payload['extra_config'] = old_extra
 
     db.upsert_marketplace_api_config(payload)
     _log_action(f'마켓플레이스 API 설정 저장: {channel}')
 
     # 클라이언트 재로드
     mgr._load_configs(db)
+
+    # 네이버 광고 클라이언트 재로드
+    if channel == '스마트스토어' and extra.get('ad_customer_id'):
+        try:
+            from services.marketplace.naver_ad_client import NaverAdClient
+            current_app.naver_ad = NaverAdClient(extra)
+        except Exception as e:
+            logger.warning(f'NaverAdClient 재로드 실패: {e}')
 
     flash(f'{channel} API 설정이 저장되었습니다.', 'success')
     return redirect(url_for('marketplace.index'))
@@ -206,6 +232,18 @@ def sync():
         # 네이버 검색광고 비용 동기화
         if channel == '스마트스토어' and sync_type in ('settlements', 'all'):
             ad_client = getattr(current_app, 'naver_ad', None)
+            # 앱 시작 시 초기화 안 됐으면 DB에서 다시 로드 시도
+            if not ad_client or not ad_client.is_ready:
+                try:
+                    from services.marketplace.naver_ad_client import NaverAdClient
+                    cfgs = db.query_marketplace_api_configs(channel='스마트스토어')
+                    if cfgs:
+                        ec = (cfgs[0].get('extra_config') or {})
+                        if ec.get('ad_customer_id'):
+                            ad_client = NaverAdClient(ec)
+                            current_app.naver_ad = ad_client
+                except Exception:
+                    pass
             if ad_client and ad_client.is_ready:
                 results['ad_costs'] = sync_ad_costs(
                     db, ad_client, date_from, date_to,

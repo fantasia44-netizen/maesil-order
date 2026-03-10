@@ -62,6 +62,23 @@ def create_app(config_class=None):
     from services.marketplace import MarketplaceManager
     app.marketplace = MarketplaceManager(app.db)
 
+    # ── 네이버 검색광고 API 클라이언트 ──
+    app.naver_ad = None
+    try:
+        from services.marketplace.naver_ad_client import NaverAdClient
+        # DB extra_config에서 로드
+        naver_cfgs = app.db.query_marketplace_api_configs(channel='스마트스토어')
+        naver_cfg = naver_cfgs[0] if naver_cfgs else None
+        if naver_cfg:
+            ec = naver_cfg.get('extra_config') or {}
+            if ec.get('ad_customer_id') and ec.get('ad_api_key') and ec.get('ad_secret_key'):
+                app.naver_ad = NaverAdClient(ec)
+                print(f"[INFO] NaverAdClient 초기화 완료")
+        if not app.naver_ad:
+            print("[INFO] NaverAdClient 미설정 (설정 페이지에서 광고 API 키 입력 필요)")
+    except Exception as e:
+        print(f"[WARN] NaverAdClient 초기화 실패: {e}")
+
     # 권한 테이블 기본값 초기화
     try:
         from models import PAGE_REGISTRY
