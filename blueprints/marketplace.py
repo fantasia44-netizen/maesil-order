@@ -2,11 +2,20 @@
 
 네이버 스마트스토어 / 쿠팡 / Cafe24 API 설정, 동기화, 교차검증.
 """
+import logging
 from flask import (Blueprint, render_template, request, current_app,
                    jsonify, flash, redirect, url_for)
 from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+
+logger = logging.getLogger(__name__)
+
+
+def _cafe24_callback_url() -> str:
+    """Cafe24 OAuth redirect_uri — 항상 HTTPS."""
+    u = url_for('cafe24_oauth_redirect', _external=True)
+    return u.replace('http://', 'https://', 1)
 
 marketplace_bp = Blueprint('marketplace', __name__, url_prefix='/marketplace')
 
@@ -81,7 +90,7 @@ def test_connection(channel):
 
     # Cafe24 OAuth 인증이 필요한 경우 올바른 redirect_uri로 auth_url 재생성
     if result.get('auth_url'):
-        callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
+        callback_url = _cafe24_callback_url()
         result['auth_url'] = client.get_auth_url(callback_url, state='connect')
 
     return jsonify(result)
@@ -97,7 +106,7 @@ def oauth_authorize(channel):
         flash(f'{channel} 클라이언트 없음', 'danger')
         return redirect(url_for('marketplace.index'))
 
-    callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
+    callback_url = _cafe24_callback_url()
     auth_url = client.get_auth_url(callback_url, state='connect')
     return redirect(auth_url)
 
@@ -121,7 +130,7 @@ def oauth_callback(channel):
         flash(f'{channel} 인가 코드가 없습니다', 'danger')
         return redirect(url_for('marketplace.index'))
 
-    callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
+    callback_url = _cafe24_callback_url()
     ok = client.exchange_code(db, code, callback_url)
 
     if ok:

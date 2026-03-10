@@ -74,7 +74,8 @@ class Cafe24Client(MarketplaceBaseClient):
             )
 
             if resp.status_code != 200:
-                logger.error(f'[Cafe24] 코드 교환 실패: {resp.status_code}')
+                logger.error(f'[Cafe24] 코드 교환 실패: {resp.status_code} {resp.text[:500]}')
+                logger.error(f'[Cafe24] redirect_uri 사용: {redirect_uri}')
                 return False
 
             data = resp.json()
