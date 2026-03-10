@@ -660,6 +660,66 @@ def upload_ad_cost():
         return jsonify({'error': str(e)}), 500
 
 
+# ── 네이버 차감항목 (쿠폰차감/바우처적립) 월별 입력 ──
+
+@marketplace_bp.route('/deductions', methods=['POST'])
+@role_required('admin', 'general')
+def save_deductions():
+    """스마트스토어 월별 차감항목 저장 (쿠폰차감, 바우처적립)."""
+    db = current_app.db
+    month = request.form.get('month', '').strip()  # YYYY-MM
+    coupon = request.form.get('coupon_deduct', '0').strip().replace(',', '')
+    voucher = request.form.get('voucher_deduct', '0').strip().replace(',', '')
+
+    if not month or len(month) != 7:
+        return jsonify({'error': '월(YYYY-MM)을 입력하세요'}), 400
+
+    try:
+        coupon_int = int(float(coupon))
+        voucher_int = int(float(voucher))
+    except (ValueError, TypeError):
+        return jsonify({'error': '금액이 올바르지 않습니다'}), 400
+
+    settlements = []
+    if coupon_int:
+        settlements.append({
+            'channel': '스마트스토어',
+            'settlement_date': f'{month}-01',
+            'settlement_id': f'deduct_coupon_{month}',
+            'gross_sales': 0, 'total_commission': 0,
+            'shipping_fee_income': 0, 'shipping_fee_cost': 0,
+            'coupon_discount': coupon_int, 'point_discount': 0,
+            'other_deductions': coupon_int,
+            'net_settlement': -coupon_int,
+            'fee_breakdown': {'source': 'manual_deduction', 'type': 'coupon',
+                              'label': '쿠폰차감'},
+        })
+    if voucher_int:
+        settlements.append({
+            'channel': '스마트스토어',
+            'settlement_date': f'{month}-01',
+            'settlement_id': f'deduct_voucher_{month}',
+            'gross_sales': 0, 'total_commission': 0,
+            'shipping_fee_income': 0, 'shipping_fee_cost': 0,
+            'coupon_discount': 0, 'point_discount': voucher_int,
+            'other_deductions': voucher_int,
+            'net_settlement': -voucher_int,
+            'fee_breakdown': {'source': 'manual_deduction', 'type': 'voucher',
+                              'label': '바우처적립'},
+        })
+
+    if settlements:
+        db.upsert_api_settlements_batch(settlements)
+        _log_action(f'차감항목 입력: {month} 쿠폰={coupon_int:,} 바우처={voucher_int:,}')
+
+    return jsonify({
+        'success': True,
+        'month': month,
+        'coupon_deduct': coupon_int,
+        'voucher_deduct': voucher_int,
+    })
+
+
 # ── API 매출 대시보드 (총무/경리) ──
 
 @marketplace_bp.route('/sales')
@@ -797,6 +857,9 @@ def sales_data():
     ad_daily = defaultdict(lambda: defaultdict(int))  # {channel: {date: cost}}
     ad_items = []  # 개별 광고비 내역
 
+    # 차감항목 집계 (쿠폰차감/바우처적립)
+    deductions = {'coupon': 0, 'voucher': 0}  # 월 합계
+
     for s in settlements:
         sid = s.get('settlement_id', '')
         if sid.startswith('ad_cost_'):
@@ -812,6 +875,10 @@ def sales_data():
                 'memo': fb.get('memo', ''),
                 'source': fb.get('source', ''),
             })
+        elif sid.startswith('deduct_coupon_'):
+            deductions['coupon'] += int(s.get('other_deductions') or 0)
+        elif sid.startswith('deduct_voucher_'):
+            deductions['voucher'] += int(s.get('other_deductions') or 0)
 
     # ── 채널별 월간 합계 ──
     channel_order = ['스마트스토어_N배송', '스마트스토어_일반', '쿠팡', '쿠팡로켓', '자사몰']
@@ -864,9 +931,24 @@ def sales_data():
         '자사몰': 0,
     }
 
+    # 네이버 차감항목 (쿠폰차감+바우처적립): N배송/일반 매출 비율로 배분
+    total_deduct = deductions['coupon'] + deductions['voucher']
+    if naver_total_sales > 0 and total_deduct > 0:
+        naver_n_deduct = round(total_deduct * naver_n_sales / naver_total_sales)
+        naver_normal_deduct = total_deduct - naver_n_deduct
+    else:
+        naver_n_deduct = total_deduct
+        naver_normal_deduct = 0
+
+    deduct_map = {
+        '스마트스토어_N배송': naver_n_deduct,
+        '스마트스토어_일반': naver_normal_deduct,
+        '쿠팡': 0, '쿠팡로켓': 0, '자사몰': 0,
+    }
+
     channel_summary = []
     total = {'sales': 0, 'commission': 0, 'settlement': 0, 'shipping': 0,
-             'ad_cost': 0, 'net': 0, 'orders_count': 0}
+             'ad_cost': 0, 'deductions': 0, 'net': 0, 'orders_count': 0}
 
     for key in channel_order:
         daily = ch_daily.get(key, {})
@@ -882,8 +964,9 @@ def sales_data():
             s['orders_count'] += dd['orders_count']
 
         ad_cost = ad_cost_map.get(key, 0)
+        deduct = deduct_map.get(key, 0)
 
-        net = s['settlement'] - ad_cost
+        net = s['settlement'] - ad_cost - deduct
         comm_rate = (s['commission'] / s['sales'] * 100) if s['sales'] else 0
 
         channel_summary.append({
@@ -895,6 +978,7 @@ def sales_data():
             'settlement': s['settlement'],
             'shipping': s['shipping'],
             'ad_cost': ad_cost,
+            'deductions': deduct,
             'net': net,
             'orders_count': s['orders_count'],
         })
@@ -904,6 +988,7 @@ def sales_data():
         total['settlement'] += s['settlement']
         total['shipping'] += s['shipping']
         total['ad_cost'] += ad_cost
+        total['deductions'] += deduct
         total['net'] += net
         total['orders_count'] += s['orders_count']
 
@@ -937,4 +1022,5 @@ def sales_data():
         'total': total,
         'daily': daily_summary,
         'ad_items': sorted(ad_items, key=lambda x: x['date']),
+        'deductions': deductions,
     })

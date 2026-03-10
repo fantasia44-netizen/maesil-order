@@ -74,7 +74,7 @@
         <div class="col-lg-3 col-md-6">
             <div class="card summary-card net">
                 <div class="card-body py-2">
-                    <div class="text-muted" style="font-size:0.78rem;">순정산 (정산-광고비)</div>
+                    <div class="text-muted" style="font-size:0.78rem;">순정산 (정산-광고비-차감)</div>
                     <div class="fs-5 fw-bold text-success" id="totalNet">-</div>
                     <div class="text-muted" style="font-size:0.72rem;" id="netRate">-</div>
                 </div>
@@ -103,6 +103,7 @@
                         <th class="num">수수료율</th>
                         <th class="num">정산예정</th>
                         <th class="num">광고비</th>
+                        <th class="num">차감항목</th>
                         <th class="num">순정산</th>
                     </tr>
                 </thead>
@@ -195,6 +196,46 @@
                             <i class="bi bi-cloud-upload"></i> 업로드
                         </button>
                     </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 네이버 차감항목 입력 (쿠폰/바우처) -->
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-dash-circle"></i> 네이버 차감항목 (월별)
+                    <span class="badge bg-success ms-1">스마트스토어</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-2" style="font-size:0.82rem;">
+                        <i class="bi bi-info-circle"></i>
+                        네이버 정산 시 차감되는 쿠폰사용/바우처적립 금액을 월별로 입력하세요.
+                    </p>
+                    <form id="deductForm" class="row g-2 align-items-end">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="month" id="deductMonth" value="{{ month }}">
+                        <div class="col-auto">
+                            <label class="form-label" style="font-size:0.8rem;">쿠폰차감 (원)</label>
+                            <input type="text" name="coupon_deduct" id="deductCoupon"
+                                   class="form-control form-control-sm" placeholder="0" style="width:140px;"
+                                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label" style="font-size:0.8rem;">바우처적립 (원)</label>
+                            <input type="text" name="voucher_deduct" id="deductVoucher"
+                                   class="form-control form-control-sm" placeholder="0" style="width:140px;"
+                                   oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                        </div>
+                        <div class="col-auto">
+                            <button type="button" class="btn btn-success btn-sm" onclick="saveDeductions()">
+                                <i class="bi bi-save"></i> 저장
+                            </button>
+                        </div>
+                    </form>
+                    <div id="deductResult" class="mt-2" style="display:none;"></div>
                 </div>
             </div>
         </div>
@@ -293,6 +334,7 @@ function loadData() {
         renderChannels(data.channels, data.total);
         renderDaily(data.daily);
         renderAdItems(data.ad_items);
+        renderDeductions(data.deductions);
 
         document.getElementById('channelLoading').style.display = 'none';
         document.getElementById('channelTable').style.display = '';
@@ -332,6 +374,7 @@ function renderChannels(channels, total) {
             <td class="num"><span class="badge rate-badge bg-secondary">${c.commission_rate}%</span></td>
             <td class="num">${fmt(c.settlement)}</td>
             <td class="num ${c.ad_cost ? 'negative' : ''}">${c.ad_cost ? fmt(c.ad_cost) : '-'}</td>
+            <td class="num ${c.deductions ? 'negative' : ''}">${c.deductions ? fmt(c.deductions) : '-'}</td>
             <td class="num fw-bold">${fmt(c.net)}</td>
         </tr>`;
     });
@@ -347,6 +390,7 @@ function renderChannels(channels, total) {
         <td class="num"><span class="badge rate-badge bg-dark">${total.commission_rate}%</span></td>
         <td class="num">${fmt(total.settlement)}</td>
         <td class="num negative">${fmt(total.ad_cost)}</td>
+        <td class="num negative">${total.deductions ? fmt(total.deductions) : '-'}</td>
         <td class="num fw-bold">${fmt(total.net)}</td>
     </tr>`;
 }
@@ -503,6 +547,47 @@ function uploadAdCost() {
     .catch(e => {
         document.getElementById('adCostResult').style.display = 'block';
         document.getElementById('adCostResult').innerHTML = `<div class="alert alert-danger py-1">오류: ${e}</div>`;
+    });
+}
+
+function renderDeductions(deductions) {
+    if (!deductions) return;
+    document.getElementById('deductCoupon').value = deductions.coupon || '';
+    document.getElementById('deductVoucher').value = deductions.voucher || '';
+    // 조회월 동기화
+    document.getElementById('deductMonth').value = document.getElementById('selMonth').value;
+}
+
+function saveDeductions() {
+    const fd = new FormData(document.getElementById('deductForm'));
+    // 조회월과 동기화
+    fd.set('month', document.getElementById('selMonth').value);
+    if (!fd.get('coupon_deduct') && !fd.get('voucher_deduct')) {
+        alert('차감항목 금액을 입력하세요');
+        return;
+    }
+    fetch('/marketplace/deductions', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('deductResult');
+        div.style.display = 'block';
+        if (data.success) {
+            div.innerHTML = `<div class="alert alert-success py-1 mb-0">
+                ${data.month} 차감항목 저장: 쿠폰 ${fmt(data.coupon_deduct)}원, 바우처 ${fmt(data.voucher_deduct)}원
+            </div>`;
+            setTimeout(() => loadData(), 500);
+        } else {
+            div.innerHTML = `<div class="alert alert-danger py-1 mb-0">${data.error}</div>`;
+        }
+    })
+    .catch(e => {
+        document.getElementById('deductResult').style.display = 'block';
+        document.getElementById('deductResult').innerHTML =
+            `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
     });
 }
 
