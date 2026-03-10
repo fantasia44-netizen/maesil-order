@@ -81,7 +81,7 @@ def test_connection(channel):
 
     # Cafe24 OAuth 인증이 필요한 경우 올바른 redirect_uri로 auth_url 재생성
     if result.get('auth_url'):
-        callback_url = url_for('cafe24_oauth_redirect', _external=True)
+        callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
         result['auth_url'] = client.get_auth_url(callback_url, state='connect')
 
     return jsonify(result)
@@ -97,7 +97,7 @@ def oauth_authorize(channel):
         flash(f'{channel} 클라이언트 없음', 'danger')
         return redirect(url_for('marketplace.index'))
 
-    callback_url = url_for('cafe24_oauth_redirect', _external=True)
+    callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
     auth_url = client.get_auth_url(callback_url, state='connect')
     return redirect(auth_url)
 
@@ -121,8 +121,7 @@ def oauth_callback(channel):
         flash(f'{channel} 인가 코드가 없습니다', 'danger')
         return redirect(url_for('marketplace.index'))
 
-    callback_url = url_for('marketplace.oauth_callback',
-                           channel=channel, _external=True)
+    callback_url = url_for('cafe24_oauth_redirect', _external=True, _scheme='https')
     ok = client.exchange_code(db, code, callback_url)
 
     if ok:
