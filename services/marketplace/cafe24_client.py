@@ -59,9 +59,10 @@ class Cafe24Client(MarketplaceBaseClient):
             f'&state={state}'
         )
 
-    def exchange_code(self, db, code: str, redirect_uri: str) -> bool:
-        """인가 코드 → 액세스 토큰 교환."""
+    def exchange_code(self, db, code: str, redirect_uri: str):
+        """인가 코드 → 액세스 토큰 교환. 성공 시 True, 실패 시 에러 문자열."""
         try:
+            logger.info(f'[Cafe24] 토큰 교환 시도: base={self._base_url}, redirect_uri={redirect_uri}')
             resp = self.session.post(
                 f'{self._base_url}/api/v2/oauth/token',
                 data={
@@ -74,16 +75,18 @@ class Cafe24Client(MarketplaceBaseClient):
             )
 
             if resp.status_code != 200:
-                logger.error(f'[Cafe24] 코드 교환 실패: {resp.status_code} {resp.text[:500]}')
-                logger.error(f'[Cafe24] redirect_uri 사용: {redirect_uri}')
-                return False
+                err_msg = f'HTTP {resp.status_code}: {resp.text[:300]}'
+                logger.error(f'[Cafe24] 코드 교환 실패: {err_msg}')
+                logger.error(f'[Cafe24] redirect_uri: {redirect_uri}')
+                return err_msg
 
             data = resp.json()
-            return self._save_tokens(db, data)
+            ok = self._save_tokens(db, data)
+            return True if ok else '토큰 저장 실패'
 
         except Exception as e:
             logger.error(f'[Cafe24] 코드 교환 오류: {e}')
-            return False
+            return str(e)
 
     def refresh_token(self, db) -> bool:
         """리프레시 토큰으로 액세스 토큰 갱신."""

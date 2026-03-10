@@ -131,14 +131,14 @@ def oauth_callback(channel):
         return redirect(url_for('marketplace.index'))
 
     callback_url = _cafe24_callback_url()
-    ok = client.exchange_code(db, code, callback_url)
+    result = client.exchange_code(db, code, callback_url)
 
-    if ok:
+    if result is True:
         mgr._load_configs(db)
         _log_action(f'{channel} OAuth 인증 완료')
         flash(f'{channel} OAuth 인증 성공!', 'success')
     else:
-        flash(f'{channel} 토큰 교환 실패', 'danger')
+        flash(f'{channel} 토큰 교환 실패: {result}', 'danger')
 
     return redirect(url_for('marketplace.index'))
 
