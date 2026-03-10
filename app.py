@@ -328,6 +328,17 @@ def create_app(config_class=None):
                marketplace_bp]:
         app.register_blueprint(bp)
 
+    # ── Cafe24 OAuth 콜백 리다이렉트 ──
+    # Cafe24 개발자센터 Redirect URI: /cafe24/callback
+    # 실제 처리: /marketplace/oauth/callback/자사몰
+    @app.route('/cafe24/callback')
+    def cafe24_oauth_redirect():
+        qs = request.query_string.decode('utf-8')
+        target = url_for('marketplace.oauth_callback', channel='자사몰')
+        if qs:
+            target += '?' + qs
+        return redirect(target)
+
     # ── 패킹 사용자 메인 시스템 접근 차단 ──
     @app.before_request
     def block_packing_from_main():
