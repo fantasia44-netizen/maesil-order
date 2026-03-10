@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}교차검증 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}API 교차검증{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { border-left: 4px solid; }
+    .summary-card.matched { border-color: #27ae60; }
+    .summary-card.mismatch { border-color: #e67e22; }
+    .summary-card.missing { border-color: #e74c3c; }
+    .summary-card.total { border-color: #3498db; }
+    .match-rate { font-size: 2rem; font-weight: 700; }
+    .detail-table { font-size: 0.82rem; }
+    .amount-diff { font-weight: 600; }
+    .amount-diff.positive { color: #e74c3c; }
+    .amount-diff.negative { color: #3498db; }
+    .amount-diff.zero { color: #27ae60; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- 검증 조건 -->
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <form id="validationForm" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select name="channel" class="form-select form-select-sm" required>
+                        <option value="">선택</option>
+                        <option value="스마트스토어" {{ 'selected' if channel=='스마트스토어' }}>스마트스토어</option>
+                        <option value="쿠팡" {{ 'selected' if channel=='쿠팡' }}>쿠팡</option>
+                        <option value="자사몰" {{ 'selected' if channel=='자사몰' }}>자사몰</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">시작일</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm"
+                           value="{{ date_from }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">종료일</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm"
+                           value="{{ date_to }}">
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="runValidation()" id="btnValidate">
+                        <i class="bi bi-check2-all"></i> 교차검증 실행
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 검증 결과 -->
+    <div id="validationResult">
+        {% if result %}
+        <!-- 요약 카드 -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card summary-card total">
+                    <div class="card-body text-center">
+                        <div class="text-muted">API 주문</div>
+                        <div class="match-rate text-primary">{{ result.summary.total_api }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card matched">
+                    <div class="card-body text-center">
+                        <div class="text-muted">매칭 성공</div>
+                        <div class="match-rate text-success">{{ result.summary.matched }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card mismatch">
+                    <div class="card-body text-center">
+                        <div class="text-muted">금액 불일치</div>
+                        <div class="match-rate text-warning">{{ result.summary.amount_mismatch }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card missing">
+                    <div class="card-body text-center">
+                        <div class="text-muted">엑셀 누락</div>
+                        <div class="match-rate text-danger">{{ result.summary.missing_excel }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 금액 비교 -->
+        <div class="card mb-4">
+            <div class="card-header"><i class="bi bi-currency-won"></i> 금액 비교</div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead><tr><th>항목</th><th class="text-end">API</th><th class="text-end">엑셀</th><th class="text-end">차이</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td>총 매출액</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.api_total_amount) }}</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.excel_total_amount) }}</td>
+                            <td class="text-end amount-diff {{ 'zero' if result.amount_comparison.api_total_amount == result.amount_comparison.excel_total_amount else 'positive' }}">
+                                {{ '{:,}'.format(result.amount_comparison.api_total_amount - result.amount_comparison.excel_total_amount) }}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>정산 예정액</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.api_settlement) }}</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.excel_settlement) }}</td>
+                            <td class="text-end amount-diff {{ 'zero' if result.amount_comparison.api_settlement == result.amount_comparison.excel_settlement else 'positive' }}">
+                                {{ '{:,}'.format(result.amount_comparison.api_settlement - result.amount_comparison.excel_settlement) }}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>수수료</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.api_commission) }}</td>
+                            <td class="text-end">{{ '{:,}'.format(result.amount_comparison.excel_commission) }}</td>
+                            <td class="text-end amount-diff {{ 'zero' if result.amount_comparison.api_commission == result.amount_comparison.excel_commission else 'positive' }}">
+                                {{ '{:,}'.format(result.amount_comparison.api_commission - result.amount_comparison.excel_commission) }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 불일치 상세 -->
+        {% if result.mismatches %}
+        <div class="card">
+            <div class="card-header"><i class="bi bi-exclamation-triangle"></i> 불일치 상세 (상위 50건)</div>
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover detail-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>주문번호</th>
+                            <th>유형</th>
+                            <th>상품</th>
+                            <th class="text-end">API 금액</th>
+                            <th class="text-end">엑셀 금액</th>
+                            <th class="text-end">차이</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in result.mismatches[:50] %}
+                        <tr>
+                            <td>{{ m.order_no }}</td>
+                            <td>
+                                {% if m.type == 'amount_mismatch' %}
+                                    <span class="badge bg-warning">금액불일치</span>
+                                {% elif m.type == 'missing_excel' %}
+                                    <span class="badge bg-danger">엑셀누락</span>
+                                {% elif m.type == 'missing_api' %}
+                                    <span class="badge bg-info">API누락</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ m.api_data.product_name if m.api_data else (m.excel_data.product_name if m.excel_data else '') }}</td>
+                            <td class="text-end">{{ '{:,}'.format(m.api_data.total_amount) if m.api_data else '-' }}</td>
+                            <td class="text-end">{{ '{:,}'.format(m.excel_data.total_amount) if m.excel_data else '-' }}</td>
+                            <td class="text-end">
+                                {% if m.diffs and m.diffs.total_amount %}
+                                    {{ '{:,}'.format(m.diffs.total_amount.diff) }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-arrow-up-circle" style="font-size:2rem;"></i>
+            <p class="mt-2">채널과 기간을 선택한 후 교차검증을 실행하세요</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mt-3">
+        <a href="{{ url_for('marketplace.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> API 연동으로 돌아가기
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token() }}';
+
+function runValidation() {
+    const form = document.getElementById('validationForm');
+    const fd = new FormData(form);
+    const btn = document.getElementById('btnValidate');
+
+    if (!fd.get('channel')) { alert('채널을 선택하세요'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 검증 중...';
+
+    fetch('/marketplace/api/validation/run', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        // 페이지 리로드로 결과 표시 (서버사이드 렌더링)
+        const params = new URLSearchParams({
+            channel: fd.get('channel'),
+            date_from: fd.get('date_from'),
+            date_to: fd.get('date_to'),
+        });
+        location.href = `/marketplace/validation?${params}`;
+    })
+    .catch(e => alert('오류: ' + e))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check2-all"></i> 교차검증 실행';
+    });
+}
+</script>
+{% endblock %}

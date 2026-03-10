@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block title %}API 연동 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}마켓플레이스 API 연동{% endblock %}
+
+{% block extra_css %}
+<style>
+    .channel-card { border-left: 4px solid #dee2e6; transition: border-color 0.3s; }
+    .channel-card.active { border-left-color: #27ae60; }
+    .channel-card.inactive { border-left-color: #e74c3c; }
+    .status-badge { font-size: 0.75rem; }
+    .config-field label { font-size: 0.82rem; font-weight: 600; color: #555; }
+    .config-field input { font-size: 0.85rem; }
+    .sync-log-table { font-size: 0.82rem; }
+    .sync-log-table td { vertical-align: middle; }
+    .channel-icon { font-size: 1.4rem; }
+    .btn-test { font-size: 0.78rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- 상단 안내 -->
+    <div class="alert alert-info d-flex align-items-center mb-4">
+        <i class="bi bi-info-circle me-2"></i>
+        <div>
+            <strong>API 연동 설정</strong> — 네이버 스마트스토어, 쿠팡, Cafe24 API를 연결하여 주문/정산 데이터를 자동 수집합니다.
+            기존 엑셀 주문에는 영향을 주지 않으며, 교차검증 용도로 사용됩니다.
+        </div>
+    </div>
+
+    <!-- 채널 카드 -->
+    <div class="row g-3 mb-4">
+        {% for ch in channels %}
+        {% set cfg = configs.get(ch.channel, {}) %}
+        {% set is_active = ch.is_active %}
+        <div class="col-lg-4 col-md-6">
+            <div class="card channel-card {{ 'active' if is_active else 'inactive' }}">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div>
+                        {% if ch.channel == '스마트스토어' %}
+                            <i class="bi bi-shop channel-icon text-success"></i>
+                        {% elif ch.channel == '쿠팡' %}
+                            <i class="bi bi-cart4 channel-icon text-primary"></i>
+                        {% else %}
+                            <i class="bi bi-globe channel-icon text-info"></i>
+                        {% endif %}
+                        <strong class="ms-1">{{ ch.channel }}</strong>
+                    </div>
+                    <span class="badge status-badge {{ 'bg-success' if is_active else 'bg-secondary' }}">
+                        {{ '연결됨' if is_active else '미연결' }}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('marketplace.save_config', channel=ch.channel) }}" class="config-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                        <div class="mb-2 config-field">
+                            <label>Client ID (Access Key)</label>
+                            <input type="text" name="client_id" class="form-control form-control-sm"
+                                   value="{{ cfg.get('client_id', '') }}" placeholder="API Client ID">
+                        </div>
+                        <div class="mb-2 config-field">
+                            <label>Client Secret (Secret Key)</label>
+                            <input type="password" name="client_secret" class="form-control form-control-sm"
+                                   value="{{ cfg.get('client_secret', '') }}" placeholder="API Secret">
+                        </div>
+
+                        {% if ch.channel == '쿠팡' %}
+                        <div class="mb-2 config-field">
+                            <label>Vendor ID</label>
+                            <input type="text" name="vendor_id" class="form-control form-control-sm"
+                                   value="{{ cfg.get('vendor_id', '') }}" placeholder="쿠팡 판매자 ID">
+                        </div>
+                        {% elif ch.channel == '자사몰' %}
+                        <div class="mb-2 config-field">
+                            <label>Mall ID</label>
+                            <input type="text" name="mall_id" class="form-control form-control-sm"
+                                   value="{{ cfg.get('mall_id', '') }}" placeholder="Cafe24 몰 ID">
+                        </div>
+                        {% endif %}
+
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" name="is_active" id="active_{{ loop.index }}"
+                                   {{ 'checked' if is_active }}>
+                            <label class="form-check-label" for="active_{{ loop.index }}">활성화</label>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+                                <i class="bi bi-save"></i> 저장
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm btn-test"
+                                    onclick="testConnection('{{ ch.channel }}')">
+                                <i class="bi bi-plug"></i> 연결 테스트
+                            </button>
+                        </div>
+                    </form>
+
+                    {% if ch.last_synced_at %}
+                    <div class="mt-2 text-muted" style="font-size:0.75rem;">
+                        <i class="bi bi-clock"></i> 마지막 동기화: {{ ch.last_synced_at[:16] }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 수동 동기화 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-arrow-repeat"></i> 수동 동기화
+        </div>
+        <div class="card-body">
+            <form id="syncForm" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select name="channel" class="form-select form-select-sm" required>
+                        <option value="">선택</option>
+                        {% for ch in channels %}
+                        {% if ch.is_active %}
+                        <option value="{{ ch.channel }}">{{ ch.channel }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">유형</label>
+                    <select name="sync_type" class="form-select form-select-sm">
+                        <option value="all">전체</option>
+                        <option value="orders">주문만</option>
+                        <option value="settlements">정산만</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">시작일</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm"
+                           value="{{ days_ago_kst(7) if days_ago_kst is defined }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">종료일</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm"
+                           value="{{ today_kst() if today_kst is defined }}">
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-success btn-sm" onclick="runSync()" id="btnSync">
+                        <i class="bi bi-arrow-repeat"></i> 동기화 실행
+                    </button>
+                </div>
+            </form>
+            <div id="syncResult" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- 최근 동기화 이력 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between">
+            <span><i class="bi bi-clock-history"></i> 최근 동기화 이력</span>
+            <a href="{{ url_for('marketplace.sync_log') }}" class="btn btn-outline-primary btn-sm">
+                전체 이력 <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover sync-log-table mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>시간</th>
+                        <th>채널</th>
+                        <th>유형</th>
+                        <th>상태</th>
+                        <th>조회</th>
+                        <th>신규</th>
+                        <th>갱신</th>
+                        <th>실행자</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in recent_logs %}
+                    <tr>
+                        <td>{{ log.started_at[:16] if log.started_at else '-' }}</td>
+                        <td>{{ log.channel }}</td>
+                        <td>{{ log.sync_type }}</td>
+                        <td>
+                            {% if log.status == 'success' %}
+                                <span class="badge bg-success">성공</span>
+                            {% elif log.status == 'error' %}
+                                <span class="badge bg-danger" title="{{ log.error_message }}">오류</span>
+                            {% elif log.status == 'running' %}
+                                <span class="badge bg-warning">진행중</span>
+                            {% else %}
+                                <span class="badge bg-secondary">{{ log.status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ log.records_fetched|default(0) }}</td>
+                        <td>{{ log.records_new|default(0) }}</td>
+                        <td>{{ log.records_updated|default(0) }}</td>
+                        <td>{{ log.triggered_by|default('system') }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted">동기화 이력이 없습니다</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 교차검증 바로가기 -->
+    <div class="card">
+        <div class="card-body text-center">
+            <a href="{{ url_for('marketplace.validation') }}" class="btn btn-outline-primary">
+                <i class="bi bi-check2-all"></i> 교차검증 대시보드 열기
+            </a>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token() }}';
+
+function testConnection(channel) {
+    const btn = event.target.closest('button');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch(`/marketplace/test/${encodeURIComponent(channel)}`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(`${channel}: ${data.message}`);
+        } else {
+            alert(`${channel} 연결 실패: ${data.message}`);
+        }
+    })
+    .catch(e => alert('오류: ' + e))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    });
+}
+
+function runSync() {
+    const form = document.getElementById('syncForm');
+    const fd = new FormData(form);
+    const btn = document.getElementById('btnSync');
+    const origHtml = btn.innerHTML;
+
+    if (!fd.get('channel')) {
+        alert('채널을 선택하세요');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 동기화 중...';
+
+    fetch('/marketplace/sync', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('syncResult');
+        div.style.display = 'block';
+        let html = '<div class="alert alert-success"><strong>동기화 완료</strong><br>';
+        if (data.orders) {
+            html += `주문: 조회 ${data.orders.fetched||0}건, 신규 ${data.orders.new||0}건<br>`;
+        }
+        if (data.settlements) {
+            html += `정산: 조회 ${data.settlements.fetched||0}건, 신규 ${data.settlements.new||0}건<br>`;
+        }
+        if (data.error) {
+            html = `<div class="alert alert-danger"><strong>오류</strong>: ${data.error}`;
+        }
+        html += '</div>';
+        div.innerHTML = html;
+    })
+    .catch(e => {
+        document.getElementById('syncResult').style.display = 'block';
+        document.getElementById('syncResult').innerHTML =
+            `<div class="alert alert-danger">오류: ${e}</div>`;
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    });
+}
+</script>
+{% endblock %}

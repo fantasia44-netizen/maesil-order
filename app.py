@@ -58,6 +58,10 @@ def create_app(config_class=None):
     from services.popbill_service import PopbillService
     app.popbill = PopbillService(app.config)
 
+    # ── Marketplace API 싱글톤 ──
+    from services.marketplace import MarketplaceManager
+    app.marketplace = MarketplaceManager(app.db)
+
     # 권한 테이블 기본값 초기화
     try:
         from models import PAGE_REGISTRY
@@ -310,6 +314,7 @@ def create_app(config_class=None):
     from blueprints.bank import bank_bp
     from blueprints.tax_invoice import tax_invoice_bp
     from blueprints.journal import journal_bp
+    from blueprints.marketplace import marketplace_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -319,7 +324,8 @@ def create_app(config_class=None):
                mobile_bp, bom_cost_bp, yield_bp, price_mgmt_bp, promotions_bp,
                closing_bp, shipment_bp, integrity_bp, planning_bp,
                packing_bp, reconciliation_bp, finance_bp, hr_bp,
-               accounting_bp, bank_bp, tax_invoice_bp, journal_bp]:
+               accounting_bp, bank_bp, tax_invoice_bp, journal_bp,
+               marketplace_bp]:
         app.register_blueprint(bp)
 
     # ── 패킹 사용자 메인 시스템 접근 차단 ──

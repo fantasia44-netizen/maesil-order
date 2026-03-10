@@ -94,6 +94,16 @@ class Config:
     POPBILL_IP_RESTRICT = False   # Render 유동 IP 대응
     POPBILL_CORP_NUM = os.environ.get('POPBILL_CORP_NUM', '')  # 우리 사업자번호
 
+    # ── 마켓플레이스 API 설정 ──
+    NAVER_COMMERCE_CLIENT_ID = os.environ.get('NAVER_COMMERCE_CLIENT_ID', '')
+    NAVER_COMMERCE_CLIENT_SECRET = os.environ.get('NAVER_COMMERCE_CLIENT_SECRET', '')
+    COUPANG_ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '')
+    COUPANG_SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '')
+    COUPANG_VENDOR_ID = os.environ.get('COUPANG_VENDOR_ID', '')
+    CAFE24_CLIENT_ID = os.environ.get('CAFE24_CLIENT_ID', '')
+    CAFE24_CLIENT_SECRET = os.environ.get('CAFE24_CLIENT_SECRET', '')
+    CAFE24_MALL_ID = os.environ.get('CAFE24_MALL_ID', '')
+
     # 팀/권한 정의
     ROLES = {
         'admin': {'name': '관리자', 'level': 100},

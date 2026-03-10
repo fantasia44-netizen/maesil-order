@@ -4102,3 +4102,146 @@ class SupabaseDB(DBBase):
         except Exception as e:
             print(f"[DB] query_all_event_account_mappings error: {e}")
             return []
+
+    # ══════════════════════════════════════════
+    # 마켓플레이스 API 연동
+    # ══════════════════════════════════════════
+
+    # ── marketplace_api_config ──
+
+    def query_marketplace_api_configs(self, channel=None):
+        """마켓플레이스 API 설정 조회."""
+        try:
+            q = self.client.table("marketplace_api_config").select("*")
+            if channel:
+                q = q.eq("channel", channel)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_marketplace_api_configs error: {e}")
+            return []
+
+    def upsert_marketplace_api_config(self, payload):
+        """마켓플레이스 API 설정 upsert."""
+        try:
+            from datetime import datetime, timezone
+            payload['updated_at'] = datetime.now(timezone.utc).isoformat()
+            self.client.table("marketplace_api_config").upsert(
+                payload, on_conflict="channel"
+            ).execute()
+        except Exception as e:
+            print(f"[DB] upsert_marketplace_api_config error: {e}")
+
+    # ── api_sync_log ──
+
+    def insert_api_sync_log(self, payload):
+        """API 동기화 로그 생성. Returns: 생성된 row (id 포함)."""
+        try:
+            res = self.client.table("api_sync_log").insert(payload).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] insert_api_sync_log error: {e}")
+            return None
+
+    def update_api_sync_log(self, log_id, update_data):
+        """API 동기화 로그 업데이트."""
+        try:
+            self.client.table("api_sync_log") \
+                .update(update_data).eq("id", log_id).execute()
+        except Exception as e:
+            print(f"[DB] update_api_sync_log error: {e}")
+
+    def query_api_sync_logs(self, channel=None, limit=50):
+        """API 동기화 로그 조회."""
+        try:
+            q = self.client.table("api_sync_log") \
+                .select("*").order("started_at", desc=True).limit(limit)
+            if channel:
+                q = q.eq("channel", channel)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_api_sync_logs error: {e}")
+            return []
+
+    # ── api_orders ──
+
+    def upsert_api_orders_batch(self, orders):
+        """API 주문 배치 upsert. Returns: {new, updated, skipped}."""
+        new = 0
+        updated = 0
+        skipped = 0
+        batch_size = 50
+
+        for i in range(0, len(orders), batch_size):
+            batch = orders[i:i + batch_size]
+            try:
+                self.client.table("api_orders").upsert(
+                    batch, on_conflict="channel,api_order_id,api_line_id"
+                ).execute()
+                new += len(batch)  # upsert에서 정확한 new/updated 구분은 어려움
+            except Exception as e:
+                print(f"[DB] upsert_api_orders_batch error (batch {i}): {e}")
+                skipped += len(batch)
+
+        return {'new': new, 'updated': updated, 'skipped': skipped}
+
+    def query_api_orders(self, channel=None, date_from=None, date_to=None,
+                         match_status=None, limit=5000):
+        """API 주문 조회."""
+        try:
+            q = self.client.table("api_orders") \
+                .select("*").order("order_date", desc=True).limit(limit)
+            if channel:
+                q = q.eq("channel", channel)
+            if date_from:
+                q = q.gte("order_date", date_from)
+            if date_to:
+                q = q.lte("order_date", date_to)
+            if match_status:
+                q = q.eq("match_status", match_status)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_api_orders error: {e}")
+            return []
+
+    def update_api_order_match(self, api_order_id, match_data):
+        """API 주문 매칭 결과 업데이트."""
+        try:
+            self.client.table("api_orders") \
+                .update(match_data).eq("id", api_order_id).execute()
+        except Exception as e:
+            print(f"[DB] update_api_order_match error: {e}")
+
+    # ── api_settlements ──
+
+    def upsert_api_settlements_batch(self, settlements):
+        """API 정산 배치 upsert."""
+        batch_size = 50
+        for i in range(0, len(settlements), batch_size):
+            batch = settlements[i:i + batch_size]
+            try:
+                self.client.table("api_settlements").upsert(
+                    batch, on_conflict="channel,settlement_date,settlement_id"
+                ).execute()
+            except Exception as e:
+                print(f"[DB] upsert_api_settlements_batch error: {e}")
+
+    def query_api_settlements(self, channel=None, date_from=None, date_to=None,
+                              limit=1000):
+        """API 정산 조회."""
+        try:
+            q = self.client.table("api_settlements") \
+                .select("*").order("settlement_date", desc=True).limit(limit)
+            if channel:
+                q = q.eq("channel", channel)
+            if date_from:
+                q = q.gte("settlement_date", date_from)
+            if date_to:
+                q = q.lte("settlement_date", date_to)
+            res = q.execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_api_settlements error: {e}")
+            return []

@@ -218,3 +218,65 @@ CHANNEL_DISPLAY = {
 def get_channel_display(channel):
     """채널 코드 → 표시명."""
     return CHANNEL_DISPLAY.get(channel, channel)
+
+
+def compare_api_vs_calculated_settlements(db, channel, date_from, date_to):
+    """API 정산(실제 마켓플레이스 데이터) vs 계산 정산(엑셀 주문 기반) 비교.
+
+    Returns:
+        dict: {channel, summary, daily_comparison}
+    """
+    api_settlements = db.query_api_settlements(
+        channel=channel, date_from=date_from, date_to=date_to)
+    platform_settlements = db.query_platform_settlements(
+        channel=channel, date_from=date_from, date_to=date_to)
+
+    # 날짜별 인덱싱
+    api_by_date = {}
+    for s in api_settlements:
+        d = str(s.get('settlement_date', ''))[:10]
+        if d not in api_by_date:
+            api_by_date[d] = {'gross': 0, 'fee': 0, 'net': 0}
+        api_by_date[d]['gross'] += int(s.get('gross_sales', 0))
+        api_by_date[d]['fee'] += int(s.get('total_commission', 0))
+        api_by_date[d]['net'] += int(s.get('net_settlement', 0))
+
+    plat_by_date = {}
+    for s in platform_settlements:
+        d = str(s.get('settlement_date', ''))[:10]
+        if d not in plat_by_date:
+            plat_by_date[d] = {'gross': 0, 'fee': 0, 'net': 0}
+        plat_by_date[d]['gross'] += int(s.get('gross_sales', 0))
+        plat_by_date[d]['fee'] += int(s.get('platform_fee', 0))
+        plat_by_date[d]['net'] += int(s.get('net_settlement', 0))
+
+    all_dates = sorted(set(list(api_by_date.keys()) + list(plat_by_date.keys())))
+    daily = []
+    total_diff = 0
+
+    for d in all_dates:
+        api = api_by_date.get(d, {'gross': 0, 'fee': 0, 'net': 0})
+        plat = plat_by_date.get(d, {'gross': 0, 'fee': 0, 'net': 0})
+        diff = api['net'] - plat['net']
+        total_diff += diff
+        daily.append({
+            'date': d,
+            'api_gross': api['gross'],
+            'api_fee': api['fee'],
+            'api_net': api['net'],
+            'calc_gross': plat['gross'],
+            'calc_fee': plat['fee'],
+            'calc_net': plat['net'],
+            'diff': diff,
+        })
+
+    return {
+        'channel': channel,
+        'summary': {
+            'api_total_net': sum(a['gross'] for a in api_by_date.values()) if api_by_date else 0,
+            'calc_total_net': sum(p['gross'] for p in plat_by_date.values()) if plat_by_date else 0,
+            'total_diff': total_diff,
+            'days_compared': len(all_dates),
+        },
+        'daily_comparison': daily,
+    }
