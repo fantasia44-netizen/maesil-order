@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}연차 관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
-{% block page_title %}연차 관리{% endblock %}
+{% block title %}연차/근태 관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}연차/근태 관리{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -16,6 +16,10 @@
     .calendar-day.today { background: #eef3f8; }
     .calendar-day.other-month { background: #f9f9f9; color: #ccc; }
     .calendar-leave { background: #d4edda; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; font-size: 0.75rem; }
+    .calendar-leave.late { background: #fff3cd; }
+    .calendar-leave.early { background: #fff3cd; }
+    .calendar-leave.unpaid { background: #f8d7da; }
+    .calendar-leave.sick { background: #d1ecf1; }
     .calendar-header { font-weight: 600; text-align: center; padding: 6px; background: #f8f9fa; }
 </style>
 {% endblock %}
@@ -59,7 +63,7 @@
             </div>
             <div class="ms-auto d-flex gap-2">
                 <button class="btn btn-primary btn-sm" onclick="openLeaveModal()">
-                    <i class="bi bi-plus-lg"></i> 연차 사용 등록
+                    <i class="bi bi-plus-lg"></i> 연차/근태 등록
                 </button>
             </div>
         </div>
@@ -125,7 +129,7 @@
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">연차 사용 등록</h5>
+                <h5 class="modal-title">연차/근태 등록</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -139,21 +143,24 @@
                 </div>
                 <div class="row mb-3">
                     <div class="col-6">
-                        <label class="form-label">일수</label>
-                        <select id="leaveDays" class="form-select">
-                            <option value="1">1일</option>
-                            <option value="0.5">반차 (0.5일)</option>
+                        <label class="form-label">종류</label>
+                        <select id="leaveType" class="form-select" onchange="onLeaveTypeChange()">
+                            <option value="연차" data-days="1">연차</option>
+                            <option value="반차(오전)" data-days="0.5">반차 (오전)</option>
+                            <option value="반차(오후)" data-days="0.5">반차 (오후)</option>
+                            <option value="조퇴" data-days="0">조퇴</option>
+                            <option value="지각" data-days="0">지각</option>
+                            <option value="무급휴가" data-days="1">무급휴가</option>
+                            <option value="병가" data-days="1">병가</option>
+                            <option value="경조" data-days="1">경조</option>
+                            <option value="공가" data-days="1">공가</option>
+                            <option value="기타" data-days="0">기타</option>
                         </select>
                     </div>
                     <div class="col-6">
-                        <label class="form-label">종류</label>
-                        <select id="leaveType" class="form-select">
-                            <option value="연차">연차</option>
-                            <option value="반차">반차</option>
-                            <option value="병가">병가</option>
-                            <option value="경조">경조</option>
-                            <option value="기타">기타</option>
-                        </select>
+                        <label class="form-label">일수 (연차 차감)</label>
+                        <input type="number" id="leaveDays" class="form-control text-end" value="1" step="0.25" min="0" max="5">
+                        <small class="text-muted" id="leaveDaysHint">조퇴/지각은 0일 설정 가능 (기록만)</small>
                     </div>
                 </div>
                 <div class="mb-3">
@@ -298,7 +305,7 @@ function populateEmployeeSelect() {
     });
 }
 
-// ── 연차 사용 등록 ──
+// ── 연차/근태 사용 등록 ──
 function openLeaveModal() {
     document.getElementById('leaveEmployee').value = '';
     document.getElementById('leaveDate').value = '';
@@ -306,6 +313,13 @@ function openLeaveModal() {
     document.getElementById('leaveType').value = '연차';
     document.getElementById('leaveMemo').value = '';
     new bootstrap.Modal(document.getElementById('leaveModal')).show();
+}
+
+function onLeaveTypeChange() {
+    const sel = document.getElementById('leaveType');
+    const opt = sel.options[sel.selectedIndex];
+    const defaultDays = parseFloat(opt.dataset.days || '1');
+    document.getElementById('leaveDays').value = defaultDays;
 }
 
 function saveLeave() {
@@ -319,7 +333,7 @@ function saveLeave() {
     const payload = {
         employee_id: parseInt(employee_id),
         leave_date: leave_date,
-        days: parseFloat(document.getElementById('leaveDays').value) || 1,
+        days: parseFloat(document.getElementById('leaveDays').value) || 0,
         leave_type: document.getElementById('leaveType').value,
         memo: document.getElementById('leaveMemo').value,
     };
@@ -462,7 +476,14 @@ function renderCalendar(events) {
                 html += `<div class="col calendar-day ${isToday ? 'today' : ''}">`;
                 html += `<div class="fw-bold small ${dow === 0 ? 'text-danger' : dow === 6 ? 'text-primary' : ''}">${dayNum}</div>`;
                 dayEvents.forEach(ev => {
-                    html += `<div class="calendar-leave" title="${ev.employee_name}: ${ev.leave_type} ${ev.days}일">${ev.employee_name} ${ev.days < 1 ? '(반차)' : ''}</div>`;
+                    let leaveClass = '';
+                    if (ev.leave_type && ev.leave_type.includes('지각')) leaveClass = 'late';
+                    else if (ev.leave_type && ev.leave_type.includes('조퇴')) leaveClass = 'early';
+                    else if (ev.leave_type && ev.leave_type.includes('무급')) leaveClass = 'unpaid';
+                    else if (ev.leave_type && ev.leave_type.includes('병가')) leaveClass = 'sick';
+                    const typeLabel = ev.leave_type || '';
+                    const daysLabel = ev.days > 0 && ev.days < 1 ? '(반차)' : ev.days === 0 ? '' : '';
+                    html += `<div class="calendar-leave ${leaveClass}" title="${ev.employee_name}: ${typeLabel} ${ev.days}일">${ev.employee_name} ${typeLabel !== '연차' ? typeLabel : ''} ${daysLabel}</div>`;
                 });
                 html += '</div>';
                 dayCount++;

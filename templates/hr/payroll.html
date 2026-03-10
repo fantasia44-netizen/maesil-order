@@ -88,6 +88,19 @@
                 <input type="month" id="filterMonth" class="form-control form-control-sm" style="width:160px;">
             </div>
             <div class="ms-auto d-flex gap-2">
+                <div class="dropdown">
+                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                        <i class="bi bi-printer"></i> 급여명세서
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="printBulkPayslip(); return false;">
+                            <i class="bi bi-file-earmark-pdf"></i> 전체 급여명세서 (개별)
+                        </a></li>
+                        <li><a class="dropdown-item" href="#" onclick="printPayrollSummary(); return false;">
+                            <i class="bi bi-table"></i> 급여 총괄표 (보고용)
+                        </a></li>
+                    </ul>
+                </div>
                 <button class="btn btn-outline-secondary btn-sm" onclick="generatePayroll()">
                     <i class="bi bi-arrow-repeat"></i> 급여 자동생성
                 </button>
@@ -201,6 +214,9 @@
             <div class="modal-body payroll-detail-section" id="detailModalBody">
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-outline-info btn-sm" onclick="printIndividualPayslip()">
+                    <i class="bi bi-file-earmark-pdf"></i> 명세서 출력
+                </button>
                 <button type="button" class="btn btn-outline-primary btn-sm" id="btnRecalculate" onclick="recalculatePayroll()">
                     <i class="bi bi-arrow-repeat"></i> 재계산
                 </button>
@@ -625,6 +641,25 @@ function renderNontaxLimits(limits) {
     }
 
     container.innerHTML = html;
+}
+
+// ── 급여명세서 PDF 출력 ──
+
+function printIndividualPayslip() {
+    if (!currentDetailId) return;
+    window.open(`/hr/api/payroll/${currentDetailId}/payslip-pdf`, '_blank');
+}
+
+function printBulkPayslip() {
+    const month = document.getElementById('filterMonth').value;
+    if (!month) { alert('월을 선택해주세요.'); return; }
+    window.open(`/hr/api/payroll/bulk-payslip-pdf?pay_month=${month}`, '_blank');
+}
+
+function printPayrollSummary() {
+    const month = document.getElementById('filterMonth').value;
+    if (!month) { alert('월을 선택해주세요.'); return; }
+    window.open(`/hr/api/payroll/summary-pdf?pay_month=${month}`, '_blank');
 }
 
 function fmtWon(val) {

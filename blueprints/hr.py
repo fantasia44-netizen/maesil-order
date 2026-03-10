@@ -3,12 +3,15 @@ hr.py -- 인건비/연차 관리 Blueprint.
 직원 관리, 급여 관리, 연차 관리, 급여 항목/보험 요율 관리.
 직원/급여는 admin만, 연차는 admin+manager.
 """
+import os
+import tempfile
+
 from flask import (
     Blueprint, render_template, request, current_app,
-    jsonify,
+    jsonify, send_file,
 )
 from flask_login import login_required, current_user
-from datetime import date
+from datetime import date, timedelta
 
 from auth import role_required, _log_action
 
@@ -619,6 +622,173 @@ def api_payroll_preview():
         result['insurance_overrides'] = overrides  # 프론트엔드에서 표시용
 
         return jsonify({'success': True, 'preview': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ══════════════════════════════════════════════
+#  급여명세서 PDF
+# ══════════════════════════════════════════════
+
+def _enrich_payroll_record(db, record):
+    """급여 레코드에 직원 정보 병합 (PDF용)."""
+    employees = db.query_employees()
+    emp_map = {e['id']: e for e in employees}
+    emp = emp_map.get(record.get('employee_id'), {})
+    record['employee_name'] = emp.get('name', '')
+    record['department'] = emp.get('department', '')
+    record['position'] = emp.get('position', '')
+    record['hire_date'] = emp.get('hire_date', '')
+    return record
+
+
+@hr_bp.route('/api/payroll/<int:payroll_id>/payslip-pdf')
+@role_required('admin', 'general')
+def api_payslip_pdf(payroll_id):
+    """개별 급여명세서 PDF 다운로드."""
+    db = current_app.db
+    try:
+        from reports.payroll_report import generate_individual_payslip
+
+        payroll = db.query_payroll()
+        record = next((r for r in payroll if r.get('id') == payroll_id), None)
+        if not record:
+            return jsonify({'error': '급여 데이터를 찾을 수 없습니다.'}), 404
+
+        record = _enrich_payroll_record(db, record)
+        biz_name = current_app.config.get('BIZ_NAME', '배마마')
+
+        fd, path = tempfile.mkstemp(suffix='.pdf')
+        os.close(fd)
+        generate_individual_payslip(path, record, biz_name=biz_name)
+
+        filename = f"급여명세서_{record.get('employee_name', '')}_{record.get('pay_month', '')}.pdf"
+        return send_file(path, as_attachment=True,
+                         download_name=filename, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@hr_bp.route('/api/payroll/bulk-payslip-pdf')
+@role_required('admin', 'general')
+def api_bulk_payslip_pdf():
+    """전체 급여명세서 PDF (직원별 페이지)."""
+    db = current_app.db
+    pay_month = request.args.get('pay_month', '')
+    if not pay_month:
+        return jsonify({'error': '대상 월을 지정해주세요.'}), 400
+
+    try:
+        from reports.payroll_report import generate_bulk_payslips
+
+        payroll = db.query_payroll(pay_month=pay_month)
+        if not payroll:
+            return jsonify({'error': f'{pay_month} 급여 데이터가 없습니다.'}), 404
+
+        employees = db.query_employees()
+        emp_map = {e['id']: e for e in employees}
+        for r in payroll:
+            emp = emp_map.get(r.get('employee_id'), {})
+            r['employee_name'] = emp.get('name', '')
+            r['department'] = emp.get('department', '')
+            r['position'] = emp.get('position', '')
+            r['hire_date'] = emp.get('hire_date', '')
+
+        # 이름순 정렬
+        payroll.sort(key=lambda r: r.get('employee_name', ''))
+
+        biz_name = current_app.config.get('BIZ_NAME', '배마마')
+
+        fd, path = tempfile.mkstemp(suffix='.pdf')
+        os.close(fd)
+        generate_bulk_payslips(path, payroll, biz_name=biz_name)
+
+        filename = f"급여명세서_전체_{pay_month}.pdf"
+        return send_file(path, as_attachment=True,
+                         download_name=filename, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@hr_bp.route('/api/payroll/summary-pdf')
+@role_required('admin', 'general')
+def api_payroll_summary_pdf():
+    """급여 총괄표 PDF (보고용)."""
+    db = current_app.db
+    pay_month = request.args.get('pay_month', '')
+    if not pay_month:
+        return jsonify({'error': '대상 월을 지정해주세요.'}), 400
+
+    try:
+        from reports.payroll_report import generate_payroll_summary
+
+        payroll = db.query_payroll(pay_month=pay_month)
+        if not payroll:
+            return jsonify({'error': f'{pay_month} 급여 데이터가 없습니다.'}), 404
+
+        employees = db.query_employees()
+        emp_map = {e['id']: e for e in employees}
+        for r in payroll:
+            emp = emp_map.get(r.get('employee_id'), {})
+            r['employee_name'] = emp.get('name', '')
+            r['department'] = emp.get('department', '')
+
+        payroll.sort(key=lambda r: r.get('employee_name', ''))
+        biz_name = current_app.config.get('BIZ_NAME', '배마마')
+
+        fd, path = tempfile.mkstemp(suffix='.pdf')
+        os.close(fd)
+        generate_payroll_summary(path, payroll, pay_month, biz_name=biz_name)
+
+        filename = f"급여총괄표_{pay_month}.pdf"
+        return send_file(path, as_attachment=True,
+                         download_name=filename, mimetype='application/pdf')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ══════════════════════════════════════════════
+#  퇴직금 계산
+# ══════════════════════════════════════════════
+
+@hr_bp.route('/api/employees/<int:emp_id>/severance-calc', methods=['POST'])
+@role_required('admin', 'general')
+def api_severance_calc(emp_id):
+    """퇴직금 계산 (저장 없이 결과만 반환)"""
+    db = current_app.db
+    data = request.get_json() or {}
+    retire_date_str = (data.get('retire_date') or '').strip()
+
+    if not retire_date_str:
+        retire_date_str = date.today().isoformat()
+
+    try:
+        from services.hr_service import calculate_severance
+
+        employees = db.query_employees()
+        emp = next((e for e in employees if e['id'] == int(emp_id)), None)
+        if not emp:
+            return jsonify({'error': '직원을 찾을 수 없습니다.'}), 404
+
+        # 최근 3개월 급여 데이터 조회
+        retire_date = date.fromisoformat(retire_date_str)
+        recent_payroll = []
+        for i in range(1, 4):
+            y = retire_date.year
+            m = retire_date.month - i
+            while m <= 0:
+                m += 12
+                y -= 1
+            pay_month = f'{y}-{m:02d}'
+            payroll = db.query_payroll(pay_month=pay_month)
+            emp_pay = [p for p in payroll
+                       if p.get('employee_id') == emp_id]
+            recent_payroll.extend(emp_pay)
+
+        components = db.query_salary_components(emp_id, active_only=True)
+        result = calculate_severance(emp, retire_date_str,
+                                     recent_payroll, components)
+        return jsonify({'success': True, 'severance': result})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

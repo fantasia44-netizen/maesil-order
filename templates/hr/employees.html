@@ -10,6 +10,7 @@
     .summary-card.active { border-color: #27ae60; }
     .summary-card.total { border-color: #3498db; }
     .summary-card.salary { border-color: #e67e22; }
+    .summary-card.retired { border-color: #e74c3c; }
     .nav-tabs .nav-link { font-size: 0.9rem; }
     .comp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .comp-row .form-control, .comp-row .form-select { font-size: 0.85rem; }
@@ -19,91 +20,144 @@
     .preview-item.total { font-weight: 700; font-size: 1.05em; border-top: 2px solid #333; border-bottom: none; }
     .preview-deduction { color: #e74c3c; }
     .preview-employer { color: #8e44ad; }
+    .ins-override-input { width: 100px; text-align: right; font-size: 0.85rem; }
+    .ins-default-badge { font-size: 0.75rem; }
+    .sev-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+    .sev-row.highlight { font-weight: 700; font-size: 1.1em; border-top: 2px solid #333; color: #2c3e50; }
+    .page-tab-btn { border-radius: 20px; padding: 6px 18px; font-size: 0.9rem; }
+    .page-tab-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
 </style>
 {% endblock %}
 
 {% block content %}
-<!-- 요약 카드 -->
-<div class="row g-3 mb-4">
-    <div class="col-md-4">
-        <div class="card summary-card active">
-            <div class="card-body py-2 px-3">
-                <small class="text-muted">재직자</small>
-                <h4 class="mb-0 text-success" id="activeCount">-</h4>
+<!-- 페이지 탭: 재직자 / 퇴사자 -->
+<div class="d-flex gap-2 mb-3">
+    <button class="btn btn-outline-secondary page-tab-btn active" id="tabActiveBtn" onclick="switchPageTab('active')">
+        <i class="bi bi-people-fill"></i> 재직자 관리
+    </button>
+    <button class="btn btn-outline-secondary page-tab-btn" id="tabRetiredBtn" onclick="switchPageTab('retired')">
+        <i class="bi bi-person-dash"></i> 퇴사자 관리
+    </button>
+</div>
+
+<!-- ══════ 재직자 뷰 ══════ -->
+<div id="activeView">
+    <!-- 요약 카드 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card summary-card active">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted">재직자</small>
+                    <h4 class="mb-0 text-success" id="activeCount">-</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card summary-card total">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted">전체 직원</small>
+                    <h4 class="mb-0" id="totalCount">-</h4>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card summary-card salary">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted">총 기본급 (재직자)</small>
+                    <h4 class="mb-0" style="color:#e67e22;" id="totalSalary">-</h4>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card summary-card total">
-            <div class="card-body py-2 px-3">
-                <small class="text-muted">전체 직원</small>
-                <h4 class="mb-0" id="totalCount">-</h4>
+
+    <!-- 필터 / 액션 바 -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <div class="ms-auto">
+                    <button class="btn btn-primary btn-sm" onclick="openAddModal()">
+                        <i class="bi bi-plus-lg"></i> 직원 등록
+                    </button>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card summary-card salary">
-            <div class="card-body py-2 px-3">
-                <small class="text-muted">총 기본급 (재직자)</small>
-                <h4 class="mb-0" style="color:#e67e22;" id="totalSalary">-</h4>
+
+    <!-- 직원 리스트 (재직자) -->
+    <div class="card">
+        <div class="card-header py-2">
+            <i class="bi bi-people"></i> 재직자 목록
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:40px;">#</th>
+                            <th>이름</th>
+                            <th>직급</th>
+                            <th>부서</th>
+                            <th class="text-end">기본급</th>
+                            <th>입사일</th>
+                            <th>부양가족</th>
+                            <th>급여계좌</th>
+                            <th>법정연차</th>
+                            <th style="width:140px;">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="empBody">
+                        <tr><td colspan="10" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 필터 / 액션 바 -->
-<div class="card mb-3">
-    <div class="card-body py-2">
-        <div class="d-flex flex-wrap gap-2 align-items-center">
-            <div>
-                <label class="form-label mb-0 small text-muted">상태</label>
-                <select id="filterStatus" class="form-select form-select-sm" style="width:120px;">
-                    <option value="">전체</option>
-                    <option value="재직" selected>재직</option>
-                    <option value="퇴사">퇴사</option>
-                </select>
+<!-- ══════ 퇴사자 뷰 ══════ -->
+<div id="retiredView" style="display:none;">
+    <!-- 요약 카드 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card summary-card retired">
+                <div class="card-body py-2 px-3">
+                    <small class="text-muted">퇴사자</small>
+                    <h4 class="mb-0 text-danger" id="retiredCount">-</h4>
+                </div>
             </div>
-            <div class="ms-auto">
-                <button class="btn btn-primary btn-sm" onclick="openAddModal()">
-                    <i class="bi bi-plus-lg"></i> 직원 등록
-                </button>
+        </div>
+    </div>
+
+    <!-- 퇴사자 리스트 -->
+    <div class="card">
+        <div class="card-header py-2">
+            <i class="bi bi-person-dash"></i> 퇴사자 목록
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:40px;">#</th>
+                            <th>이름</th>
+                            <th>직급</th>
+                            <th>부서</th>
+                            <th class="text-end">기본급</th>
+                            <th>입사일</th>
+                            <th>메모 (퇴사사유)</th>
+                            <th style="width:100px;">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="retiredBody">
+                        <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 </div>
 
-<!-- 직원 리스트 -->
-<div class="card">
-    <div class="card-header py-2">
-        <i class="bi bi-people"></i> 직원 목록
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-sm table-hover mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th style="width:40px;">#</th>
-                        <th>이름</th>
-                        <th>직급</th>
-                        <th>부서</th>
-                        <th class="text-end">기본급</th>
-                        <th>입사일</th>
-                        <th>부양가족</th>
-                        <th>급여계좌</th>
-                        <th>법정연차</th>
-                        <th>상태</th>
-                        <th style="width:120px;">관리</th>
-                    </tr>
-                </thead>
-                <tbody id="empBody">
-                    <tr><td colspan="11" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- 등록/수정 모달 -->
+<!-- ══════ 등록/수정 모달 ══════ -->
 <div class="modal fade" id="empModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -119,6 +173,9 @@
                     </li>
                     <li class="nav-item">
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-salary" type="button" id="tabSalaryBtn">급여항목</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-insurance" type="button" id="tabInsuranceBtn">4대보험</button>
                     </li>
                     <li class="nav-item">
                         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-preview" type="button" id="tabPreviewBtn">급여 미리보기</button>
@@ -233,6 +290,32 @@
                         </div>
                     </div>
 
+                    <!-- 4대보험 개별요율 탭 -->
+                    <div class="tab-pane fade" id="tab-insurance">
+                        <div class="alert alert-info py-2" style="font-size:0.85rem;">
+                            <i class="bi bi-info-circle"></i>
+                            빈칸이면 <strong>일반 요율</strong> 적용, 값을 입력하면 <strong>개별 요율</strong> 적용됩니다.
+                            직원을 먼저 저장한 후 설정할 수 있습니다.
+                        </div>
+                        <table class="table table-sm table-bordered mb-3">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>보험 종류</th>
+                                    <th class="text-center" style="width:130px;">근로자 요율(%)</th>
+                                    <th class="text-center" style="width:130px;">사업주 요율(%)</th>
+                                    <th>상태</th>
+                                </tr>
+                            </thead>
+                            <tbody id="insuranceOverrideBody"></tbody>
+                        </table>
+                        <div class="d-flex justify-content-between">
+                            <button class="btn btn-success btn-sm" onclick="saveInsuranceOverrides()">
+                                <i class="bi bi-check-lg"></i> 보험요율 저장
+                            </button>
+                            <span class="text-muted small" id="insuranceSaveStatus"></span>
+                        </div>
+                    </div>
+
                     <!-- 급여 미리보기 탭 -->
                     <div class="tab-pane fade" id="tab-preview">
                         <div id="previewSection">
@@ -253,12 +336,82 @@
         </div>
     </div>
 </div>
+
+<!-- ══════ 퇴사/퇴직금 모달 ══════ -->
+<div class="modal fade" id="retireModal" tabindex="-1">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-25">
+                <h5 class="modal-title"><i class="bi bi-box-arrow-right"></i> 퇴사 처리</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="retireEmpId">
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">직원명</label>
+                        <input type="text" id="retireEmpName" class="form-control" readonly>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">입사일</label>
+                        <input type="text" id="retireHireDate" class="form-control" readonly>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">퇴사일 <span class="text-danger">*</span></label>
+                        <input type="date" id="retireDate" class="form-control">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">퇴사 사유</label>
+                        <select id="retireReason" class="form-select">
+                            <option value="자진퇴사">자진퇴사</option>
+                            <option value="권고사직">권고사직</option>
+                            <option value="계약만료">계약만료</option>
+                            <option value="정년퇴직">정년퇴직</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">메모</label>
+                    <input type="text" id="retireMemo" class="form-control" placeholder="퇴사 관련 메모">
+                </div>
+
+                <hr>
+                <h6 class="mb-3"><i class="bi bi-calculator"></i> 퇴직금 계산</h6>
+                <div id="severanceLoading" class="text-center py-3" style="display:none;">
+                    <div class="spinner-border spinner-border-sm"></div> 계산 중...
+                </div>
+                <div id="severanceResult"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-warning" onclick="confirmRetire()">
+                    <i class="bi bi-box-arrow-right"></i> 퇴사 확정
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let allEmployees = [];
+let activeEmployees = [];
+let retiredEmployees = [];
+let currentPageTab = 'active';
+
+// 보험 유형 레이블
+const INSURANCE_TYPES = [
+    { value: 'national_pension', label: '국민연금', defEmp: 4.5, defEr: 4.5 },
+    { value: 'health_insurance', label: '건강보험', defEmp: 3.545, defEr: 3.545 },
+    { value: 'long_term_care', label: '장기요양보험', defEmp: 12.95, defEr: 12.95 },
+    { value: 'employment_insurance', label: '고용보험', defEmp: 0.9, defEr: 0.9 },
+    { value: 'industrial_accident', label: '산재보험', defEmp: 0, defEr: 1.47 },
+];
 
 // 급여 항목 유형 목록
 const COMP_TYPES = [
@@ -276,8 +429,7 @@ const COMP_TYPES = [
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadData();
-    document.getElementById('filterStatus').addEventListener('change', loadData);
+    loadAllData();
 
     // 모달 내 탭 수동 초기화 (tabindex=-1 충돌 방지)
     document.querySelectorAll('#empModal [data-bs-toggle="tab"]').forEach(btn => {
@@ -286,43 +438,56 @@ document.addEventListener('DOMContentLoaded', () => {
             new bootstrap.Tab(this).show();
         });
     });
+
+    // 퇴사일 변경 시 퇴직금 자동 재계산
+    document.getElementById('retireDate').addEventListener('change', calcSeverance);
 });
 
-function loadData() {
-    const status = document.getElementById('filterStatus').value || '';
-    const params = new URLSearchParams();
-    if (status) params.set('status', status);
+// ══════ 페이지 탭 전환 ══════
 
-    fetch(`/hr/api/employees?${params}`, {
-        headers: { 'X-CSRFToken': CSRF }
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (!data.success) { alert(data.error || '로드 실패'); return; }
-        allEmployees = data.employees || [];
+function switchPageTab(tab) {
+    currentPageTab = tab;
+    document.getElementById('tabActiveBtn').classList.toggle('active', tab === 'active');
+    document.getElementById('tabRetiredBtn').classList.toggle('active', tab === 'retired');
+    document.getElementById('activeView').style.display = tab === 'active' ? '' : 'none';
+    document.getElementById('retiredView').style.display = tab === 'retired' ? '' : 'none';
+}
+
+// ══════ 데이터 로드 ══════
+
+function loadAllData() {
+    // 재직자 + 퇴사자 각각 로드
+    Promise.all([
+        fetch('/hr/api/employees?status=재직', { headers: { 'X-CSRFToken': CSRF } }).then(r => r.json()),
+        fetch('/hr/api/employees?status=퇴사', { headers: { 'X-CSRFToken': CSRF } }).then(r => r.json()),
+    ])
+    .then(([activeData, retiredData]) => {
+        activeEmployees = activeData.success ? (activeData.employees || []) : [];
+        retiredEmployees = retiredData.success ? (retiredData.employees || []) : [];
+        allEmployees = [...activeEmployees, ...retiredEmployees];
         updateSummary();
-        renderTable();
+        renderActiveTable();
+        renderRetiredTable();
     })
     .catch(err => { console.error(err); alert('데이터 로드 오류'); });
 }
 
 function updateSummary() {
-    const active = allEmployees.filter(e => e.status === '재직');
-    document.getElementById('activeCount').textContent = active.length + '명';
+    document.getElementById('activeCount').textContent = activeEmployees.length + '명';
     document.getElementById('totalCount').textContent = allEmployees.length + '명';
-    const totalSalary = active.reduce((s, e) => s + (parseFloat(e.base_salary) || 0), 0);
+    const totalSalary = activeEmployees.reduce((s, e) => s + (parseFloat(e.base_salary) || 0), 0);
     document.getElementById('totalSalary').textContent = fmtWon(totalSalary);
+    document.getElementById('retiredCount').textContent = retiredEmployees.length + '명';
 }
 
-function renderTable() {
+function renderActiveTable() {
     const tbody = document.getElementById('empBody');
-    if (!allEmployees.length) {
-        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">등록된 직원이 없습니다.</td></tr>';
+    if (!activeEmployees.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">재직 중인 직원이 없습니다.</td></tr>';
         return;
     }
     let html = '';
-    allEmployees.forEach((r, idx) => {
-        const statusClass = r.status === '재직' ? 'status-active' : 'status-inactive';
+    activeEmployees.forEach((r, idx) => {
         const bankInfo = r.bank_name ? `${r.bank_name}` : '';
         html += `<tr>
             <td class="text-muted">${idx + 1}</td>
@@ -334,7 +499,6 @@ function renderTable() {
             <td class="text-center">${r.dependents_count || 1}명</td>
             <td><small class="text-muted">${bankInfo}</small></td>
             <td class="text-center">${r.legal_leave_days || 0}일</td>
-            <td><span class="${statusClass}">${r.status || ''}</span></td>
             <td>
                 <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openEditModal(${r.id})" title="수정">
                     <i class="bi bi-pencil"></i>
@@ -342,16 +506,45 @@ function renderTable() {
                 <button class="btn btn-outline-info btn-sm py-0 px-1" onclick="openSalaryTab(${r.id})" title="급여항목">
                     <i class="bi bi-cash-coin"></i>
                 </button>
-                ${r.status === '재직' ? `<button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="retireEmployee(${r.id}, '${(r.name||'').replace(/'/g,"\\'")}')" title="퇴사 처리">
+                <button class="btn btn-outline-warning btn-sm py-0 px-1" onclick="openRetireModal(${r.id})" title="퇴사 처리">
                     <i class="bi bi-box-arrow-right"></i>
-                </button>` : `<button class="btn btn-outline-success btn-sm py-0 px-1" onclick="reinstateEmployee(${r.id})" title="복직">
-                    <i class="bi bi-arrow-counterclockwise"></i>
-                </button>`}
+                </button>
             </td>
         </tr>`;
     });
     tbody.innerHTML = html;
 }
+
+function renderRetiredTable() {
+    const tbody = document.getElementById('retiredBody');
+    if (!retiredEmployees.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">퇴사자가 없습니다.</td></tr>';
+        return;
+    }
+    let html = '';
+    retiredEmployees.forEach((r, idx) => {
+        html += `<tr>
+            <td class="text-muted">${idx + 1}</td>
+            <td><strong>${r.name || ''}</strong></td>
+            <td>${r.position || ''}</td>
+            <td>${r.department || ''}</td>
+            <td class="text-end">${fmtWon(r.base_salary)}</td>
+            <td>${r.hire_date || ''}</td>
+            <td><small class="text-muted">${r.memo || ''}</small></td>
+            <td>
+                <button class="btn btn-outline-primary btn-sm py-0 px-1" onclick="openEditModal(${r.id})" title="정보보기">
+                    <i class="bi bi-eye"></i>
+                </button>
+                <button class="btn btn-outline-success btn-sm py-0 px-1" onclick="reinstateEmployee(${r.id})" title="복직">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            </td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+// ══════ 직원 등록/수정 모달 ══════
 
 function openAddModal() {
     document.getElementById('modalTitle').textContent = '직원 등록';
@@ -369,13 +562,14 @@ function openAddModal() {
     document.getElementById('inputMemo').value = '';
     document.getElementById('compList').innerHTML = '';
     document.getElementById('previewResult').style.display = 'none';
+    document.getElementById('insuranceOverrideBody').innerHTML = '';
 
-    // 기본정보 탭 활성화
     const basicTab = document.querySelector('[data-bs-target="#tab-basic"]');
     new bootstrap.Tab(basicTab).show();
 
-    // 급여항목/미리보기 탭 비활성화 (신규)
+    // 탭 비활성화 (신규)
     document.getElementById('tabSalaryBtn').classList.add('disabled');
+    document.getElementById('tabInsuranceBtn').classList.add('disabled');
     document.getElementById('tabPreviewBtn').classList.add('disabled');
 
     new bootstrap.Modal(document.getElementById('empModal')).show();
@@ -399,23 +593,22 @@ function openEditModal(id) {
     document.getElementById('inputMemo').value = row.memo || '';
     document.getElementById('previewResult').style.display = 'none';
 
-    // 급여항목/미리보기 탭 활성화 (기존 직원)
+    // 탭 활성화 (기존 직원)
     document.getElementById('tabSalaryBtn').classList.remove('disabled');
+    document.getElementById('tabInsuranceBtn').classList.remove('disabled');
     document.getElementById('tabPreviewBtn').classList.remove('disabled');
 
-    // 기본정보 탭 활성화
     const basicTab = document.querySelector('[data-bs-target="#tab-basic"]');
     new bootstrap.Tab(basicTab).show();
 
-    // 급여항목 로드
     loadSalaryComponents(id);
+    loadInsuranceOverrides(id);
 
     new bootstrap.Modal(document.getElementById('empModal')).show();
 }
 
 function openSalaryTab(id) {
     openEditModal(id);
-    // 급여항목 탭으로 전환
     setTimeout(() => {
         const salaryTab = document.querySelector('[data-bs-target="#tab-salary"]');
         new bootstrap.Tab(salaryTab).show();
@@ -458,15 +651,15 @@ function saveEmployee() {
     .then(data => {
         if (data.success) {
             if (!id && data.employee && data.employee.id) {
-                // 신규 등록 후 ID 업데이트 -> 급여항목 탭 활성화
                 document.getElementById('editId').value = data.employee.id;
                 document.getElementById('tabSalaryBtn').classList.remove('disabled');
+                document.getElementById('tabInsuranceBtn').classList.remove('disabled');
                 document.getElementById('tabPreviewBtn').classList.remove('disabled');
-                alert('직원이 등록되었습니다. 급여항목 탭에서 급여 항목을 설정할 수 있습니다.');
+                alert('직원이 등록되었습니다. 급여항목/4대보험 탭에서 설정할 수 있습니다.');
             } else {
                 alert('저장되었습니다.');
             }
-            loadData();
+            loadAllData();
         } else {
             alert(data.error || '저장 실패');
         }
@@ -474,7 +667,7 @@ function saveEmployee() {
     .catch(err => { console.error(err); alert('저장 중 오류'); });
 }
 
-// ── 급여 항목 관리 ──
+// ══════ 급여 항목 관리 ══════
 
 function loadSalaryComponents(empId) {
     fetch(`/hr/api/employees/${empId}/salary-components`, {
@@ -519,7 +712,6 @@ function addComponentRow(comp) {
         </button>
     `;
 
-    // 항목 유형 변경 시 과세 여부 자동 설정
     const select = row.querySelector('.comp-type');
     select.addEventListener('change', function() {
         const typeInfo = COMP_TYPES.find(t => t.value === this.value);
@@ -533,49 +725,36 @@ function addComponentRow(comp) {
 
 function saveSalaryComponents() {
     const empId = document.getElementById('editId').value;
-    if (!empId) {
-        alert('직원을 먼저 저장해주세요.');
-        return;
-    }
+    if (!empId) { alert('직원을 먼저 저장해주세요.'); return; }
 
     const rows = document.querySelectorAll('.comp-row');
     const components = [];
-
     rows.forEach(row => {
         const type = row.querySelector('.comp-type').value;
         const amount = parseInt(row.querySelector('.comp-amount').value) || 0;
         const isTaxable = row.querySelector('.comp-taxable').checked;
         const compId = row.querySelector('.comp-id').value;
-
         if (type && amount > 0) {
             const typeInfo = COMP_TYPES.find(t => t.value === type);
             components.push({
                 id: compId ? parseInt(compId) : undefined,
                 component_type: type,
                 component_name: typeInfo ? typeInfo.label : type,
-                amount: amount,
-                is_taxable: isTaxable,
-                is_fixed: true,
+                amount, is_taxable: isTaxable, is_fixed: true,
             });
         }
     });
 
     fetch(`/hr/api/employees/${empId}/salary-components`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': CSRF,
-            'X-Requested-With': 'XMLHttpRequest',
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ components }),
     })
     .then(r => r.json())
     .then(data => {
         if (data.success) {
             document.getElementById('compSaveStatus').textContent = `${data.count}개 항목 저장됨`;
-            setTimeout(() => {
-                document.getElementById('compSaveStatus').textContent = '';
-            }, 3000);
+            setTimeout(() => { document.getElementById('compSaveStatus').textContent = ''; }, 3000);
         } else {
             alert(data.error || '급여항목 저장 실패');
         }
@@ -583,22 +762,113 @@ function saveSalaryComponents() {
     .catch(err => { console.error(err); alert('급여항목 저장 중 오류'); });
 }
 
-// ── 급여 미리보기 ──
+// ══════ 4대보험 개별요율 관리 ══════
+
+function loadInsuranceOverrides(empId) {
+    fetch(`/hr/api/employee-insurance-overrides/${empId}`, {
+        headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) return;
+        const overrides = data.overrides || [];
+        const ovMap = {};
+        overrides.forEach(o => { ovMap[o.insurance_type] = o; });
+        renderInsuranceTable(ovMap);
+    })
+    .catch(err => console.error('보험요율 로드 오류:', err));
+}
+
+function renderInsuranceTable(ovMap) {
+    const tbody = document.getElementById('insuranceOverrideBody');
+    let html = '';
+    INSURANCE_TYPES.forEach(ins => {
+        const ov = ovMap[ins.value] || {};
+        const hasOverride = ov.employee_rate !== undefined && ov.employee_rate !== null;
+        const empVal = hasOverride ? ov.employee_rate : '';
+        const erVal = hasOverride ? (ov.employer_rate || '') : '';
+        const statusBadge = hasOverride
+            ? '<span class="badge bg-primary ins-default-badge">개별요율</span>'
+            : '<span class="badge bg-secondary ins-default-badge">일반요율</span>';
+        const placeholder_emp = `일반 ${ins.defEmp}%`;
+        const placeholder_er = `일반 ${ins.defEr}%`;
+
+        html += `<tr data-ins-type="${ins.value}">
+            <td><strong>${ins.label}</strong></td>
+            <td class="text-center">
+                ${ins.defEmp > 0
+                    ? `<input type="number" class="form-control form-control-sm ins-override-input ins-emp-rate"
+                        value="${empVal}" step="0.01" min="0" placeholder="${placeholder_emp}">`
+                    : '<span class="text-muted small">해당없음</span>'}
+            </td>
+            <td class="text-center">
+                <input type="number" class="form-control form-control-sm ins-override-input ins-er-rate"
+                    value="${erVal}" step="0.01" min="0" placeholder="${placeholder_er}">
+            </td>
+            <td>${statusBadge}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function saveInsuranceOverrides() {
+    const empId = document.getElementById('editId').value;
+    if (!empId) { alert('직원을 먼저 저장해주세요.'); return; }
+
+    const rows = document.querySelectorAll('#insuranceOverrideBody tr');
+    const promises = [];
+
+    rows.forEach(row => {
+        const insType = row.dataset.insType;
+        const empInput = row.querySelector('.ins-emp-rate');
+        const erInput = row.querySelector('.ins-er-rate');
+
+        const empVal = empInput ? empInput.value.trim() : '';
+        const erVal = erInput ? erInput.value.trim() : '';
+
+        if (empVal === '' && erVal === '') {
+            // 빈칸 → 오버라이드 삭제 (일반요율 복원)
+            promises.push(
+                fetch(`/hr/api/employee-insurance-overrides/${empId}/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ insurance_type: insType }),
+                }).then(r => r.json())
+            );
+        } else {
+            // 값 있음 → 오버라이드 설정
+            promises.push(
+                fetch(`/hr/api/employee-insurance-overrides/${empId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        insurance_type: insType,
+                        employee_rate: empVal !== '' ? parseFloat(empVal) : null,
+                        employer_rate: erVal !== '' ? parseFloat(erVal) : null,
+                    }),
+                }).then(r => r.json())
+            );
+        }
+    });
+
+    Promise.all(promises)
+    .then(() => {
+        document.getElementById('insuranceSaveStatus').textContent = '보험요율 저장 완료';
+        loadInsuranceOverrides(empId); // 상태 배지 갱신
+        setTimeout(() => { document.getElementById('insuranceSaveStatus').textContent = ''; }, 3000);
+    })
+    .catch(err => { console.error(err); alert('보험요율 저장 중 오류'); });
+}
+
+// ══════ 급여 미리보기 ══════
 
 function loadPayrollPreview() {
     const empId = document.getElementById('editId').value;
-    if (!empId) {
-        alert('직원을 먼저 저장해주세요.');
-        return;
-    }
+    if (!empId) { alert('직원을 먼저 저장해주세요.'); return; }
 
     fetch('/hr/api/payroll/preview', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': CSRF,
-            'X-Requested-With': 'XMLHttpRequest',
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify({ employee_id: parseInt(empId) }),
     })
     .then(r => r.json())
@@ -615,7 +885,6 @@ function renderPreview(p) {
 
     let html = `
     <h6 class="mb-2"><i class="bi bi-calculator"></i> ${p.employee_name || ''} 급여 계산 결과</h6>
-
     <div class="row">
         <div class="col-md-6">
             <strong class="text-primary">지급 항목</strong>
@@ -634,7 +903,6 @@ function renderPreview(p) {
             <div class="preview-item"><span>과세 대상액</span><span>${fmtWon(p.taxable_amount)}</span></div>
             <div class="preview-item"><span>비과세액</span><span>${fmtWon(p.nontaxable_amount)}</span></div>
         </div>
-
         <div class="col-md-6">
             <strong class="text-danger">공제 항목 (근로자)</strong>
             <div class="preview-item preview-deduction"><span>국민연금</span><span>-${fmtWon(p.national_pension)}</span></div>
@@ -644,9 +912,7 @@ function renderPreview(p) {
             <div class="preview-item preview-deduction"><span>근로소득세</span><span>-${fmtWon(p.income_tax)}</span></div>
             <div class="preview-item preview-deduction"><span>지방소득세</span><span>-${fmtWon(p.local_income_tax)}</span></div>
             <div class="preview-item subtotal preview-deduction"><span>총 공제액</span><span>-${fmtWon(p.total_deductions)}</span></div>
-
             <div class="preview-item total mt-2"><span>실수령액</span><span>${fmtWon(p.net_salary)}</span></div>
-
             <hr>
             <strong class="preview-employer">사업주 부담분</strong>
             <div class="preview-item preview-employer"><span>국민연금</span><span>${fmtWon(p.national_pension_employer)}</span></div>
@@ -656,52 +922,140 @@ function renderPreview(p) {
             <div class="preview-item preview-employer"><span>산재보험</span><span>${fmtWon(p.industrial_accident_insurance)}</span></div>
             <div class="preview-item subtotal preview-employer"><span>사업주 총 부담</span><span>${fmtWon(p.total_employer_cost)}</span></div>
         </div>
-    </div>
-    `;
+    </div>`;
 
     div.innerHTML = html;
 }
 
-// ── 퇴사/복직 ──
+// ══════ 퇴사 처리 / 퇴직금 ══════
 
-function retireEmployee(id, name) {
-    if (!confirm(`${name} 님을 퇴사 처리하시겠습니까?\n(정보는 삭제되지 않고 숨김 처리됩니다)`)) return;
-    const today = new Date().toISOString().slice(0, 10);
-    fetch(`/hr/api/employees/${id}/retire`, {
+function openRetireModal(id) {
+    const emp = allEmployees.find(r => r.id === id);
+    if (!emp) return;
+
+    document.getElementById('retireEmpId').value = id;
+    document.getElementById('retireEmpName').value = emp.name || '';
+    document.getElementById('retireHireDate').value = emp.hire_date || '';
+    document.getElementById('retireDate').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('retireReason').value = '자진퇴사';
+    document.getElementById('retireMemo').value = '';
+    document.getElementById('severanceResult').innerHTML = '';
+
+    new bootstrap.Modal(document.getElementById('retireModal')).show();
+
+    // 자동 퇴직금 계산
+    setTimeout(calcSeverance, 200);
+}
+
+function calcSeverance() {
+    const empId = document.getElementById('retireEmpId').value;
+    const retireDate = document.getElementById('retireDate').value;
+    if (!empId || !retireDate) return;
+
+    document.getElementById('severanceLoading').style.display = '';
+    document.getElementById('severanceResult').innerHTML = '';
+
+    fetch(`/hr/api/employees/${empId}/severance-calc`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': CSRF,
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ retire_date: today, memo: `${today} 퇴사` }),
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ retire_date: retireDate }),
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) loadData();
-        else alert(data.error || '퇴사 처리 실패');
+        document.getElementById('severanceLoading').style.display = 'none';
+        if (!data.success) {
+            document.getElementById('severanceResult').innerHTML =
+                `<div class="alert alert-danger py-2">${data.error || '계산 실패'}</div>`;
+            return;
+        }
+        renderSeverance(data.severance);
+    })
+    .catch(err => {
+        document.getElementById('severanceLoading').style.display = 'none';
+        console.error(err);
+        document.getElementById('severanceResult').innerHTML =
+            '<div class="alert alert-danger py-2">퇴직금 계산 중 오류</div>';
+    });
+}
+
+function renderSeverance(s) {
+    const div = document.getElementById('severanceResult');
+    const years = Math.floor(s.tenure_days / 365);
+    const months = Math.floor((s.tenure_days % 365) / 30);
+    const days = s.tenure_days % 30;
+    const tenureStr = `${years}년 ${months}개월 ${days}일 (총 ${s.tenure_days}일)`;
+
+    const dataNote = s.data_source === 'payroll'
+        ? `<span class="badge bg-success">최근 ${s.payroll_months}개월 급여 기반</span>`
+        : '<span class="badge bg-warning text-dark">현재 급여 기준 추정</span>';
+
+    let html = `
+        <div class="sev-row"><span>근속기간</span><span>${tenureStr}</span></div>
+        <div class="sev-row"><span>평균 월급여</span><span>${fmtWon(s.avg_monthly_salary)} ${dataNote}</span></div>
+        <div class="sev-row"><span>1일 평균임금</span><span>${fmtWon(s.daily_avg_wage)}</span></div>
+        <div class="sev-row"><span>산식</span><span class="text-muted small">1일평균임금 x 30 x (${s.tenure_days}일 / 365)</span></div>
+    `;
+
+    if (s.eligible) {
+        html += `<div class="sev-row highlight"><span>퇴직금</span><span class="text-primary">${fmtWon(s.severance_pay)}</span></div>`;
+    } else {
+        html += `<div class="alert alert-warning py-2 mt-2 mb-0">
+            <i class="bi bi-exclamation-triangle"></i> 근속기간 1년 미만으로 법정 퇴직금 대상이 아닙니다.
+        </div>`;
+    }
+
+    div.innerHTML = html;
+}
+
+function confirmRetire() {
+    const empId = document.getElementById('retireEmpId').value;
+    const retireDate = document.getElementById('retireDate').value;
+    const reason = document.getElementById('retireReason').value;
+    const memo = document.getElementById('retireMemo').value;
+    const empName = document.getElementById('retireEmpName').value;
+
+    if (!retireDate) { alert('퇴사일을 입력해주세요.'); return; }
+    if (!confirm(`${empName} 님을 ${retireDate} 부로 퇴사 처리하시겠습니까?`)) return;
+
+    const fullMemo = `${retireDate} ${reason}${memo ? ' - ' + memo : ''}`;
+
+    fetch(`/hr/api/employees/${empId}/retire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ retire_date: retireDate, memo: fullMemo }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('retireModal')).hide();
+            loadAllData();
+        } else {
+            alert(data.error || '퇴사 처리 실패');
+        }
     })
     .catch(err => { console.error(err); alert('퇴사 처리 중 오류'); });
 }
 
+// ══════ 복직 ══════
+
 function reinstateEmployee(id) {
-    if (!confirm('이 직원을 복직 처리하시겠습니까?')) return;
+    const emp = allEmployees.find(e => e.id === id);
+    if (!emp) return;
+    if (!confirm(`${emp.name} 님을 복직 처리하시겠습니까?`)) return;
     fetch(`/hr/api/employees/${id}`, {
         method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': CSRF,
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify({ name: allEmployees.find(e=>e.id===id)?.name, hire_date: allEmployees.find(e=>e.id===id)?.hire_date, status: '재직', memo: '' }),
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ name: emp.name, hire_date: emp.hire_date, status: '재직', memo: '' }),
     })
     .then(r => r.json())
     .then(data => {
-        if (data.success) loadData();
+        if (data.success) loadAllData();
         else alert(data.error || '복직 처리 실패');
     })
     .catch(err => { console.error(err); alert('복직 처리 중 오류'); });
 }
+
+// ══════ 유틸 ══════
 
 function fmtWon(val) {
     const n = Number(val) || 0;

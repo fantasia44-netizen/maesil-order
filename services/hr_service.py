@@ -379,6 +379,66 @@ def _calc_industrial_accident(taxable_amount, rate_map):
     return {'employee': 0, 'employer': employer}
 
 
+def calculate_severance(employee, retire_date_str, recent_payroll=None,
+                        salary_components=None):
+    """퇴직금 계산 (근로기준법 기준).
+
+    퇴직금 = 1일 평균임금 × 30 × (재직일수 / 365)
+    1일 평균임금 = 퇴직 전 3개월 급여총액 / 해당기간 총일수(90일 근사)
+
+    Args:
+        employee: dict - 직원 정보
+        retire_date_str: str - 퇴직일 (YYYY-MM-DD)
+        recent_payroll: list - 최근 3개월 급여 레코드
+        salary_components: list - 급여 항목 레코드
+
+    Returns:
+        dict - 퇴직금 계산 결과
+    """
+    hire_date = date.fromisoformat(employee.get('hire_date', ''))
+    retire_date = date.fromisoformat(retire_date_str)
+
+    tenure_days = (retire_date - hire_date).days
+    tenure_years = round(tenure_days / 365, 2)
+
+    # 평균임금 계산: 실제 급여 데이터 우선, 없으면 기본급+수당
+    if recent_payroll and len(recent_payroll) > 0:
+        total_paid = sum(float(p.get('gross_salary', 0)) for p in recent_payroll)
+        months_count = len(recent_payroll)
+        avg_monthly = total_paid / months_count if months_count > 0 else 0
+        data_source = 'payroll'
+    else:
+        base = float(employee.get('base_salary', 0))
+        comp_total = sum(
+            float(c.get('amount', 0)) for c in (salary_components or [])
+        )
+        avg_monthly = base + comp_total
+        data_source = 'estimated'
+
+    daily_avg = avg_monthly / 30 if avg_monthly > 0 else 0
+
+    # 퇴직금 = 1일 평균임금 × 30 × (재직일수 / 365)
+    severance_raw = daily_avg * 30 * (tenure_days / 365)
+
+    # 1년 미만 → 법정 퇴직금 대상 아님
+    eligible = tenure_days >= 365
+    severance_pay = round(severance_raw) if eligible else 0
+
+    return {
+        'employee_name': employee.get('name', ''),
+        'hire_date': employee.get('hire_date', ''),
+        'retire_date': retire_date_str,
+        'tenure_days': tenure_days,
+        'tenure_years': tenure_years,
+        'avg_monthly_salary': round(avg_monthly),
+        'daily_avg_wage': round(daily_avg),
+        'severance_pay': severance_pay,
+        'eligible': eligible,
+        'data_source': data_source,
+        'payroll_months': len(recent_payroll or []),
+    }
+
+
 def calculate_income_tax(taxable_monthly, dependents_count=1):
     """간이세액표 기반 근로소득세 추정 계산.
 
