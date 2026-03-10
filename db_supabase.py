@@ -4173,18 +4173,26 @@ class SupabaseDB(DBBase):
         skipped = 0
         batch_size = 500
 
-        # 기존 키 조회 (channel, api_order_id, api_line_id)
+        # 기존 키 조회 (channel, api_order_id, api_line_id) — 날짜 범위 제한
         existing_keys = set()
         try:
+            # 주문 날짜 범위 추출
+            dates = [o.get('order_date', '')[:10] for o in orders if o.get('order_date')]
+            date_min = min(dates) if dates else None
+            date_max = max(dates) if dates else None
             channels = list({o.get('channel', '') for o in orders})
+
             for ch in channels:
                 offset = 0
                 while True:
-                    rows = self.client.table("api_orders") \
+                    q = self.client.table("api_orders") \
                         .select("channel,api_order_id,api_line_id") \
-                        .eq("channel", ch) \
-                        .range(offset, offset + 999) \
-                        .execute().data
+                        .eq("channel", ch)
+                    if date_min:
+                        q = q.gte("order_date", date_min)
+                    if date_max:
+                        q = q.lte("order_date", date_max)
+                    rows = q.range(offset, offset + 999).execute().data
                     for r in rows:
                         existing_keys.add((r['channel'], r['api_order_id'], r.get('api_line_id', '')))
                     if len(rows) < 1000:
