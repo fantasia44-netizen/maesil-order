@@ -4171,7 +4171,7 @@ class SupabaseDB(DBBase):
         new = 0
         updated = 0
         skipped = 0
-        batch_size = 500
+        batch_size = 100
 
         # 기존 키 조회 (channel, api_order_id, api_line_id) — 날짜 범위 제한
         existing_keys = set()
@@ -4203,18 +4203,30 @@ class SupabaseDB(DBBase):
 
         for i in range(0, len(orders), batch_size):
             batch = orders[i:i + batch_size]
-            try:
-                self.client.table("api_orders").upsert(
-                    batch, on_conflict="channel,api_order_id,api_line_id"
-                ).execute()
+            # 재시도 로직 (최대 3회)
+            success = False
+            for attempt in range(3):
+                try:
+                    self.client.table("api_orders").upsert(
+                        batch, on_conflict="channel,api_order_id,api_line_id"
+                    ).execute()
+                    success = True
+                    break
+                except Exception as e:
+                    print(f"[DB] upsert batch {i} attempt {attempt+1} error: {e}")
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+
+            if success:
                 for o in batch:
                     key = (o.get('channel', ''), o.get('api_order_id', ''), o.get('api_line_id', ''))
                     if key in existing_keys:
                         updated += 1
                     else:
                         new += 1
-            except Exception as e:
-                print(f"[DB] upsert_api_orders_batch error (batch {i}): {e}")
+            else:
+                print(f"[DB] upsert batch {i} failed after 3 attempts, {len(batch)} skipped")
                 skipped += len(batch)
 
         return {'new': new, 'updated': updated, 'skipped': skipped}
