@@ -59,35 +59,47 @@
         {% if result %}
         <!-- 요약 카드 -->
         <div class="row g-3 mb-4">
-            <div class="col-md-3">
+            <div class="col-6 col-md">
                 <div class="card summary-card total">
-                    <div class="card-body text-center">
-                        <div class="text-muted">API 주문</div>
+                    <div class="card-body text-center py-3">
+                        <div class="text-muted small">API 주문</div>
                         <div class="match-rate text-primary">{{ result.summary.total_api }}</div>
+                        {% if result.summary.excluded %}
+                        <div class="text-muted" style="font-size:0.72rem;">취소/대기 {{ result.summary.excluded }}건 제외</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md">
                 <div class="card summary-card matched">
-                    <div class="card-body text-center">
-                        <div class="text-muted">매칭 성공</div>
+                    <div class="card-body text-center py-3">
+                        <div class="text-muted small">매칭 성공</div>
                         <div class="match-rate text-success">{{ result.summary.matched }}</div>
+                        <div class="text-muted" style="font-size:0.72rem;">{{ result.summary.match_rate }}%</div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md">
                 <div class="card summary-card mismatch">
-                    <div class="card-body text-center">
-                        <div class="text-muted">금액 불일치</div>
+                    <div class="card-body text-center py-3">
+                        <div class="text-muted small">금액 불일치</div>
                         <div class="match-rate text-warning">{{ result.summary.amount_mismatch }}</div>
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md">
                 <div class="card summary-card missing">
-                    <div class="card-body text-center">
-                        <div class="text-muted">엑셀 누락</div>
+                    <div class="card-body text-center py-3">
+                        <div class="text-muted small">엑셀 누락</div>
                         <div class="match-rate text-danger">{{ result.summary.missing_excel }}</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md">
+                <div class="card summary-card" style="border-color:#95a5a6;">
+                    <div class="card-body text-center py-3">
+                        <div class="text-muted small">API 누락</div>
+                        <div class="match-rate" style="color:#95a5a6;">{{ result.summary.missing_api }}</div>
                     </div>
                 </div>
             </div>

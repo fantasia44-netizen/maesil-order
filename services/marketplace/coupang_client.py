@@ -76,62 +76,78 @@ class CoupangWingClient(MarketplaceBaseClient):
         parts = [f'{k}={v}' for k, v in sorted(params.items())]
         return '&'.join(parts)
 
+    # 쿠팡 주문 상태 — 전체 조회를 위해 모든 상태 순회
+    ORDER_STATUSES = [
+        'ACCEPT',          # 발주확인
+        'INSTRUCT',        # 상품준비중
+        'DEPARTURE',       # 배송지시/출고
+        'DELIVERING',      # 배송중
+        'FINAL_DELIVERY',  # 배송완료
+    ]
+
     def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """주문 목록 조회."""
+        """주문 목록 조회 — 모든 상태를 순회하여 전체 주문 수집."""
         vendor_id = self.config.get('vendor_id', '')
         if not vendor_id:
             logger.warning('[쿠팡] vendor_id 미설정')
             return []
 
         path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/ordersheets'
-
         all_orders = []
-        next_token = ''
 
-        while True:
-            params = {
-                'createdAtFrom': date_from,
-                'createdAtTo': date_to,
-                'maxPerPage': 50,
-                'status': 'ACCEPT',
-            }
-            if next_token:
-                params['nextToken'] = next_token
+        for status in self.ORDER_STATUSES:
+            next_token = ''
+            status_count = 0
 
-            query_str = self._build_query(params)
-            full_url = f'{path}?{query_str}'
-            headers = self._generate_hmac_signature('GET', full_url)
+            while True:
+                params = {
+                    'createdAtFrom': date_from,
+                    'createdAtTo': date_to,
+                    'maxPerPage': 50,
+                    'status': status,
+                }
+                if next_token:
+                    params['nextToken'] = next_token
 
-            try:
-                resp = self.session.get(
-                    f'{self.BASE_URL}{full_url}',
-                    headers=headers,
-                    timeout=30,
-                )
+                query_str = self._build_query(params)
+                full_url = f'{path}?{query_str}'
+                headers = self._generate_hmac_signature('GET', full_url)
 
-                if self._handle_rate_limit(resp):
-                    continue
+                try:
+                    resp = self.session.get(
+                        f'{self.BASE_URL}{full_url}',
+                        headers=headers,
+                        timeout=30,
+                    )
 
-                if resp.status_code != 200:
-                    logger.error(f'[쿠팡] 주문 조회 실패: {resp.status_code} {resp.text[:200]}')
+                    if self._handle_rate_limit(resp):
+                        continue
+
+                    if resp.status_code != 200:
+                        logger.error(f'[쿠팡] 주문 조회 실패 ({status}): '
+                                     f'{resp.status_code} {resp.text[:200]}')
+                        break
+
+                    data = resp.json().get('data', [])
+                    if not data:
+                        break
+
+                    for item in data:
+                        all_orders.extend(self._normalize_order(item))
+                    status_count += len(data)
+
+                    next_token = resp.json().get('nextToken', '')
+                    if not next_token:
+                        break
+
+                except Exception as e:
+                    logger.error(f'[쿠팡] 주문 조회 오류 ({status}): {e}')
                     break
 
-                data = resp.json().get('data', [])
-                if not data:
-                    break
+            if status_count:
+                logger.info(f'[쿠팡] {status}: {status_count}건')
 
-                for item in data:
-                    all_orders.extend(self._normalize_order(item))
-
-                next_token = resp.json().get('nextToken', '')
-                if not next_token:
-                    break
-
-            except Exception as e:
-                logger.error(f'[쿠팡] 주문 조회 오류: {e}')
-                break
-
-        logger.info(f'[쿠팡] 주문 {len(all_orders)}건 조회')
+        logger.info(f'[쿠팡] 주문 총 {len(all_orders)}건 조회')
         return all_orders
 
     # ── 정산 조회 ──

@@ -25,6 +25,20 @@ def _query_all_order_transactions(db, channel, date_from, date_to):
     return all_rows
 
 
+    # 교차검증에서 제외할 주문 상태 (취소/결제대기 등)
+EXCLUDE_STATUSES = {
+    # 네이버 스마트스토어
+    'CANCELED', 'CANCEL_DONE', 'CANCEL_REQUEST',
+    'RETURN_DONE', 'RETURN_REQUEST',
+    'EXCHANGE_DONE', 'EXCHANGE_REQUEST',
+    'PAYMENT_WAITING',
+    # 쿠팡
+    'CANCEL',
+    # Cafe24
+    'canceled', 'refunded',
+}
+
+
 def validate_orders(db, channel, date_from, date_to):
     """API 주문 vs 엑셀 주문 교차검증.
 
@@ -36,15 +50,29 @@ def validate_orders(db, channel, date_from, date_to):
         dict: {channel, date_range, summary, amount_comparison, mismatches}
     """
     # API 주문 조회 (페이지네이션 지원)
-    api_orders = db.query_api_orders(
+    api_orders_raw = db.query_api_orders(
         channel=channel, date_from=date_from, date_to=date_to, limit=50000)
+
+    # 취소/결제대기 등 제외
+    excluded_count = 0
+    api_orders = []
+    for o in api_orders_raw:
+        status = str(o.get('order_status', '')).upper()
+        if status in EXCLUDE_STATUSES or status in {s.upper() for s in EXCLUDE_STATUSES}:
+            excluded_count += 1
+        else:
+            api_orders.append(o)
+
+    if excluded_count:
+        logger.info(f'[검증] {channel}: 취소/대기 등 {excluded_count}건 제외')
 
     # 엑셀 주문 조회 (페이지네이션으로 전체 조회)
     excel_orders = _query_all_order_transactions(
         db, channel=channel, date_from=date_from, date_to=date_to)
 
     # 매칭 키 생성
-    # 네이버: api_line_id(상품주문번호)로 매칭, 쿠팡: api_order_id로 매칭
+    # 네이버: api_line_id(상품주문번호)로 1:1 매칭
+    # 쿠팡/자사몰: api_order_id(주문번호)로 매칭 — 주문 내 여러 상품 합산
     api_by_key = {}
     for o in api_orders:
         if channel == '스마트스토어':
@@ -52,7 +80,11 @@ def validate_orders(db, channel, date_from, date_to):
         else:
             key = str(o.get('api_order_id', ''))
         if key:
-            api_by_key[key] = o
+            if key not in api_by_key:
+                api_by_key[key] = o
+            else:
+                # 같은 주문번호 → 수량/금액 합산
+                api_by_key[key] = _merge_api_order(api_by_key[key], o)
 
     excel_by_key = {}
     for o in excel_orders:
@@ -153,6 +185,7 @@ def validate_orders(db, channel, date_from, date_to):
             'missing_excel': missing_excel,
             'missing_api': missing_api,
             'match_rate': match_rate,
+            'excluded': excluded_count,  # 취소/대기 제외 건수
         },
         'amount_comparison': {
             'api_total_amount': api_total_amount,
@@ -275,6 +308,21 @@ def _compare_amounts(api_order, excel_order, tolerance=10):
         }
 
     return diffs if diffs else None
+
+
+def _merge_api_order(existing, new_row):
+    """동일 api_order_id의 여러 상품 합산 (쿠팡/자사몰)."""
+    existing['qty'] = int(existing.get('qty', 0) or 0) + int(new_row.get('qty', 0) or 0)
+    existing['total_amount'] = (int(existing.get('total_amount', 0) or 0) +
+                                int(new_row.get('total_amount', 0) or 0))
+    existing['settlement_amount'] = (int(existing.get('settlement_amount', 0) or 0) +
+                                     int(new_row.get('settlement_amount', 0) or 0))
+    existing['commission'] = (int(existing.get('commission', 0) or 0) +
+                              int(new_row.get('commission', 0) or 0))
+    # product_name 합치기
+    names = [existing.get('product_name', ''), new_row.get('product_name', '')]
+    existing['product_name'] = ' + '.join([n for n in names if n][:3])
+    return existing
 
 
 def _merge_excel_order(existing, new_row):

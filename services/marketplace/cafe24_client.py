@@ -175,6 +175,7 @@ class Cafe24Client(MarketplaceBaseClient):
                 'end_date': date_to,
                 'limit': limit,
                 'offset': offset,
+                'embed': 'items',  # 상품 상세 포함
             }
 
             try:
@@ -228,28 +229,50 @@ class Cafe24Client(MarketplaceBaseClient):
     # ── 정규화 ──
 
     def _normalize_order(self, order: dict, item: dict = None) -> dict:
-        """API 응답 → api_orders 스키마."""
+        """API 응답 → api_orders 스키마.
+
+        item이 있으면 상품별 행, 없으면 주문 레벨 행.
+        Cafe24 item 필드: order_item_code, product_name, option_value,
+                          quantity, product_price, payment_amount 등
+        """
         item = item or order
+        is_item = item is not order
+
+        # 수량: item 레벨에서 quantity, 없으면 1
+        qty = int(item.get('quantity', 0) or 0)
+        if qty == 0 and is_item:
+            qty = 1
+
+        # 금액: item의 payment_amount 우선, 없으면 product_price * qty
+        item_payment = item.get('payment_amount') or item.get('actual_payment_amount')
+        if item_payment is not None:
+            total_amount = int(float(item_payment))
+        elif is_item:
+            total_amount = int(float(item.get('product_price', 0) or 0)) * qty
+        else:
+            total_amount = int(float(order.get('actual_payment_amount', 0) or 0))
 
         return {
             'channel': self.CHANNEL_NAME,
             'api_order_id': str(order.get('order_id', '')),
-            'api_line_id': str(item.get('order_item_code', '')),
+            'api_line_id': str(item.get('order_item_code', '')
+                               if is_item else order.get('order_id', '')),
             'order_date': str(order.get('order_date', ''))[:10],
-            'product_name': item.get('product_name', ''),
-            'option_name': item.get('option_value', ''),
-            'qty': int(item.get('quantity', 0)),
-            'unit_price': int(float(item.get('product_price', 0))),
-            'total_amount': int(float(item.get('payment_amount',
-                                               order.get('actual_payment_amount', 0)))),
-            'discount_amount': int(float(item.get('discount_amount', 0))),
+            'product_name': item.get('product_name', '') or '',
+            'option_name': item.get('option_value', '') or '',
+            'qty': qty,
+            'unit_price': int(float(item.get('product_price', 0) or 0)),
+            'total_amount': total_amount,
+            'discount_amount': int(float(item.get('discount_amount', 0) or 0)),
             'settlement_amount': 0,  # Cafe24 API 미제공
             'commission': 0,         # Cafe24 API 미제공
-            'shipping_fee': int(float(order.get('shipping_fee', 0))),
+            'shipping_fee': int(float(order.get('shipping_fee', 0) or 0)),
             'fee_detail': {},
-            'order_status': order.get('order_status', ''),
-            'raw_data': {'order': order, 'item': item},
-            'raw_hash': self.compute_raw_hash({'order': order, 'item': item}),
+            'order_status': item.get('order_status', order.get('order_status', '')),
+            'raw_data': {'order': order, 'item': item} if is_item else order,
+            'raw_hash': self.compute_raw_hash(
+                {'order_id': order.get('order_id'),
+                 'item_code': item.get('order_item_code')} if is_item else order),
         }
 
     def test_connection(self, db) -> dict:
