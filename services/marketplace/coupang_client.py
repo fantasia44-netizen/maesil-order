@@ -88,13 +88,10 @@ class CoupangWingClient(MarketplaceBaseClient):
         all_orders = []
         next_token = ''
 
-        created_from = f'{date_from}T00:00:00'
-        created_to = f'{date_to}T23:59:59'
-
         while True:
             params = {
-                'createdAtFrom': created_from,
-                'createdAtTo': created_to,
+                'createdAtFrom': date_from,
+                'createdAtTo': date_to,
                 'maxPerPage': 50,
                 'status': 'ACCEPT',
             }
@@ -124,7 +121,7 @@ class CoupangWingClient(MarketplaceBaseClient):
                     break
 
                 for item in data:
-                    all_orders.append(self._normalize_order(item))
+                    all_orders.extend(self._normalize_order(item))
 
                 next_token = resp.json().get('nextToken', '')
                 if not next_token:
@@ -176,31 +173,46 @@ class CoupangWingClient(MarketplaceBaseClient):
 
     # ── 정규화 ──
 
-    def _normalize_order(self, raw: dict) -> dict:
-        """API 응답 → api_orders 스키마."""
-        return {
-            'channel': self.CHANNEL_NAME,
-            'api_order_id': str(raw.get('orderId', '')),
-            'api_line_id': str(raw.get('orderItemId', raw.get('shipmentBoxId', ''))),
-            'order_date': str(raw.get('orderedAt', ''))[:10],
-            'product_name': raw.get('vendorItemName', ''),
-            'option_name': raw.get('sellerProductItemName', ''),
-            'qty': int(raw.get('shippingCount', 0)),
-            'unit_price': int(raw.get('unitPrice', 0)),
-            'total_amount': int(raw.get('orderPrice', 0)),
-            'discount_amount': int(raw.get('discountPrice', 0)),
-            'settlement_amount': int(raw.get('settlementPrice', 0)),
-            'commission': int(raw.get('commissionAmount', 0)),
-            'shipping_fee': int(raw.get('shippingPrice', 0)),
-            'fee_detail': {
-                'coupang_discount': int(raw.get('coupangDiscount', 0)),
-                'coupon_discount': int(raw.get('couponDiscount', 0)),
-                'rocket_delivery': raw.get('isRocket', False),
-            },
-            'order_status': raw.get('status', ''),
-            'raw_data': raw,
-            'raw_hash': self.compute_raw_hash(raw),
-        }
+    def _normalize_order(self, raw: dict) -> list:
+        """API 응답 → api_orders 스키마 (주문당 여러 상품 → 여러 row).
+
+        쿠팡 ordersheets는 shipmentBox 단위이며,
+        각 box 안에 orderItems 리스트가 있음.
+        """
+        order_id = str(raw.get('orderId', ''))
+        order_date = str(raw.get('orderedAt', ''))[:10]
+        status = raw.get('status', '')
+        shipping_fee = int(raw.get('shippingPrice', 0))
+
+        items = raw.get('orderItems', [])
+        rows = []
+
+        for item in items:
+            rows.append({
+                'channel': self.CHANNEL_NAME,
+                'api_order_id': order_id,
+                'api_line_id': str(item.get('vendorItemId', '')),
+                'order_date': order_date,
+                'product_name': item.get('vendorItemName', ''),
+                'option_name': item.get('sellerProductItemName', ''),
+                'qty': int(item.get('shippingCount', 0)),
+                'unit_price': int(item.get('salesPrice', 0)),
+                'total_amount': int(item.get('orderPrice', 0)),
+                'discount_amount': int(item.get('discountPrice', 0)),
+                'settlement_amount': 0,  # ordersheets에는 정산금 미포함
+                'commission': 0,
+                'shipping_fee': shipping_fee if items.index(item) == 0 else 0,
+                'fee_detail': {
+                    'coupang_discount': int(item.get('coupangDiscount', 0)),
+                    'instant_coupon': int(item.get('instantCouponDiscount', 0)),
+                    'downloadable_coupon': int(item.get('downloadableCouponDiscount', 0)),
+                },
+                'order_status': status,
+                'raw_data': raw,
+                'raw_hash': self.compute_raw_hash(item),
+            })
+
+        return rows
 
     def _normalize_settlement(self, raw: dict) -> dict:
         """정산 API 응답 → api_settlements 스키마."""
@@ -234,8 +246,8 @@ class CoupangWingClient(MarketplaceBaseClient):
 
         today = datetime.now().strftime('%Y-%m-%d')
         params = {
-            'createdAtFrom': f'{today}T00:00:00',
-            'createdAtTo': f'{today}T23:59:59',
+            'createdAtFrom': today,
+            'createdAtTo': today,
             'maxPerPage': 1,
             'status': 'ACCEPT',
         }
