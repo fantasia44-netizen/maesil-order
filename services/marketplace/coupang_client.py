@@ -76,7 +76,7 @@ class CoupangWingClient(MarketplaceBaseClient):
         parts = [f'{k}={v}' for k, v in sorted(params.items())]
         return '&'.join(parts)
 
-    # 쿠팡 주문 상태 — 전체 조회를 위해 모든 상태 순회
+    # 쿠팡 주문 상태 — 전체 조회 (CANCEL은 ordersheets API 미지원)
     ORDER_STATUSES = [
         'ACCEPT',          # 발주확인
         'INSTRUCT',        # 상품준비중
