@@ -125,12 +125,246 @@ def sync_settlements(db, marketplace_mgr, channel, date_from, date_to,
                 'error': str(e), 'log_id': log_id}
 
 
-def sync_all_channels(db, marketplace_mgr, date_from, date_to,
+def sync_revenue_fees(db, marketplace_mgr, channel, date_from, date_to,
                       triggered_by='system'):
+    """쿠팡 매출내역(revenue-history) 동기화 — 일별 집계 → api_settlements 저장.
+
+    쿠팡 ordersheets에 없는 수수료/정산 데이터를 revenue-history에서 가져와
+    saleDate 기준으로 일별 집계하여 api_settlements에 저장한다.
+
+    Note: ordersheets orderId와 revenue-history orderId는 서로 다른 ID 체계이므로
+    개별 주문 매칭이 불가능하다. 따라서 일별 합산으로 정산 데이터를 관리한다.
+
+    Returns:
+        dict: {fetched, saved, items_total, error}
+    """
+    client = marketplace_mgr.get_client(channel)
+    if not client or not client.is_ready:
+        return {'fetched': 0, 'saved': 0, 'error': f'{channel} 클라이언트 미준비'}
+
+    # revenue-history는 현재 쿠팡만 지원
+    if not hasattr(client, 'fetch_revenue_history'):
+        return {'fetched': 0, 'saved': 0, 'error': f'{channel}은 매출내역 API 미지원'}
+
+    log = db.insert_api_sync_log({
+        'channel': channel,
+        'sync_type': 'revenue_fees',
+        'status': 'running',
+        'date_from': date_from,
+        'date_to': date_to,
+        'triggered_by': triggered_by,
+    })
+    log_id = log['id'] if log else None
+
+    try:
+        if not client.refresh_token(db):
+            _finish_log(db, log_id, 'error', error_message='토큰 갱신 실패')
+            return {'fetched': 0, 'saved': 0, 'error': '토큰 갱신 실패'}
+
+        records = client.fetch_revenue_history(date_from, date_to)
+        fetched = len(records)
+
+        if not records:
+            _finish_log(db, log_id, 'success', fetched=0)
+            return {'fetched': 0, 'saved': 0}
+
+        # ── saleDate 기준 일별 집계 ──
+        daily = {}  # {saleDate: {totals...}}
+        items_total = 0
+
+        for record in records:
+            sale_date = str(record.get('saleDate', ''))[:10]
+            if not sale_date:
+                continue
+
+            delivery_fee = record.get('deliveryFee', {})
+            del_amount = int(delivery_fee.get('amount', 0))
+            del_fee = int(delivery_fee.get('fee', 0))
+            del_fee_vat = int(delivery_fee.get('feeVat', 0))
+            del_settlement = int(delivery_fee.get('settlementAmount', 0))
+
+            if sale_date not in daily:
+                daily[sale_date] = {
+                    'sale_amount': 0,
+                    'service_fee': 0,
+                    'service_fee_vat': 0,
+                    'settlement_amount': 0,
+                    'courantee_fee': 0,
+                    'courantee_fee_vat': 0,
+                    'store_fee_discount': 0,
+                    'seller_discount_coupon': 0,
+                    'downloadable_coupon': 0,
+                    'coupang_discount_coupon': 0,
+                    'delivery_fee': 0,
+                    'delivery_fee_commission': 0,
+                    'delivery_settlement': 0,
+                    'item_count': 0,
+                    'order_count': 0,
+                }
+
+            d = daily[sale_date]
+            d['order_count'] += 1
+            d['delivery_fee'] += del_amount
+            d['delivery_fee_commission'] += del_fee + del_fee_vat
+            d['delivery_settlement'] += del_settlement
+
+            for item in record.get('items', []):
+                d['sale_amount'] += int(item.get('saleAmount', 0))
+                d['service_fee'] += int(item.get('serviceFee', 0))
+                d['service_fee_vat'] += int(item.get('serviceFeeVat', 0))
+                d['settlement_amount'] += int(item.get('settlementAmount', 0))
+                d['courantee_fee'] += int(item.get('couranteeFee', 0))
+                d['courantee_fee_vat'] += int(item.get('couranteeFeeVat', 0))
+                d['store_fee_discount'] += int(item.get('storeFeeDiscount', 0))
+                d['seller_discount_coupon'] += int(item.get('sellerDiscountCoupon', 0))
+                d['downloadable_coupon'] += int(item.get('downloadableCoupon', 0))
+                d['coupang_discount_coupon'] += int(item.get('coupangDiscountCoupon', 0))
+                d['item_count'] += 1
+                items_total += 1
+
+        # ── api_settlements로 변환 후 upsert ──
+        settlements = []
+        for sale_date, d in sorted(daily.items()):
+            total_commission = d['service_fee'] + d['service_fee_vat']
+            settlements.append({
+                'channel': channel,
+                'settlement_date': sale_date,
+                'settlement_id': f'revenue_{sale_date}',
+                'gross_sales': d['sale_amount'],
+                'total_commission': total_commission,
+                'shipping_fee_income': d['delivery_fee'],
+                'shipping_fee_cost': d['delivery_fee_commission'],
+                'coupon_discount': (d['seller_discount_coupon'] +
+                                    d['downloadable_coupon'] +
+                                    d['coupang_discount_coupon']),
+                'point_discount': 0,
+                'other_deductions': d['courantee_fee'] + d['courantee_fee_vat'],
+                'net_settlement': d['settlement_amount'] + d['delivery_settlement'],
+                'fee_breakdown': {
+                    'source': 'revenue-history',
+                    'service_fee': d['service_fee'],
+                    'service_fee_vat': d['service_fee_vat'],
+                    'courantee_fee': d['courantee_fee'],
+                    'courantee_fee_vat': d['courantee_fee_vat'],
+                    'store_fee_discount': d['store_fee_discount'],
+                    'delivery_fee': d['delivery_fee'],
+                    'delivery_fee_commission': d['delivery_fee_commission'],
+                    'delivery_settlement': d['delivery_settlement'],
+                    'item_count': d['item_count'],
+                    'order_count': d['order_count'],
+                },
+            })
+
+        db.upsert_api_settlements_batch(settlements)
+        saved = len(settlements)
+
+        _finish_log(db, log_id, 'success', fetched=fetched, new=saved)
+        logger.info(f'[동기화] {channel} 매출내역 {fetched}건 → '
+                     f'{saved}일 정산 저장 (아이템 {items_total}건)')
+        return {'fetched': fetched, 'saved': saved, 'items_total': items_total}
+
+    except Exception as e:
+        logger.error(f'[동기화] {channel} 매출내역 오류: {e}')
+        _finish_log(db, log_id, 'error', error_message=str(e))
+        return {'fetched': 0, 'saved': 0, 'error': str(e)}
+
+
+def sync_ad_costs(db, ad_client, date_from, date_to, triggered_by='system'):
+    """네이버 검색광고 일별 광고비 동기화 → api_settlements 저장.
+
+    Returns:
+        dict: {fetched, saved, total_cost, error}
+    """
+    if not ad_client or not ad_client.is_ready:
+        return {'fetched': 0, 'saved': 0, 'error': '광고 API 클라이언트 미준비'}
+
+    log = db.insert_api_sync_log({
+        'channel': '스마트스토어',
+        'sync_type': 'ad_costs',
+        'status': 'running',
+        'date_from': date_from,
+        'date_to': date_to,
+        'triggered_by': triggered_by,
+    })
+    log_id = log['id'] if log else None
+
+    try:
+        records = ad_client.fetch_daily_ad_cost(date_from, date_to)
+        fetched = len(records)
+
+        if not records:
+            _finish_log(db, log_id, 'success', fetched=0)
+            return {'fetched': 0, 'saved': 0}
+
+        # 일별 집계
+        daily = {}
+        for r in records:
+            d = r['date']
+            if d not in daily:
+                daily[d] = {
+                    'cost': 0, 'clicks': 0, 'impressions': 0,
+                    'conversions': 0, 'conv_amt': 0, 'campaigns': [],
+                }
+            daily[d]['cost'] += r['cost']
+            daily[d]['clicks'] += r['clicks']
+            daily[d]['impressions'] += r['impressions']
+            daily[d]['conversions'] += r['conversions']
+            daily[d]['conv_amt'] += r['conversion_amount']
+            daily[d]['campaigns'].append({
+                'id': r['campaign_id'],
+                'name': r['campaign_name'],
+                'cost': r['cost'],
+                'clicks': r['clicks'],
+            })
+
+        # api_settlements에 저장 (channel=스마트스토어, settlement_id=ad_cost_날짜)
+        settlements = []
+        total_cost = 0
+        for dt, v in sorted(daily.items()):
+            total_cost += v['cost']
+            settlements.append({
+                'channel': '스마트스토어',
+                'settlement_date': dt,
+                'settlement_id': f'ad_cost_{dt}',
+                'gross_sales': 0,
+                'total_commission': 0,
+                'shipping_fee_income': 0,
+                'shipping_fee_cost': 0,
+                'coupon_discount': 0,
+                'point_discount': 0,
+                'other_deductions': v['cost'],
+                'net_settlement': -v['cost'],
+                'fee_breakdown': {
+                    'source': 'naver-searchad',
+                    'ad_cost': v['cost'],
+                    'clicks': v['clicks'],
+                    'impressions': v['impressions'],
+                    'conversions': v['conversions'],
+                    'conversion_amount': v['conv_amt'],
+                    'campaigns': v['campaigns'],
+                },
+            })
+
+        db.upsert_api_settlements_batch(settlements)
+        saved = len(settlements)
+
+        _finish_log(db, log_id, 'success', fetched=fetched, new=saved)
+        logger.info(f'[동기화] 네이버광고 {fetched}건 → {saved}일 저장 '
+                     f'(총 {total_cost:,}원)')
+        return {'fetched': fetched, 'saved': saved, 'total_cost': total_cost}
+
+    except Exception as e:
+        logger.error(f'[동기화] 네이버광고 오류: {e}')
+        _finish_log(db, log_id, 'error', error_message=str(e))
+        return {'fetched': 0, 'saved': 0, 'error': str(e)}
+
+
+def sync_all_channels(db, marketplace_mgr, date_from, date_to,
+                      triggered_by='system', ad_client=None):
     """전체 활성 채널 동기화.
 
     Returns:
-        list: [{channel, orders, settlements}]
+        list: [{channel, orders, settlements, revenue_fees}]
     """
     results = []
     for channel in marketplace_mgr.get_active_channels():
@@ -141,7 +375,18 @@ def sync_all_channels(db, marketplace_mgr, date_from, date_to,
             'settlements': sync_settlements(db, marketplace_mgr, channel,
                                             date_from, date_to, triggered_by),
         }
+        # 쿠팡: 매출내역으로 수수료 업데이트
+        if channel == '쿠팡':
+            r['revenue_fees'] = sync_revenue_fees(
+                db, marketplace_mgr, channel,
+                date_from, date_to, triggered_by)
         results.append(r)
+
+    # 네이버 검색광고 비용 동기화
+    if ad_client and ad_client.is_ready:
+        ad_result = sync_ad_costs(db, ad_client, date_from, date_to, triggered_by)
+        results.append({'channel': '네이버광고', 'ad_costs': ad_result})
+
     return results
 
 

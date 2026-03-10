@@ -150,18 +150,94 @@ class CoupangWingClient(MarketplaceBaseClient):
         logger.info(f'[쿠팡] 주문 총 {len(all_orders)}건 조회')
         return all_orders
 
-    # ── 정산 조회 ──
+    # ── 매출내역 조회 (revenue-history) — 주문별 수수료/정산 상세 ──
 
-    def fetch_settlements(self, date_from: str, date_to: str) -> list:
-        """정산 내역 조회."""
+    def fetch_revenue_history(self, date_from: str, date_to: str) -> list:
+        """매출내역 조회 — 주문별 수수료/정산 상세.
+
+        recognitionDate (매출인식일 = 구매확정 또는 배송완료+3일) 기준.
+        ordersheets에 없는 serviceFee, settlementAmount를 제공.
+
+        Returns:
+            list: [{orderId, saleDate, recognitionDate, settlementDate,
+                    deliveryFee: {amount, fee, feeVat, feeRatio, settlementAmount},
+                    items: [{vendorItemId, saleAmount, serviceFee, serviceFeeVat,
+                             serviceFeeRatio, settlementAmount, couranteeFee, ...}]}]
+        """
         vendor_id = self.config.get('vendor_id', '')
         if not vendor_id:
             return []
 
-        path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/settlements'
+        path = '/v2/providers/openapi/apis/api/v1/revenue-history'
+        all_records = []
+        next_token = ''  # API requires token param, empty for first page
+
+        while True:
+            params = {
+                'vendorId': vendor_id,
+                'recognitionDateFrom': date_from,
+                'recognitionDateTo': date_to,
+                'token': next_token,
+            }
+
+            query_str = self._build_query(params)
+            full_url = f'{path}?{query_str}'
+            headers = self._generate_hmac_signature('GET', full_url)
+
+            try:
+                resp = self.session.get(
+                    f'{self.BASE_URL}{full_url}',
+                    headers=headers,
+                    timeout=30,
+                )
+
+                if self._handle_rate_limit(resp):
+                    continue
+
+                if resp.status_code != 200:
+                    logger.error(f'[쿠팡] 매출내역 조회 실패: '
+                                 f'{resp.status_code} {resp.text[:200]}')
+                    break
+
+                data = resp.json()
+                records = data.get('data', [])
+                all_records.extend(records)
+
+                has_next = data.get('hasNext', False)
+                raw_token = data.get('nextToken', '')
+
+                if not has_next or not raw_token:
+                    break
+                next_token = raw_token
+
+            except Exception as e:
+                logger.error(f'[쿠팡] 매출내역 조회 오류: {e}')
+                break
+
+        logger.info(f'[쿠팡] 매출내역 {len(all_records)}건 조회')
+        return all_records
+
+    # ── 정산 조회 (settlement-histories) — 월간 정산 요약 ──
+
+    def fetch_settlements(self, date_from: str, date_to: str) -> list:
+        """월간 정산 요약 조회.
+
+        settlement-histories API: 매출인식월 기준 정산 요약.
+        """
+        vendor_id = self.config.get('vendor_id', '')
+        if not vendor_id:
+            return []
+
+        # date_from에서 year-month 추출
+        year_month = date_from[:7]  # 'YYYY-MM'
+
+        path = '/v2/providers/marketplace_openapi/apis/api/v1/settlement-histories'
         settlements = []
 
-        params = {'endDate': date_to, 'startDate': date_from}
+        params = {
+            'revenueRecognitionYearMonth': year_month,
+            'vendorId': vendor_id,
+        }
         query_str = self._build_query(params)
         full_url = f'{path}?{query_str}'
         headers = self._generate_hmac_signature('GET', full_url)
@@ -174,11 +250,13 @@ class CoupangWingClient(MarketplaceBaseClient):
             )
 
             if resp.status_code != 200:
-                logger.error(f'[쿠팡] 정산 조회 실패: {resp.status_code}')
+                logger.error(f'[쿠팡] 정산 조회 실패: {resp.status_code} {resp.text[:200]}')
                 return []
 
-            data = resp.json().get('data', [])
-            for item in data:
+            data = resp.json()
+            # settlement-histories는 배열로 바로 반환
+            items = data if isinstance(data, list) else data.get('data', [])
+            for item in items:
                 settlements.append(self._normalize_settlement(item))
 
         except Exception as e:
@@ -231,23 +309,35 @@ class CoupangWingClient(MarketplaceBaseClient):
         return rows
 
     def _normalize_settlement(self, raw: dict) -> dict:
-        """정산 API 응답 → api_settlements 스키마."""
+        """settlement-histories API 응답 → api_settlements 스키마."""
+        # settlement-histories 필드: totalSale, serviceFee, settlementTargetAmount,
+        # settlementAmount, sellerDiscountCoupon, downloadableCoupon,
+        # dedicatedDeliveryAmount, sellerServiceFee, couranteeFee, deductionAmount
         return {
             'channel': self.CHANNEL_NAME,
-            'settlement_date': str(raw.get('settleDate', ''))[:10],
-            'settlement_id': str(raw.get('settlementId', '')),
-            'gross_sales': int(raw.get('salesAmount', 0)),
-            'total_commission': int(raw.get('commissionAmount', 0)),
-            'shipping_fee_income': int(raw.get('shippingFeeIncome', 0)),
-            'shipping_fee_cost': int(raw.get('shippingFeeCost', 0)),
-            'coupon_discount': int(raw.get('couponDiscount', 0)),
-            'point_discount': int(raw.get('pointDiscount', 0)),
-            'other_deductions': int(raw.get('otherDeductions', 0)),
-            'net_settlement': int(raw.get('settleAmount', 0)),
+            'settlement_date': str(raw.get('settlementDate', ''))[:10],
+            'settlement_id': (f"{raw.get('revenueRecognitionYearMonth', '')}_"
+                              f"{raw.get('settlementType', '')}"),
+            'gross_sales': int(raw.get('totalSale', 0)),
+            'total_commission': int(raw.get('serviceFee', 0)),
+            'shipping_fee_income': 0,
+            'shipping_fee_cost': 0,
+            'coupon_discount': (int(raw.get('sellerDiscountCoupon', 0)) +
+                                int(raw.get('downloadableCoupon', 0))),
+            'point_discount': 0,
+            'other_deductions': int(raw.get('deductionAmount', 0)),
+            'net_settlement': int(raw.get('settlementAmount', 0)),
             'fee_breakdown': {
-                'coupang_fee_rate': float(raw.get('feeRate', 0)),
-                'coupang_fee': int(raw.get('commissionAmount', 0)),
-                'rocket_fee': int(raw.get('rocketServiceFee', 0)),
+                'service_fee': int(raw.get('serviceFee', 0)),
+                'settlement_target': int(raw.get('settlementTargetAmount', 0)),
+                'seller_service_fee': int(raw.get('sellerServiceFee', 0)),
+                'courantee_fee': int(raw.get('couranteeFee', 0)),
+                'courantee_reward': int(raw.get('couranteeCustomerReward', 0)),
+                'dedicated_delivery': int(raw.get('dedicatedDeliveryAmount', 0)),
+                'store_fee_discount': int(raw.get('storeFeeDiscount', 0)),
+                'last_amount': int(raw.get('lastAmount', 0)),
+                'settlement_type': raw.get('settlementType', ''),
+                'status': raw.get('status', ''),
             },
             'raw_data': raw,
         }

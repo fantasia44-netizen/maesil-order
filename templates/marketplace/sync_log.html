@@ -57,8 +57,8 @@
                     {% for log in logs %}
                     <tr>
                         <td>{{ log.id }}</td>
-                        <td>{{ log.started_at[:16] if log.started_at else '-' }}</td>
-                        <td>{{ log.finished_at[:16] if log.finished_at else '-' }}</td>
+                        <td>{{ log.started_at_kst if log.started_at_kst else (log.started_at[:16] if log.started_at else '-') }}</td>
+                        <td>{{ log.finished_at_kst if log.finished_at_kst else (log.finished_at[:16] if log.finished_at else '-') }}</td>
                         <td>{{ log.channel }}</td>
                         <td>{{ log.sync_type }}</td>
                         <td>

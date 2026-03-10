@@ -221,10 +221,157 @@ class Cafe24Client(MarketplaceBaseClient):
 
     # ── 정산 ──
 
+    # PG 수수료율 (결제수단별, extra_config에서 오버라이드 가능)
+    DEFAULT_PG_FEE_RATES = {
+        'card': 0.033,      # 카드: 3.3%
+        'cash': 0.015,      # 계좌이체: 1.5%
+        'tcash': 0.015,     # 실시간이체: 1.5%
+        'cell': 0.05,       # 휴대폰결제: 5%
+        'prepaid': 0.0,     # 선불결제: 0%
+        'point': 0.0,       # 적립금: 0%
+        'coupon': 0.0,      # 쿠폰: 0%
+        'default': 0.033,   # 기타: 3.3%
+    }
+
+    def _get_pg_fee_rates(self) -> dict:
+        """PG 수수료율 조회 (extra_config에서 오버라이드 가능)."""
+        rates = dict(self.DEFAULT_PG_FEE_RATES)
+        custom = self.config.get('extra_config', {}).get('pg_fee_rates', {})
+        rates.update(custom)
+        return rates
+
+    def _estimate_pg_fee(self, payment_methods: list, payment_amount: float,
+                         rates: dict) -> tuple:
+        """결제수단별 PG 수수료 추정.
+
+        카드+쿠폰 등 복합결제 시, 실결제 수단(card/cash/tcash/cell)에
+        수수료율을 적용. 쿠폰/포인트는 수수료 없음.
+
+        Returns:
+            (estimated_fee, primary_method)
+        """
+        # 실결제 수단 찾기 (수수료 발생하는 것)
+        paid_methods = [m for m in payment_methods
+                        if m not in ('coupon', 'point', 'prepaid')]
+        if not paid_methods:
+            return 0, 'free'
+
+        primary = paid_methods[0]
+        rate = rates.get(primary, rates.get('default', 0.033))
+        fee = int(payment_amount * rate)
+        return fee, primary
+
     def fetch_settlements(self, date_from: str, date_to: str) -> list:
-        """Cafe24는 정산 API 미제공."""
-        logger.info('[Cafe24] 정산 API 미제공 — 엑셀/수동 유지')
-        return []
+        """Cafe24 주문 데이터에서 일별 매출/할인/PG수수료 집계 → 정산 데이터.
+
+        자사몰은 마켓 수수료 없음. PG 수수료를 결제수단별 수수료율로 추정 계산.
+        수수료율은 DEFAULT_PG_FEE_RATES 기본값 또는 extra_config.pg_fee_rates로 설정.
+        """
+        if not self.config.get('access_token'):
+            return []
+
+        # 전체 주문 조회
+        all_orders = []
+        offset = 0
+        limit = 100
+        while True:
+            try:
+                resp = self.session.get(
+                    f'{self._base_url}/api/v2/admin/orders',
+                    headers=self._get_headers(),
+                    params={'start_date': date_from, 'end_date': date_to,
+                            'limit': limit, 'offset': offset},
+                    timeout=30,
+                )
+                if self._handle_rate_limit(resp):
+                    continue
+                if resp.status_code != 200:
+                    break
+                orders = resp.json().get('orders', [])
+                if not orders:
+                    break
+                all_orders.extend(orders)
+                offset += len(orders)
+                if len(orders) < limit:
+                    break
+            except Exception as e:
+                logger.error(f'[Cafe24] 정산용 주문 조회 오류: {e}')
+                break
+
+        if not all_orders:
+            return []
+
+        pg_rates = self._get_pg_fee_rates()
+
+        # 일별 집계
+        daily = {}
+        for o in all_orders:
+            dt = str(o.get('order_date', ''))[:10]
+            if not dt:
+                continue
+            amt = int(float(o.get('payment_amount', 0) or 0))
+            actual = o.get('actual_order_amount', {})
+            coupon = int(float(actual.get('coupon_discount_price', 0) or 0))
+            points = int(float(actual.get('points_spent_amount', 0) or 0))
+            shipping = int(float(actual.get('shipping_fee', 0) or 0))
+            order_price = int(float(actual.get('order_price_amount', 0) or 0))
+            methods = o.get('payment_method', []) or []
+
+            # PG 수수료 추정
+            pg_fee, primary_method = self._estimate_pg_fee(methods, amt, pg_rates)
+
+            if dt not in daily:
+                daily[dt] = {
+                    'payment': 0, 'order_price': 0, 'shipping': 0,
+                    'coupon': 0, 'points': 0, 'count': 0,
+                    'pg_fee': 0, 'by_method': {},
+                }
+            d = daily[dt]
+            d['payment'] += amt
+            d['order_price'] += order_price
+            d['shipping'] += shipping
+            d['coupon'] += coupon
+            d['points'] += points
+            d['count'] += 1
+            d['pg_fee'] += pg_fee
+
+            # 결제수단별 집계
+            method_key = primary_method
+            if method_key not in d['by_method']:
+                d['by_method'][method_key] = {'count': 0, 'amount': 0, 'fee': 0}
+            d['by_method'][method_key]['count'] += 1
+            d['by_method'][method_key]['amount'] += amt
+            d['by_method'][method_key]['fee'] += pg_fee
+
+        # api_settlements 형식으로 변환
+        settlements = []
+        for dt, d in sorted(daily.items()):
+            settlements.append({
+                'channel': self.CHANNEL_NAME,
+                'settlement_date': dt,
+                'settlement_id': f'cafe24_{dt}',
+                'gross_sales': d['order_price'],
+                'total_commission': d['pg_fee'],
+                'shipping_fee_income': d['shipping'],
+                'shipping_fee_cost': 0,
+                'coupon_discount': d['coupon'],
+                'point_discount': d['points'],
+                'other_deductions': 0,
+                'net_settlement': d['payment'] - d['pg_fee'],
+                'fee_breakdown': {
+                    'source': 'cafe24-orders',
+                    'order_count': d['count'],
+                    'pg_fee_estimated': d['pg_fee'],
+                    'pg_fee_rates': {k: v for k, v in pg_rates.items()
+                                     if k in d['by_method']},
+                    'by_payment_method': d['by_method'],
+                    'note': 'PG수수료 추정값 (실제 PG정산서와 차이 가능)',
+                },
+            })
+
+        logger.info(f'[Cafe24] 정산 {len(settlements)}일 집계 '
+                     f'(주문 {len(all_orders)}건)')
+        return settlements
 
     # ── 정규화 ──
 

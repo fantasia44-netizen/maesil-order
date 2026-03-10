@@ -332,6 +332,7 @@ class NaverCommerceClient(MarketplaceBaseClient):
                 'knowledge_shopping_commission': knowledge_comm,
                 'channel_commission': channel_comm,
                 'seller_burden_discount': int(po.get('sellerBurdenDiscountAmount', 0)),
+                'delivery_type': po.get('deliveryAttributeType', ''),
             },
             'order_status': po.get('productOrderStatus', ''),
             'raw_data': raw,

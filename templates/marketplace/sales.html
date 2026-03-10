@@ -1,0 +1,516 @@
+{% extends "base.html" %}
+{% block title %}API 매출 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}API 매출 현황{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { border-left: 4px solid #dee2e6; }
+    .summary-card.sales { border-color: #3498db; }
+    .summary-card.commission { border-color: #e74c3c; }
+    .summary-card.ad { border-color: #f39c12; }
+    .summary-card.net { border-color: #27ae60; }
+    .ch-table { font-size: 0.84rem; }
+    .ch-table td, .ch-table th { vertical-align: middle; padding: 0.45rem 0.6rem; }
+    .ch-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .ch-table tfoot td { font-weight: 700; background: #f8f9fa; }
+    .daily-table { font-size: 0.8rem; }
+    .daily-table td, .daily-table th { padding: 0.3rem 0.5rem; }
+    .daily-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .rate-badge { font-size: 0.72rem; padding: 0.15rem 0.4rem; }
+    .ad-cost-section { background: #fffdf5; border: 1px solid #ffeeba; border-radius: 0.5rem; padding: 1rem; }
+    .spinner-wrap { text-align: center; padding: 3rem; }
+    .negative { color: #e74c3c; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- 월 선택 + 안내 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <label class="form-label mb-0 fw-bold">조회월:</label>
+            <input type="month" id="selMonth" class="form-control form-control-sm" style="width:160px;"
+                   value="{{ month }}">
+            <button class="btn btn-primary btn-sm" onclick="loadData()">
+                <i class="bi bi-search"></i> 조회
+            </button>
+        </div>
+        <div class="text-muted" style="font-size:0.8rem;">
+            <i class="bi bi-info-circle"></i>
+            API 수집 데이터 기반 매출 (거래처 매출 제외)
+        </div>
+    </div>
+
+    <!-- 요약 카드 -->
+    <div class="row g-3 mb-4" id="summaryCards">
+        <div class="col-lg-3 col-md-6">
+            <div class="card summary-card sales">
+                <div class="card-body py-2">
+                    <div class="text-muted" style="font-size:0.78rem;">총 매출</div>
+                    <div class="fs-5 fw-bold text-primary" id="totalSales">-</div>
+                    <div class="text-muted" style="font-size:0.72rem;" id="totalOrders">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="card summary-card commission">
+                <div class="card-body py-2">
+                    <div class="text-muted" style="font-size:0.78rem;">총 수수료</div>
+                    <div class="fs-5 fw-bold text-danger" id="totalCommission">-</div>
+                    <div class="text-muted" style="font-size:0.72rem;" id="totalCommRate">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="card summary-card ad">
+                <div class="card-body py-2">
+                    <div class="text-muted" style="font-size:0.78rem;">총 광고비</div>
+                    <div class="fs-5 fw-bold text-warning" id="totalAdCost">-</div>
+                    <div class="text-muted" style="font-size:0.72rem;" id="adCostDetail">-</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6">
+            <div class="card summary-card net">
+                <div class="card-body py-2">
+                    <div class="text-muted" style="font-size:0.78rem;">순정산 (정산-광고비)</div>
+                    <div class="fs-5 fw-bold text-success" id="totalNet">-</div>
+                    <div class="text-muted" style="font-size:0.72rem;" id="netRate">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 채널별 매출 테이블 -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-bar-chart"></i> 채널별 매출/수수료/정산
+        </div>
+        <div class="card-body p-0">
+            <div id="channelLoading" class="spinner-wrap">
+                <div class="spinner-border text-primary" role="status"></div>
+                <div class="mt-2 text-muted">데이터 로딩중...</div>
+            </div>
+            <table class="table table-hover ch-table mb-0" id="channelTable" style="display:none;">
+                <thead class="table-light">
+                    <tr>
+                        <th>채널</th>
+                        <th class="num">주문건수</th>
+                        <th class="num">매출</th>
+                        <th class="num">배송비</th>
+                        <th class="num">수수료</th>
+                        <th class="num">수수료율</th>
+                        <th class="num">정산예정</th>
+                        <th class="num">광고비</th>
+                        <th class="num">순정산</th>
+                    </tr>
+                </thead>
+                <tbody id="channelBody"></tbody>
+                <tfoot id="channelFoot"></tfoot>
+            </table>
+        </div>
+    </div>
+
+    <!-- 데이터 입력 (로켓정산 + 광고비) -->
+    <div class="row g-3 mb-4">
+        <!-- 쿠팡 로켓배송 정산 업로드 -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-upload"></i> 쿠팡 로켓배송 정산 업로드
+                    <span class="badge bg-info ms-1">Supplier Hub</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted" style="font-size:0.82rem;">
+                        Supplier Hub에서 다운받은 Billing Statement 엑셀을 업로드하세요.<br>
+                        작성일자별 과세/면세 구분하여 자동 집계됩니다.
+                    </p>
+                    <form id="rocketForm" enctype="multipart/form-data">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-2">
+                            <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls">
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="uploadRocket()">
+                            <i class="bi bi-cloud-upload"></i> 업로드
+                        </button>
+                    </form>
+                    <div id="rocketResult" class="mt-2" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 광고비 입력 -->
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-cash-coin"></i> 광고비 입력
+                </div>
+                <div class="card-body">
+                    <div class="ad-cost-section mb-3">
+                        <p class="text-muted mb-2" style="font-size:0.82rem;">
+                            <i class="bi bi-info-circle"></i>
+                            쿠팡/네이버 광고비를 일자별로 입력하세요.
+                        </p>
+                        <form id="adCostForm" class="row g-2 align-items-end">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">채널</label>
+                                <select name="channel" class="form-select form-select-sm">
+                                    <option value="쿠팡">쿠팡 광고비</option>
+                                    <option value="스마트스토어">네이버 광고비</option>
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">날짜</label>
+                                <input type="date" name="date" class="form-control form-control-sm">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">광고비 (원)</label>
+                                <input type="text" name="cost" class="form-control form-control-sm"
+                                       placeholder="금액" style="width:140px;"
+                                       oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">메모</label>
+                                <input type="text" name="memo" class="form-control form-control-sm"
+                                       placeholder="(선택)" style="width:120px;">
+                            </div>
+                            <div class="col-auto">
+                                <button type="button" class="btn btn-success btn-sm" onclick="saveAdCost()">
+                                    <i class="bi bi-plus-lg"></i> 저장
+                                </button>
+                            </div>
+                        </form>
+                        <div id="adCostResult" class="mt-2" style="display:none;"></div>
+                    </div>
+                    <hr class="my-2">
+                    <p class="text-muted mb-2" style="font-size:0.8rem;">
+                        또는 엑셀로 일괄 업로드 (날짜 | 채널 | 광고비 | 메모)
+                    </p>
+                    <form id="adCostUploadForm" enctype="multipart/form-data" class="d-flex gap-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" style="max-width:250px;">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="uploadAdCost()">
+                            <i class="bi bi-cloud-upload"></i> 업로드
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 입력된 광고비 내역 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-receipt"></i> 입력된 광고비 내역</span>
+            <button class="btn btn-outline-secondary btn-sm" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#adCostCollapse">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="adCostCollapse">
+            <div class="card-body p-0">
+                <table class="table table-sm daily-table mb-0" id="adItemsTable" style="display:none;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>날짜</th>
+                            <th>채널</th>
+                            <th class="num">광고비</th>
+                            <th>메모</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adItemsBody"></tbody>
+                </table>
+                <div id="adItemsEmpty" class="text-muted text-center py-2" style="font-size:0.82rem;">
+                    입력된 광고비가 없습니다
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 일별 요약 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-calendar3"></i> 일별 요약</span>
+            <button class="btn btn-outline-secondary btn-sm" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#dailyCollapse">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+        </div>
+        <div class="collapse show" id="dailyCollapse">
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover daily-table mb-0" id="dailyTable" style="display:none;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>날짜</th>
+                            <th class="num">매출</th>
+                            <th class="num">수수료</th>
+                            <th class="num">정산</th>
+                            <th class="num">광고비</th>
+                            <th class="num">순정산</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dailyBody"></tbody>
+                    <tfoot id="dailyFoot"></tfoot>
+                </table>
+                <div id="dailyEmpty" class="text-muted text-center py-3" style="font-size:0.82rem;">
+                    데이터가 없습니다
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token() }}';
+
+function fmt(n) {
+    if (n == null || isNaN(n)) return '-';
+    return Number(n).toLocaleString('ko-KR');
+}
+
+function loadData() {
+    const month = document.getElementById('selMonth').value;
+    if (!month) return;
+
+    document.getElementById('channelLoading').style.display = '';
+    document.getElementById('channelTable').style.display = 'none';
+
+    fetch(`/marketplace/api/sales-data?month=${month}`)
+    .then(r => {
+        if (r.status === 401 || r.redirected) {
+            location.href = '/login?next=' + encodeURIComponent(location.pathname);
+            throw new Error('세션 만료');
+        }
+        return r.json();
+    })
+    .then(data => {
+        renderSummary(data.total);
+        renderChannels(data.channels, data.total);
+        renderDaily(data.daily);
+        renderAdItems(data.ad_items);
+
+        document.getElementById('channelLoading').style.display = 'none';
+        document.getElementById('channelTable').style.display = '';
+    })
+    .catch(e => {
+        if (e.message === '세션 만료') return;
+        document.getElementById('channelLoading').innerHTML =
+            `<div class="text-danger">로딩 실패: ${e}</div>`;
+    });
+}
+
+function renderSummary(t) {
+    document.getElementById('totalSales').textContent = fmt(t.sales) + '원';
+    document.getElementById('totalOrders').textContent = `${fmt(t.orders_count)}건`;
+    document.getElementById('totalCommission').textContent = fmt(t.commission) + '원';
+    document.getElementById('totalCommRate').textContent = `매출 대비 ${t.commission_rate}%`;
+    document.getElementById('totalAdCost').textContent = fmt(t.ad_cost) + '원';
+
+    const adRate = t.sales ? (t.ad_cost / t.sales * 100).toFixed(1) : 0;
+    document.getElementById('adCostDetail').textContent = `매출 대비 ${adRate}%`;
+
+    document.getElementById('totalNet').textContent = fmt(t.net) + '원';
+    const netRate = t.sales ? (t.net / t.sales * 100).toFixed(1) : 0;
+    document.getElementById('netRate').textContent = `매출 대비 ${netRate}%`;
+}
+
+function renderChannels(channels, total) {
+    const body = document.getElementById('channelBody');
+    let html = '';
+    channels.forEach(c => {
+        html += `<tr>
+            <td><strong>${c.label}</strong></td>
+            <td class="num">${fmt(c.orders_count)}</td>
+            <td class="num">${fmt(c.sales)}</td>
+            <td class="num">${c.shipping != null ? fmt(c.shipping) : '-'}</td>
+            <td class="num negative">${fmt(c.commission)}</td>
+            <td class="num"><span class="badge rate-badge bg-secondary">${c.commission_rate}%</span></td>
+            <td class="num">${fmt(c.settlement)}</td>
+            <td class="num ${c.ad_cost ? 'negative' : ''}">${c.ad_cost ? fmt(c.ad_cost) : '-'}</td>
+            <td class="num fw-bold">${fmt(c.net)}</td>
+        </tr>`;
+    });
+    body.innerHTML = html;
+
+    const foot = document.getElementById('channelFoot');
+    foot.innerHTML = `<tr>
+        <td><strong>합계</strong></td>
+        <td class="num">${fmt(total.orders_count)}</td>
+        <td class="num">${fmt(total.sales)}</td>
+        <td class="num">${fmt(total.shipping)}</td>
+        <td class="num negative">${fmt(total.commission)}</td>
+        <td class="num"><span class="badge rate-badge bg-dark">${total.commission_rate}%</span></td>
+        <td class="num">${fmt(total.settlement)}</td>
+        <td class="num negative">${fmt(total.ad_cost)}</td>
+        <td class="num fw-bold">${fmt(total.net)}</td>
+    </tr>`;
+}
+
+function renderDaily(daily) {
+    const body = document.getElementById('dailyBody');
+    const foot = document.getElementById('dailyFoot');
+    const table = document.getElementById('dailyTable');
+    const empty = document.getElementById('dailyEmpty');
+
+    if (!daily || daily.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = '';
+        return;
+    }
+    table.style.display = '';
+    empty.style.display = 'none';
+
+    let html = '';
+    let totS = 0, totC = 0, totSt = 0, totA = 0, totN = 0;
+    daily.forEach(d => {
+        totS += d.sales; totC += d.commission; totSt += d.settlement;
+        totA += d.ad_cost; totN += d.net;
+        html += `<tr>
+            <td>${d.date}</td>
+            <td class="num">${fmt(d.sales)}</td>
+            <td class="num negative">${fmt(d.commission)}</td>
+            <td class="num">${fmt(d.settlement)}</td>
+            <td class="num ${d.ad_cost ? 'negative' : ''}">${d.ad_cost ? fmt(d.ad_cost) : '-'}</td>
+            <td class="num fw-bold">${fmt(d.net)}</td>
+        </tr>`;
+    });
+    body.innerHTML = html;
+    foot.innerHTML = `<tr style="background:#f8f9fa;font-weight:700;">
+        <td>합계</td>
+        <td class="num">${fmt(totS)}</td>
+        <td class="num negative">${fmt(totC)}</td>
+        <td class="num">${fmt(totSt)}</td>
+        <td class="num negative">${fmt(totA)}</td>
+        <td class="num">${fmt(totN)}</td>
+    </tr>`;
+}
+
+function renderAdItems(items) {
+    const body = document.getElementById('adItemsBody');
+    const table = document.getElementById('adItemsTable');
+    const empty = document.getElementById('adItemsEmpty');
+
+    if (!items || items.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = '';
+        return;
+    }
+    table.style.display = '';
+    empty.style.display = 'none';
+
+    let html = '';
+    items.forEach(a => {
+        html += `<tr>
+            <td>${a.date}</td>
+            <td>${a.channel}</td>
+            <td class="num">${fmt(a.cost)}</td>
+            <td>${a.memo || ''}</td>
+        </tr>`;
+    });
+    body.innerHTML = html;
+}
+
+function saveAdCost() {
+    const form = document.getElementById('adCostForm');
+    const fd = new FormData(form);
+    if (!fd.get('date') || !fd.get('cost')) {
+        alert('날짜와 광고비를 입력하세요');
+        return;
+    }
+    fetch('/marketplace/ad-cost', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('adCostResult');
+        div.style.display = 'block';
+        if (data.success) {
+            div.innerHTML = `<div class="alert alert-success py-1 mb-0">
+                ${data.channel} ${data.date}: ${Number(data.cost).toLocaleString()}원 저장
+            </div>`;
+            // 데이터 새로고침
+            setTimeout(() => loadData(), 500);
+        } else {
+            div.innerHTML = `<div class="alert alert-danger py-1 mb-0">${data.error}</div>`;
+        }
+    })
+    .catch(e => {
+        const div = document.getElementById('adCostResult');
+        div.style.display = 'block';
+        div.innerHTML = `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
+    });
+}
+
+function uploadRocket() {
+    const form = document.getElementById('rocketForm');
+    const fd = new FormData(form);
+    if (!fd.get('file') || !fd.get('file').name) {
+        alert('파일을 선택하세요');
+        return;
+    }
+    fetch('/marketplace/rocket/upload', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('rocketResult');
+        div.style.display = 'block';
+        if (data.success) {
+            div.innerHTML = `<div class="alert alert-success py-1">${data.count}건 저장 (${data.date_range})</div>`;
+            setTimeout(() => loadData(), 500);
+        } else {
+            div.innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
+        }
+    })
+    .catch(e => {
+        document.getElementById('rocketResult').style.display = 'block';
+        document.getElementById('rocketResult').innerHTML = `<div class="alert alert-danger py-1">오류: ${e}</div>`;
+    });
+}
+
+function uploadAdCost() {
+    const form = document.getElementById('adCostUploadForm');
+    const fd = new FormData(form);
+    if (!fd.get('file') || !fd.get('file').name) {
+        alert('파일을 선택하세요');
+        return;
+    }
+    fetch('/marketplace/ad-cost/upload', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('adCostResult');
+        div.style.display = 'block';
+        if (data.success) {
+            div.innerHTML = `<div class="alert alert-success py-1">광고비 ${data.count}건 업로드 완료</div>`;
+            setTimeout(() => loadData(), 500);
+        } else {
+            div.innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
+        }
+    })
+    .catch(e => {
+        document.getElementById('adCostResult').style.display = 'block';
+        document.getElementById('adCostResult').innerHTML = `<div class="alert alert-danger py-1">오류: ${e}</div>`;
+    });
+}
+
+// 페이지 로드시 자동 조회
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadData);
+} else {
+    loadData();
+}
+</script>
+{% endblock %}

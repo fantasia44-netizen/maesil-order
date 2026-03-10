@@ -4173,13 +4173,38 @@ class SupabaseDB(DBBase):
         skipped = 0
         batch_size = 500
 
+        # 기존 키 조회 (channel, api_order_id, api_line_id)
+        existing_keys = set()
+        try:
+            channels = list({o.get('channel', '') for o in orders})
+            for ch in channels:
+                offset = 0
+                while True:
+                    rows = self.client.table("api_orders") \
+                        .select("channel,api_order_id,api_line_id") \
+                        .eq("channel", ch) \
+                        .range(offset, offset + 999) \
+                        .execute().data
+                    for r in rows:
+                        existing_keys.add((r['channel'], r['api_order_id'], r.get('api_line_id', '')))
+                    if len(rows) < 1000:
+                        break
+                    offset += 1000
+        except Exception as e:
+            print(f"[DB] existing keys lookup error: {e}")
+
         for i in range(0, len(orders), batch_size):
             batch = orders[i:i + batch_size]
             try:
                 self.client.table("api_orders").upsert(
                     batch, on_conflict="channel,api_order_id,api_line_id"
                 ).execute()
-                new += len(batch)  # upsert에서 정확한 new/updated 구분은 어려움
+                for o in batch:
+                    key = (o.get('channel', ''), o.get('api_order_id', ''), o.get('api_line_id', ''))
+                    if key in existing_keys:
+                        updated += 1
+                    else:
+                        new += 1
             except Exception as e:
                 print(f"[DB] upsert_api_orders_batch error (batch {i}): {e}")
                 skipped += len(batch)
@@ -4223,6 +4248,25 @@ class SupabaseDB(DBBase):
                 .update(match_data).eq("id", api_order_id).execute()
         except Exception as e:
             print(f"[DB] update_api_order_match error: {e}")
+
+    def update_api_order_fee(self, channel, api_order_id, api_line_id, fee_data):
+        """API 주문의 수수료/정산 데이터 업데이트 (revenue-history 연동).
+
+        Args:
+            channel: 채널명
+            api_order_id: 주문번호
+            api_line_id: 상품주문번호 (vendorItemId)
+            fee_data: {commission, settlement_amount, fee_detail}
+        """
+        try:
+            self.client.table("api_orders") \
+                .update(fee_data) \
+                .eq("channel", channel) \
+                .eq("api_order_id", api_order_id) \
+                .eq("api_line_id", api_line_id) \
+                .execute()
+        except Exception as e:
+            print(f"[DB] update_api_order_fee error: {e}")
 
     # ── api_settlements ──
 
