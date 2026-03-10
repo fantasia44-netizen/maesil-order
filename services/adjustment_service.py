@@ -89,14 +89,28 @@ def process_adjustment_batch(db, date_str, items):
         if unit:
             row["unit"] = unit
 
-        # ── category / storage_method: 직접 입력값 → 기존 재고 스냅샷에서 자동 매핑 ──
+        # ── 기존 재고 스냅샷에서 그룹핑 필드 상속 ──
+        # build_stock_snapshot()이 expiry_date, lot_number 등으로 그룹핑하므로
+        # ADJUST 레코드에도 동일 필드가 있어야 재고 합산이 정확함
         category = str(item.get('category', '')).strip()
-        if (not category or not storage_method) and location in _snapshots:
+        snap = {}
+        if location in _snapshots:
             snap = snapshot_lookup(_snapshots[location], name)
             if not category:
                 category = snap.get('category', '')
             if not storage_method:
                 storage_method = snap.get('storage_method', '')
+
+            # 그룹핑 필드 상속 (FIFO 첫 그룹에서)
+            groups = snap.get('groups', [])
+            if groups:
+                g = groups[0]
+                for field in ('expiry_date', 'origin', 'manufacture_date',
+                              'lot_number', 'grade', 'food_type'):
+                    val = g.get(field)
+                    if val:
+                        row[field] = val
+
         if category:
             row["category"] = category
         if storage_method:
