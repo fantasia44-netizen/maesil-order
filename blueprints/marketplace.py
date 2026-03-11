@@ -920,14 +920,18 @@ def _parse_coupang_wing_settlement(file_bytes):
         except (ValueError, TypeError):
             return 0
 
-    # 헤더에서 주문일/결제일 컬럼 찾기 (fallback: 정산예정일[25])
+    # 헤더에서 결제완료일/주문일 컬럼 찾기 (fallback: 정산예정일[25])
+    # 쿠팡Wing 실제 헤더: [20]결제완료일, [25]정산예정일
     date_col = 25
     for c in range(1, min(ws.max_column + 1, 30)):
         h = str(ws.cell(1, c).value or '').strip()
+        if '결제완료일' in h:
+            date_col = c
+            break
         if '주문' in h and '일' in h:
             date_col = c
             break
-        if h in ('결제일', '결제일자', '결제확인일'):
+        if '결제' in h and '일' in h and '정산' not in h:
             date_col = c
             break
 
