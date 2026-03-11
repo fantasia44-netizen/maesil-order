@@ -178,11 +178,11 @@
                             </select>
                         </div>
                         <div class="col">
-                            <label class="form-label" style="font-size:0.8rem;">파일</label>
-                            <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls">
+                            <label class="form-label" style="font-size:0.8rem;">파일 (복수 선택 가능)</label>
+                            <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" multiple>
                         </div>
                         <div class="col-auto">
-                            <button type="button" class="btn btn-primary btn-sm" onclick="uploadSettlement()">
+                            <button type="button" class="btn btn-primary btn-sm" id="btnUploadSettle" onclick="uploadSettlement()">
                                 <i class="bi bi-cloud-upload"></i> 업로드
                             </button>
                         </div>
@@ -191,7 +191,17 @@
                     <div class="mt-2" style="font-size:0.75rem; color:#888;">
                         네이버: SellerDailySettle.xlsx | 쿠팡Wing: MSF_PAYMENT_REVENUE_DETAIL.xlsx<br>
                         11번가: 정산_확정건.xls | 자사몰: 정산내역_요약.xlsx | 오아시스: 매출정산내역.xlsx<br>
-                        옥션/지마켓: 상품판매_상세내역.xls + 배송비_상세내역.xls (각각 업로드)
+                        옥션/지마켓: 상품판매 + 배송비 파일을 함께 선택하여 한번에 업로드
+                    </div>
+                    <!-- 업로드 이력 -->
+                    <div class="mt-3">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <small class="text-muted fw-bold"><i class="bi bi-clock-history"></i> 정산서 이력</small>
+                            <button class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:0.7rem;" onclick="loadSettleHistory()">새로고침</button>
+                        </div>
+                        <div id="settleHistory" style="max-height:180px; overflow-y:auto; font-size:0.75rem;">
+                            <span class="text-muted">로딩 중...</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -589,40 +599,110 @@ function saveAdCost() {
 
 function uploadSettlement() {
     const form = document.getElementById('settlementForm');
-    const fd = new FormData(form);
-    if (!fd.get('file') || !fd.get('file').name) {
+    const fileInput = form.querySelector('input[name="file"]');
+    const files = fileInput.files;
+    if (!files || files.length === 0) {
         alert('파일을 선택하세요');
         return;
     }
-    const channel = fd.get('channel');
-    // 쿠팡로켓은 기존 엔드포인트 사용
-    const url = channel === '쿠팡로켓'
-        ? '/marketplace/rocket/upload'
-        : '/marketplace/settlement/upload';
+    const channel = form.querySelector('select[name="channel"]').value;
+    const btn = document.getElementById('btnUploadSettle');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리중...';
 
-    fetch(url, {
+    // 쿠팡로켓은 단일파일 기존 엔드포인트
+    if (channel === '쿠팡로켓') {
+        const fd = new FormData();
+        fd.append('csrf_token', CSRF);
+        fd.append('file', files[0]);
+        fetch('/marketplace/rocket/upload', {
+            method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd,
+        }).then(r => r.json()).then(data => {
+            _showSettleResult(data, channel);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload"></i> 업로드';
+        }).catch(e => {
+            _showSettleError(e);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload"></i> 업로드';
+        });
+        return;
+    }
+
+    // 복수 파일 한번에 전송
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', channel);
+    for (const f of files) {
+        fd.append('file', f);
+    }
+
+    fetch('/marketplace/settlement/upload', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
     })
     .then(r => r.json())
     .then(data => {
-        const div = document.getElementById('settlementResult');
-        div.style.display = 'block';
-        if (data.success) {
-            const msg = data.count != null
-                ? `${channel}: ${data.count}건 저장` + (data.date_range ? ` (${data.date_range})` : '')
-                : `${channel}: 정산서 업로드 완료`;
-            div.innerHTML = `<div class="alert alert-success py-1 mb-0">${msg}</div>`;
-            setTimeout(() => loadData(), 500);
-        } else {
-            div.innerHTML = `<div class="alert alert-danger py-1 mb-0">${data.error}</div>`;
-        }
+        _showSettleResult(data, channel);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-upload"></i> 업로드';
     })
     .catch(e => {
-        const div = document.getElementById('settlementResult');
-        div.style.display = 'block';
-        div.innerHTML = `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
+        _showSettleError(e);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-upload"></i> 업로드';
+    });
+}
+
+function _showSettleResult(data, channel) {
+    const div = document.getElementById('settlementResult');
+    div.style.display = 'block';
+    if (data.success) {
+        let msg = `${channel}: ${data.count}건 저장`;
+        if (data.summary) msg += `<br><small class="text-muted">${data.summary}</small>`;
+        if (data.errors && data.errors.length) {
+            msg += `<br><small class="text-warning">${data.errors.join(' | ')}</small>`;
+        }
+        div.innerHTML = `<div class="alert alert-success py-1 mb-0">${msg}</div>`;
+        setTimeout(() => { loadData(); loadSettleHistory(); }, 500);
+    } else {
+        div.innerHTML = `<div class="alert alert-danger py-1 mb-0">${data.error}</div>`;
+    }
+}
+function _showSettleError(e) {
+    const div = document.getElementById('settlementResult');
+    div.style.display = 'block';
+    div.innerHTML = `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
+}
+
+function loadSettleHistory() {
+    fetch('/marketplace/settlement/history')
+    .then(r => r.json())
+    .then(rows => {
+        const div = document.getElementById('settleHistory');
+        if (!rows.length) {
+            div.innerHTML = '<span class="text-muted">이력 없음</span>';
+            return;
+        }
+        const fmt = v => (v||0).toLocaleString();
+        let html = '<table class="table table-sm table-striped mb-0" style="font-size:0.73rem;">';
+        html += '<thead><tr><th>채널</th><th>정산월</th><th class="text-end">매출</th><th class="text-end">수수료</th><th class="text-end">정산</th><th>건수</th></tr></thead><tbody>';
+        for (const r of rows) {
+            html += `<tr>
+                <td>${r.channel}</td>
+                <td>${r.settlement_date}</td>
+                <td class="text-end">${fmt(r.gross_sales)}</td>
+                <td class="text-end">${fmt(r.total_commission)}</td>
+                <td class="text-end">${fmt(r.net_settlement)}</td>
+                <td>${r.order_count || '-'}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        div.innerHTML = html;
+    })
+    .catch(() => {
+        document.getElementById('settleHistory').innerHTML = '<span class="text-danger">조회 실패</span>';
     });
 }
 
@@ -852,9 +932,10 @@ function renderCharts(data) {
 
 // 페이지 로드시 자동 조회
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadData);
+    document.addEventListener('DOMContentLoaded', () => { loadData(); loadSettleHistory(); });
 } else {
     loadData();
+    loadSettleHistory();
 }
 </script>
 {% endblock %}

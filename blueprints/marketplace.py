@@ -748,51 +748,95 @@ def save_deductions():
 @marketplace_bp.route('/settlement/upload', methods=['POST'])
 @role_required('admin', 'general')
 def upload_settlement():
-    """채널별 정산서 엑셀 업로드 → api_settlements 저장."""
+    """채널별 정산서 엑셀 업로드 → api_settlements 저장. 복수 파일 지원."""
     import io
     db = current_app.db
     channel = request.form.get('channel', '').strip()
-    file = request.files.get('file')
+    files = request.files.getlist('file')
 
     if not channel:
         return jsonify({'error': '채널을 선택하세요'}), 400
-    if not file or not file.filename:
+    if not files or not files[0].filename:
         return jsonify({'error': '파일을 선택하세요'}), 400
 
-    file_bytes = file.read()
-    fname = file.filename.lower()
+    results = []
+    errors = []
+    total_count = 0
 
-    try:
-        if channel in ('스마트스토어', '해미애찬'):
-            result = _parse_naver_settlement(file_bytes, channel)
-        elif channel == '쿠팡':
-            result = _parse_coupang_wing_settlement(file_bytes)
-        elif channel == '11번가':
-            result = _parse_11st_settlement(file_bytes)
-        elif channel == '자사몰':
-            result = _parse_toss_settlement(file_bytes)
-        elif channel == '오아시스':
-            result = _parse_oasis_settlement(file_bytes)
-        elif channel in ('옥션', '지마켓'):
-            result = _parse_auction_settlement(file_bytes, channel)
-        else:
-            return jsonify({'error': f'지원하지 않는 채널: {channel}'}), 400
+    for f in files:
+        fname = f.filename
+        try:
+            file_bytes = f.read()
 
-        if not result['settlements']:
-            return jsonify({'error': '파싱된 데이터가 없습니다'}), 400
+            if channel in ('스마트스토어', '해미애찬'):
+                result = _parse_naver_settlement(file_bytes, channel)
+            elif channel == '쿠팡':
+                result = _parse_coupang_wing_settlement(file_bytes)
+            elif channel == '11번가':
+                result = _parse_11st_settlement(file_bytes)
+            elif channel == '자사몰':
+                result = _parse_toss_settlement(file_bytes)
+            elif channel == '오아시스':
+                result = _parse_oasis_settlement(file_bytes)
+            elif channel in ('옥션', '지마켓'):
+                result = _parse_auction_settlement(file_bytes, channel)
+            else:
+                errors.append(f'{fname}: 지원하지 않는 채널')
+                continue
 
-        db.upsert_api_settlements_batch(result['settlements'])
-        _log_action(f'정산서 업로드: {channel} {result["summary"]}')
+            if not result['settlements']:
+                errors.append(f'{fname}: 파싱된 데이터 없음')
+                continue
 
-        return jsonify({
-            'success': True,
-            'channel': channel,
-            'count': len(result['settlements']),
-            'summary': result['summary'],
+            db.upsert_api_settlements_batch(result['settlements'])
+            _log_action(f'정산서 업로드: {channel} {result["summary"]}')
+            total_count += len(result['settlements'])
+            results.append(f'{fname}: {result["summary"]}')
+
+        except Exception as e:
+            logger.error(f'정산서 업로드 오류 ({channel}, {fname}): {e}')
+            errors.append(f'{fname}: {str(e)}')
+
+    if not results and errors:
+        return jsonify({'error': ' | '.join(errors)}), 400
+
+    return jsonify({
+        'success': True,
+        'channel': channel,
+        'count': total_count,
+        'summary': ' | '.join(results),
+        'errors': errors if errors else None,
+    })
+
+
+@marketplace_bp.route('/settlement/history')
+@role_required('admin', 'general')
+def settlement_history():
+    """정산서 업로드 이력 조회 (최근 50건)."""
+    db = current_app.db
+    rows = db.query_api_settlements(limit=50)
+    # settlement_id에서 source 정보 추출
+    history = []
+    for r in rows:
+        fb = r.get('fee_breakdown') or {}
+        if isinstance(fb, str):
+            import json
+            try:
+                fb = json.loads(fb)
+            except Exception:
+                fb = {}
+        history.append({
+            'channel': r.get('channel', ''),
+            'settlement_date': r.get('settlement_date', ''),
+            'settlement_id': r.get('settlement_id', ''),
+            'gross_sales': r.get('gross_sales', 0),
+            'total_commission': r.get('total_commission', 0),
+            'net_settlement': r.get('net_settlement', 0),
+            'source': fb.get('source', ''),
+            'order_count': fb.get('order_count', 0),
+            'updated_at': r.get('updated_at', ''),
         })
-    except Exception as e:
-        logger.error(f'정산서 업로드 오류 ({channel}): {e}')
-        return jsonify({'error': str(e)}), 500
+    return jsonify(history)
 
 
 def _parse_naver_settlement(file_bytes, channel):
@@ -1181,10 +1225,12 @@ def _parse_oasis_settlement(file_bytes):
 
 
 def _parse_auction_settlement(file_bytes, channel):
-    """옥션/지마켓 정산서 파싱.
-    상품판매 파일: Row0 헤더(47컬럼) - 결제금액[22], 서비스이용료[30], 최종정산금[27]
-    배송비 파일: Row0 헤더(14컬럼) - 배송비[10], 배송수수료[11], 배송비정산액[12]
-    파일 유형은 컬럼 수로 자동 판별. 주문일/결제일 기준 월별 집계.
+    """옥션/지마켓 정산서 파싱 — 헤더 기반 컬럼 자동 감지.
+
+    옥션: 상품판매(47컬럼), 배송비(14컬럼)
+    지마켓: 상품판매(51컬럼), 배송비(27컬럼)
+    헤더명으로 결제금액·서비스이용료·최종정산금·배송비 등 컬럼 자동 매핑.
+    주문일(옥션) / 체결일(지마켓) 기준 월별 집계.
     """
     import io, xlrd
     from collections import defaultdict
@@ -1196,56 +1242,73 @@ def _parse_auction_settlement(file_bytes, channel):
         raise ValueError('데이터가 없습니다')
 
     prefix = 'auction_' if channel == '옥션' else 'gmarket_'
-    is_shipping = ws.ncols < 20  # 배송비 파일은 14컬럼
     ncols = ws.ncols
 
-    def _safe_val(r, c):
-        """컬럼 범위 초과 시 0 반환."""
-        if c >= ncols:
+    # ── 헤더(Row 0) 읽기 ──
+    header_map = {}
+    for c in range(ncols):
+        h = str(ws.cell_value(0, c)).strip()
+        header_map[h] = c
+
+    def _find_col(*keywords):
+        """정확 매칭 → substring 매칭 순서로 컬럼 인덱스 반환."""
+        for kw in keywords:
+            if kw in header_map:
+                return header_map[kw]
+        for kw in keywords:
+            for h, c in header_map.items():
+                if kw in h:
+                    return c
+        return None
+
+    def _to_int(r, c):
+        """셀 값을 정수로 변환 (콤마 문자열·숫자 모두 처리)."""
+        if c is None or c >= ncols:
             return 0
         v = ws.cell_value(r, c)
         try:
-            return int(float(v or 0))
+            return int(float(str(v).replace(',', '') or 0))
         except (ValueError, TypeError):
             return 0
 
-    # 헤더(Row 0)에서 주문일/결제일 컬럼 찾기
-    date_col = None
-    for c in range(ncols):
-        h = str(ws.cell_value(0, c)).strip()
-        if '주문일' in h or '주문날짜' in h:
-            date_col = c
-            break
-        if '결제일' in h or '결제날짜' in h or '결제확인' in h:
-            date_col = c
-            break
-    # fallback: 기존 정산완료일 컬럼 (범위 초과 방지)
-    if date_col is None:
-        fallback = 9 if is_shipping else 15
-        date_col = fallback if fallback < ncols else 0
+    # ── 파일 유형 판별 (헤더 기반) ──
+    settle_ship_col = _find_col('배송비정산금액', '배송비 정산액')
+    is_shipping = settle_ship_col is not None
 
+    # ── 금액 컬럼 감지 ──
+    if is_shipping:
+        gross_col = header_map.get('배송비')       # 정확히 '배송비'
+        comm_col = _find_col('배송수수료', '서비스이용료')
+        settle_col = settle_ship_col
+    else:
+        gross_col = _find_col('결제금액', '고객결제금')
+        comm_col = _find_col('서비스이용료')
+        settle_col = _find_col('최종정산금')
+
+    # ── 날짜 컬럼 감지: 주문일(옥션) / 체결일(지마켓) ──
+    date_col = _find_col('주문일', '체결일')
+    if date_col is None:
+        # fallback: 정산완료일
+        date_col = _find_col('정산완료일')
+
+    file_type = 'ship' if is_shipping else 'sales'
     monthly = defaultdict(lambda: {'sales': 0, 'comm': 0, 'settle': 0, 'cnt': 0})
 
     for r in range(1, ws.nrows):
         try:
-            if is_shipping:
-                sales = _safe_val(r, 10)    # 배송비
-                comm = _safe_val(r, 11)      # 배송수수료
-                settle = _safe_val(r, 12)    # 배송비정산액
-            else:
-                sales = _safe_val(r, 22)     # 결제금액
-                comm = _safe_val(r, 30)      # 서비스이용료
-                settle = _safe_val(r, 27)    # 최종정산금
+            sales = _to_int(r, gross_col)
+            comm = _to_int(r, comm_col)
+            settle = _to_int(r, settle_col)
 
-            # 날짜 처리 (xlrd 날짜 or 문자열)
-            if date_col < ncols and ws.cell_type(r, date_col) == xlrd.XL_CELL_DATE:
-                dt = xlrd.xldate_as_tuple(ws.cell_value(r, date_col), wb.datemode)
-                raw_date = f'{dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d}'
-            elif date_col < ncols:
-                raw_date = str(ws.cell_value(r, date_col)).strip()[:10]
-                raw_date = raw_date.replace('/', '-')
-            else:
-                raw_date = ''
+            # 날짜 처리
+            raw_date = ''
+            if date_col is not None and date_col < ncols:
+                if ws.cell_type(r, date_col) == xlrd.XL_CELL_DATE:
+                    dt = xlrd.xldate_as_tuple(ws.cell_value(r, date_col), wb.datemode)
+                    raw_date = f'{dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d}'
+                else:
+                    raw_date = str(ws.cell_value(r, date_col)).strip()[:10]
+                    raw_date = raw_date.replace('/', '-')
 
             month_key = raw_date[:7] if len(raw_date) >= 7 else 'unknown'
             m = monthly[month_key]
@@ -1254,9 +1317,7 @@ def _parse_auction_settlement(file_bytes, channel):
             m['settle'] += settle
             m['cnt'] += 1
         except Exception:
-            continue  # 개별 행 오류 무시
-
-    file_type = 'ship' if is_shipping else 'sales'
+            continue
 
     settlements = []
     summaries = []
