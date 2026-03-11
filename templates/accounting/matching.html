@@ -68,7 +68,7 @@
                                            class="form-check-input">
                                 </td>
                                 <td>{{ inv.write_date }}</td>
-                                <td>{{ inv.partner_name or '-' }}</td>
+                                <td>{{ inv.buyer_corp_name or inv.partner_name or '-' }}</td>
                                 <td class="text-end fw-bold">{{ inv.total_amount|fmt_money }}원</td>
                             </tr>
                             {% else %}
@@ -107,7 +107,7 @@
                                            class="form-check-input">
                                 </td>
                                 <td>{{ dep.transaction_date }}</td>
-                                <td>{{ dep.counterpart or '-' }}</td>
+                                <td>{{ dep.counterpart_name or dep.counterpart or '-' }}</td>
                                 <td class="text-end fw-bold text-primary">{{ dep.amount|fmt_money }}원</td>
                             </tr>
                             {% else %}

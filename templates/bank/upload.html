@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block page_title %}은행 거래내역 엑셀 업로드{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h6 class="mb-0"><i class="bi bi-file-earmark-excel"></i> 은행 거래내역 엑셀 업로드</h6>
+    <a href="{{ url_for('bank.index') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> 은행 관리
+    </a>
+</div>
+
+<!-- 업로드 폼 -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form method="post" action="{{ url_for('bank.upload') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="row g-3">
+                <!-- 계좌 선택 -->
+                <div class="col-md-5">
+                    <label for="accountId" class="form-label">계좌 선택</label>
+                    <select name="account_id" id="accountId" class="form-select" required>
+                        <option value="">-- 계좌를 선택하세요 --</option>
+                        {% for acc in accounts %}
+                        <option value="{{ acc.id }}">
+                            {{ acc.bank_name }} {{ acc.account_number }}
+                            {% if acc.account_holder %}({{ acc.account_holder }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">
+                        계좌가 없으면
+                        <a href="{{ url_for('bank.index') }}">은행 관리</a>에서 먼저 등록하세요.
+                    </div>
+                </div>
+
+                <!-- 엑셀 파일 -->
+                <div class="col-md-5">
+                    <label for="excelFile" class="form-label">엑셀 파일</label>
+                    <input type="file" name="excel_file" id="excelFile" class="form-control"
+                           accept=".xlsx,.xls,.csv" required>
+                    <div class="form-text">
+                        .xlsx, .xls, .csv 지원
+                    </div>
+                </div>
+
+                <!-- 자동매칭 옵션 -->
+                <div class="col-md-2 d-flex align-items-end">
+                    <div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" name="auto_match"
+                                   id="autoMatch" checked>
+                            <label class="form-check-label" for="autoMatch">
+                                자동매칭
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-upload"></i> 업로드
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 안내 -->
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h6 class="mb-0"><i class="bi bi-info-circle"></i> 지원 양식</h6>
+            </div>
+            <div class="card-body small">
+                <p class="mb-2">인터넷 뱅킹에서 거래내역을 엑셀로 다운로드한 파일을 업로드하세요.</p>
+                <p class="mb-2"><strong>자동 인식 컬럼:</strong></p>
+                <ul class="mb-2">
+                    <li><strong>거래일자</strong> - 거래일, 일자, 날짜, 처리일자</li>
+                    <li><strong>입금/출금</strong> - 입금액, 출금액, 인출액</li>
+                    <li><strong>잔액</strong> - 잔액, 거래후잔액</li>
+                    <li><strong>상대방</strong> - 입금자, 보내는분, 거래상대</li>
+                    <li><strong>적요</strong> - 적요, 거래내용, 메모, 비고</li>
+                </ul>
+                <div class="alert alert-info py-2 mb-0">
+                    <i class="bi bi-shield-check"></i>
+                    상단 은행 정보 행은 자동으로 스킵합니다. 중복 업로드 시 이미 등록된 건은 자동 스킵됩니다.
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card shadow-sm">
+            <div class="card-header bg-light">
+                <h6 class="mb-0"><i class="bi bi-arrow-repeat"></i> 자동매칭 안내</h6>
+            </div>
+            <div class="card-body small">
+                <p class="mb-2">"자동매칭" 체크 시 업로드 후 아래 매칭이 자동 실행됩니다:</p>
+                <ol class="mb-2">
+                    <li><strong>매출-입금 매칭</strong> - 세금계산서 금액 + 거래처명 비교</li>
+                    <li><strong>정산-입금 매칭</strong> - 플랫폼 정산금 + 채널명 비교</li>
+                    <li><strong>매입-출금 매칭</strong> - 매입 세금계산서 + 출금처 비교</li>
+                </ol>
+                <p class="mb-0 text-muted">
+                    자동매칭 되지 않은 건은
+                    <a href="{{ url_for('accounting.matching') }}">매출-입금 매칭</a>
+                    페이지에서 수동으로 처리할 수 있습니다.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 지원 은행 목록 -->
+<div class="card shadow-sm mt-3">
+    <div class="card-header bg-light">
+        <h6 class="mb-0"><i class="bi bi-bank"></i> 지원 은행</h6>
+    </div>
+    <div class="card-body">
+        <div class="row row-cols-2 row-cols-md-4 row-cols-lg-6 g-2">
+            {% for code, name in bank_list.items() %}
+            <div class="col">
+                <span class="badge bg-light text-dark border w-100 py-2">{{ name }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <p class="text-muted small mt-2 mb-0">
+            위 은행 외에도 거래일/입금액/출금액 컬럼이 포함된 엑셀이면 자동 인식됩니다.
+        </p>
+    </div>
+</div>
+{% endblock %}

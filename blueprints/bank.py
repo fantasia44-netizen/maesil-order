@@ -341,3 +341,145 @@ def delete_account(account_id):
     except Exception as e:
         flash(f'삭제 오류: {e}', 'danger')
     return redirect(url_for('bank.index'))
+
+
+@bank_bp.route('/accounts/add', methods=['POST'])
+@role_required('admin', 'manager')
+def add_account():
+    """계좌 수동 등록 (CODEF 없이 엑셀 업로드용)"""
+    bank_name = request.form.get('bank_name', '').strip()
+    bank_code = request.form.get('bank_code', '').strip()
+    account_number = request.form.get('account_number', '').strip()
+    account_holder = request.form.get('account_holder', '').strip()
+
+    if not bank_name or not account_number:
+        flash('은행명과 계좌번호는 필수입니다.', 'danger')
+        return redirect(url_for('bank.index'))
+
+    try:
+        current_app.db.insert_bank_account({
+            'bank_code': bank_code,
+            'bank_name': bank_name,
+            'account_number': account_number,
+            'account_holder': account_holder,
+            'account_type': '예금',
+            'connected_id': None,
+        })
+        _log_action('add_bank_account',
+                    detail=f'{bank_name} {account_number} 수동 등록')
+        flash(f'{bank_name} {account_number} 계좌가 등록되었습니다.', 'success')
+    except Exception as e:
+        flash(f'계좌 등록 오류: {e}', 'danger')
+
+    return redirect(url_for('bank.index'))
+
+
+@bank_bp.route('/upload', methods=['GET', 'POST'])
+@role_required('admin', 'manager', 'general')
+def upload():
+    """은행 거래내역 엑셀 업로드"""
+    db = current_app.db
+
+    if request.method == 'GET':
+        accounts = db.query_bank_accounts()
+        from services.bank_excel_service import MANUAL_BANK_LIST
+        return render_template('bank/upload.html',
+                               accounts=accounts,
+                               bank_list=MANUAL_BANK_LIST)
+
+    # POST: 엑셀 업로드 처리
+    account_id = request.form.get('account_id')
+    excel_file = request.files.get('excel_file')
+    auto_match = request.form.get('auto_match')
+
+    if not account_id or not excel_file:
+        flash('계좌와 엑셀 파일을 선택하세요.', 'danger')
+        return redirect(url_for('bank.upload'))
+
+    # 계좌 정보 확인
+    account = db.query_bank_account_by_id(int(account_id))
+    if not account:
+        flash('유효하지 않은 계좌입니다.', 'danger')
+        return redirect(url_for('bank.upload'))
+
+    # 엑셀 파싱
+    from services.bank_excel_service import parse_bank_excel, save_transactions
+    result = parse_bank_excel(
+        excel_file, bank_code=account.get('bank_code', '004'),
+        filename=excel_file.filename)
+
+    if result['errors']:
+        for err in result['errors']:
+            flash(err, 'danger')
+        return redirect(url_for('bank.upload'))
+
+    if not result['transactions']:
+        flash('파싱할 거래내역이 없습니다.', 'warning')
+        return redirect(url_for('bank.upload'))
+
+    # DB 저장
+    save_result = save_transactions(db, int(account_id), result['transactions'])
+
+    summary = result['summary']
+    _log_action('bank_excel_upload',
+                detail=f'{account.get("bank_name","")} {account.get("account_number","")}: '
+                       f'총 {summary["total"]}건 (입금 {summary["deposits"]}, 출금 {summary["withdrawals"]}), '
+                       f'신규 {save_result["new_count"]}건, 중복스킵 {save_result["skipped_count"]}건')
+
+    flash(f'업로드 완료: 신규 {save_result["new_count"]}건 저장 '
+          f'(중복 스킵 {save_result["skipped_count"]}건, '
+          f'입금 {summary["deposits"]}건, 출금 {summary["withdrawals"]}건)',
+          'success')
+
+    # 자동매칭 실행
+    if auto_match and save_result['new_count'] > 0:
+        from services.matching_service import (
+            auto_match_invoices, auto_match_settlements, auto_match_payables,
+            confirm_match, confirm_settlement_match, confirm_payable_match,
+        )
+
+        total_matched = 0
+
+        # 매출-입금 매칭
+        try:
+            inv_result = auto_match_invoices(db)
+            for c in inv_result.get('candidates', []):
+                try:
+                    confirm_match(db, c['invoice_id'], c['transaction_id'],
+                                  matched_by='excel_auto')
+                    total_matched += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            flash(f'매출-입금 매칭 오류: {e}', 'warning')
+
+        # 정산-입금 매칭
+        try:
+            stl_result = auto_match_settlements(db)
+            for c in stl_result.get('candidates', []):
+                try:
+                    confirm_settlement_match(db, c['settlement_id'], c['transaction_id'],
+                                             matched_by='excel_auto')
+                    total_matched += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            flash(f'정산-입금 매칭 오류: {e}', 'warning')
+
+        # 매입-출금 매칭
+        try:
+            pay_result = auto_match_payables(db)
+            for c in pay_result.get('candidates', []):
+                try:
+                    confirm_payable_match(db, c['invoice_id'], c['transaction_id'],
+                                          matched_by='excel_auto')
+                    total_matched += 1
+                except Exception:
+                    pass
+        except Exception as e:
+            flash(f'매입-출금 매칭 오류: {e}', 'warning')
+
+        if total_matched > 0:
+            flash(f'자동매칭: {total_matched}건 매칭 완료', 'info')
+
+    return redirect(url_for('bank.transactions'))

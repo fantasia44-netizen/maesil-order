@@ -163,14 +163,35 @@ def payables():
     date_from = request.args.get('date_from', days_ago_kst(90))
     date_to = request.args.get('date_to', today_kst())
 
-    items = get_payables(current_app.db, date_from=date_from, date_to=date_to)
+    db = current_app.db
+    items = get_payables(db, date_from=date_from, date_to=date_to)
     total_unpaid = sum(p['unpaid_amount'] for p in items)
     total_paid = sum(p['paid_amount'] for p in items)
+
+    # 수동 매칭용 데이터: 미매칭 매입 세금계산서 + 미매칭 출금
+    unmatched_invoices = db.query_tax_invoices(
+        direction='purchase', unmatched_only=True,
+        date_from=date_from, date_to=date_to,
+    )
+    unmatched_withdrawals = db.query_bank_transactions(
+        transaction_type='출금', unmatched_only=True,
+        date_from=date_from, date_to=date_to,
+    )
+    # 매입-출금 매칭 이력 (매입 세금계산서 ID가 있는 것만)
+    all_matches = db.query_payment_matches(date_from=date_from, date_to=date_to)
+    purchase_inv_ids = {inv['id'] for inv in db.query_tax_invoices(direction='purchase',
+                        date_from=date_from, date_to=date_to)}
+    payable_matches = [m for m in all_matches
+                       if m.get('tax_invoice_id') in purchase_inv_ids
+                       and m.get('bank_transaction_id')]
 
     return render_template('accounting/payables.html',
                            payables=items,
                            total_unpaid=total_unpaid,
                            total_paid=total_paid,
+                           unmatched_invoices=unmatched_invoices,
+                           unmatched_withdrawals=unmatched_withdrawals,
+                           payable_matches=payable_matches,
                            date_from=date_from,
                            date_to=date_to)
 
@@ -196,6 +217,44 @@ def auto_match_payables():
 
     return redirect(url_for('accounting.payables',
                             date_from=date_from, date_to=date_to))
+
+
+@accounting_bp.route('/payables/manual-match', methods=['POST'])
+@role_required('admin', 'manager', 'general')
+def manual_match_payable():
+    """미지급금 수동 매칭 (매입 세금계산서 ↔ 은행 출금)"""
+    from services.matching_service import confirm_payable_match
+    invoice_id = request.form.get('invoice_id', type=int)
+    transaction_id = request.form.get('transaction_id', type=int)
+
+    if not invoice_id or not transaction_id:
+        flash('세금계산서와 출금 내역을 모두 선택하세요.', 'danger')
+        return redirect(url_for('accounting.payables'))
+
+    try:
+        confirm_payable_match(current_app.db, invoice_id, transaction_id,
+                              matched_by=current_user.username)
+        _log_action('manual_match_payable',
+                    detail=f'매입 세금계산서 {invoice_id} ↔ 출금 {transaction_id}')
+        flash('수동 지급 매칭 완료', 'success')
+    except Exception as e:
+        flash(f'매칭 오류: {e}', 'danger')
+
+    return redirect(url_for('accounting.payables'))
+
+
+@accounting_bp.route('/payables/unmatch/<int:match_id>', methods=['POST'])
+@role_required('admin', 'manager')
+def unmatch_payable(match_id):
+    """미지급금 매칭 해제"""
+    from services.matching_service import unmatch
+    try:
+        unmatch(current_app.db, match_id)
+        _log_action('unmatch_payable', detail=f'매칭 {match_id} 해제')
+        flash('매칭이 해제되었습니다.', 'success')
+    except Exception as e:
+        flash(f'매칭 해제 오류: {e}', 'danger')
+    return redirect(url_for('accounting.payables'))
 
 
 @accounting_bp.route('/settlements')
