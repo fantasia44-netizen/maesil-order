@@ -859,9 +859,10 @@ def _parse_naver_settlement(file_bytes, channel):
 def _parse_coupang_wing_settlement(file_bytes):
     """쿠팡Wing 정산내역 (MSF_PAYMENT_REVENUE_DETAIL.xlsx) 파싱.
     Row 1 헤더: 주문번호[1],...,판매액[10],판매자할인쿠폰[11],...,판매수수료[14],...,정산금액[18],...,정산예정일[25]
-    값이 문자열이므로 int 변환 필요. 정산예정일 기준 월별 집계.
+    값이 문자열이므로 int 변환 필요. 주문일(결제일) 기준 월별 집계.
     """
     import openpyxl, io
+    from datetime import datetime as _dt
     from collections import defaultdict
 
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
@@ -875,7 +876,18 @@ def _parse_coupang_wing_settlement(file_bytes):
         except (ValueError, TypeError):
             return 0
 
-    # 월별 집계
+    # 헤더에서 주문일/결제일 컬럼 찾기 (fallback: 정산예정일[25])
+    date_col = 25
+    for c in range(1, min(ws.max_column + 1, 30)):
+        h = str(ws.cell(1, c).value or '').strip()
+        if '주문' in h and '일' in h:
+            date_col = c
+            break
+        if h in ('결제일', '결제일자', '결제확인일'):
+            date_col = c
+            break
+
+    # 월별 집계 (주문일/결제일 기준)
     monthly = defaultdict(lambda: {'sales': 0, 'fee': 0, 'coupon': 0, 'settle': 0, 'cnt': 0})
     for r in range(2, ws.max_row + 1):
         sales = to_int(ws.cell(r, 10).value)  # 판매액
@@ -884,9 +896,13 @@ def _parse_coupang_wing_settlement(file_bytes):
         coupon = to_int(ws.cell(r, 11).value)     # 판매자 할인쿠폰(A+B)
         fee = to_int(ws.cell(r, 14).value)         # 판매수수료
         settle = to_int(ws.cell(r, 18).value)      # 정산금액
-        settle_date = str(ws.cell(r, 25).value or '')[:10]  # 정산예정일
+        date_val = ws.cell(r, date_col).value
+        if isinstance(date_val, _dt):
+            order_date = date_val.strftime('%Y-%m-%d')
+        else:
+            order_date = str(date_val or '')[:10]
 
-        month_key = settle_date[:7] if len(settle_date) >= 7 else 'unknown'
+        month_key = order_date[:7] if len(order_date) >= 7 else 'unknown'
         m = monthly[month_key]
         m['sales'] += sales
         m['fee'] += fee
@@ -931,17 +947,20 @@ def _parse_11st_settlement(file_bytes):
     """11번가 정산확정건 (.xls) 파싱.
     헤더 Row5(0-indexed): ...,정산금액[17],판매금액합계[18],...,공제금액합계[20],...
     서비스이용료(상품)[39],제휴마케팅(상품)[40],할인쿠폰이용료[43],후불광고비[53]
+    주문일/결제일 기준 월별 집계.
     """
     import xlrd, io, re
+    from collections import defaultdict
 
     wb = xlrd.open_workbook(file_contents=file_bytes)
     ws = wb.sheet_by_index(0)
 
-    # 제목에서 기간 추출
+    # 제목에서 기간 추출 (fallback용)
     title = str(ws.cell_value(1, 0)) if ws.nrows > 1 else ''
-    # 정산_확정건_ (2026/02/01~2026/02/28) → 2026-02
     match = re.search(r'(\d{4})/(\d{2})/\d{2}~\d{4}/(\d{2})/\d{2}', title)
-    month_key = f'{match.group(1)}-{match.group(2)}' if match else 'unknown'
+    fallback_month = f'{match.group(1)}-{match.group(2)}' if match else 'unknown'
+
+    ncols = ws.ncols
 
     def to_int(v):
         try:
@@ -949,50 +968,83 @@ def _parse_11st_settlement(file_bytes):
         except (ValueError, TypeError):
             return 0
 
-    total_sales = 0
-    total_fee = 0
-    total_coupon = 0
-    total_ad = 0
-    total_settle = 0
-    cnt = 0
+    def _safe(r, c):
+        return to_int(ws.cell_value(r, c)) if c < ncols else 0
+
+    # 헤더(Row 5, 0-indexed)에서 주문일/결제일 컬럼 찾기
+    date_col = None
+    if ws.nrows > 5:
+        for c in range(ncols):
+            h = str(ws.cell_value(5, c)).strip()
+            if '주문일' in h:
+                date_col = c
+                break
+            if '결제일' in h or '결제확인' in h:
+                date_col = c
+                break
+
+    monthly = defaultdict(lambda: {
+        'sales': 0, 'fee': 0, 'coupon': 0, 'ad': 0, 'settle': 0, 'cnt': 0,
+    })
 
     for r in range(6, ws.nrows):
         no = ws.cell_value(r, 0)
         if not no:
             continue
-        cnt += 1
-        total_sales += to_int(ws.cell_value(r, 18))    # 판매금액합계
-        total_settle += to_int(ws.cell_value(r, 17))    # 정산금액
-        # 수수료 = 서비스이용료(상품+배송) + 제휴마케팅(상품+배송)
-        total_fee += (to_int(ws.cell_value(r, 39)) + to_int(ws.cell_value(r, 40))
-                      + to_int(ws.cell_value(r, 41)) + to_int(ws.cell_value(r, 42)))
-        total_coupon += to_int(ws.cell_value(r, 43))    # 할인쿠폰이용료
-        total_ad += to_int(ws.cell_value(r, 53))         # 후불광고비
+
+        try:
+            # 날짜 결정: 주문일/결제일 컬럼 → fallback: 제목 월
+            if date_col is not None and date_col < ncols:
+                if ws.cell_type(r, date_col) == xlrd.XL_CELL_DATE:
+                    dt = xlrd.xldate_as_tuple(ws.cell_value(r, date_col), wb.datemode)
+                    raw_date = f'{dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d}'
+                else:
+                    raw_date = str(ws.cell_value(r, date_col)).strip()[:10]
+                    raw_date = raw_date.replace('/', '-')
+                month_key = raw_date[:7] if len(raw_date) >= 7 else fallback_month
+            else:
+                month_key = fallback_month
+
+            m = monthly[month_key]
+            m['cnt'] += 1
+            m['sales'] += _safe(r, 18)    # 판매금액합계
+            m['settle'] += _safe(r, 17)    # 정산금액
+            m['fee'] += (_safe(r, 39) + _safe(r, 40)
+                         + _safe(r, 41) + _safe(r, 42))
+            m['coupon'] += _safe(r, 43)    # 할인쿠폰이용료
+            m['ad'] += _safe(r, 53)         # 후불광고비
+        except Exception:
+            continue  # 개별 행 오류 무시
 
     settlements = []
-    if cnt > 0 and month_key != 'unknown':
+    summaries = []
+    for mk in sorted(monthly):
+        m = monthly[mk]
+        if mk == 'unknown' or m['cnt'] == 0:
+            continue
         settlements.append({
             'channel': '11번가',
-            'settlement_date': f'{month_key}-01',
-            'settlement_id': f'11settle_{month_key}',
-            'gross_sales': total_sales,
-            'total_commission': total_fee,
+            'settlement_date': f'{mk}-01',
+            'settlement_id': f'11settle_{mk}',
+            'gross_sales': m['sales'],
+            'total_commission': m['fee'],
             'shipping_fee_income': 0,
             'shipping_fee_cost': 0,
-            'coupon_discount': total_coupon,
+            'coupon_discount': m['coupon'],
             'point_discount': 0,
-            'other_deductions': total_ad,
-            'net_settlement': total_settle,
+            'other_deductions': m['ad'],
+            'net_settlement': m['settle'],
             'fee_breakdown': {
                 'source': '11st_settlement',
-                'order_count': cnt,
-                'ad_cost': total_ad,
+                'order_count': m['cnt'],
+                'ad_cost': m['ad'],
             },
         })
+        summaries.append(f'{mk} {m["cnt"]}건: {m["sales"]:,}원→{m["settle"]:,}원')
 
     return {
         'settlements': settlements,
-        'summary': f'{month_key} {cnt}건, 매출 {total_sales:,}원 → 정산 {total_settle:,}원',
+        'summary': ', '.join(summaries) if summaries else f'{fallback_month} 데이터 없음',
     }
 
 
@@ -1047,46 +1099,66 @@ def _parse_toss_settlement(file_bytes):
 
 def _parse_oasis_settlement(file_bytes):
     """오아시스 매출정산내역.xlsx 파싱.
-    Row1=정산월, Row5 헤더: 주문번호,주문일,...,판매금액[8],배송비[9],합계금액[10]
-    수수료 8% 고정 (판매+배송 합계 기준).
+    Row1=정산월, Row5 헤더: 주문번호[1],주문일[2],...,판매금액[8],배송비[9],합계금액[10]
+    수수료 8% 고정 (판매+배송 합계 기준). 주문일 기준 월별 집계.
     """
     import openpyxl, io
+    from datetime import datetime as _dt
+    from collections import defaultdict
 
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     ws = wb[wb.sheetnames[0]]
 
-    # 메타: Row1 = 정산월 (예: 2026-02)
-    month_raw = str(ws.cell(1, 2).value or '').strip()  # 2026-02
-    month_key = month_raw[:7] if len(month_raw) >= 7 else 'unknown'
+    # 메타: Row1 = 정산월 (fallback용)
+    month_raw = str(ws.cell(1, 2).value or '').strip()
+    fallback_month = month_raw[:7] if len(month_raw) >= 7 else 'unknown'
 
-    total_sales = 0
-    total_ship = 0
-    cnt = 0
+    # 헤더(Row 5)에서 주문일 컬럼 찾기 (기본: column 2)
+    date_col = 2
+    for c in range(1, min(ws.max_column + 1, 15)):
+        h = str(ws.cell(5, c).value or '').strip()
+        if '주문일' in h:
+            date_col = c
+            break
+
+    monthly = defaultdict(lambda: {'sales': 0, 'ship': 0, 'cnt': 0})
 
     for r in range(6, ws.max_row + 1):
         sales = ws.cell(r, 8).value   # 판매금액
         ship = ws.cell(r, 9).value    # 배송비
         if not sales:
             continue
-        cnt += 1
-        total_sales += int(float(sales))
-        total_ship += int(float(ship or 0))
+
+        date_val = ws.cell(r, date_col).value
+        if isinstance(date_val, _dt):
+            order_date = date_val.strftime('%Y-%m-%d')
+        else:
+            order_date = str(date_val or '').strip()[:10]
+        month_key = order_date[:7] if len(order_date) >= 7 else fallback_month
+
+        m = monthly[month_key]
+        m['sales'] += int(float(sales))
+        m['ship'] += int(float(ship or 0))
+        m['cnt'] += 1
 
     wb.close()
 
-    gross = total_sales + total_ship  # 판매+배송 합계
-    commission = int(gross * 0.08)     # 8% 고정 수수료
-    net = gross - commission
-
     settlements = []
-    if cnt > 0 and month_key != 'unknown':
+    summaries = []
+    for mk in sorted(monthly):
+        m = monthly[mk]
+        if mk == 'unknown' or m['cnt'] == 0:
+            continue
+        gross = m['sales'] + m['ship']
+        commission = int(gross * 0.08)
+        net = gross - commission
         settlements.append({
             'channel': '오아시스',
-            'settlement_date': f'{month_key}-01',
-            'settlement_id': f'osettle_{month_key}',
+            'settlement_date': f'{mk}-01',
+            'settlement_id': f'osettle_{mk}',
             'gross_sales': gross,
             'total_commission': commission,
-            'shipping_fee_income': total_ship,
+            'shipping_fee_income': m['ship'],
             'shipping_fee_cost': 0,
             'coupon_discount': 0,
             'point_discount': 0,
@@ -1094,16 +1166,17 @@ def _parse_oasis_settlement(file_bytes):
             'net_settlement': net,
             'fee_breakdown': {
                 'source': 'oasis_settlement',
-                'sales_only': total_sales,
-                'shipping': total_ship,
+                'sales_only': m['sales'],
+                'shipping': m['ship'],
                 'commission_rate': 0.08,
-                'order_count': cnt,
+                'order_count': m['cnt'],
             },
         })
+        summaries.append(f'{mk} {m["cnt"]}건: {gross:,}원-{commission:,}원={net:,}원')
 
     return {
         'settlements': settlements,
-        'summary': f'{month_key} {cnt}건, 합계 {gross:,}원 - 수수료(8%) {commission:,}원 = {net:,}원',
+        'summary': ', '.join(summaries) if summaries else f'{fallback_month} 데이터 없음',
     }
 
 
@@ -1111,9 +1184,11 @@ def _parse_auction_settlement(file_bytes, channel):
     """옥션/지마켓 정산서 파싱.
     상품판매 파일: Row0 헤더(47컬럼) - 결제금액[22], 서비스이용료[30], 최종정산금[27]
     배송비 파일: Row0 헤더(14컬럼) - 배송비[10], 배송수수료[11], 배송비정산액[12]
-    파일 유형은 컬럼 수로 자동 판별.
+    파일 유형은 컬럼 수로 자동 판별. 주문일/결제일 기준 월별 집계.
     """
     import io, xlrd
+    from collections import defaultdict
+
     wb = xlrd.open_workbook(file_contents=file_bytes)
     ws = wb.sheet_by_index(0)
 
@@ -1122,58 +1197,97 @@ def _parse_auction_settlement(file_bytes, channel):
 
     prefix = 'auction_' if channel == '옥션' else 'gmarket_'
     is_shipping = ws.ncols < 20  # 배송비 파일은 14컬럼
+    ncols = ws.ncols
 
-    total_sales = 0
-    total_commission = 0
-    total_settlement = 0
-    cnt = 0
-    month_set = set()
+    def _safe_val(r, c):
+        """컬럼 범위 초과 시 0 반환."""
+        if c >= ncols:
+            return 0
+        v = ws.cell_value(r, c)
+        try:
+            return int(float(v or 0))
+        except (ValueError, TypeError):
+            return 0
+
+    # 헤더(Row 0)에서 주문일/결제일 컬럼 찾기
+    date_col = None
+    for c in range(ncols):
+        h = str(ws.cell_value(0, c)).strip()
+        if '주문일' in h or '주문날짜' in h:
+            date_col = c
+            break
+        if '결제일' in h or '결제날짜' in h or '결제확인' in h:
+            date_col = c
+            break
+    # fallback: 기존 정산완료일 컬럼 (범위 초과 방지)
+    if date_col is None:
+        fallback = 9 if is_shipping else 15
+        date_col = fallback if fallback < ncols else 0
+
+    monthly = defaultdict(lambda: {'sales': 0, 'comm': 0, 'settle': 0, 'cnt': 0})
 
     for r in range(1, ws.nrows):
-        if is_shipping:
-            sales = int(float(ws.cell_value(r, 10) or 0))    # 배송비
-            comm = int(float(ws.cell_value(r, 11) or 0))      # 배송수수료
-            settle = int(float(ws.cell_value(r, 12) or 0))    # 배송비정산액
-            date_val = str(ws.cell_value(r, 9))[:10]           # 정산완료일
-        else:
-            sales = int(float(ws.cell_value(r, 22) or 0))     # 결제금액
-            comm = int(float(ws.cell_value(r, 30) or 0))      # 서비스이용료
-            settle = int(float(ws.cell_value(r, 27) or 0))    # 최종정산금
-            date_val = str(ws.cell_value(r, 15))[:10]          # 정산완료일
+        try:
+            if is_shipping:
+                sales = _safe_val(r, 10)    # 배송비
+                comm = _safe_val(r, 11)      # 배송수수료
+                settle = _safe_val(r, 12)    # 배송비정산액
+            else:
+                sales = _safe_val(r, 22)     # 결제금액
+                comm = _safe_val(r, 30)      # 서비스이용료
+                settle = _safe_val(r, 27)    # 최종정산금
 
-        total_sales += sales
-        total_commission += comm
-        total_settlement += settle
-        cnt += 1
-        if date_val and len(date_val) >= 7:
-            month_set.add(date_val[:7])
+            # 날짜 처리 (xlrd 날짜 or 문자열)
+            if date_col < ncols and ws.cell_type(r, date_col) == xlrd.XL_CELL_DATE:
+                dt = xlrd.xldate_as_tuple(ws.cell_value(r, date_col), wb.datemode)
+                raw_date = f'{dt[0]:04d}-{dt[1]:02d}-{dt[2]:02d}'
+            elif date_col < ncols:
+                raw_date = str(ws.cell_value(r, date_col)).strip()[:10]
+                raw_date = raw_date.replace('/', '-')
+            else:
+                raw_date = ''
 
-    if not month_set:
-        raise ValueError('날짜를 파싱할 수 없습니다')
+            month_key = raw_date[:7] if len(raw_date) >= 7 else 'unknown'
+            m = monthly[month_key]
+            m['sales'] += sales
+            m['comm'] += comm
+            m['settle'] += settle
+            m['cnt'] += 1
+        except Exception:
+            continue  # 개별 행 오류 무시
 
-    month_key = sorted(month_set)[0]
     file_type = 'ship' if is_shipping else 'sales'
-    settle_id = f'{prefix}{file_type}_{month_key}'
 
-    settlements = [{
-        'channel': channel,
-        'settlement_date': f'{month_key}-01',
-        'settlement_id': settle_id,
-        'gross_sales': total_sales,
-        'total_commission': abs(total_commission),
-        'coupon_discount': 0,
-        'other_deductions': 0,
-        'net_settlement': total_settlement,
-        'fee_breakdown': {
-            'source': f'{channel.lower()}_settlement',
-            'file_type': file_type,
-            'order_count': cnt,
-        },
-    }]
+    settlements = []
+    summaries = []
+    for mk in sorted(monthly):
+        m = monthly[mk]
+        if mk == 'unknown' or m['cnt'] == 0:
+            continue
+        settle_id = f'{prefix}{file_type}_{mk}'
+        settlements.append({
+            'channel': channel,
+            'settlement_date': f'{mk}-01',
+            'settlement_id': settle_id,
+            'gross_sales': m['sales'],
+            'total_commission': abs(m['comm']),
+            'coupon_discount': 0,
+            'other_deductions': 0,
+            'net_settlement': m['settle'],
+            'fee_breakdown': {
+                'source': f'{channel.lower()}_settlement',
+                'file_type': file_type,
+                'order_count': m['cnt'],
+            },
+        })
+        summaries.append(f'{mk} {m["cnt"]}건: {m["sales"]:,}원→{m["settle"]:,}원')
+
+    if not settlements:
+        raise ValueError('날짜를 파싱할 수 없습니다')
 
     return {
         'settlements': settlements,
-        'summary': f'{channel} {file_type} {month_key} {cnt}건, 매출 {total_sales:,}원, 정산 {total_settlement:,}원',
+        'summary': f'{channel} {file_type} ' + ', '.join(summaries),
     }
 
 
