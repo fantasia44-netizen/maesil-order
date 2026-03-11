@@ -268,13 +268,19 @@ def _calc_revenue_v2(db, date_from, date_to, data):
         online_by_channel[ch] += gross
 
     # 거래처 매출 (매출 세금계산서)
+    # 온라인 플랫폼 거래처는 정산서에 이미 포함 → 제외 (이중 계산 방지)
+    _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}   # 로켓그로스 = 쿠팡 매입
     b2b_total = 0
     b2b_by_vendor = defaultdict(int)
+    b2b_excluded = defaultdict(int)   # 제외된 플랫폼 매출 (참고용)
     for inv in tax_sales:
         if inv.get('status') == 'cancelled':
             continue
         amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
         vendor = (inv.get('buyer_corp_name') or inv.get('vendor_name') or '기타')
+        if vendor in _PLATFORM_BUYERS:
+            b2b_excluded[vendor] += amt
+            continue
         b2b_total += amt
         b2b_by_vendor[vendor] += amt
 
@@ -495,12 +501,15 @@ def calculate_channel_pnl(db, year_month):
                 ch_data[ch]['revenue'] += int(s.get('gross_sales') or 0)
                 ch_data[ch]['commission'] += int(s.get('total_commission') or 0)
 
-        # 거래처 매출 (세금계산서) 추가
+        # 거래처 매출 (세금계산서) 추가 — 플랫폼 거래처 제외
+        _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}
         for inv in data['tax_sales']:
             if inv.get('status') == 'cancelled':
                 continue
-            amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
             vendor = inv.get('buyer_corp_name') or inv.get('vendor_name') or '거래처'
+            if vendor in _PLATFORM_BUYERS:
+                continue
+            amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
             ch_data[f'거래처({vendor})']['revenue'] += amt
 
         channels = []
