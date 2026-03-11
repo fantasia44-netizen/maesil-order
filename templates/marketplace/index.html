@@ -38,7 +38,7 @@
             <div class="card channel-card {{ 'active' if is_active else 'inactive' }}">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
-                        {% if ch.channel == '스마트스토어' %}
+                        {% if ch.channel in ('스마트스토어', '해미애찬') %}
                             <i class="bi bi-shop channel-icon text-success"></i>
                         {% elif ch.channel == '쿠팡' %}
                             <i class="bi bi-cart4 channel-icon text-primary"></i>

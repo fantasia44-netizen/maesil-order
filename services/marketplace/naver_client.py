@@ -313,7 +313,7 @@ class NaverCommerceClient(MarketplaceBaseClient):
         total_commission = payment_comm + sale_comm + knowledge_comm + channel_comm
 
         return {
-            'channel': self.CHANNEL_NAME,
+            'channel': self.channel_name,
             'api_order_id': str(order_info.get('orderId', '')),
             'api_line_id': str(po.get('productOrderId', '')),
             'order_date': str(order_info.get('orderDate', ''))[:10],
@@ -342,7 +342,7 @@ class NaverCommerceClient(MarketplaceBaseClient):
     def _normalize_settlement(self, raw: dict) -> dict:
         """정산 API 응답 → api_settlements 스키마."""
         return {
-            'channel': self.CHANNEL_NAME,
+            'channel': self.channel_name,
             'settlement_date': str(raw.get('settleDate', raw.get('settlementDate', '')))[:10],
             'settlement_id': str(raw.get('settlementId', '')),
             'gross_sales': int(raw.get('totalSalesAmount', raw.get('grossSales', 0))),

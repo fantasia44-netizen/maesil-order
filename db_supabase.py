@@ -4237,29 +4237,43 @@ class SupabaseDB(DBBase):
         all_rows = []
         page_size = 1000
         offset = 0
-        try:
-            while offset < limit:
-                q = self.client.table("api_orders") \
-                    .select("*").order("order_date", desc=True) \
-                    .range(offset, offset + page_size - 1)
-                if channel:
-                    q = q.eq("channel", channel)
-                if date_from:
-                    q = q.gte("order_date", date_from)
-                if date_to:
-                    q = q.lte("order_date", date_to)
-                if match_status:
-                    q = q.eq("match_status", match_status)
-                res = q.execute()
-                rows = res.data or []
-                all_rows.extend(rows)
-                if len(rows) < page_size:
-                    break
-                offset += page_size
-            return all_rows
-        except Exception as e:
-            print(f"[DB] query_api_orders error: {e}")
-            return all_rows
+        max_retries = 3
+
+        while offset < limit:
+            rows = None
+            for attempt in range(max_retries):
+                try:
+                    q = self.client.table("api_orders") \
+                        .select("*").order("order_date", desc=True) \
+                        .range(offset, offset + page_size - 1)
+                    if channel:
+                        q = q.eq("channel", channel)
+                    if date_from:
+                        q = q.gte("order_date", date_from)
+                    if date_to:
+                        q = q.lte("order_date", date_to)
+                    if match_status:
+                        q = q.eq("match_status", match_status)
+                    res = q.execute()
+                    rows = res.data or []
+                    break  # 성공
+                except Exception as e:
+                    print(f"[DB] query_api_orders page {offset//page_size} "
+                          f"attempt {attempt+1}/{max_retries} error: {e}")
+                    if self._is_connection_error(e) and attempt < max_retries - 1:
+                        self._reconnect()
+                    elif attempt >= max_retries - 1:
+                        print(f"[DB] query_api_orders 페이지 {offset//page_size} "
+                              f"최종 실패, 현재까지 {len(all_rows)}건 반환")
+
+            if rows is None:
+                break  # 재시도 모두 실패
+            all_rows.extend(rows)
+            if len(rows) < page_size:
+                break
+            offset += page_size
+
+        return all_rows
 
     def update_api_order_match(self, api_order_id, match_data):
         """API 주문 매칭 결과 업데이트."""
@@ -4305,17 +4319,20 @@ class SupabaseDB(DBBase):
     def query_api_settlements(self, channel=None, date_from=None, date_to=None,
                               limit=1000):
         """API 정산 조회."""
-        try:
-            q = self.client.table("api_settlements") \
-                .select("*").order("settlement_date", desc=True).limit(limit)
-            if channel:
-                q = q.eq("channel", channel)
-            if date_from:
-                q = q.gte("settlement_date", date_from)
-            if date_to:
-                q = q.lte("settlement_date", date_to)
-            res = q.execute()
-            return res.data or []
-        except Exception as e:
-            print(f"[DB] query_api_settlements error: {e}")
-            return []
+        for attempt in range(3):
+            try:
+                q = self.client.table("api_settlements") \
+                    .select("*").order("settlement_date", desc=True).limit(limit)
+                if channel:
+                    q = q.eq("channel", channel)
+                if date_from:
+                    q = q.gte("settlement_date", date_from)
+                if date_to:
+                    q = q.lte("settlement_date", date_to)
+                res = q.execute()
+                return res.data or []
+            except Exception as e:
+                print(f"[DB] query_api_settlements attempt {attempt+1}/3 error: {e}")
+                if self._is_connection_error(e) and attempt < 2:
+                    self._reconnect()
+        return []

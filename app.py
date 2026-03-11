@@ -101,16 +101,16 @@ def create_app(config_class=None):
 
     @login_manager.unauthorized_handler
     def unauthorized_api():
-        """API 요청 시 JSON 반환, 일반 요청 시 로그인 페이지 리다이렉트"""
+        """API 요청 시 JSON 반환, 일반 요청 시 메인 페이지로 리다이렉트"""
         from auth import _is_api_request
         if _is_api_request():
             return jsonify({'error': '로그인이 필요합니다. 페이지를 새로고침 해주세요.'}), 401
         # 패킹센터 경로는 패킹 로그인으로
         if request.path.startswith('/packing'):
             flash('로그인이 필요합니다.', 'warning')
-            return redirect(url_for('packing.packing_login', next=request.url))
-        flash('로그인이 필요합니다.', 'warning')
-        return redirect(url_for('auth.login', next=request.url))
+            return redirect(url_for('packing.packing_login'))
+        # 세션 만료 시 메인 페이지로 이동 (에러 페이지 대신)
+        return redirect(url_for('auth.login'))
 
     # ── 보안: HTTPS 강제 (리버스프록시 환경) ──
     @app.before_request

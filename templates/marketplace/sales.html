@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}API 매출 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
-{% block page_title %}API 매출 현황{% endblock %}
+{% block title %}온라인 플랫폼 정산 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}온라인 플랫폼 정산{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -38,7 +38,7 @@
         </div>
         <div class="text-muted" style="font-size:0.8rem;">
             <i class="bi bi-info-circle"></i>
-            API 수집 데이터 기반 매출 (거래처 매출 제외)
+            정산서 업로드 + API 수집 데이터 기반 (거래처 매출 제외)
         </div>
     </div>
 
@@ -74,11 +74,43 @@
         <div class="col-lg-3 col-md-6">
             <div class="card summary-card net">
                 <div class="card-body py-2">
-                    <div class="text-muted" style="font-size:0.78rem;">순정산 (정산-광고비-차감)</div>
+                    <div class="text-muted" style="font-size:0.78rem;">순정산 (매출-수수료-광고-차감)</div>
                     <div class="fs-5 fw-bold text-success" id="totalNet">-</div>
                     <div class="text-muted" style="font-size:0.72rem;" id="netRate">-</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- 차트 영역 -->
+    <div class="row g-3 mb-4" id="chartArea" style="display:none;">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header py-2" style="font-size:0.85rem;">
+                    <i class="bi bi-bar-chart"></i> 채널별 수익 구조
+                </div>
+                <div class="card-body p-2" style="height:320px;">
+                    <canvas id="chartChannel"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header py-2" style="font-size:0.85rem;">
+                    <i class="bi bi-funnel"></i> 매출 → 실입금 흐름
+                </div>
+                <div class="card-body p-2" style="height:320px;">
+                    <canvas id="chartWaterfall"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card mb-4" id="chartDailyCard" style="display:none;">
+        <div class="card-header py-2" style="font-size:0.85rem;">
+            <i class="bi bi-graph-up"></i> 일별 매출/순정산 추이
+        </div>
+        <div class="card-body p-2" style="height:260px;">
+            <canvas id="chartDaily"></canvas>
         </div>
     </div>
 
@@ -92,6 +124,7 @@
                 <div class="spinner-border text-primary" role="status"></div>
                 <div class="mt-2 text-muted">데이터 로딩중...</div>
             </div>
+            <div class="table-responsive">
             <table class="table table-hover ch-table mb-0" id="channelTable" style="display:none;">
                 <thead class="table-light">
                     <tr>
@@ -105,38 +138,61 @@
                         <th class="num">광고비</th>
                         <th class="num">차감항목</th>
                         <th class="num">순정산</th>
+                        <th class="num">실수익율</th>
+                        <th style="text-align:center;">소스</th>
                     </tr>
                 </thead>
                 <tbody id="channelBody"></tbody>
                 <tfoot id="channelFoot"></tfoot>
             </table>
+            </div>
         </div>
     </div>
 
-    <!-- 데이터 입력 (로켓정산 + 광고비) -->
+    <!-- 정산서 업로드 -->
     <div class="row g-3 mb-4">
-        <!-- 쿠팡 로켓배송 정산 업로드 -->
         <div class="col-lg-6">
             <div class="card h-100">
                 <div class="card-header">
-                    <i class="bi bi-upload"></i> 쿠팡 로켓배송 정산 업로드
-                    <span class="badge bg-info ms-1">Supplier Hub</span>
+                    <i class="bi bi-upload"></i> 채널 정산서 업로드
                 </div>
                 <div class="card-body">
-                    <p class="text-muted" style="font-size:0.82rem;">
-                        Supplier Hub에서 다운받은 Billing Statement 엑셀을 업로드하세요.<br>
-                        작성일자별 과세/면세 구분하여 자동 집계됩니다.
+                    <p class="text-muted mb-2" style="font-size:0.82rem;">
+                        <i class="bi bi-info-circle"></i>
+                        각 채널에서 다운받은 정산서 엑셀을 업로드하세요.
                     </p>
-                    <form id="rocketForm" enctype="multipart/form-data">
+                    <form id="settlementForm" enctype="multipart/form-data" class="row g-2 align-items-end">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <div class="mb-2">
+                        <div class="col-auto">
+                            <label class="form-label" style="font-size:0.8rem;">채널</label>
+                            <select name="channel" class="form-select form-select-sm" id="settlementChannel">
+                                <option value="스마트스토어">스마트스토어(배마마)</option>
+                                <option value="해미애찬">스마트스토어(해미애찬)</option>
+                                <option value="쿠팡">쿠팡(Wing)</option>
+                                <option value="쿠팡로켓">쿠팡(로켓)</option>
+                                <option value="11번가">11번가</option>
+                                <option value="자사몰">자사몰(토스페이)</option>
+                                <option value="오아시스">오아시스</option>
+                                <option value="옥션">옥션</option>
+                                <option value="지마켓">지마켓</option>
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label class="form-label" style="font-size:0.8rem;">파일</label>
                             <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls">
                         </div>
-                        <button type="button" class="btn btn-primary btn-sm" onclick="uploadRocket()">
-                            <i class="bi bi-cloud-upload"></i> 업로드
-                        </button>
+                        <div class="col-auto">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="uploadSettlement()">
+                                <i class="bi bi-cloud-upload"></i> 업로드
+                            </button>
+                        </div>
                     </form>
-                    <div id="rocketResult" class="mt-2" style="display:none;"></div>
+                    <div id="settlementResult" class="mt-2" style="display:none;"></div>
+                    <div class="mt-2" style="font-size:0.75rem; color:#888;">
+                        네이버: SellerDailySettle.xlsx | 쿠팡Wing: MSF_PAYMENT_REVENUE_DETAIL.xlsx<br>
+                        11번가: 정산_확정건.xls | 자사몰: 정산내역_요약.xlsx | 오아시스: 매출정산내역.xlsx<br>
+                        옥션/지마켓: 상품판매_상세내역.xls + 배송비_상세내역.xls (각각 업로드)
+                    </div>
                 </div>
             </div>
         </div>
@@ -151,18 +207,38 @@
                     <div class="ad-cost-section mb-3">
                         <p class="text-muted mb-2" style="font-size:0.82rem;">
                             <i class="bi bi-info-circle"></i>
-                            쿠팡/네이버 광고비를 일자별로 입력하세요.
+                            쿠팡 광고비 / 네이버 성과형광고(AD) 비용을 입력하세요. (검색광고는 API 자동수집)
                         </p>
                         <form id="adCostForm" class="row g-2 align-items-end">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="input_mode" id="adInputMode" value="monthly">
                             <div class="col-auto">
                                 <label class="form-label" style="font-size:0.8rem;">채널</label>
                                 <select name="channel" class="form-select form-select-sm">
                                     <option value="쿠팡">쿠팡 광고비</option>
-                                    <option value="스마트스토어">네이버 광고비</option>
+                                    <option value="스마트스토어">스마트스토어 성과형광고(AD)</option>
                                 </select>
                             </div>
                             <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">기간</label>
+                                <select class="form-select form-select-sm" onchange="toggleAdDateInput(this.value)">
+                                    <option value="monthly">월별</option>
+                                    <option value="daily">일별</option>
+                                </select>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label" style="font-size:0.8rem;">유형</label>
+                                <select name="save_mode" class="form-select form-select-sm">
+                                    <option value="replace">정정 (덮어쓰기)</option>
+                                    <option value="add">추가 (합산)</option>
+                                </select>
+                            </div>
+                            <div class="col-auto" id="adMonthWrap">
+                                <label class="form-label" style="font-size:0.8rem;">월</label>
+                                <input type="month" name="month" class="form-control form-control-sm"
+                                       value="{{ month }}">
+                            </div>
+                            <div class="col-auto" id="adDateWrap" style="display:none;">
                                 <label class="form-label" style="font-size:0.8rem;">날짜</label>
                                 <input type="date" name="date" class="form-control form-control-sm">
                             </div>
@@ -306,6 +382,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const CSRF = '{{ csrf_token() }}';
 
@@ -335,6 +412,7 @@ function loadData() {
         renderDaily(data.daily);
         renderAdItems(data.ad_items);
         renderDeductions(data.deductions);
+        renderCharts(data);
 
         document.getElementById('channelLoading').style.display = 'none';
         document.getElementById('channelTable').style.display = '';
@@ -357,14 +435,18 @@ function renderSummary(t) {
     document.getElementById('adCostDetail').textContent = `매출 대비 ${adRate}%`;
 
     document.getElementById('totalNet').textContent = fmt(t.net) + '원';
-    const netRate = t.sales ? (t.net / t.sales * 100).toFixed(1) : 0;
-    document.getElementById('netRate').textContent = `매출 대비 ${netRate}%`;
+    const pr = t.profit_rate != null ? t.profit_rate : (t.sales ? (t.net / t.sales * 100).toFixed(1) : 0);
+    document.getElementById('netRate').textContent = `실수익율 ${pr}%`;
 }
 
 function renderChannels(channels, total) {
     const body = document.getElementById('channelBody');
     let html = '';
     channels.forEach(c => {
+        const srcIcon = c.source === 'settlement'
+            ? '<span class="badge bg-success" style="font-size:0.68rem;" title="정산서 기준">정산서</span>'
+            : '<span class="badge bg-outline-secondary" style="font-size:0.68rem;border:1px solid #aaa;color:#666;" title="API 추정">API</span>';
+        const pr = c.profit_rate != null ? c.profit_rate + '%' : '-';
         html += `<tr>
             <td><strong>${c.label}</strong></td>
             <td class="num">${fmt(c.orders_count)}</td>
@@ -376,11 +458,14 @@ function renderChannels(channels, total) {
             <td class="num ${c.ad_cost ? 'negative' : ''}">${c.ad_cost ? fmt(c.ad_cost) : '-'}</td>
             <td class="num ${c.deductions ? 'negative' : ''}">${c.deductions ? fmt(c.deductions) : '-'}</td>
             <td class="num fw-bold">${fmt(c.net)}</td>
+            <td class="num"><span class="badge rate-badge ${c.profit_rate >= 50 ? 'bg-success' : c.profit_rate >= 30 ? 'bg-warning text-dark' : 'bg-danger'}">${pr}</span></td>
+            <td style="text-align:center;">${srcIcon}</td>
         </tr>`;
     });
     body.innerHTML = html;
 
     const foot = document.getElementById('channelFoot');
+    const totalPr = total.profit_rate != null ? total.profit_rate + '%' : '-';
     foot.innerHTML = `<tr>
         <td><strong>합계</strong></td>
         <td class="num">${fmt(total.orders_count)}</td>
@@ -392,6 +477,8 @@ function renderChannels(channels, total) {
         <td class="num negative">${fmt(total.ad_cost)}</td>
         <td class="num negative">${total.deductions ? fmt(total.deductions) : '-'}</td>
         <td class="num fw-bold">${fmt(total.net)}</td>
+        <td class="num"><span class="badge rate-badge bg-dark">${totalPr}</span></td>
+        <td></td>
     </tr>`;
 }
 
@@ -459,11 +546,19 @@ function renderAdItems(items) {
     body.innerHTML = html;
 }
 
+function toggleAdDateInput(mode) {
+    document.getElementById('adInputMode').value = mode;
+    document.getElementById('adMonthWrap').style.display = mode === 'monthly' ? '' : 'none';
+    document.getElementById('adDateWrap').style.display = mode === 'daily' ? '' : 'none';
+}
+
 function saveAdCost() {
     const form = document.getElementById('adCostForm');
     const fd = new FormData(form);
-    if (!fd.get('date') || !fd.get('cost')) {
-        alert('날짜와 광고비를 입력하세요');
+    const mode = fd.get('input_mode');
+    const hasDate = mode === 'monthly' ? fd.get('month') : fd.get('date');
+    if (!hasDate || !fd.get('cost')) {
+        alert((mode === 'monthly' ? '월' : '날짜') + '과 광고비를 입력하세요');
         return;
     }
     fetch('/marketplace/ad-cost', {
@@ -492,32 +587,42 @@ function saveAdCost() {
     });
 }
 
-function uploadRocket() {
-    const form = document.getElementById('rocketForm');
+function uploadSettlement() {
+    const form = document.getElementById('settlementForm');
     const fd = new FormData(form);
     if (!fd.get('file') || !fd.get('file').name) {
         alert('파일을 선택하세요');
         return;
     }
-    fetch('/marketplace/rocket/upload', {
+    const channel = fd.get('channel');
+    // 쿠팡로켓은 기존 엔드포인트 사용
+    const url = channel === '쿠팡로켓'
+        ? '/marketplace/rocket/upload'
+        : '/marketplace/settlement/upload';
+
+    fetch(url, {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
     })
     .then(r => r.json())
     .then(data => {
-        const div = document.getElementById('rocketResult');
+        const div = document.getElementById('settlementResult');
         div.style.display = 'block';
         if (data.success) {
-            div.innerHTML = `<div class="alert alert-success py-1">${data.count}건 저장 (${data.date_range})</div>`;
+            const msg = data.count != null
+                ? `${channel}: ${data.count}건 저장` + (data.date_range ? ` (${data.date_range})` : '')
+                : `${channel}: 정산서 업로드 완료`;
+            div.innerHTML = `<div class="alert alert-success py-1 mb-0">${msg}</div>`;
             setTimeout(() => loadData(), 500);
         } else {
-            div.innerHTML = `<div class="alert alert-danger py-1">${data.error}</div>`;
+            div.innerHTML = `<div class="alert alert-danger py-1 mb-0">${data.error}</div>`;
         }
     })
     .catch(e => {
-        document.getElementById('rocketResult').style.display = 'block';
-        document.getElementById('rocketResult').innerHTML = `<div class="alert alert-danger py-1">오류: ${e}</div>`;
+        const div = document.getElementById('settlementResult');
+        div.style.display = 'block';
+        div.innerHTML = `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
     });
 }
 
@@ -589,6 +694,160 @@ function saveDeductions() {
         document.getElementById('deductResult').innerHTML =
             `<div class="alert alert-danger py-1 mb-0">오류: ${e}</div>`;
     });
+}
+
+// ── 차트 렌더링 ──
+let chartChannel = null, chartWaterfall = null, chartDaily = null;
+
+function fmtAxis(n) {
+    if (Math.abs(n) >= 100000000) return (n / 100000000).toFixed(1) + '억';
+    if (Math.abs(n) >= 10000) return (n / 10000).toFixed(0) + '만';
+    return n.toLocaleString();
+}
+
+const CHART_COLORS = {
+    sales: '#3498db',
+    commission: '#e74c3c',
+    ad_cost: '#f39c12',
+    deductions: '#9b59b6',
+    net: '#27ae60',
+    settlement: '#95a5a6',
+};
+
+function renderCharts(data) {
+    if (!data.channels || data.channels.length === 0) {
+        document.getElementById('chartArea').style.display = 'none';
+        document.getElementById('chartDailyCard').style.display = 'none';
+        return;
+    }
+    document.getElementById('chartArea').style.display = '';
+    document.getElementById('chartDailyCard').style.display = '';
+
+    // 차트 A: 채널별 수익 구조 (Grouped Bar)
+    if (chartChannel) chartChannel.destroy();
+    const chLabels = data.channels.map(c => c.label);
+    chartChannel = new Chart(document.getElementById('chartChannel'), {
+        type: 'bar',
+        data: {
+            labels: chLabels,
+            datasets: [
+                { label: '매출', data: data.channels.map(c => c.sales), backgroundColor: CHART_COLORS.sales },
+                { label: '수수료', data: data.channels.map(c => c.commission), backgroundColor: CHART_COLORS.commission },
+                { label: '광고비', data: data.channels.map(c => c.ad_cost || 0), backgroundColor: CHART_COLORS.ad_cost },
+                { label: '차감', data: data.channels.map(c => c.deductions || 0), backgroundColor: CHART_COLORS.deductions },
+                { label: '순정산', data: data.channels.map(c => c.net), backgroundColor: CHART_COLORS.net },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', labels: { font: { size: 11 } } },
+                tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) + '원' } },
+            },
+            scales: {
+                y: { ticks: { callback: v => fmtAxis(v) } },
+                x: { ticks: { font: { size: 10 } } },
+            },
+        },
+    });
+
+    // 차트 B: Waterfall (총매출 → -수수료 → -광고비 → -차감 → 순정산)
+    if (chartWaterfall) chartWaterfall.destroy();
+    const t = data.total;
+    const wfLabels = ['총매출', '수수료', '광고비', '차감항목', '순정산'];
+    const wfValues = [t.sales, -t.commission, -(t.ad_cost || 0), -(t.deductions || 0), t.net];
+    // Running total for waterfall effect
+    let running = 0;
+    const wfBase = [], wfBar = [], wfColors = [];
+    for (let i = 0; i < wfValues.length; i++) {
+        if (i === 0) {
+            // 총매출: 0부터 시작
+            wfBase.push(0);
+            wfBar.push(wfValues[i]);
+            wfColors.push(CHART_COLORS.sales);
+            running = wfValues[i];
+        } else if (i === wfValues.length - 1) {
+            // 순정산: 0부터 시작
+            wfBase.push(0);
+            wfBar.push(wfValues[i]);
+            wfColors.push(CHART_COLORS.net);
+        } else {
+            // 차감 항목: 떨어지는 막대
+            running += wfValues[i];
+            wfBase.push(running);
+            wfBar.push(-wfValues[i]);
+            wfColors.push(i === 1 ? CHART_COLORS.commission : i === 2 ? CHART_COLORS.ad_cost : CHART_COLORS.deductions);
+        }
+    }
+    chartWaterfall = new Chart(document.getElementById('chartWaterfall'), {
+        type: 'bar',
+        data: {
+            labels: wfLabels,
+            datasets: [
+                { label: '기준', data: wfBase, backgroundColor: 'transparent', borderWidth: 0, stack: 'wf' },
+                { label: '금액', data: wfBar, backgroundColor: wfColors, stack: 'wf' },
+            ],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            if (ctx.datasetIndex === 0) return '';
+                            return fmt(wfValues[ctx.dataIndex]) + '원';
+                        }
+                    },
+                    filter: item => item.datasetIndex === 1,
+                },
+            },
+            scales: {
+                y: { stacked: true, ticks: { callback: v => fmtAxis(v) } },
+                x: { stacked: true, ticks: { font: { size: 11 } } },
+            },
+        },
+    });
+
+    // 차트 C: 일별 추이 (Line)
+    if (chartDaily) chartDaily.destroy();
+    if (data.daily && data.daily.length > 0) {
+        const dLabels = data.daily.map(d => d.date.slice(5)); // MM-DD
+        chartDaily = new Chart(document.getElementById('chartDaily'), {
+            type: 'line',
+            data: {
+                labels: dLabels,
+                datasets: [
+                    {
+                        label: '매출', data: data.daily.map(d => d.sales),
+                        borderColor: CHART_COLORS.sales, backgroundColor: 'rgba(52,152,219,0.08)',
+                        fill: true, tension: 0.3, pointRadius: 2,
+                    },
+                    {
+                        label: '순정산', data: data.daily.map(d => d.net),
+                        borderColor: CHART_COLORS.net, backgroundColor: 'rgba(39,174,96,0.08)',
+                        fill: true, tension: 0.3, pointRadius: 2,
+                    },
+                    {
+                        label: '수수료+광고', data: data.daily.map(d => d.commission + (d.ad_cost || 0)),
+                        borderColor: CHART_COLORS.commission, borderDash: [4, 4],
+                        fill: false, tension: 0.3, pointRadius: 0,
+                    },
+                ],
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', labels: { font: { size: 11 } } },
+                    tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) + '원' } },
+                },
+                scales: {
+                    y: { ticks: { callback: v => fmtAxis(v) } },
+                    x: { ticks: { font: { size: 10 }, maxRotation: 0 } },
+                },
+            },
+        });
+    }
 }
 
 // 페이지 로드시 자동 조회

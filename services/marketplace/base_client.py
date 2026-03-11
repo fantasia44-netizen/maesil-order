@@ -61,7 +61,7 @@ class MarketplaceBaseClient(ABC):
         if response.status_code == 429:
             retry_after = int(response.headers.get('Retry-After', 5))
             retry_after = min(retry_after, 60)  # 최대 60초
-            logger.warning(f'[{self.CHANNEL_NAME}] Rate limited, waiting {retry_after}s')
+            logger.warning(f'[{self.channel_name}] Rate limited, waiting {retry_after}s')
             time.sleep(retry_after)
             return True
         return False
@@ -106,8 +106,13 @@ class MarketplaceBaseClient(ABC):
         """API 원본 응답 → api_orders 스키마 변환."""
         ...
 
+    @property
+    def channel_name(self) -> str:
+        """config에서 channel 이름 가져오기 (서브클래스에서 오버라이드 가능)."""
+        return self.config.get('channel') or self.CHANNEL_NAME
+
     def update_config(self, db, updates: dict):
         """marketplace_api_config 업데이트."""
-        updates['channel'] = self.CHANNEL_NAME
+        updates['channel'] = self.channel_name
         db.upsert_marketplace_api_config(updates)
         self.config.update(updates)

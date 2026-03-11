@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # 채널 → 클라이언트 클래스 매핑
 _CLIENT_MAP = {
     '스마트스토어': NaverCommerceClient,
+    '해미애찬': NaverCommerceClient,
     '쿠팡': CoupangWingClient,
     '자사몰': Cafe24Client,
 }
