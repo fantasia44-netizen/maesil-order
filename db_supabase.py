@@ -101,18 +101,33 @@ class SupabaseDB(DBBase):
             return payload_list
         return [{k: v for k, v in row.items() if k in self._db_cols} for row in payload_list]
 
-    def _paginate_query(self, table, query_builder):
-        """페이지네이션으로 전체 데이터 조회."""
+    def _paginate_query(self, table, query_builder, max_retries=3):
+        """페이지네이션으로 전체 데이터 조회 (페이지별 재시도)."""
         all_data = []
         offset = 0
+        page_size = 1000
         while True:
-            res = query_builder(table).range(offset, offset + 999).execute()
-            if not res.data:
+            rows = None
+            for attempt in range(max_retries):
+                try:
+                    res = query_builder(table).range(
+                        offset, offset + page_size - 1
+                    ).execute()
+                    rows = res.data or []
+                    break
+                except Exception as e:
+                    print(f"[DB] _paginate_query({table}) page {offset // page_size} "
+                          f"attempt {attempt + 1}/{max_retries} error: {e}")
+                    if self._is_connection_error(e) and attempt < max_retries - 1:
+                        self._reconnect()
+            if rows is None:
+                print(f"[DB] _paginate_query({table}) 페이지 {offset // page_size} "
+                      f"최종 실패, 현재까지 {len(all_data)}건")
                 break
-            all_data.extend(res.data)
-            if len(res.data) < 1000:
+            all_data.extend(rows)
+            if len(rows) < page_size:
                 break
-            offset += 1000
+            offset += page_size
         return all_data
 
     # --- stock_ledger CRUD ---
