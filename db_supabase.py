@@ -2169,13 +2169,17 @@ class SupabaseDB(DBBase):
         """창고별 재고 품목 수 요약 (양수 재고만)."""
         try:
             today = today_kst()
-            res = self.client.table("stock_ledger") \
-                .select("product_name,location,qty") \
-                .lte("transaction_date", today).execute()
+
+            def builder(table):
+                return self.client.table(table) \
+                    .select("product_name,location,qty") \
+                    .lte("transaction_date", today)
+
+            all_data = self._paginate_query("stock_ledger", builder)
             # 품목+창고별 합산
             _excl = exclude_products or set()
             stock = {}
-            for r in (res.data or []):
+            for r in all_data:
                 pn = r.get("product_name", "")
                 if pn in _excl:
                     continue
@@ -2197,12 +2201,16 @@ class SupabaseDB(DBBase):
         """매출 TOP N 상품 (order_transactions 기반, 최근 N일)."""
         try:
             date_from = days_ago_kst(days)
-            res = self.client.table("order_transactions") \
-                .select("product_name,qty,total_amount,settlement") \
-                .gte("order_date", date_from) \
-                .eq("status", "정상").execute()
+
+            def builder(table):
+                return self.client.table(table) \
+                    .select("product_name,qty,total_amount,settlement") \
+                    .gte("order_date", date_from) \
+                    .eq("status", "정상")
+
+            all_data = self._paginate_query("order_transactions", builder)
             products = {}
-            for r in (res.data or []):
+            for r in all_data:
                 pn = (r.get("product_name") or "").replace(' ', '').strip()
                 if not pn:
                     continue  # 상품명 없는 레코드 제외
