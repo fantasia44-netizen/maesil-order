@@ -1220,8 +1220,9 @@ def sales_data():
     date_from = f'{month}-01'
     date_to = f'{month}-{last_day:02d}'
 
-    # 1) api_orders: 주문 데이터 (네이버/쿠팡/자사몰)
-    orders = db.query_api_orders(date_from=date_from, date_to=date_to)
+    # 1) api_orders: 주문 데이터 (네이버/쿠팡/자사몰) — 필요 컬럼만 조회 (메모리 절약)
+    _sales_cols = "channel,order_date,order_status,total_amount,commission,settlement_amount,shipping_fee,fee_detail"
+    orders = db.query_api_orders(date_from=date_from, date_to=date_to, columns=_sales_cols)
 
     # 2) api_settlements: 로켓정산 + 광고비
     settlements = db.query_api_settlements(date_from=date_from, date_to=date_to)

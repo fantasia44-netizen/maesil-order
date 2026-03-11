@@ -4232,19 +4232,24 @@ class SupabaseDB(DBBase):
         return {'new': new, 'updated': updated, 'skipped': skipped}
 
     def query_api_orders(self, channel=None, date_from=None, date_to=None,
-                         match_status=None, limit=50000):
-        """API 주문 조회 (페이지네이션으로 Supabase 1000행 제한 우회)."""
+                         match_status=None, limit=50000, columns=None):
+        """API 주문 조회 (페이지네이션으로 Supabase 1000행 제한 우회).
+
+        Args:
+            columns: 조회할 컬럼 목록 (None이면 전체). 예: "channel,order_date,total_amount"
+        """
         all_rows = []
         page_size = 1000
         offset = 0
         max_retries = 3
+        select_cols = columns or "*"
 
         while offset < limit:
             rows = None
             for attempt in range(max_retries):
                 try:
                     q = self.client.table("api_orders") \
-                        .select("*").order("order_date", desc=True) \
+                        .select(select_cols).order("order_date", desc=True) \
                         .range(offset, offset + page_size - 1)
                     if channel:
                         q = q.eq("channel", channel)
