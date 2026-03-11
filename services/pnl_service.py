@@ -3,11 +3,10 @@ pnl_service.py -- 관리 손익표(P&L) 비즈니스 로직.
 매출, 매출원가(COGS), 판매관리비(SGA)를 종합하여
 월별/채널별 손익을 계산한다.
 
-데이터 소스:
-  - 매출: order_transactions + daily_revenue (query_revenue)
-  - 매출원가: actual_cost_service (실제 투입 원가) + BOM 표준원가 추정
-  - 채널비용: channel_costs (수수료율, 배송비, 포장비)
-  - 간접비: expenses 테이블
+데이터 소스 (v2):
+  - 매출: api_settlements(온라인) + tax_invoices(거래처) → 폴백: order_transactions
+  - 매출원가: tax_invoices(매입) → 폴백: actual_cost + BOM 추정
+  - 판관비: api_settlements(수수료/광고비) + expenses
 """
 import logging
 from collections import defaultdict
@@ -221,11 +220,166 @@ def _calc_sga(db, year_month, commission_total):
 
 
 # ──────────────────────────────────────────────
+#  v2: 정산서/세금계산서 기반 집계
+# ──────────────────────────────────────────────
+
+def _fetch_month_data(db, date_from, date_to, year_month):
+    """한 달치 데이터 일괄 조회 (DB 4회)."""
+    return {
+        'settlements': db.query_api_settlements(date_from=date_from, date_to=date_to) or [],
+        'tax_sales': db.query_tax_invoices(direction='sales',
+                                           date_from=date_from, date_to=date_to) or [],
+        'tax_purchases': db.query_tax_invoices(direction='purchase',
+                                               date_from=date_from, date_to=date_to) or [],
+        'expenses': db.query_expenses(month=year_month) or [],
+    }
+
+
+# 정산서 파일 prefix (marketplace.py 참조)
+_SETTLE_PREFIXES = (
+    'nsettle_', 'wsettle_', 'rocket_', '11settle_',
+    'tsettle_', 'osettle_', 'auction_', 'gmarket_',
+)
+
+
+def _calc_revenue_v2(db, date_from, date_to, data):
+    """매출 집계 v2: api_settlements(정산서 업로드분만) + tax_invoices(거래처).
+
+    api_settlements 중 정산서 prefix 항목만 집계 (API 일별 데이터와 이중 계산 방지).
+    데이터 없으면 기존 _calc_revenue()로 폴백.
+    """
+    settlements = data['settlements']
+    tax_sales = data['tax_sales']
+
+    online_total = 0
+    online_commission = 0
+    online_by_channel = defaultdict(int)
+
+    for s in settlements:
+        sid = s.get('settlement_id', '')
+        # 정산서 파일 업로드분만 집계 (API 일별 데이터 제외)
+        if not any(sid.startswith(p) for p in _SETTLE_PREFIXES):
+            continue
+        gross = int(s.get('gross_sales') or 0)
+        comm = int(s.get('total_commission') or 0)
+        ch = s.get('channel', '기타')
+        online_total += gross
+        online_commission += comm
+        online_by_channel[ch] += gross
+
+    # 거래처 매출 (매출 세금계산서)
+    b2b_total = 0
+    b2b_by_vendor = defaultdict(int)
+    for inv in tax_sales:
+        if inv.get('status') == 'cancelled':
+            continue
+        amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
+        vendor = (inv.get('buyer_corp_name') or inv.get('vendor_name') or '기타')
+        b2b_total += amt
+        b2b_by_vendor[vendor] += amt
+
+    # 데이터 없으면 기존 로직 폴백
+    if online_total == 0 and b2b_total == 0:
+        legacy = _calc_revenue(db, date_from, date_to)
+        legacy['data_source'] = 'legacy'
+        legacy['online_total'] = legacy['total']
+        legacy['b2b_total'] = 0
+        legacy['b2b_by_vendor'] = {}
+        return legacy
+
+    total = online_total + b2b_total
+    return {
+        'total': total,
+        'online_total': online_total,
+        'b2b_total': b2b_total,
+        'by_channel': dict(online_by_channel),
+        'b2b_by_vendor': dict(b2b_by_vendor),
+        'total_commission': online_commission,
+        'total_qty': 0,
+        'data_source': 'settlement',
+    }
+
+
+def _calc_cogs_v2(db, date_from, date_to, data, revenue_qty=0):
+    """매출원가 v2: 매입 세금계산서 우선, 없으면 기존 폴백."""
+    tax_purchases = data['tax_purchases']
+
+    purchase_total = 0
+    by_vendor = defaultdict(int)
+    for inv in tax_purchases:
+        if inv.get('status') == 'cancelled':
+            continue
+        amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
+        vendor = (inv.get('supplier_corp_name') or inv.get('vendor_name') or '기타')
+        purchase_total += amt
+        by_vendor[vendor] += amt
+
+    if purchase_total == 0:
+        legacy = _calc_cogs(db, date_from, date_to, revenue_qty)
+        legacy['data_source'] = 'legacy'
+        legacy['purchase_invoice_total'] = 0
+        legacy['by_vendor'] = {}
+        return legacy
+
+    return {
+        'total': purchase_total,
+        'purchase_invoice_total': purchase_total,
+        'by_vendor': dict(by_vendor),
+        'actual_cost': 0,
+        'estimated_cost': 0,
+        'data_source': 'tax_invoice',
+    }
+
+
+def _calc_sga_v2(data, commission_from_revenue):
+    """판관비 v2: expenses 테이블만 사용.
+
+    수수료/광고비는 매입 세금계산서에 포함되어 COGS에 이미 반영되므로
+    판관비에서는 제외. expenses 테이블의 인건비·임차료 등만 집계.
+    정산서 수수료/광고비는 참고용으로만 기록 (합산 안 함).
+    """
+    settlements = data['settlements']
+    expense_rows = data['expenses']
+
+    # 정산서 수수료/광고비 — 참고용으로만 기록 (판관비 합산 안 함)
+    ref_commission = round(commission_from_revenue)
+    ref_ad_cost = 0
+    ad_by_channel = defaultdict(int)
+    for s in settlements:
+        sid = s.get('settlement_id', '')
+        if sid.startswith('ad_cost_'):
+            cost = int(s.get('other_deductions') or 0)
+            ch = s.get('channel', '기타')
+            ref_ad_cost += cost
+            ad_by_channel[ch] += cost
+
+    # expenses → 카테고리별 집계 (원본 카테고리명 그대로 사용)
+    by_category = defaultdict(float)
+    for row in expense_rows:
+        cat = row.get('category', '기타')
+        amt = float(row.get('amount', 0))
+        by_category[cat] += amt
+
+    total_expenses = sum(round(v) for v in by_category.values())
+
+    sga = {
+        'total': total_expenses,
+        'by_category': {k: round(v) for k, v in by_category.items()},
+        'ad_by_channel': dict(ad_by_channel),
+        # 참고용 (UI에서 매출원가 내역 표시에 활용)
+        'ref_commission': ref_commission,
+        'ref_ad_cost': ref_ad_cost,
+    }
+
+    return sga
+
+
+# ──────────────────────────────────────────────
 #  월별 손익 계산 (메인)
 # ──────────────────────────────────────────────
 
 def calculate_monthly_pnl(db, year_month):
-    """관리 손익표 월별 계산 (메인 오케스트레이터).
+    """관리 손익표 월별 계산 (v2: 정산서/세금계산서 우선).
 
     Args:
         db: SupabaseDB instance
@@ -236,18 +390,21 @@ def calculate_monthly_pnl(db, year_month):
     """
     date_from, date_to = _month_range(year_month)
 
-    # 1. 매출
-    revenue = _calc_revenue(db, date_from, date_to)
+    # 0. 한 달치 데이터 일괄 조회
+    data = _fetch_month_data(db, date_from, date_to, year_month)
 
-    # 2. 매출원가
-    cogs = _calc_cogs(db, date_from, date_to, revenue['total_qty'])
+    # 1. 매출 (v2: 정산서 + 세금계산서)
+    revenue = _calc_revenue_v2(db, date_from, date_to, data)
+
+    # 2. 매출원가 (v2: 매입 세금계산서)
+    cogs = _calc_cogs_v2(db, date_from, date_to, data, revenue.get('total_qty', 0))
 
     # 3. 매출총이익
     gross_profit = revenue['total'] - cogs['total']
     gross_margin = _safe_pct(gross_profit, revenue['total'])
 
-    # 4. 판매관리비
-    sga = _calc_sga(db, year_month, revenue['total_commission'])
+    # 4. 판매관리비 (v2: 정산서 수수료/광고비 + expenses)
+    sga = _calc_sga_v2(data, revenue['total_commission'])
 
     # 5. 영업이익
     operating_profit = gross_profit - sga['total']
@@ -269,8 +426,11 @@ def calculate_monthly_pnl(db, year_month):
         'year_month': year_month,
         'revenue': {
             'total': revenue['total'],
-            'by_channel': revenue['by_channel'],
-            'by_category': revenue['by_category'],
+            'online_total': revenue.get('online_total', revenue['total']),
+            'b2b_total': revenue.get('b2b_total', 0),
+            'by_channel': revenue.get('by_channel', {}),
+            'b2b_by_vendor': revenue.get('b2b_by_vendor', {}),
+            'data_source': revenue.get('data_source', 'legacy'),
         },
         'cogs': cogs,
         'gross_profit': gross_profit,
@@ -283,13 +443,14 @@ def calculate_monthly_pnl(db, year_month):
 
 
 def _calc_prev_month_summary(db, prev_ym):
-    """전월 요약 (비교용). 간단 버전."""
+    """전월 요약 (비교용). v2 사용."""
     try:
         date_from, date_to = _month_range(prev_ym)
-        revenue = _calc_revenue(db, date_from, date_to)
-        cogs = _calc_cogs(db, date_from, date_to, revenue['total_qty'])
+        data = _fetch_month_data(db, date_from, date_to, prev_ym)
+        revenue = _calc_revenue_v2(db, date_from, date_to, data)
+        cogs = _calc_cogs_v2(db, date_from, date_to, data, revenue.get('total_qty', 0))
         gross_profit = revenue['total'] - cogs['total']
-        sga = _calc_sga(db, prev_ym, revenue['total_commission'])
+        sga = _calc_sga_v2(data, revenue['total_commission'])
         operating_profit = gross_profit - sga['total']
         return {
             'revenue': revenue['total'],
@@ -306,44 +467,87 @@ def _calc_prev_month_summary(db, prev_ym):
 # ──────────────────────────────────────────────
 
 def calculate_channel_pnl(db, year_month):
-    """채널별 손익 분석.
+    """채널별 손익 분석 (v2: api_settlements 우선).
 
     각 채널별로:
-      매출 - 수수료 - 배송비 - 포장비 = 채널 기여이익
-
-    Returns:
-        dict: {
-            'year_month': str,
-            'channels': [
-                {
-                    'channel': str,
-                    'revenue': int,
-                    'commission': int,
-                    'shipping': int,
-                    'packaging': int,
-                    'other_cost': int,
-                    'channel_profit': int,
-                    'profit_margin': float,
-                }
-            ],
-            'total': { ... 합계 ... }
-        }
+      매출 - 수수료 - 광고비 = 채널 기여이익
     """
+    date_from, date_to = _month_range(year_month)
+    data = _fetch_month_data(db, date_from, date_to, year_month)
+    settlements = data['settlements']
+
+    # api_settlements가 있으면 정산서 기반 (정산서 prefix만 집계)
+    settle_rows = [s for s in settlements
+                   if any(s.get('settlement_id', '').startswith(p)
+                          for p in _SETTLE_PREFIXES)]
+
+    if settle_rows or [s for s in settlements
+                       if s.get('settlement_id', '').startswith('ad_cost_')]:
+        ch_data = defaultdict(lambda: {
+            'revenue': 0, 'commission': 0, 'ad_cost': 0,
+        })
+        for s in settlements:
+            sid = s.get('settlement_id', '')
+            ch = s.get('channel', '기타')
+            if sid.startswith('ad_cost_'):
+                ch_data[ch]['ad_cost'] += int(s.get('other_deductions') or 0)
+            elif any(sid.startswith(p) for p in _SETTLE_PREFIXES):
+                ch_data[ch]['revenue'] += int(s.get('gross_sales') or 0)
+                ch_data[ch]['commission'] += int(s.get('total_commission') or 0)
+
+        # 거래처 매출 (세금계산서) 추가
+        for inv in data['tax_sales']:
+            if inv.get('status') == 'cancelled':
+                continue
+            amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
+            vendor = inv.get('buyer_corp_name') or inv.get('vendor_name') or '거래처'
+            ch_data[f'거래처({vendor})']['revenue'] += amt
+
+        channels = []
+        total_rev = total_comm = total_ad = total_profit = 0
+
+        for ch_name in sorted(ch_data.keys(), key=lambda x: -ch_data[x]['revenue']):
+            d = ch_data[ch_name]
+            rev = d['revenue']
+            comm = d['commission']
+            ad = d['ad_cost']
+            profit = rev - comm - ad
+            margin = _safe_pct(profit, rev)
+
+            channels.append({
+                'channel': ch_name,
+                'revenue': rev,
+                'commission': comm,
+                'shipping': 0, 'packaging': 0,
+                'other_cost': ad,
+                'channel_profit': profit,
+                'profit_margin': margin,
+            })
+            total_rev += rev
+            total_comm += comm
+            total_ad += ad
+            total_profit += profit
+
+        return {
+            'year_month': year_month,
+            'channels': channels,
+            'total': {
+                'revenue': total_rev,
+                'commission': total_comm,
+                'shipping': 0, 'packaging': 0,
+                'other_cost': total_ad,
+                'channel_profit': total_profit,
+                'profit_margin': _safe_pct(total_profit, total_rev),
+            },
+        }
+
+    # 폴백: 기존 order_transactions 기반
     from services.revenue_service import _resolve_channel
 
-    date_from, date_to = _month_range(year_month)
-
-    # 매출 데이터
     raw = db.query_revenue(date_from=date_from, date_to=date_to)
-
-    # 채널별 비용 설정
     channel_costs = db.query_channel_costs()
 
-    # 채널별 집계
-    ch_data = defaultdict(lambda: {
-        'revenue': 0, 'commission': 0, 'qty': 0,
-    })
-
+    ch_data = defaultdict(lambda: {'revenue': 0, 'commission': 0, 'qty': 0})
     for r in raw:
         ch = _resolve_channel(r)
         ch_data[ch]['revenue'] += r.get('revenue', 0) or 0
@@ -351,60 +555,35 @@ def calculate_channel_pnl(db, year_month):
         ch_data[ch]['qty'] += r.get('qty', 0) or 0
 
     channels = []
-    total_revenue = 0
-    total_commission = 0
-    total_shipping = 0
-    total_packaging = 0
-    total_other = 0
-    total_profit = 0
+    total_revenue = total_commission = total_shipping = 0
+    total_packaging = total_other = total_profit = 0
 
     for ch_name in sorted(ch_data.keys(), key=lambda x: -ch_data[x]['revenue']):
-        data = ch_data[ch_name]
-        rev = data['revenue']
-        comm = data['commission']
-        qty = data['qty']
-
-        # channel_costs에서 배송비/포장비 가져오기
+        d = ch_data[ch_name]
+        rev, comm, qty = d['revenue'], d['commission'], d['qty']
         cost_info = channel_costs.get(ch_name, {})
-        shipping_per_unit = float(cost_info.get('shipping', 0))
-        packaging_per_unit = float(cost_info.get('packaging', 0))
-        other_per_unit = float(cost_info.get('other_cost', 0))
-
-        shipping = round(shipping_per_unit * qty)
-        packaging = round(packaging_per_unit * qty)
-        other_cost = round(other_per_unit * qty)
-
-        channel_profit = rev - comm - shipping - packaging - other_cost
-        profit_margin = _safe_pct(channel_profit, rev)
+        shipping = round(float(cost_info.get('shipping', 0)) * qty)
+        packaging = round(float(cost_info.get('packaging', 0)) * qty)
+        other_cost = round(float(cost_info.get('other_cost', 0)) * qty)
+        profit = rev - comm - shipping - packaging - other_cost
 
         channels.append({
-            'channel': ch_name,
-            'revenue': rev,
-            'commission': comm,
-            'shipping': shipping,
-            'packaging': packaging,
-            'other_cost': other_cost,
-            'channel_profit': channel_profit,
-            'profit_margin': profit_margin,
+            'channel': ch_name, 'revenue': rev, 'commission': comm,
+            'shipping': shipping, 'packaging': packaging,
+            'other_cost': other_cost, 'channel_profit': profit,
+            'profit_margin': _safe_pct(profit, rev),
         })
-
-        total_revenue += rev
-        total_commission += comm
-        total_shipping += shipping
-        total_packaging += packaging
-        total_other += other_cost
-        total_profit += channel_profit
+        total_revenue += rev; total_commission += comm
+        total_shipping += shipping; total_packaging += packaging
+        total_other += other_cost; total_profit += profit
 
     return {
         'year_month': year_month,
         'channels': channels,
         'total': {
-            'revenue': total_revenue,
-            'commission': total_commission,
-            'shipping': total_shipping,
-            'packaging': total_packaging,
-            'other_cost': total_other,
-            'channel_profit': total_profit,
+            'revenue': total_revenue, 'commission': total_commission,
+            'shipping': total_shipping, 'packaging': total_packaging,
+            'other_cost': total_other, 'channel_profit': total_profit,
             'profit_margin': _safe_pct(total_profit, total_revenue),
         },
     }

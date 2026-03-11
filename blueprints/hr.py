@@ -326,8 +326,9 @@ def api_sync_expenses():
     try:
         result = db.sync_payroll_to_expenses(pay_month)
         _log_action('sync_payroll_to_expenses',
-                     detail=f'대상월={pay_month}, 총액={result["total_cost"]:,.0f}, '
-                            f'액션={result["action"]}')
+                     detail=f'대상월={pay_month}, 급여={result["total_cost"]:,.0f}, '
+                            f'4대보험={result.get("insurance_cost", 0):,.0f}, '
+                            f'액션={result["actions"]}')
         return jsonify({'success': True, **result})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

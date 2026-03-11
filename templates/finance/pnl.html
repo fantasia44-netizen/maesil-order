@@ -322,47 +322,99 @@ function renderPnlTable(pnl) {
 
     let html = '';
 
-    // 매출액 섹션
+    // ── I. 매출액 ──
     html += sectionRow('I. 매출액');
-    // 채널별 매출 상세
-    const byChannel = pnl.revenue.by_channel || {};
-    const sortedChannels = Object.entries(byChannel).sort((a, b) => b[1] - a[1]);
-    for (const [ch, amt] of sortedChannels) {
-        html += itemRow(ch, amt, _pct(amt, rev));
+
+    if (pnl.revenue.data_source === 'settlement') {
+        // v2: 온라인 + 거래처 분리
+        if (pnl.revenue.online_total) {
+            html += itemRow('온라인 매출', pnl.revenue.online_total, _pct(pnl.revenue.online_total, rev));
+            const byChannel = pnl.revenue.by_channel || {};
+            for (const [ch, amt] of Object.entries(byChannel).sort((a, b) => b[1] - a[1])) {
+                html += subItemRow(ch, amt, _pct(amt, rev));
+            }
+        }
+        if (pnl.revenue.b2b_total) {
+            html += itemRow('거래처 매출 (세금계산서)', pnl.revenue.b2b_total, _pct(pnl.revenue.b2b_total, rev));
+            const byVendor = pnl.revenue.b2b_by_vendor || {};
+            for (const [v, amt] of Object.entries(byVendor).sort((a, b) => b[1] - a[1]).slice(0, 5)) {
+                html += subItemRow(v, amt, _pct(amt, rev));
+            }
+        }
+    } else {
+        // 레거시: 채널별 매출
+        const byChannel = pnl.revenue.by_channel || {};
+        for (const [ch, amt] of Object.entries(byChannel).sort((a, b) => b[1] - a[1])) {
+            html += itemRow(ch, amt, _pct(amt, rev));
+        }
     }
     html += subtotalRow('매출액 합계', rev, '100.0', changeHtml(cmp.revenue_change));
 
-    // 매출원가 섹션
-    html += sectionRow('II. 매출원가');
-    html += itemRow('실제 투입 원가', pnl.cogs.actual_cost, _pct(pnl.cogs.actual_cost, rev));
-    if (pnl.cogs.estimated_cost > 0) {
-        html += itemRow('추정 원가 (BOM 기반)', pnl.cogs.estimated_cost, _pct(pnl.cogs.estimated_cost, rev));
+    // ── II. 매출원가 ──
+    html += sectionRow('II. 매출원가 (매입 세금계산서)');
+    if (pnl.cogs.data_source === 'tax_invoice') {
+        const byVendor = pnl.cogs.by_vendor || {};
+        for (const [v, amt] of Object.entries(byVendor).sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+            html += subItemRow(v, amt, _pct(amt, rev));
+        }
+        // 참고: 수수료/광고비 내역 (매입에 포함됨)
+        const refComm = pnl.sga.ref_commission || 0;
+        const refAd = pnl.sga.ref_ad_cost || 0;
+        if (refComm || refAd) {
+            html += `<tr class="pnl-item" style="font-size:0.82em; color:#999;">
+                <td style="padding-left:2.5rem !important;">
+                    <i class="bi bi-info-circle"></i> 포함: 채널수수료 ${fmtWon(refComm)} / 광고비 ${fmtWon(refAd)}
+                </td><td></td><td></td><td></td></tr>`;
+        }
+    } else {
+        if (pnl.cogs.actual_cost) html += itemRow('실제 투입 원가', pnl.cogs.actual_cost, _pct(pnl.cogs.actual_cost, rev));
+        if (pnl.cogs.estimated_cost > 0) {
+            html += itemRow('추정 원가 (BOM 기반)', pnl.cogs.estimated_cost, _pct(pnl.cogs.estimated_cost, rev));
+        }
     }
     html += subtotalRow('매출원가 합계', pnl.cogs.total, _pct(pnl.cogs.total, rev));
 
-    // 매출총이익
+    // ── III. 매출총이익 ──
     html += totalRow('III. 매출총이익', pnl.gross_profit, pnl.gross_margin, changeHtml(cmp.gross_profit_change));
 
-    // 판매관리비 섹션
+    // ── IV. 판매관리비 (세금계산서 외 비용) ──
     html += sectionRow('IV. 판매관리비');
     const sga = pnl.sga;
-    if (sga.commission) html += itemRow('채널 수수료', sga.commission, _pct(sga.commission, rev));
-    if (sga.shipping) html += itemRow('배송비', sga.shipping, _pct(sga.shipping, rev));
-    if (sga.packaging) html += itemRow('포장비', sga.packaging, _pct(sga.packaging, rev));
-    if (sga.labor) html += itemRow('인건비', sga.labor, _pct(sga.labor, rev));
-    if (sga.rent) html += itemRow('임차료', sga.rent, _pct(sga.rent, rev));
-    if (sga.utilities) html += itemRow('수도광열비', sga.utilities, _pct(sga.utilities, rev));
-    if (sga.other) html += itemRow('기타 비용', sga.other, _pct(sga.other, rev));
+    const byCat = sga.by_category || {};
+    const catEntries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    for (const [cat, amt] of catEntries) {
+        if (amt) html += itemRow(cat, amt, _pct(amt, rev));
+    }
+    if (sga.total === 0) {
+        html += `<tr class="pnl-item"><td colspan="4" class="text-muted small" style="padding-left:2rem;">
+            비용 관리 메뉴에서 인건비·임차료·보험료 등을 등록하면 반영됩니다.</td></tr>`;
+    }
     html += subtotalRow('판매관리비 합계', sga.total, _pct(sga.total, rev));
 
-    // 영업이익
+    // ── V. 영업이익 ──
     html += totalRow('V. 영업이익', pnl.operating_profit, pnl.operating_margin, changeHtml(cmp.profit_change));
+
+    // 데이터 출처 표시
+    const revSrc = pnl.revenue.data_source === 'settlement' ? '정산서' : '주문데이터';
+    const cogsSrc = pnl.cogs.data_source === 'tax_invoice' ? '세금계산서' : '생산원가';
+    html += `<tr><td colspan="4" class="text-muted small pt-2 border-0">
+        <i class="bi bi-info-circle"></i> 매출: ${revSrc} 기반 | 원가: ${cogsSrc} 기반
+    </td></tr>`;
 
     tbody.innerHTML = html;
 }
 
 function sectionRow(title) {
     return `<tr class="pnl-section-header"><td colspan="4">${title}</td></tr>`;
+}
+
+function subItemRow(label, amount, pct) {
+    return `<tr class="pnl-item" style="font-size:0.85em; color:#777;">
+        <td style="padding-left:2.5rem !important;">${label}</td>
+        <td class="text-end">${fmtWon(amount)}</td>
+        <td class="text-end">${pct}%</td>
+        <td></td>
+    </tr>`;
 }
 
 function itemRow(label, amount, pct, changeCol) {

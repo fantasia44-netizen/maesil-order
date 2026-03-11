@@ -748,7 +748,9 @@ def save_deductions():
 @marketplace_bp.route('/settlement/upload', methods=['POST'])
 @role_required('admin', 'general')
 def upload_settlement():
-    """채널별 정산서 엑셀 업로드 → api_settlements 저장. 복수 파일 지원."""
+    """채널별 정산서 엑셀 업로드 → api_settlements 저장. 복수 파일 지원.
+    월별 집계 채널(쿠팡Wing, 11번가, 오아시스)은 복수 파일을 먼저 합산 후 upsert.
+    """
     import io
     db = current_app.db
     channel = request.form.get('channel', '').strip()
@@ -759,43 +761,99 @@ def upload_settlement():
     if not files or not files[0].filename:
         return jsonify({'error': '파일을 선택하세요'}), 400
 
+    # 월별 집계 채널: 복수 파일 합산이 필요한 채널
+    MERGE_CHANNELS = ('쿠팡', '11번가', '오아시스')
+
     results = []
     errors = []
     total_count = 0
 
-    for f in files:
-        fname = f.filename
-        try:
-            file_bytes = f.read()
+    # ── 월별 집계 채널: 전체 파일 파싱 → 합산 → 한번에 upsert ──
+    if channel in MERGE_CHANNELS:
+        all_settlements = []
+        seen_orders = set()  # 쿠팡Wing: 파일 간 주문 중복 제거용
+        for f in files:
+            fname = f.filename
+            try:
+                file_bytes = f.read()
+                if channel == '쿠팡':
+                    result = _parse_coupang_wing_settlement(file_bytes, seen_orders)
+                elif channel == '11번가':
+                    result = _parse_11st_settlement(file_bytes)
+                elif channel == '오아시스':
+                    result = _parse_oasis_settlement(file_bytes)
 
-            if channel in ('스마트스토어', '해미애찬'):
-                result = _parse_naver_settlement(file_bytes, channel)
-            elif channel == '쿠팡':
-                result = _parse_coupang_wing_settlement(file_bytes)
-            elif channel == '11번가':
-                result = _parse_11st_settlement(file_bytes)
-            elif channel == '자사몰':
-                result = _parse_toss_settlement(file_bytes)
-            elif channel == '오아시스':
-                result = _parse_oasis_settlement(file_bytes)
-            elif channel in ('옥션', '지마켓'):
-                result = _parse_auction_settlement(file_bytes, channel)
-            else:
-                errors.append(f'{fname}: 지원하지 않는 채널')
-                continue
+                if not result['settlements']:
+                    errors.append(f'{fname}: 파싱된 데이터 없음')
+                    continue
+                all_settlements.extend(result['settlements'])
+                results.append(f'{fname}: {result["summary"]}')
+            except Exception as e:
+                logger.error(f'정산서 업로드 오류 ({channel}, {fname}): {e}')
+                errors.append(f'{fname}: {str(e)}')
 
-            if not result['settlements']:
-                errors.append(f'{fname}: 파싱된 데이터 없음')
-                continue
+        # settlement_id 기준 합산 (같은 월 데이터 병합)
+        if all_settlements:
+            merged = {}
+            for s in all_settlements:
+                sid = s['settlement_id']
+                if sid not in merged:
+                    merged[sid] = s.copy()
+                    # fee_breakdown 딕셔너리 복사 (원본 변형 방지)
+                    merged[sid]['fee_breakdown'] = dict(s.get('fee_breakdown') or {})
+                else:
+                    m = merged[sid]
+                    m['gross_sales'] += s.get('gross_sales', 0)
+                    m['total_commission'] += s.get('total_commission', 0)
+                    m['coupon_discount'] += s.get('coupon_discount', 0)
+                    m['other_deductions'] += s.get('other_deductions', 0)
+                    m['net_settlement'] += s.get('net_settlement', 0)
+                    m['shipping_fee_income'] += s.get('shipping_fee_income', 0)
+                    m['shipping_fee_cost'] += s.get('shipping_fee_cost', 0)
+                    m['point_discount'] += s.get('point_discount', 0)
+                    # order_count 합산
+                    fb = m.get('fee_breakdown') or {}
+                    sfb = s.get('fee_breakdown') or {}
+                    fb['order_count'] = fb.get('order_count', 0) + sfb.get('order_count', 0)
+                    m['fee_breakdown'] = fb
 
-            db.upsert_api_settlements_batch(result['settlements'])
-            _log_action(f'정산서 업로드: {channel} {result["summary"]}')
-            total_count += len(result['settlements'])
-            results.append(f'{fname}: {result["summary"]}')
+            final = list(merged.values())
+            db.upsert_api_settlements_batch(final)
+            total_count = len(final)
+            summary_parts = [f'{s["settlement_id"]}: {s["gross_sales"]:,}→{s["net_settlement"]:,}'
+                             for s in final]
+            _log_action(f'정산서 업로드: {channel} (파일{len(files)}개 합산) '
+                        + ', '.join(summary_parts))
 
-        except Exception as e:
-            logger.error(f'정산서 업로드 오류 ({channel}, {fname}): {e}')
-            errors.append(f'{fname}: {str(e)}')
+    # ── 기타 채널: 파일별 개별 upsert ──
+    else:
+        for f in files:
+            fname = f.filename
+            try:
+                file_bytes = f.read()
+
+                if channel in ('스마트스토어', '해미애찬'):
+                    result = _parse_naver_settlement(file_bytes, channel)
+                elif channel == '자사몰':
+                    result = _parse_toss_settlement(file_bytes)
+                elif channel in ('옥션', '지마켓'):
+                    result = _parse_auction_settlement(file_bytes, channel)
+                else:
+                    errors.append(f'{fname}: 지원하지 않는 채널')
+                    continue
+
+                if not result['settlements']:
+                    errors.append(f'{fname}: 파싱된 데이터 없음')
+                    continue
+
+                db.upsert_api_settlements_batch(result['settlements'])
+                _log_action(f'정산서 업로드: {channel} {result["summary"]}')
+                total_count += len(result['settlements'])
+                results.append(f'{fname}: {result["summary"]}')
+
+            except Exception as e:
+                logger.error(f'정산서 업로드 오류 ({channel}, {fname}): {e}')
+                errors.append(f'{fname}: {str(e)}')
 
     if not results and errors:
         return jsonify({'error': ' | '.join(errors)}), 400
@@ -812,9 +870,14 @@ def upload_settlement():
 @marketplace_bp.route('/settlement/history')
 @role_required('admin', 'general')
 def settlement_history():
-    """정산서 업로드 이력 조회 (최근 50건)."""
+    """정산서 업로드 이력 조회 (최근 50건, 업로드일 내림차순)."""
     db = current_app.db
-    rows = db.query_api_settlements(limit=50)
+    try:
+        res = db.client.table('api_settlements').select('*') \
+            .order('synced_at', desc=True).limit(50).execute()
+        rows = res.data or []
+    except Exception:
+        rows = db.query_api_settlements(limit=50)
     # settlement_id에서 source 정보 추출
     history = []
     for r in rows:
@@ -837,6 +900,33 @@ def settlement_history():
             'updated_at': r.get('updated_at', ''),
         })
     return jsonify(history)
+
+
+@marketplace_bp.route('/settlement/delete', methods=['POST'])
+@role_required('admin')
+def settlement_delete():
+    """정산서 데이터 삭제. settlement_id 또는 channel+settlement_id 기준."""
+    db = current_app.db
+    data = request.get_json(silent=True) or {}
+    settlement_id = data.get('settlement_id', '').strip()
+    channel = data.get('channel', '').strip()
+
+    if not settlement_id and not channel:
+        return jsonify({'error': '삭제할 항목을 지정하세요'}), 400
+
+    try:
+        q = db.client.table('api_settlements').delete()
+        if settlement_id:
+            q = q.eq('settlement_id', settlement_id)
+        if channel:
+            q = q.eq('channel', channel)
+        res = q.execute()
+        deleted = len(res.data) if res.data else 0
+        _log_action(f'정산서 삭제: ch={channel} sid={settlement_id} → {deleted}건')
+        return jsonify({'success': True, 'deleted': deleted})
+    except Exception as e:
+        logger.error(f'정산서 삭제 오류: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 def _parse_naver_settlement(file_bytes, channel):
@@ -900,14 +990,18 @@ def _parse_naver_settlement(file_bytes, channel):
     }
 
 
-def _parse_coupang_wing_settlement(file_bytes):
+def _parse_coupang_wing_settlement(file_bytes, seen_orders=None):
     """쿠팡Wing 정산내역 (MSF_PAYMENT_REVENUE_DETAIL.xlsx) 파싱.
     Row 1 헤더: 주문번호[1],...,판매액[10],판매자할인쿠폰[11],...,판매수수료[14],...,정산금액[18],...,정산예정일[25]
     값이 문자열이므로 int 변환 필요. 주문일(결제일) 기준 월별 집계.
+    seen_orders: 복수 파일 업로드 시 주문 중복 방지용 set (주문번호+옵션ID).
     """
     import openpyxl, io
     from datetime import datetime as _dt
     from collections import defaultdict
+
+    if seen_orders is None:
+        seen_orders = set()
 
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
     ws = wb[wb.sheetnames[0]]
@@ -935,12 +1029,23 @@ def _parse_coupang_wing_settlement(file_bytes):
             date_col = c
             break
 
-    # 월별 집계 (주문일/결제일 기준)
+    # 월별 집계 (주문일/결제일 기준) — 주문번호+옵션ID로 중복 제거
     monthly = defaultdict(lambda: {'sales': 0, 'fee': 0, 'coupon': 0, 'settle': 0, 'cnt': 0})
+    dup_count = 0
     for r in range(2, ws.max_row + 1):
         sales = to_int(ws.cell(r, 10).value)  # 판매액
         if not sales:
             continue
+
+        # 중복 제거: 주문번호[1] + 옵션ID[5]
+        order_no = str(ws.cell(r, 1).value or '').strip()
+        option_id = str(ws.cell(r, 5).value or '').strip()
+        dedup_key = (order_no, option_id)
+        if dedup_key in seen_orders:
+            dup_count += 1
+            continue
+        seen_orders.add(dedup_key)
+
         coupon = to_int(ws.cell(r, 11).value)     # 판매자 할인쿠폰(A+B)
         fee = to_int(ws.cell(r, 14).value)         # 판매수수료
         settle = to_int(ws.cell(r, 18).value)      # 정산금액
@@ -981,9 +1086,12 @@ def _parse_coupang_wing_settlement(file_bytes):
             'fee_breakdown': {
                 'source': 'coupang_wing_settlement',
                 'order_count': m['cnt'],
+                'dup_skipped': dup_count,
             },
         })
         summaries.append(f'{mk}: {m["sales"]:,}원→{m["settle"]:,}원')
+    if dup_count:
+        summaries.append(f'(중복 {dup_count}건 제외)')
 
     return {
         'settlements': settlements,
@@ -1546,6 +1654,16 @@ def sales_data():
             sd['coupon'] += int(s.get('coupon_discount') or 0)
             sd['settle'] += int(s.get('net_settlement') or 0)
 
+        elif sid.startswith('rocket_'):
+            # 쿠팡로켓 Billing Statement
+            if '쿠팡로켓' not in settle_data:
+                settle_data['쿠팡로켓'] = {'sales': 0, 'commission': 0, 'coupon': 0,
+                                          'settle': 0, 'ad_cost': 0, 'source': 'settlement'}
+            sd = settle_data['쿠팡로켓']
+            sd['sales'] += int(s.get('gross_sales') or 0)
+            sd['commission'] += int(s.get('total_commission') or 0)
+            sd['settle'] += int(s.get('net_settlement') or 0)
+
         elif sid.startswith('11settle_'):
             if '11번가' not in settle_data:
                 settle_data['11번가'] = {'sales': 0, 'commission': 0, 'coupon': 0,
@@ -1637,6 +1755,9 @@ def sales_data():
     coupang_ad_total = sum(ad_daily.get('쿠팡', {}).values())
     coupang_wing_sales = ch_sales_totals.get('쿠팡', 0)
     coupang_rocket_sales = ch_sales_totals.get('쿠팡로켓', 0)
+    # 정산서 매출이 있으면 그 값 사용 (API보다 정확)
+    if settle_data.get('쿠팡'):
+        coupang_wing_sales = settle_data['쿠팡']['sales']
     coupang_total_sales = coupang_wing_sales + coupang_rocket_sales
 
     if coupang_total_sales > 0 and coupang_ad_total > 0:

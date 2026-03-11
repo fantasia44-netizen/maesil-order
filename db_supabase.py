@@ -2922,38 +2922,51 @@ class SupabaseDB(DBBase):
         return inserted
 
     def sync_payroll_to_expenses(self, pay_month):
-        """payroll 합계를 expenses '인건비' 카테고리에 자동 반영.
-        해당 월의 기존 인건비 항목이 있으면 금액 업데이트, 없으면 신규 등록.
-        Returns: dict {total_cost, action: 'inserted'|'updated'|'no_data'}.
+        """payroll 합계를 expenses에 자동 반영.
+
+        - 인건비 (급여합계): total_cost 합계
+        - 보험료 (4대보험 회사부담): 국민연금+건강+장기요양+고용+산재 사업주분
+
+        해당 월의 기존 항목이 있으면 금액 업데이트, 없으면 신규 등록.
+        Returns: dict {total_cost, insurance_cost, actions: [...]}.
         """
         payroll = self.query_payroll(pay_month=pay_month)
         if not payroll:
-            return {'total_cost': 0, 'action': 'no_data'}
+            return {'total_cost': 0, 'insurance_cost': 0, 'actions': ['no_data']}
 
         total_cost = sum(float(r.get('total_cost', 0)) for r in payroll)
 
-        # 해당 월의 인건비 항목 조회
-        existing_expenses = self.query_expenses(
-            month=pay_month, category='인건비'
-        )
-        # '급여합계' 서브카테고리 찾기
+        # 4대보험 회사부담분 합계
+        insurance_fields = [
+            'national_pension_employer',      # 국민연금
+            'health_insurance_employer',      # 건강보험
+            'long_term_care_employer',        # 장기요양
+            'employment_insurance_employer',  # 고용보험
+            'industrial_accident_insurance',  # 산재보험
+        ]
+        insurance_cost = 0
+        for r in payroll:
+            for field in insurance_fields:
+                insurance_cost += float(r.get(field, 0) or 0)
+
+        expense_date = f"{pay_month}-25"  # 급여 지급일 기준 25일
+        actions = []
+
+        # ── 1. 인건비 (급여합계) ──
+        existing_labor = self.query_expenses(month=pay_month, category='인건비')
         payroll_expense = None
-        for ex in existing_expenses:
+        for ex in existing_labor:
             if ex.get('subcategory') == '급여합계':
                 payroll_expense = ex
                 break
 
-        expense_date = f"{pay_month}-25"  # 급여 지급일 기준 25일
-
         if payroll_expense:
-            # 기존 항목 업데이트
             self.update_expense(payroll_expense['id'], {
                 'amount': total_cost,
                 'memo': f'{pay_month} 급여 합계 (자동반영)',
             })
-            return {'total_cost': total_cost, 'action': 'updated'}
+            actions.append('labor_updated')
         else:
-            # 신규 등록
             self.insert_expense({
                 'expense_date': expense_date,
                 'expense_month': pay_month,
@@ -2964,7 +2977,41 @@ class SupabaseDB(DBBase):
                 'memo': f'{pay_month} 급여 합계 (자동반영)',
                 'registered_by': 'system',
             })
-            return {'total_cost': total_cost, 'action': 'inserted'}
+            actions.append('labor_inserted')
+
+        # ── 2. 보험료 (4대보험 회사부담) ──
+        if insurance_cost > 0:
+            existing_ins = self.query_expenses(month=pay_month, category='보험료')
+            ins_expense = None
+            for ex in existing_ins:
+                if ex.get('subcategory') == '4대보험':
+                    ins_expense = ex
+                    break
+
+            if ins_expense:
+                self.update_expense(ins_expense['id'], {
+                    'amount': round(insurance_cost),
+                    'memo': f'{pay_month} 4대보험 회사부담 (자동반영)',
+                })
+                actions.append('insurance_updated')
+            else:
+                self.insert_expense({
+                    'expense_date': expense_date,
+                    'expense_month': pay_month,
+                    'category': '보험료',
+                    'subcategory': '4대보험',
+                    'amount': round(insurance_cost),
+                    'is_recurring': False,
+                    'memo': f'{pay_month} 4대보험 회사부담 (자동반영)',
+                    'registered_by': 'system',
+                })
+                actions.append('insurance_inserted')
+
+        return {
+            'total_cost': total_cost,
+            'insurance_cost': round(insurance_cost),
+            'actions': actions,
+        }
 
     # ── annual_leave / leave_records (연차 관리) ──
 

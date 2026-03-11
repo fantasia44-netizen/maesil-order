@@ -20,11 +20,58 @@
     .ad-cost-section { background: #fffdf5; border: 1px solid #ffeeba; border-radius: 0.5rem; padding: 1rem; }
     .spinner-wrap { text-align: center; padding: 3rem; }
     .negative { color: #e74c3c; }
+
+    /* ── 인쇄 스타일 ── */
+    @media print {
+        @page { size: A4 landscape; margin: 5mm 8mm; }
+        body { font-size: 10px !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        /* 숨김 */
+        .sidebar, .navbar, nav, .no-print,
+        #chartDailyCard, .spinner-wrap,
+        footer, .toast-container { display: none !important; }
+        /* 메인 컨텐츠 풀폭 */
+        .main-content, .container-fluid { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+        /* 간격 축소 */
+        .mb-3, .mb-4 { margin-bottom: 0.2rem !important; }
+        .g-3 { gap: 0.2rem !important; }
+        .row { --bs-gutter-x: 0.4rem !important; }
+        /* 요약 카드 축소 */
+        #summaryCards .card-body { padding: 0.1rem 0.4rem !important; }
+        #summaryCards .fs-5 { font-size: 0.8rem !important; }
+        #summaryCards .text-muted { font-size: 0.6rem !important; }
+        #summaryCards .col-lg-3 { flex: 0 0 25% !important; max-width: 25% !important; width: 25% !important; }
+        /* ★ 차트: 강제 한 줄 좌우 배치 */
+        #chartArea {
+            display: flex !important; flex-wrap: nowrap !important;
+            flex-direction: row !important;
+            margin-bottom: 0.2rem !important;
+            gap: 0.3rem !important;
+        }
+        #chartArea > div { flex: 0 0 49.5% !important; max-width: 49.5% !important; width: 49.5% !important; padding: 0 !important; }
+        #chartArea .card { break-inside: avoid; margin: 0 !important; }
+        #chartArea .card-body { height: 140px !important; padding: 0.1rem !important; }
+        #chartArea .card-header { padding: 0.1rem 0.4rem !important; font-size: 0.65rem !important; }
+        .print-chart-img { width: 100%; height: 100%; object-fit: contain; }
+        /* 채널 테이블 축소 */
+        .ch-table { font-size: 0.63rem !important; }
+        .ch-table td, .ch-table th { padding: 0.12rem 0.25rem !important; }
+        .ch-table .rate-badge { font-size: 0.52rem !important; padding: 0.05rem 0.15rem !important; }
+        .card-header { padding: 0.15rem 0.4rem !important; font-size: 0.7rem !important; }
+        .card { border: 1px solid #ddd !important; box-shadow: none !important; }
+        /* 인쇄 제목 */
+        .print-title { display: block !important; text-align: center; font-size: 1rem; font-weight: bold; margin-bottom: 0.1rem; }
+        .print-month { display: block !important; text-align: center; font-size: 0.75rem; color: #666; margin-bottom: 0.2rem; }
+    }
+    .print-title, .print-month { display: none; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid">
+
+    <!-- 인쇄 전용 제목 (화면에서는 숨김) -->
+    <div class="print-title">온라인 플랫폼 정산</div>
+    <div class="print-month" id="printMonth"></div>
 
     <!-- 월 선택 + 안내 -->
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -32,11 +79,14 @@
             <label class="form-label mb-0 fw-bold">조회월:</label>
             <input type="month" id="selMonth" class="form-control form-control-sm" style="width:160px;"
                    value="{{ month }}">
-            <button class="btn btn-primary btn-sm" onclick="loadData()">
+            <button class="btn btn-primary btn-sm no-print" onclick="loadData()">
                 <i class="bi bi-search"></i> 조회
             </button>
+            <button class="btn btn-outline-secondary btn-sm no-print" onclick="printSalesPage()">
+                <i class="bi bi-printer"></i> 출력
+            </button>
         </div>
-        <div class="text-muted" style="font-size:0.8rem;">
+        <div class="text-muted no-print" style="font-size:0.8rem;">
             <i class="bi bi-info-circle"></i>
             정산서 업로드 + API 수집 데이터 기반 (거래처 매출 제외)
         </div>
@@ -150,7 +200,7 @@
     </div>
 
     <!-- 정산서 업로드 -->
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 no-print">
         <div class="col-lg-6">
             <div class="card h-100">
                 <div class="card-header">
@@ -288,7 +338,7 @@
     </div>
 
     <!-- 네이버 차감항목 입력 (쿠폰/바우처) -->
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-4 no-print">
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header">
@@ -328,7 +378,7 @@
     </div>
 
     <!-- 입력된 광고비 내역 -->
-    <div class="card mb-4">
+    <div class="card mb-4 no-print">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-receipt"></i> 입력된 광고비 내역</span>
             <button class="btn btn-outline-secondary btn-sm" type="button"
@@ -357,7 +407,7 @@
     </div>
 
     <!-- 일별 요약 -->
-    <div class="card mb-4">
+    <div class="card mb-4 no-print">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-calendar3"></i> 일별 요약</span>
             <button class="btn btn-outline-secondary btn-sm" type="button"
@@ -393,6 +443,7 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script>
 const CSRF = '{{ csrf_token() }}';
 
@@ -687,7 +738,7 @@ function loadSettleHistory() {
         }
         const fmt = v => (v||0).toLocaleString();
         let html = '<table class="table table-sm table-striped mb-0" style="font-size:0.73rem;">';
-        html += '<thead><tr><th>채널</th><th>정산월</th><th class="text-end">매출</th><th class="text-end">수수료</th><th class="text-end">정산</th><th>건수</th></tr></thead><tbody>';
+        html += '<thead><tr><th>채널</th><th>정산월</th><th class="text-end">매출</th><th class="text-end">수수료</th><th class="text-end">정산</th><th>건수</th><th></th></tr></thead><tbody>';
         for (const r of rows) {
             html += `<tr>
                 <td>${r.channel}</td>
@@ -696,6 +747,8 @@ function loadSettleHistory() {
                 <td class="text-end">${fmt(r.total_commission)}</td>
                 <td class="text-end">${fmt(r.net_settlement)}</td>
                 <td>${r.order_count || '-'}</td>
+                <td><button class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size:0.65rem;"
+                    onclick="deleteSettle('${r.settlement_id}','${r.channel}')">삭제</button></td>
             </tr>`;
         }
         html += '</tbody></table>';
@@ -704,6 +757,26 @@ function loadSettleHistory() {
     .catch(() => {
         document.getElementById('settleHistory').innerHTML = '<span class="text-danger">조회 실패</span>';
     });
+}
+
+function deleteSettle(sid, channel) {
+    if (!confirm(`정산 데이터 삭제: ${channel} / ${sid}\n정말 삭제하시겠습니까?`)) return;
+    fetch('/marketplace/settlement/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({settlement_id: sid, channel: channel}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(`${data.deleted}건 삭제 완료`);
+            loadSettleHistory();
+            loadData();
+        } else {
+            alert('삭제 실패: ' + (data.error || ''));
+        }
+    })
+    .catch(e => alert('삭제 오류: ' + e));
 }
 
 function uploadAdCost() {
@@ -808,6 +881,7 @@ function renderCharts(data) {
     const chLabels = data.channels.map(c => c.label);
     chartChannel = new Chart(document.getElementById('chartChannel'), {
         type: 'bar',
+        plugins: [ChartDataLabels],
         data: {
             labels: chLabels,
             datasets: [
@@ -823,6 +897,7 @@ function renderCharts(data) {
             plugins: {
                 legend: { position: 'top', labels: { font: { size: 11 } } },
                 tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y) + '원' } },
+                datalabels: { display: false },
             },
             scales: {
                 y: { ticks: { callback: v => fmtAxis(v) } },
@@ -861,6 +936,7 @@ function renderCharts(data) {
     }
     chartWaterfall = new Chart(document.getElementById('chartWaterfall'), {
         type: 'bar',
+        plugins: [ChartDataLabels],
         data: {
             labels: wfLabels,
             datasets: [
@@ -881,6 +957,7 @@ function renderCharts(data) {
                     },
                     filter: item => item.datasetIndex === 1,
                 },
+                datalabels: { display: false },
             },
             scales: {
                 y: { stacked: true, ticks: { callback: v => fmtAxis(v) } },
@@ -928,6 +1005,78 @@ function renderCharts(data) {
             },
         });
     }
+}
+
+// ── 인쇄 기능 ──
+function printSalesPage() {
+    // 1) 인쇄 제목에 조회월 표시
+    const month = document.getElementById('selMonth').value;
+    if (month) {
+        const [y, m] = month.split('-');
+        document.getElementById('printMonth').textContent = `${y}년 ${parseInt(m)}월`;
+    }
+
+    // 2) 인쇄용 datalabels 활성화 → 차트 업데이트 → 이미지 캡처
+    if (chartChannel) {
+        chartChannel.options.plugins.datalabels = {
+            display: ctx => ctx.dataset.label === '매출' && ctx.dataset.data[ctx.dataIndex] > 0,
+            anchor: 'end', align: 'top',
+            font: { size: 10, weight: 'bold' }, color: '#333',
+            formatter: v => fmtAxis(v),
+        };
+        chartChannel.update('none');
+    }
+    if (chartWaterfall) {
+        chartWaterfall.options.plugins.datalabels = {
+            display: ctx => ctx.datasetIndex === 1,
+            anchor: 'end', align: 'top',
+            font: { size: 10, weight: 'bold' }, color: '#333',
+            formatter: v => fmtAxis(Math.abs(v)),
+        };
+        chartWaterfall.update('none');
+    }
+
+    // 3) Chart.js canvas → img 변환
+    const canvasIds = ['chartChannel', 'chartWaterfall'];
+    const originals = [];
+
+    canvasIds.forEach(id => {
+        const canvas = document.getElementById(id);
+        if (!canvas || canvas.offsetParent === null) return;
+        try {
+            const imgUrl = canvas.toDataURL('image/png');
+            const img = document.createElement('img');
+            img.src = imgUrl;
+            img.className = 'print-chart-img';
+            img.style.width = '100%';
+            img.style.height = '100%';
+            img.style.objectFit = 'contain';
+            originals.push({ canvas, parent: canvas.parentNode, img });
+            canvas.style.display = 'none';
+            canvas.parentNode.appendChild(img);
+        } catch (e) {
+            console.warn('차트 이미지 변환 실패:', id, e);
+        }
+    });
+
+    // 3) 약간 지연 후 인쇄 (이미지 렌더링 대기)
+    setTimeout(() => {
+        window.print();
+
+        // 4) 인쇄 후 canvas 복원 + datalabels 끄기
+        originals.forEach(o => {
+            o.canvas.style.display = '';
+            if (o.img.parentNode) o.img.parentNode.removeChild(o.img);
+        });
+        if (chartChannel) {
+            chartChannel.options.plugins.datalabels = { display: false };
+            chartChannel.update('none');
+        }
+        if (chartWaterfall) {
+            chartWaterfall.options.plugins.datalabels = { display: false };
+            chartWaterfall.update('none');
+        }
+    }, 300);
 }
 
 // 페이지 로드시 자동 조회
