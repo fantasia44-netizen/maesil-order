@@ -41,9 +41,9 @@
                 <label class="form-label small mb-0">출고</label>
                 <select class="form-select form-select-sm" id="filterOutbound">
                     <option value="">전체</option>
-                    <option value="no_invoice">송장미등록</option>
-                    <option value="invoice_only">송장대기</option>
-                    <option value="done">출고완료</option>
+                    <option value="no_invoice">미출고</option>
+                    <option value="invoice_only">송장등록</option>
+                    <option value="done">영상등록</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -458,16 +458,20 @@ function loadOrders() {
                                     o.status === '취소' ? 'bg-danger' : 'bg-warning';
                 const invoiceNo = o.invoice_no || '';
                 const isOutbound = !!o.is_outbound_done;
-                // 송장 상태: 미등록 / 등록완료
-                const invoiceBadge = invoiceNo
-                    ? `<span class="badge bg-info text-dark" title="${invoiceNo}"><i class="bi bi-check2"></i> ${invoiceNo.length > 10 ? invoiceNo.slice(-8) : invoiceNo}</span>`
+                const hasPacking = o.packing_status === 'completed';
+                // 송장 컬럼: 송장번호 표시 또는 미등록
+                const invoiceDisplay = invoiceNo
+                    ? `<span class="text-primary small" title="${invoiceNo}">${invoiceNo.length > 12 ? '...' + invoiceNo.slice(-10) : invoiceNo}</span>`
                     : '<span class="badge bg-light text-muted border">미등록</span>';
-                // 패킹/출고 상태: 미출고 / 패킹완료(출고)
-                const outboundBadge = isOutbound
-                    ? '<span class="badge bg-success"><i class="bi bi-camera-video-fill"></i> 출고완료</span>'
-                    : (invoiceNo
-                        ? '<span class="badge bg-warning text-dark">송장대기</span>'
-                        : '<span class="badge bg-secondary">미출고</span>');
+                // 패킹/출고 상태: 미출고 → 송장등록 → 영상등록(출고)
+                let packingBadge;
+                if (hasPacking || isOutbound) {
+                    packingBadge = '<span class="badge bg-success"><i class="bi bi-camera-video-fill"></i> 영상등록</span>';
+                } else if (invoiceNo) {
+                    packingBadge = '<span class="badge bg-primary"><i class="bi bi-upc-scan"></i> 송장등록</span>';
+                } else {
+                    packingBadge = '<span class="badge bg-secondary">미출고</span>';
+                }
                 const recipientName = o.recipient_name || '';
                 const canCheck = o.status === '정상';
                 const escProduct = (o.product_name || '').replace(/"/g, '&quot;');
@@ -486,8 +490,8 @@ function loadOrders() {
                     <td class="text-truncate" style="max-width:180px" title="${o.product_name}">${o.product_name || ''}</td>
                     <td class="text-end">${o.qty || 0}</td>
                     <td class="text-end">${Number(o.total_amount || 0).toLocaleString()}</td>
-                    <td>${invoiceBadge}</td>
-                    <td>${outboundBadge}</td>
+                    <td>${invoiceDisplay}</td>
+                    <td>${packingBadge}</td>
                     <td><span class="badge ${statusBadge}">${o.status}</span></td>
                     <td>
                         <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="showDetail(${o.id})" title="상세">
@@ -547,7 +551,13 @@ function showDetail(orderId) {
                         <tr><th>정산금액</th><td>${Number(t.settlement||0).toLocaleString()}</td></tr>
                         <tr><th>상태</th><td><span class="badge ${t.status==='정상'?'bg-success':'bg-danger'}">${t.status}</span></td></tr>
                         ${t.status_reason ? `<tr><th>사유</th><td>${t.status_reason}</td></tr>` : ''}
-                        <tr><th>출고처리</th><td>${t.is_outbound_done ? '<span class="badge bg-success">출고완료</span> ' + (t.outbound_date || '') : '<span class="badge bg-warning text-dark">미출고</span>'}</td></tr>
+                        <tr><th>출고처리</th><td>${
+                            t.is_outbound_done
+                                ? '<span class="badge bg-success"><i class="bi bi-camera-video-fill"></i> 영상등록(출고)</span> ' + (t.outbound_date || '')
+                                : (s && s.invoice_no
+                                    ? '<span class="badge bg-primary"><i class="bi bi-upc-scan"></i> 송장등록</span>'
+                                    : '<span class="badge bg-secondary">미출고</span>')
+                        }</td></tr>
                         ${t.revenue_category ? `<tr><th>매출유형</th><td>${t.revenue_category}</td></tr>` : ''}
                     </table>
                 </div>
@@ -585,15 +595,20 @@ function showDetail(orderId) {
             // 패킹 정보
             if (pj) {
                 html += `<hr class="my-2">
-                <h6><i class="bi bi-camera-video-fill text-success"></i> 패킹 완료</h6>
+                <h6><i class="bi bi-camera-video-fill text-success"></i> 영상등록 완료</h6>
                 <table class="table table-sm small">
-                    <tr><th class="w-40">작업자</th><td>${pj.username || '-'}</td></tr>
+                    <tr><th class="w-40">상태</th><td><span class="badge bg-success">영상등록(출고)</span></td></tr>
+                    <tr><th>작업자</th><td>${pj.username || '-'}</td></tr>
                     <tr><th>완료시각</th><td>${pj.completed_at ? pj.completed_at.replace('T',' ').substring(0,19) : '-'}</td></tr>
                     <tr><th>영상길이</th><td>${pj.video_duration_ms ? Math.round(pj.video_duration_ms/1000) + '초' : '-'}</td></tr>
                 </table>`;
             } else if (s && s.invoice_no) {
-                html += `<div class="alert alert-warning py-2 small mt-2">
-                    <i class="bi bi-exclamation-triangle"></i> 송장 등록됨 — 패킹 미완료 (바코드 스캔+영상 촬영 대기)
+                html += `<div class="alert alert-info py-2 small mt-2">
+                    <i class="bi bi-upc-scan"></i> <strong>송장등록</strong> — 패킹센터에서 바코드 스캔 + 영상 촬영하면 <strong>영상등록(출고)</strong>으로 전환됩니다.
+                </div>`;
+            } else {
+                html += `<div class="alert alert-secondary py-2 small mt-2">
+                    <i class="bi bi-dash-circle"></i> <strong>미출고</strong> — 송장번호 등록 후 패킹 촬영이 필요합니다.
                 </div>`;
             }
 

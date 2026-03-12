@@ -2586,12 +2586,12 @@ class SupabaseDB(DBBase):
             return []
 
     def _merge_invoice_no(self, orders):
-        """주문 목록에 order_shipping의 invoice_no, courier, name 병합 (in-place).
+        """주문 목록에 order_shipping + packing_jobs 정보 병합 (in-place).
         최적화: 채널별 order_no 배치 .in_() 조회 (N+1 제거).
         """
         try:
             keys = list({(o.get('channel', ''), o.get('order_no', '')) for o in orders})
-            shipping_map = {}  # (channel, order_no) → {invoice_no, courier, name}
+            shipping_map = {}  # (channel, order_no) → {invoice_no, courier, name, shipping_status}
 
             # 채널별로 그룹화하여 .in_() 배치 조회
             by_channel = {}
@@ -2604,7 +2604,7 @@ class SupabaseDB(DBBase):
                     batch_nos = order_nos[i:i+200]
                     try:
                         res = self.client.table("order_shipping") \
-                            .select("channel,order_no,invoice_no,courier,name") \
+                            .select("channel,order_no,invoice_no,courier,name,shipping_status") \
                             .eq("channel", ch) \
                             .in_("order_no", batch_nos) \
                             .execute()
@@ -2613,7 +2613,30 @@ class SupabaseDB(DBBase):
                                 'invoice_no': s.get('invoice_no', ''),
                                 'courier': s.get('courier', ''),
                                 'name': s.get('name', ''),
+                                'shipping_status': s.get('shipping_status', ''),
                             }
+                    except Exception:
+                        pass
+
+            # 패킹 상태 배치 조회 (order_no 기준)
+            packing_map = {}  # order_no → {status, completed_at}
+            all_order_nos = list({o.get('order_no', '') for o in orders if o.get('order_no')})
+            if all_order_nos:
+                for i in range(0, len(all_order_nos), 200):
+                    batch = all_order_nos[i:i+200]
+                    try:
+                        pj = self.client.table("packing_jobs") \
+                            .select("order_no,status,completed_at") \
+                            .in_("order_no", batch) \
+                            .eq("status", "completed") \
+                            .execute()
+                        for p in (pj.data or []):
+                            ono = p.get('order_no', '')
+                            if ono:
+                                packing_map[ono] = {
+                                    'packing_status': 'completed',
+                                    'packing_completed_at': p.get('completed_at', ''),
+                                }
                     except Exception:
                         pass
 
@@ -2624,6 +2647,11 @@ class SupabaseDB(DBBase):
                 o['invoice_no'] = si.get('invoice_no', '')
                 o['courier'] = si.get('courier', '')
                 o['recipient_name'] = si.get('name', '')
+                o['shipping_status'] = si.get('shipping_status', '')
+                # 패킹 상태
+                pk = packing_map.get(o.get('order_no', ''), {})
+                o['packing_status'] = pk.get('packing_status', '')
+                o['packing_completed_at'] = pk.get('packing_completed_at', '')
         except Exception as e:
             print(f"[DB] _merge_invoice_no error: {e}")
             import traceback; traceback.print_exc()
@@ -2631,6 +2659,9 @@ class SupabaseDB(DBBase):
                 o.setdefault('invoice_no', '')
                 o.setdefault('courier', '')
                 o.setdefault('recipient_name', '')
+                o.setdefault('shipping_status', '')
+                o.setdefault('packing_status', '')
+                o.setdefault('packing_completed_at', '')
 
     # ── Packing Jobs ──────────────────────────────────────
 
