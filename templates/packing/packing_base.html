@@ -127,9 +127,12 @@
             <span>패킹센터</span>
         </div>
         {% if current_user.is_authenticated %}
+        {% set is_internal = current_user.role in ('admin','manager','logistics','sales','general') %}
         <div class="user-info">
-            {% if current_user.role in ('admin', 'manager') %}
-            <span class="badge bg-warning text-dark" style="font-size:0.75rem;">운영자</span>
+            {% if is_internal %}
+            <span class="badge bg-warning text-dark" style="font-size:0.75rem;">
+                {{ current_user.role_name|default('운영자') }}
+            </span>
             {% elif current_user.company_name %}
             <span class="company">{{ current_user.company_name }}</span>
             {% endif %}
@@ -137,10 +140,10 @@
             {% if current_user.role == 'packing' %}
             <a href="{{ url_for('packing.change_password') }}"><i class="bi bi-key"></i> 비밀번호</a>
             {% endif %}
-            {% if current_user.role in ('admin', 'manager') %}
+            {% if is_internal %}
             <a href="{{ url_for('main.dashboard') }}" style="color:#f39c12;"><i class="bi bi-arrow-left-circle"></i> 통합시스템</a>
             {% endif %}
-            <a href="{{ url_for('packing.packing_logout') }}"><i class="bi bi-box-arrow-right"></i> {% if current_user.role in ('admin', 'manager') %}나가기{% else %}로그아웃{% endif %}</a>
+            <a href="{{ url_for('packing.packing_logout') }}"><i class="bi bi-box-arrow-right"></i> {% if is_internal %}나가기{% else %}로그아웃{% endif %}</a>
         </div>
         {% endif %}
     </div>

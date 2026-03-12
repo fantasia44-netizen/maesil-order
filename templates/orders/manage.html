@@ -78,10 +78,19 @@
 <div class="tab-content">
     <!-- 주문 목록 탭 -->
     <div class="tab-pane fade show active" id="tabOrders">
+        <!-- 일괄 처리 툴바 (선택 시 표시) -->
+        <div id="bulkToolbar" class="alert alert-info py-2 d-flex align-items-center gap-3" style="display:none !important;">
+            <strong><i class="bi bi-check2-square"></i> <span id="bulkSelectedCount">0</span>건 선택</strong>
+            <button class="btn btn-sm btn-danger" onclick="openBulkCancel()">
+                <i class="bi bi-x-circle"></i> 일괄 취소
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">선택 해제</button>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover" id="ordersTable">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:36px"><input type="checkbox" class="form-check-input" id="checkAll" onclick="toggleAll(this)" title="전체 선택"></th>
                         <th>주문일</th>
                         <th>채널</th>
                         <th>주문번호</th>
@@ -96,7 +105,7 @@
                     </tr>
                 </thead>
                 <tbody id="ordersBody">
-                    <tr><td colspan="11" class="text-center text-muted py-4">조회 버튼을 눌러 주문을 검색하세요</td></tr>
+                    <tr><td colspan="12" class="text-center text-muted py-4">조회 버튼을 눌러 주문을 검색하세요</td></tr>
                 </tbody>
             </table>
         </div>
@@ -189,6 +198,52 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
                 <button class="btn btn-danger" onclick="submitCancel()">확인</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 일괄 취소 모달 -->
+<div class="modal fade" id="bulkCancelModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-exclamation-triangle-fill"></i> 주문 일괄 취소</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning py-2">
+                    <strong><span id="bulkCancelCount">0</span>건</strong>의 주문을 일괄 취소합니다.
+                    <span id="bulkOutboundWarn" style="display:none">
+                        (출고 완료 <strong><span id="bulkOutboundCount">0</span>건</strong> 포함 — 재고+매출 자동 역분개)
+                    </span>
+                </div>
+                <div class="table-responsive" style="max-height:250px; overflow-y:auto;">
+                    <table class="table table-sm small">
+                        <thead class="table-light"><tr>
+                            <th>주문번호</th><th>수취인</th><th>상품명</th><th class="text-end">수량</th><th>출고</th>
+                        </tr></thead>
+                        <tbody id="bulkCancelList"></tbody>
+                    </table>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <label class="form-label">유형</label>
+                    <select class="form-select" id="bulkCancelType">
+                        <option value="취소">취소</option>
+                        <option value="환불">환불</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">사유 <span class="text-danger">*</span></label>
+                    <textarea class="form-control" id="bulkCancelReason" rows="2" placeholder="일괄 취소 사유를 입력하세요"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button class="btn btn-danger" id="btnBulkCancelSubmit" onclick="submitBulkCancel()">
+                    <i class="bi bi-x-circle"></i> 일괄 취소 실행
+                </button>
             </div>
         </div>
     </div>
@@ -371,14 +426,16 @@ function loadOrders() {
     });
 
     const tbody = document.getElementById('ordersBody');
-    tbody.innerHTML = '<tr><td colspan="11" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> 조회 중...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> 조회 중...</td></tr>';
+    document.getElementById('checkAll').checked = false;
+    updateBulkToolbar();
 
     fetch(`{{ url_for('orders.api_orders') }}?${params}`)
         .then(parseJsonSafe)
         .then(data => {
             const orders = data.orders || [];
             if (!orders.length) {
-                tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">조회 결과 없음</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">조회 결과 없음</td></tr>';
                 document.getElementById('ordersCount').textContent = '';
                 document.getElementById('pageInfo').textContent = '';
                 document.getElementById('btnPrev').disabled = true;
@@ -394,7 +451,16 @@ function loadOrders() {
                     ? '<span class="badge bg-success">완료</span>'
                     : '<span class="badge bg-secondary">미출고</span>';
                 const recipientName = o.recipient_name || '';
+                const canCheck = o.status === '정상';
+                const escProduct = (o.product_name || '').replace(/"/g, '&quot;');
                 return `<tr>
+                    <td>${canCheck
+                        ? `<input type="checkbox" class="form-check-input order-check" value="${o.id}" onchange="updateBulkToolbar()"
+                            data-order-no="${o.order_no || ''}" data-recipient="${recipientName}"
+                            data-product="${escProduct}" data-qty="${o.qty || 0}"
+                            data-outbound="${invoiceNo ? '1' : '0'}">`
+                        : ''}
+                    </td>
                     <td>${o.order_date || ''}</td>
                     <td><span class="badge bg-secondary">${o.channel || ''}</span></td>
                     <td class="text-truncate" style="max-width:140px" title="${o.order_no}">${o.order_no || ''}</td>
@@ -419,7 +485,7 @@ function loadOrders() {
             document.getElementById('btnNext').disabled = orders.length < perPage;
         })
         .catch(e => {
-            tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger py-4">조회 오류: ${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="12" class="text-center text-danger py-4">조회 오류: ${e.message}</td></tr>`;
         });
 }
 
@@ -600,6 +666,135 @@ function submitCancel() {
     .catch(e => {
         btn.disabled = false;
         btn.textContent = '확인';
+        alert('오류: ' + e.message);
+    });
+}
+
+// ================================================================
+// 일괄 선택 / 일괄 취소
+// ================================================================
+
+function toggleAll(masterCb) {
+    document.querySelectorAll('.order-check').forEach(cb => { cb.checked = masterCb.checked; });
+    updateBulkToolbar();
+}
+
+function getSelectedCheckboxes() {
+    return Array.from(document.querySelectorAll('.order-check:checked'));
+}
+
+function updateBulkToolbar() {
+    const checked = getSelectedCheckboxes();
+    const toolbar = document.getElementById('bulkToolbar');
+    if (checked.length > 0) {
+        toolbar.style.cssText = '';  // show
+        document.getElementById('bulkSelectedCount').textContent = checked.length;
+    } else {
+        toolbar.style.cssText = 'display:none !important';
+    }
+    // sync master checkbox
+    const all = document.querySelectorAll('.order-check');
+    const master = document.getElementById('checkAll');
+    if (all.length && checked.length === all.length) {
+        master.checked = true; master.indeterminate = false;
+    } else if (checked.length > 0) {
+        master.checked = false; master.indeterminate = true;
+    } else {
+        master.checked = false; master.indeterminate = false;
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.order-check').forEach(cb => { cb.checked = false; });
+    document.getElementById('checkAll').checked = false;
+    document.getElementById('checkAll').indeterminate = false;
+    updateBulkToolbar();
+}
+
+function openBulkCancel() {
+    const checked = getSelectedCheckboxes();
+    if (!checked.length) { alert('취소할 주문을 선택하세요'); return; }
+
+    let outboundCount = 0;
+    const listHtml = checked.map(cb => {
+        const isOutbound = cb.dataset.outbound === '1';
+        if (isOutbound) outboundCount++;
+        return `<tr>
+            <td>${cb.dataset.orderNo}</td>
+            <td>${cb.dataset.recipient}</td>
+            <td class="text-truncate" style="max-width:200px">${cb.dataset.product}</td>
+            <td class="text-end">${cb.dataset.qty}</td>
+            <td>${isOutbound ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-secondary">미출고</span>'}</td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('bulkCancelCount').textContent = checked.length;
+    document.getElementById('bulkCancelList').innerHTML = listHtml;
+    document.getElementById('bulkCancelReason').value = '';
+
+    if (outboundCount > 0) {
+        document.getElementById('bulkOutboundWarn').style.display = '';
+        document.getElementById('bulkOutboundCount').textContent = outboundCount;
+    } else {
+        document.getElementById('bulkOutboundWarn').style.display = 'none';
+    }
+
+    new bootstrap.Modal(document.getElementById('bulkCancelModal')).show();
+}
+
+function submitBulkCancel() {
+    const checked = getSelectedCheckboxes();
+    const type = document.getElementById('bulkCancelType').value;
+    const reason = document.getElementById('bulkCancelReason').value.trim();
+
+    if (!reason) { alert('사유를 입력하세요'); return; }
+    if (!confirm(`${checked.length}건의 주문을 ${type} 처리합니다.\n정말 진행하시겠습니까?`)) return;
+
+    const btn = document.getElementById('btnBulkCancelSubmit');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
+
+    const orderIds = checked.map(cb => parseInt(cb.value));
+
+    fetch('{{ url_for("orders.api_orders_bulk_cancel") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token() }}'
+        },
+        body: JSON.stringify({ order_ids: orderIds, type, reason })
+    })
+    .then(parseJsonSafe)
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-x-circle"></i> 일괄 취소 실행';
+
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('bulkCancelModal')).hide();
+            let msg = `일괄 ${type} 완료\n\n`;
+            msg += `- 성공: ${data.success_count}건\n`;
+            if (data.fail_count > 0) msg += `- 실패: ${data.fail_count}건\n`;
+            if (data.total_stock_reversed > 0)
+                msg += `- 재고 복원: ${data.total_stock_reversed}건 (SALES_RETURN)\n`;
+            if (data.total_revenue_reversed > 0)
+                msg += `- 매출 삭제: ${data.total_revenue_reversed}건\n`;
+
+            // 실패 상세
+            if (data.fail_count > 0) {
+                const fails = (data.results || []).filter(r => !r.ok);
+                msg += `\n[실패 상세]\n`;
+                fails.forEach(f => { msg += `- #${f.order_id}: ${f.error}\n`; });
+            }
+            alert(msg);
+            clearSelection();
+            loadOrders();
+        } else {
+            alert(data.error || '일괄 취소 실패');
+        }
+    })
+    .catch(e => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-x-circle"></i> 일괄 취소 실행';
         alert('오류: ' + e.message);
     });
 }

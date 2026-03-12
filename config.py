@@ -78,6 +78,13 @@ class Config:
     PACKING_VIDEO_MAX_BYTES = 100 * 1024 * 1024   # 100MB
     PACKING_VIDEO_BITRATE = 1_000_000              # 1 Mbps
 
+    # ── CJ대한통운 택배 API ──
+    CJ_API_KEY = os.environ.get('CJ_API_KEY', '')
+    CJ_API_SECRET = os.environ.get('CJ_API_SECRET', '')
+    CJ_CUSTOMER_ID = os.environ.get('CJ_CUSTOMER_ID', '')
+    CJ_API_BASE_URL = os.environ.get('CJ_API_BASE_URL', 'https://api.cjlogistics.com')
+    CJ_API_TEST_MODE = os.environ.get('CJ_API_TEST_MODE', 'true').lower() == 'true'
+
     # ── CODEF (코드에프) 설정 ──
     CODEF_DEMO_CLIENT_ID = os.environ.get('CODEF_DEMO_CLIENT_ID', '')
     CODEF_DEMO_CLIENT_SECRET = os.environ.get('CODEF_DEMO_CLIENT_SECRET', '')

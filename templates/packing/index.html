@@ -45,18 +45,20 @@
         </a>
     </div>
 
-    <!-- 검수 모드 -->
+    <!-- 택배 관리 -->
     <div class="col-md-4">
-        <div class="pk-card text-center" style="min-height: 200px; opacity:0.6;">
-            <div class="mb-3">
-                <i class="bi bi-upc-scan" style="font-size: 3rem; color: #f39c12;"></i>
+        <a href="{{ url_for('packing.courier') }}" class="pk-card-link">
+            <div class="pk-card text-center" style="min-height: 200px;">
+                <div class="mb-3">
+                    <i class="bi bi-truck" style="font-size: 3rem; color: #e74c3c;"></i>
+                </div>
+                <h5 class="fw-bold mb-2">택배 관리</h5>
+                <p style="color: var(--pk-muted); font-size: 0.9rem;">
+                    송장등록 / 운송장 출력<br>엑셀 업로드
+                </p>
+                <span class="badge badge-active">사용 가능</span>
             </div>
-            <h5 class="fw-bold mb-2">검수 모드</h5>
-            <p style="color: var(--pk-muted); font-size: 0.9rem;">
-                제품 바코드 스캔으로<br>구성품 자동 체크
-            </p>
-            <span class="badge bg-secondary">준비 중</span>
-        </div>
+        </a>
     </div>
 
     <!-- 작업 이력 -->

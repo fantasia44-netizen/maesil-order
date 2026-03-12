@@ -5,3 +5,7 @@ uploads/
 .env
 *.db
 .DS_Store
+
+# Claude Code - 로컬 설정만 제외, MEMORY.md는 공유
+.claude/settings.local.json
+.claude/plans/

@@ -632,6 +632,94 @@ def api_order_cancel(order_id):
     return jsonify(result)
 
 
+@orders_bp.route('/api/orders/bulk-cancel', methods=['POST'])
+@role_required('admin', 'manager')
+def api_orders_bulk_cancel():
+    """주문 일괄 취소 — 선택된 주문들을 한번에 취소 (재고+매출 자동 역분개)"""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '요청 데이터 없음'}), 400
+
+    order_ids = data.get('order_ids', [])
+    change_type = data.get('type', '취소')
+    reason = data.get('reason', '')
+
+    if not order_ids or not isinstance(order_ids, list):
+        return jsonify({'error': '취소할 주문을 선택하세요'}), 400
+    if len(order_ids) > 200:
+        return jsonify({'error': '한 번에 최대 200건까지 취소할 수 있습니다'}), 400
+    if change_type not in ('취소', '환불'):
+        return jsonify({'error': '올바르지 않은 변경 유형'}), 400
+    if not reason:
+        return jsonify({'error': '취소/환불 사유를 입력하세요'}), 400
+
+    username = current_user.username if current_user.is_authenticated else ''
+    results = []
+    success_count = 0
+    fail_count = 0
+    total_stock_reversed = 0
+    total_revenue_reversed = 0
+
+    for oid in order_ids:
+        try:
+            order = current_app.db.query_order_transaction_by_id(int(oid))
+            if not order:
+                results.append({'order_id': oid, 'ok': False, 'error': '주문 없음'})
+                fail_count += 1
+                continue
+            if order.get('status') != '정상':
+                results.append({'order_id': oid, 'ok': False,
+                                'error': f'이미 {order.get("status")} 상태'})
+                fail_count += 1
+                continue
+
+            result = current_app.db.cancel_or_edit_order(
+                order_id=int(oid), change_type=change_type,
+                payload={}, reason=reason, user=username
+            )
+
+            if result.get('success') and order.get('is_outbound_done'):
+                try:
+                    from services.order_to_stock_service import reverse_order_stock
+                    reversal = reverse_order_stock(current_app.db, int(oid))
+                    total_stock_reversed += reversal.get('stock_reversed', 0)
+                    total_revenue_reversed += reversal.get('revenue_reversed', 0)
+                    result['reversal'] = reversal
+                except Exception as e:
+                    result['reversal_error'] = str(e)
+
+            if result.get('success'):
+                success_count += 1
+                _log_action('cancel_order', target=str(oid),
+                            old_value={'product_name': order.get('product_name', ''),
+                                       'qty': order.get('qty', 0),
+                                       'channel': order.get('channel', '')},
+                            detail=f'일괄{change_type} #{oid}: {reason}')
+            else:
+                fail_count += 1
+
+            results.append({
+                'order_id': oid,
+                'ok': result.get('success', False),
+                'error': result.get('error', ''),
+                'reversal': result.get('reversal'),
+                'reversal_error': result.get('reversal_error'),
+            })
+        except Exception as e:
+            results.append({'order_id': oid, 'ok': False, 'error': str(e)})
+            fail_count += 1
+
+    return jsonify({
+        'success': True,
+        'total': len(order_ids),
+        'success_count': success_count,
+        'fail_count': fail_count,
+        'total_stock_reversed': total_stock_reversed,
+        'total_revenue_reversed': total_revenue_reversed,
+        'results': results,
+    })
+
+
 # ================================================================
 # 송장 관리 API
 # ================================================================

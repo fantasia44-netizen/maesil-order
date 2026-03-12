@@ -1,9 +1,10 @@
 """
-blueprints/packing.py — 패킹센터 (위탁업체 전용)
-별도 로그인/회원가입 + 전용 GUI
+blueprints/packing.py — 패킹센터 (위탁업체 + 내부직원)
+별도 로그인/회원가입 + 전용 GUI + 택배 송장 관리
 """
 import json
 import time
+import io
 from functools import wraps
 from datetime import datetime, timezone
 
@@ -20,6 +21,10 @@ from wtforms.validators import DataRequired, Length, EqualTo, Regexp
 from models import User
 
 packing_bp = Blueprint('packing', __name__, url_prefix='/packing')
+
+# 내부직원 역할 (패킹센터 접근 허용)
+_INTERNAL_ROLES = ('admin', 'manager', 'logistics', 'sales', 'general')
+_ALL_PACKING_ROLES = ('packing',) + _INTERNAL_ROLES
 
 
 # ── Forms ──
@@ -62,7 +67,7 @@ def packing_required(f):
     @login_required
     def wrapped(*args, **kwargs):
         # packing 역할 + 관리자/책임자는 패킹센터 접근 가능
-        if current_user.role not in ('packing', 'admin', 'manager'):
+        if current_user.role not in _ALL_PACKING_ROLES:
             flash('패킹센터 접근 권한이 없습니다.', 'danger')
             return redirect(url_for('main.dashboard'))
         return f(*args, **kwargs)
@@ -83,7 +88,7 @@ def _packing_log_action(action, target=None, detail=None, user_id=None):
 def packing_login():
     """패킹센터 전용 로그인"""
     if current_user.is_authenticated:
-        if current_user.role in ('packing', 'admin', 'manager'):
+        if current_user.role in _ALL_PACKING_ROLES:
             return redirect(url_for('packing.index'))
         return redirect(url_for('main.dashboard'))
 
@@ -110,7 +115,7 @@ def packing_login():
 
         if user and user.check_password(form.password.data):
             # 패킹 + 운영자(admin/manager) 허용
-            if user.role not in ('packing', 'admin', 'manager'):
+            if user.role not in _ALL_PACKING_ROLES:
                 flash('패킹센터 접근 권한이 없습니다.', 'danger')
                 return render_template('packing/login.html', form=form)
 
@@ -200,10 +205,10 @@ def packing_register():
 @login_required
 def packing_logout():
     """패킹센터 로그아웃"""
-    is_operator = current_user.role in ('admin', 'manager')
+    is_internal = current_user.role in _INTERNAL_ROLES
     _packing_log_action('packing_logout', target=current_user.username)
-    if is_operator:
-        # 운영자는 로그아웃하지 않고 통합시스템으로 복귀
+    if is_internal:
+        # 내부직원은 로그아웃하지 않고 통합시스템으로 복귀
         flash('통합시스템으로 돌아갑니다.', 'info')
         return redirect(url_for('main.dashboard'))
     logout_user()
@@ -371,7 +376,7 @@ def api_complete_job():
         return jsonify({'ok': False, 'error': '작업을 찾을 수 없습니다.'})
 
     # 권한 확인: 본인 작업 또는 운영자
-    if current_user.role not in ('admin', 'manager') and job['user_id'] != current_user.id:
+    if current_user.role not in _INTERNAL_ROLES and job['user_id'] != current_user.id:
         return jsonify({'ok': False, 'error': '권한 없음'})
 
     # 영상 읽기
@@ -438,7 +443,7 @@ def api_history():
 
     db = current_app.db
     # packing=본인, admin/manager=전체
-    user_id = None if current_user.role in ('admin', 'manager') else current_user.id
+    user_id = None if current_user.role in _INTERNAL_ROLES else current_user.id
 
     rows = db.query_packing_jobs(
         user_id=user_id, date_from=date_from, date_to=date_to,
@@ -466,7 +471,7 @@ def api_video_url(job_id):
     if not job:
         return jsonify({'ok': False, 'error': '작업 없음'})
 
-    if current_user.role not in ('admin', 'manager') and job['user_id'] != current_user.id:
+    if current_user.role not in _INTERNAL_ROLES and job['user_id'] != current_user.id:
         return jsonify({'ok': False, 'error': '권한 없음'})
 
     if not job.get('video_path'):
@@ -477,3 +482,299 @@ def api_video_url(job_id):
         return jsonify({'ok': False, 'error': '서명 URL 생성 실패'})
 
     return jsonify({'ok': True, 'url': url})
+
+
+# ── Phase 3: 택배 관리 ──────────────────────────
+
+@packing_bp.route('/courier')
+@packing_required
+def courier():
+    """택배 관리 페이지 (송장 등록/관리)."""
+    return render_template('packing/courier.html')
+
+
+@packing_bp.route('/api/courier/pending')
+@packing_required
+def api_courier_pending():
+    """송장 미등록 대기 주문 목록 조회."""
+    channel = request.args.get('channel', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    db = current_app.db
+    try:
+        # order_shipping에서 shipping_status='대기', invoice_no 없는 건 조회
+        q = db.client.table("order_shipping").select(
+            "id,channel,order_no,name,phone,address,memo,courier,invoice_no,"
+            "shipping_status,created_at"
+        ).eq("shipping_status", "대기")
+
+        if channel:
+            q = q.eq("channel", channel)
+        if date_from:
+            q = q.gte("created_at", f"{date_from}T00:00:00")
+        if date_to:
+            q = q.lte("created_at", f"{date_to}T23:59:59")
+
+        q = q.order("created_at", desc=True).limit(500)
+        res = q.execute()
+        rows = res.data or []
+
+        # 수취인 마스킹
+        for r in rows:
+            name = r.get('name', '')
+            if name and len(name) > 1:
+                r['name'] = name[0] + '*' * (len(name) - 1)
+            else:
+                r['name'] = '***'
+            # 주소 마스킹 (시/구까지만)
+            addr = r.get('address', '')
+            if addr:
+                parts = addr.split()
+                r['address'] = ' '.join(parts[:3]) + ' ...' if len(parts) > 3 else addr
+
+        return jsonify({'ok': True, 'data': rows, 'total': len(rows)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@packing_bp.route('/api/courier/upload-excel', methods=['POST'])
+@packing_required
+def api_courier_upload_excel():
+    """엑셀 파일로 송장번호 일괄 업로드."""
+    # CSRF
+    csrf_token = request.form.get('csrf_token') or request.headers.get('X-CSRFToken')
+    try:
+        validate_csrf(csrf_token)
+    except Exception:
+        return jsonify({'ok': False, 'error': 'CSRF 검증 실패'}), 400
+
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'ok': False, 'error': '파일이 없습니다.'})
+
+    filename = file.filename.lower()
+    if not filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'ok': False, 'error': 'xlsx 또는 xls 파일만 지원합니다.'})
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file.read()), read_only=True)
+        ws = wb.active
+
+        # 헤더 행 감지
+        headers = [str(c.value or '').strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+
+        # 컬럼 매핑 (유연한 컬럼명 감지)
+        col_map = {}
+        for i, h in enumerate(headers):
+            hl = h.lower().replace(' ', '')
+            if '주문번호' in h or 'order_no' in hl:
+                col_map['order_no'] = i
+            elif '송장번호' in h or 'invoice' in hl or '운송장' in h:
+                col_map['invoice_no'] = i
+            elif '택배사' in h or 'courier' in hl or '배송업체' in h:
+                col_map['courier'] = i
+            elif '채널' in h or 'channel' in hl:
+                col_map['channel'] = i
+
+        if 'order_no' not in col_map or 'invoice_no' not in col_map:
+            return jsonify({'ok': False,
+                            'error': '필수 컬럼이 없습니다. "주문번호"와 "송장번호" 컬럼이 필요합니다.'})
+
+        # 데이터 파싱
+        updates = []
+        skip_count = 0
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            row_list = list(row)
+            order_no = str(row_list[col_map['order_no']] or '').strip()
+            invoice_no = str(row_list[col_map['invoice_no']] or '').strip()
+
+            if not order_no or not invoice_no:
+                skip_count += 1
+                continue
+
+            channel = ''
+            if 'channel' in col_map:
+                channel = str(row_list[col_map['channel']] or '').strip()
+
+            courier = 'CJ대한통운'  # 기본값
+            if 'courier' in col_map:
+                c = str(row_list[col_map['courier']] or '').strip()
+                if c:
+                    courier = c
+
+            updates.append({
+                'channel': channel,
+                'order_no': order_no,
+                'invoice_no': invoice_no,
+                'courier': courier,
+            })
+
+        wb.close()
+
+        if not updates:
+            return jsonify({'ok': False, 'error': '유효한 데이터가 없습니다.'})
+
+        # 채널 미지정 시 order_shipping에서 자동 검색
+        db = current_app.db
+        for u in updates:
+            if not u['channel']:
+                ship = db.search_order_shipping(u['order_no'], field='order_no')
+                if ship:
+                    u['channel'] = ship[0].get('channel', '')
+
+        # 일괄 업데이트
+        success_count = db.bulk_update_shipping_invoices(updates)
+
+        _packing_log_action('courier_excel_upload',
+                            target=file.filename,
+                            detail=f'total={len(updates)}, success={success_count}, skip={skip_count}')
+
+        return jsonify({
+            'ok': True,
+            'total': len(updates),
+            'success': success_count,
+            'skipped': skip_count,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'파일 처리 오류: {e}'})
+
+
+# ── Phase 4: CJ대한통운 API 연동 ──────────────────────────
+
+def _get_cj_client():
+    """CJ 클라이언트 인스턴스 (lazy)."""
+    from services.courier.cj_client import CJCourierClient
+    cfg = current_app.config
+    return CJCourierClient(
+        api_key=cfg.get('CJ_API_KEY', ''),
+        customer_id=cfg.get('CJ_CUSTOMER_ID', ''),
+        base_url=cfg.get('CJ_API_BASE_URL', ''),
+        test_mode=cfg.get('CJ_API_TEST_MODE', True),
+    )
+
+
+@packing_bp.route('/api/courier/register', methods=['POST'])
+@packing_required
+def api_courier_register():
+    """선택한 주문을 CJ API로 송장 등록."""
+    data = request.get_json(silent=True) or {}
+    order_ids = data.get('order_ids', [])  # order_shipping id 목록
+
+    if not order_ids:
+        return jsonify({'ok': False, 'error': '등록할 주문을 선택해주세요.'})
+
+    db = current_app.db
+    cj = _get_cj_client()
+
+    # 발송인 정보 (사업장 기본)
+    sender = {
+        'name': '배마마',
+        'phone': '02-0000-0000',
+        'zipcode': '00000',
+        'address': '서울특별시',
+    }
+
+    # 선택된 주문의 배송정보 조회
+    results = []
+    success_count = 0
+
+    for oid in order_ids:
+        try:
+            ship_res = db.client.table("order_shipping").select("*") \
+                .eq("id", oid).single().execute()
+            ship = ship_res.data
+            if not ship:
+                results.append({'id': oid, 'ok': False, 'error': '주문 없음'})
+                continue
+
+            # 이미 송장 있으면 스킵
+            if ship.get('invoice_no'):
+                results.append({
+                    'id': oid, 'ok': True,
+                    'invoice_no': ship['invoice_no'],
+                    'message': '이미 등록됨',
+                })
+                continue
+
+            receiver = {
+                'name': ship.get('name', ''),
+                'phone': ship.get('phone', ''),
+                'zipcode': '',
+                'address': ship.get('address', ''),
+            }
+
+            # CJ API 호출
+            reg_result = cj.register_shipment(
+                sender=sender,
+                receiver=receiver,
+                items=[{'product_name': '배마마 이유식', 'qty': 1}],
+                memo=ship.get('memo', ''),
+            )
+
+            if reg_result.get('ok'):
+                # DB 업데이트
+                db.update_order_shipping_invoice(
+                    ship['channel'], ship['order_no'],
+                    reg_result['invoice_no'], 'CJ대한통운'
+                )
+                success_count += 1
+                results.append({
+                    'id': oid, 'ok': True,
+                    'invoice_no': reg_result['invoice_no'],
+                    'order_no': ship['order_no'],
+                })
+            else:
+                results.append({
+                    'id': oid, 'ok': False,
+                    'error': reg_result.get('error', '등록 실패'),
+                })
+        except Exception as e:
+            results.append({'id': oid, 'ok': False, 'error': str(e)})
+
+    _packing_log_action('courier_api_register',
+                        detail=f'total={len(order_ids)}, success={success_count}')
+
+    return jsonify({
+        'ok': True,
+        'total': len(order_ids),
+        'success': success_count,
+        'results': results,
+    })
+
+
+@packing_bp.route('/api/courier/label', methods=['POST'])
+@packing_required
+def api_courier_label():
+    """운송장 라벨 PDF 다운로드."""
+    from flask import Response
+
+    data = request.get_json(silent=True) or {}
+    invoice_nos = data.get('invoice_nos', [])
+
+    if not invoice_nos:
+        return jsonify({'ok': False, 'error': '송장번호가 없습니다.'})
+
+    cj = _get_cj_client()
+    result = cj.get_label_pdf(invoice_nos)
+
+    if not result.get('ok'):
+        return jsonify({'ok': False, 'error': result.get('error', '라벨 생성 실패')})
+
+    return Response(
+        result['pdf_bytes'],
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename=labels_{len(invoice_nos)}.pdf',
+        }
+    )
+
+
+@packing_bp.route('/api/courier/tracking/<invoice_no>')
+@packing_required
+def api_courier_tracking(invoice_no):
+    """배송 추적 조회."""
+    cj = _get_cj_client()
+    result = cj.get_tracking(invoice_no)
+    return jsonify(result)
