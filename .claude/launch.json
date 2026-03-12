@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autotool",
+      "runtimeExecutable": "C:\\Program Files\\PyManager\\python.exe",
+      "runtimeArgs": ["app.py"],
+      "port": 5000,
+      "autoPort": false
+    },
+    {
+      "name": "accounting",
+      "runtimeExecutable": "C:\\Program Files\\PyManager\\python.exe",
+      "runtimeArgs": ["C:\\auto_tool_accounting\\app.py"],
+      "port": 5002,
+      "autoPort": false
+    }
+  ]
+}
