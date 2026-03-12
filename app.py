@@ -291,7 +291,8 @@ def create_app(config_class=None):
         return dict(sidebar_menus=flat_menus, sidebar_groups=groups,
                     sidebar_top_menu=top_menu, pending_users=pending_users,
                     current_biz=biz_conf, current_biz_id=biz_id,
-                    businesses=available_biz)
+                    businesses=available_biz,
+                    channel_labels=Config.CHANNEL_LABELS)
 
     # Blueprint 등록
     from auth import auth_bp

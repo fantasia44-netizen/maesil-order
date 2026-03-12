@@ -45,7 +45,7 @@
                         {% else %}
                             <i class="bi bi-globe channel-icon text-info"></i>
                         {% endif %}
-                        <strong class="ms-1">{{ ch.channel }}</strong>
+                        <strong class="ms-1">{{ channel_labels.get(ch.channel, ch.channel) }}</strong>
                     </div>
                     <span class="badge status-badge {{ 'bg-success' if is_active else 'bg-secondary' }}">
                         {{ '연결됨' if is_active else '미연결' }}
@@ -141,7 +141,7 @@
                         <option value="">선택</option>
                         {% for ch in channels %}
                         {% if ch.is_active %}
-                        <option value="{{ ch.channel }}">{{ ch.channel }}</option>
+                        <option value="{{ ch.channel }}">{{ channel_labels.get(ch.channel, ch.channel) }}</option>
                         {% endif %}
                         {% endfor %}
                     </select>
@@ -200,7 +200,7 @@
                     {% for log in recent_logs %}
                     <tr>
                         <td>{{ log.started_at_kst if log.started_at_kst else (log.started_at[:16] if log.started_at else '-') }}</td>
-                        <td>{{ log.channel }}</td>
+                        <td>{{ channel_labels.get(log.channel, log.channel) }}</td>
                         <td>{{ log.sync_type }}</td>
                         <td>
                             {% if log.status == 'success' %}

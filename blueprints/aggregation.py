@@ -73,10 +73,10 @@ def api_summary():
 
     db = current_app.db
     try:
-        # 출고 현황 (SALES_OUT)
+        # 출고 현황 (SALES_OUT + ETC_OUT + ADJUST)
         outbound = db.query_stock_ledger(
             date_from=date_from, date_to=date_to,
-            type_list=['SALES_OUT'])
+            type_list=['SALES_OUT', 'ETC_OUT', 'ADJUST'])
 
         outbound_count = len(outbound)
         outbound_items = set()
@@ -527,14 +527,14 @@ def generate_report():
         sort_map = _load_sort_order(db)
 
         # ══════════════════════════════════════════════
-        # 1. 통합집계표: stock_ledger SALES_OUT (이전 양식)
+        # 1. 통합집계표: stock_ledger (SALES_OUT + ETC_OUT + ADJUST)
         # ══════════════════════════════════════════════
         outbound = db.query_stock_ledger(
             date_from=date_from, date_to=date_to,
-            type_list=['SALES_OUT'])
+            type_list=['SALES_OUT', 'ETC_OUT', 'ADJUST'])
 
         if not outbound:
-            flash(f'{date_label} 기간의 출고(SALES_OUT) 데이터가 없습니다.', 'warning')
+            flash(f'{date_label} 기간의 출고 데이터가 없습니다.', 'warning')
             return redirect(url_for('aggregation.index'))
 
         # 품목별/창고별 합계: {(product_name, location): total_qty}

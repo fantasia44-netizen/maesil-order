@@ -104,6 +104,20 @@ class Config:
     CAFE24_CLIENT_SECRET = os.environ.get('CAFE24_CLIENT_SECRET', '')
     CAFE24_MALL_ID = os.environ.get('CAFE24_MALL_ID', '')
 
+    # 채널 표시명 (내부키 → UI 라벨)
+    CHANNEL_LABELS = {
+        '스마트스토어': '스마트스토어(배마마)',
+        '해미애찬': '스마트스토어(해미애찬)',
+        '쿠팡': '쿠팡(Wing)',
+        '쿠팡로켓': '쿠팡(로켓)',
+        '11번가': '11번가',
+        '자사몰': '자사몰',
+        '오아시스': '오아시스',
+        '옥션': '옥션',
+        '지마켓': '지마켓',
+        '카카오': '카카오',
+    }
+
     # 팀/권한 정의
     ROLES = {
         'admin': {'name': '관리자', 'level': 100},

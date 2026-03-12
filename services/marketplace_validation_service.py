@@ -75,7 +75,7 @@ def validate_orders(db, channel, date_from, date_to):
     # 쿠팡/자사몰: api_order_id(주문번호)로 매칭 — 주문 내 여러 상품 합산
     api_by_key = {}
     for o in api_orders:
-        if channel == '스마트스토어':
+        if channel in ('스마트스토어', '해미애찬'):
             key = str(o.get('api_line_id', ''))
         else:
             key = str(o.get('api_order_id', ''))
