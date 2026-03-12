@@ -142,15 +142,13 @@
                                 <th>채널</th>
                                 <th class="text-end">매출</th>
                                 <th class="text-end">수수료</th>
-                                <th class="text-end">배송비</th>
-                                <th class="text-end">포장비</th>
-                                <th class="text-end">기타비용</th>
+                                <th class="text-end">광고비</th>
                                 <th class="text-end">기여이익</th>
                                 <th class="text-end">이익률</th>
                             </tr>
                         </thead>
                         <tbody id="channelBody">
-                            <tr><td colspan="8" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
+                            <tr><td colspan="6" class="text-center text-muted py-4">데이터 로딩 중...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -378,22 +376,55 @@ function renderPnlTable(pnl) {
     // ── III. 매출총이익 ──
     html += totalRow('III. 매출총이익', pnl.gross_profit, pnl.gross_margin, changeHtml(cmp.gross_profit_change));
 
-    // ── IV. 판매관리비 (세금계산서 외 비용) ──
-    html += sectionRow('IV. 판매관리비');
+    // ── IV. 판매관리비 ──
     const sga = pnl.sga;
     const byCat = sga.by_category || {};
+    const byMfg = sga.by_manufacturing || {};
     const catEntries = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    const mfgEntries = Object.entries(byMfg).sort((a, b) => b[1] - a[1]);
+    const sgaOnly = sga.total - (sga.total_manufacturing || 0);
+
+    // IV-1. 판관비
+    html += sectionRow('IV. 판매관리비');
     for (const [cat, amt] of catEntries) {
         if (amt) html += itemRow(cat, amt, _pct(amt, rev));
     }
-    if (sga.total === 0) {
+    if (catEntries.length === 0 && mfgEntries.length === 0) {
         html += `<tr class="pnl-item"><td colspan="4" class="text-muted small" style="padding-left:2rem;">
             비용 관리 메뉴에서 인건비·임차료·보험료 등을 등록하면 반영됩니다.</td></tr>`;
     }
+    if (mfgEntries.length > 0) {
+        html += subtotalRow('판관비 소계', sgaOnly, _pct(sgaOnly, rev));
+    }
+
+    // IV-2. 제조경비
+    if (mfgEntries.length > 0) {
+        html += `<tr class="pnl-section-header" style="font-size:0.92em;"><td colspan="4">　제조경비</td></tr>`;
+        for (const [cat, amt] of mfgEntries) {
+            if (amt) html += itemRow(cat, amt, _pct(amt, rev));
+        }
+        html += subtotalRow('제조경비 소계', sga.total_manufacturing, _pct(sga.total_manufacturing, rev));
+    }
+
     html += subtotalRow('판매관리비 합계', sga.total, _pct(sga.total, rev));
 
     // ── V. 영업이익 ──
     html += totalRow('V. 영업이익', pnl.operating_profit, pnl.operating_margin, changeHtml(cmp.profit_change));
+
+    // ── VI. 영업외비용 ──
+    const nonOp = sga.non_operating || {};
+    const nonOpEntries = Object.entries(nonOp).sort((a, b) => b[1] - a[1]);
+    if (nonOpEntries.length > 0) {
+        html += sectionRow('VI. 영업외비용');
+        for (const [cat, amt] of nonOpEntries) {
+            if (amt) html += itemRow(cat, amt, _pct(amt, rev));
+        }
+        html += subtotalRow('영업외비용 합계', sga.total_non_operating, _pct(sga.total_non_operating, rev));
+
+        // ── VII. 당기순이익 ──
+        const netProfit = pnl.net_profit || (pnl.operating_profit - (sga.total_non_operating || 0));
+        html += totalRow('VII. 당기순이익', netProfit, _pct(netProfit, rev));
+    }
 
     // 데이터 출처 표시
     const revSrc = pnl.revenue.data_source === 'settlement' ? '정산서' : '주문데이터';
@@ -470,8 +501,6 @@ function renderChannelTable(data) {
             <td><strong>${ch.channel}</strong></td>
             <td class="text-end">${fmtWon(ch.revenue)}</td>
             <td class="text-end text-danger">${fmtWon(ch.commission)}</td>
-            <td class="text-end">${fmtWon(ch.shipping)}</td>
-            <td class="text-end">${fmtWon(ch.packaging)}</td>
             <td class="text-end">${fmtWon(ch.other_cost)}</td>
             <td class="text-end ${profitCls}">${fmtWon(ch.channel_profit)}</td>
             <td class="text-end ${profitCls}">${ch.profit_margin}%</td>
@@ -485,8 +514,6 @@ function renderChannelTable(data) {
         <td><strong>합계</strong></td>
         <td class="text-end">${fmtWon(t.revenue)}</td>
         <td class="text-end text-danger">${fmtWon(t.commission)}</td>
-        <td class="text-end">${fmtWon(t.shipping)}</td>
-        <td class="text-end">${fmtWon(t.packaging)}</td>
         <td class="text-end">${fmtWon(t.other_cost)}</td>
         <td class="text-end ${totalCls}">${fmtWon(t.channel_profit)}</td>
         <td class="text-end ${totalCls}">${t.profit_margin}%</td>
@@ -655,15 +682,28 @@ function exportCSV() {
         ['  추정 원가', pnl.cogs.estimated_cost, ''],
         ['매출총이익', pnl.gross_profit, pnl.gross_margin],
         ['판매관리비', pnl.sga.total, _pct(pnl.sga.total, pnl.revenue.total)],
-        ['  채널 수수료', pnl.sga.commission, ''],
-        ['  배송비', pnl.sga.shipping, ''],
-        ['  포장비', pnl.sga.packaging, ''],
-        ['  인건비', pnl.sga.labor, ''],
-        ['  임차료', pnl.sga.rent, ''],
-        ['  수도광열비', pnl.sga.utilities, ''],
-        ['  기타', pnl.sga.other, ''],
-        ['영업이익', pnl.operating_profit, pnl.operating_margin],
     ];
+    // 판관비 항목 (by_category)
+    const csvCat = pnl.sga.by_category || {};
+    for (const [cat, amt] of Object.entries(csvCat).sort((a, b) => b - a)) {
+        if (amt) lines.push(['  ' + cat, amt, '']);
+    }
+    // 제조경비 항목 (by_manufacturing)
+    const csvMfg = pnl.sga.by_manufacturing || {};
+    for (const [cat, amt] of Object.entries(csvMfg)) {
+        if (amt) lines.push(['  [제조] ' + cat, amt, '']);
+    }
+    lines.push(
+        ['영업이익', pnl.operating_profit, pnl.operating_margin],
+    );
+    // 영업외비용
+    const csvNonOp = pnl.sga.non_operating || {};
+    for (const [cat, amt] of Object.entries(csvNonOp)) {
+        if (amt) lines.push(['  ' + cat, amt, '']);
+    }
+    if (pnl.net_profit !== undefined) {
+        lines.push(['당기순이익', pnl.net_profit, _pct(pnl.net_profit, pnl.revenue.total)]);
+    }
 
     const csv = '\uFEFF' + lines.map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

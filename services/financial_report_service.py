@@ -366,7 +366,7 @@ def _build_sales_purchase_sheet(ws, db, year_month, date_from, date_to, display_
     ws.cell(row=row, column=1).font = Font(bold=True, size=12, color="2C3E50")
 
     row = 4
-    headers = ["채널명", "매출액", "수수료", "배송비", "기여이익", "이익률(%)"]
+    headers = ["채널명", "매출액", "수수료", "광고비", "기여이익", "이익률(%)"]
     for i, h in enumerate(headers, 1):
         ws.cell(row=row, column=i, value=h)
     _apply_header_style(ws, row, len(headers))
@@ -381,7 +381,7 @@ def _build_sales_purchase_sheet(ws, db, year_month, date_from, date_to, display_
         ws.cell(row=row, column=1, value=ch['channel'])
         ws.cell(row=row, column=2, value=ch['revenue']).number_format = _NUM_FMT
         ws.cell(row=row, column=3, value=ch['commission']).number_format = _NUM_FMT
-        ws.cell(row=row, column=4, value=ch['shipping']).number_format = _NUM_FMT
+        ws.cell(row=row, column=4, value=ch.get('other_cost', 0)).number_format = _NUM_FMT
         ws.cell(row=row, column=5, value=ch['channel_profit']).number_format = _NUM_FMT
         ws.cell(row=row, column=6, value=ch['profit_margin'] / 100 if ch['profit_margin'] else 0).number_format = _PCT_FMT
         _apply_cell_border(ws, row, len(headers))
@@ -391,7 +391,7 @@ def _build_sales_purchase_sheet(ws, db, year_month, date_from, date_to, display_
     ws.cell(row=row, column=1, value="매출 합계")
     ws.cell(row=row, column=2, value=total_ch.get('revenue', 0)).number_format = _NUM_FMT
     ws.cell(row=row, column=3, value=total_ch.get('commission', 0)).number_format = _NUM_FMT
-    ws.cell(row=row, column=4, value=total_ch.get('shipping', 0)).number_format = _NUM_FMT
+    ws.cell(row=row, column=4, value=total_ch.get('other_cost', 0)).number_format = _NUM_FMT
     ws.cell(row=row, column=5, value=total_ch.get('channel_profit', 0)).number_format = _NUM_FMT
     margin = total_ch.get('profit_margin', 0)
     ws.cell(row=row, column=6, value=margin / 100 if margin else 0).number_format = _PCT_FMT

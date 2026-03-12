@@ -194,6 +194,7 @@ def _calc_sga(db, year_month, commission_total):
         '수도료': 'utilities',
         '가스비': 'utilities',
         '배송비': 'shipping',
+        '운반비': 'shipping',
         '택배비': 'shipping',
         '포장비': 'packaging',
         '포장재': 'packaging',
@@ -343,6 +344,11 @@ def _calc_sga_v2(data, commission_from_revenue):
     수수료/광고비는 매입 세금계산서에 포함되어 COGS에 이미 반영되므로
     판관비에서는 제외. expenses 테이블의 인건비·임차료 등만 집계.
     정산서 수수료/광고비는 참고용으로만 기록 (합산 안 함).
+
+    카테고리 parent 분류:
+      판관비: 인건비, 임차료, 세금과공과, 복리후생비, 보험료, 운반비, 지급수수료, 기타
+      제조경비: 연구개발비
+      영업외: 이자비용
     """
     settlements = data['settlements']
     expense_rows = data['expenses']
@@ -359,18 +365,36 @@ def _calc_sga_v2(data, commission_from_revenue):
             ref_ad_cost += cost
             ad_by_channel[ch] += cost
 
-    # expenses → 카테고리별 집계 (원본 카테고리명 그대로 사용)
-    by_category = defaultdict(float)
+    # 영업외비용 카테고리 (판관비에서 분리)
+    _NON_OPERATING = {'이자비용'}
+    # 제조경비 카테고리
+    _MANUFACTURING = {'연구개발비'}
+
+    # expenses → 카테고리별 집계 (판관비/제조경비/영업외 분리)
+    by_category = defaultdict(float)       # 판관비
+    by_mfg = defaultdict(float)            # 제조경비
+    by_non_op = defaultdict(float)         # 영업외비용
     for row in expense_rows:
         cat = row.get('category', '기타')
         amt = float(row.get('amount', 0))
-        by_category[cat] += amt
+        if cat in _NON_OPERATING:
+            by_non_op[cat] += amt
+        elif cat in _MANUFACTURING:
+            by_mfg[cat] += amt
+        else:
+            by_category[cat] += amt
 
-    total_expenses = sum(round(v) for v in by_category.values())
+    total_sga = sum(round(v) for v in by_category.values())
+    total_mfg = sum(round(v) for v in by_mfg.values())
+    total_non_op = sum(round(v) for v in by_non_op.values())
 
     sga = {
-        'total': total_expenses,
+        'total': total_sga + total_mfg,  # 판관비+제조경비 (영업이익 계산용)
         'by_category': {k: round(v) for k, v in by_category.items()},
+        'by_manufacturing': {k: round(v) for k, v in by_mfg.items()},
+        'total_manufacturing': total_mfg,
+        'non_operating': {k: round(v) for k, v in by_non_op.items()},
+        'total_non_operating': total_non_op,
         'ad_by_channel': dict(ad_by_channel),
         # 참고용 (UI에서 매출원가 내역 표시에 활용)
         'ref_commission': ref_commission,
@@ -416,7 +440,11 @@ def calculate_monthly_pnl(db, year_month):
     operating_profit = gross_profit - sga['total']
     operating_margin = _safe_pct(operating_profit, revenue['total'])
 
-    # 6. 전월 비교
+    # 6. 영업외비용 → 당기순이익
+    non_operating_total = sga.get('total_non_operating', 0)
+    net_profit = operating_profit - non_operating_total
+
+    # 7. 전월 비교
     prev_ym = _prev_month(year_month)
     prev_pnl = _calc_prev_month_summary(db, prev_ym)
     prev_month_comparison = {
@@ -443,6 +471,7 @@ def calculate_monthly_pnl(db, year_month):
         'gross_margin': gross_margin,
         'sga': sga,
         'operating_profit': operating_profit,
+        'net_profit': net_profit,
         'operating_margin': operating_margin,
         'prev_month_comparison': prev_month_comparison,
     }
