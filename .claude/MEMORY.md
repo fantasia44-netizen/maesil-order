@@ -97,6 +97,23 @@
 - migrate_hr_v3.sql — 급여 일할계산/근태차감 확장
 - migrate_expense_categories_v2.sql — 비용 카테고리 정리
 
+## 마켓플레이스 자동 송장등록 (2026-03-12 구현)
+- **3개 채널**: 쿠팡(HMAC-SHA256), 네이버(OAuth2), Cafe24(OAuth2 refresh)
+- **파일**: services/marketplace/{coupang,naver,cafe24}_client.py → `register_invoice()`
+- **오케스트레이션**: services/marketplace_sync_service.py → `push_invoices()`
+- **라우트**: blueprints/marketplace.py → POST /marketplace/push-invoices
+- **택배사 코드**: config.py COURIER_CODES (CJ대한통운만, 채널별 코드 상이)
+- **DB**: 기존 order_shipping + api_orders 테이블 재사용, 신규 SQL 불필요
+
+## 중요 버그 수정 이력 (2026-03-12)
+- **페이지네이션 ORDER BY 누락**: _paginate_query 사용하는 14곳에 .order("id") 추가
+  - ORDER BY 없이 OFFSET 페이지네이션 → 행 중복/누락 → 수불장 수치 매번 다름
+- **로켓배송 재고차감일**: collection_date → order_date → today 3단계 fallback (4곳)
+  - order_to_stock_service.py 내 모든 non-N배송 stk_date 할당
+- **품목명 공백 정규화**: db_supabase.py `_normalize_product_names()` INSERT 시 적용
+  - stock_service.py query_all_stock_data에서 조회 시에도 공백 제거
+- **로그인 속도 최적화**: 백그라운드 스레드(auth.py), TTL 캐시(db_supabase.py), 세션 캐시(app.py)
+
 ## 상세 문서
 - [프로젝트 구조 상세](project_structure.md)
 - [Phase 1 계획서](phase1_plan.md)
