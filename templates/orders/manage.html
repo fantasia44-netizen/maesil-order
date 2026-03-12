@@ -465,11 +465,14 @@ function loadOrders() {
                     : '<span class="badge bg-light text-muted border">미등록</span>';
                 // 패킹/출고 상태: 미출고 → 송장등록 → 영상등록(출고)
                 let packingBadge;
-                if (hasPacking || isOutbound) {
+                if (hasPacking) {
+                    // 패킹센터에서 실제 영상 촬영 완료
                     packingBadge = '<span class="badge bg-success"><i class="bi bi-camera-video-fill"></i> 영상등록</span>';
                 } else if (invoiceNo) {
+                    // 송장번호 있음 → 패킹 대기중
                     packingBadge = '<span class="badge bg-primary"><i class="bi bi-upc-scan"></i> 송장등록</span>';
                 } else {
+                    // 송장도 없음
                     packingBadge = '<span class="badge bg-secondary">미출고</span>';
                 }
                 const recipientName = o.recipient_name || '';
@@ -552,7 +555,7 @@ function showDetail(orderId) {
                         <tr><th>상태</th><td><span class="badge ${t.status==='정상'?'bg-success':'bg-danger'}">${t.status}</span></td></tr>
                         ${t.status_reason ? `<tr><th>사유</th><td>${t.status_reason}</td></tr>` : ''}
                         <tr><th>출고처리</th><td>${
-                            t.is_outbound_done
+                            pj
                                 ? '<span class="badge bg-success"><i class="bi bi-camera-video-fill"></i> 영상등록(출고)</span> ' + (t.outbound_date || '')
                                 : (s && s.invoice_no
                                     ? '<span class="badge bg-primary"><i class="bi bi-upc-scan"></i> 송장등록</span>'
