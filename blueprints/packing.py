@@ -291,13 +291,14 @@ def api_lookup_barcode():
     else:
         masked = '***'
 
-    # 대표 품목명
+    # 대표 품목명 (바코드 포함)
     items = []
     for o in order_rows:
         items.append({
             'product_name': o.get('product_name', ''),
             'qty': o.get('qty', 0),
             'option_name': o.get('option_name', ''),
+            'barcode': o.get('barcode', ''),
         })
 
     product_summary = ', '.join(
@@ -366,6 +367,7 @@ def api_complete_job():
     job_id = request.form.get('job_id')
     video_file = request.files.get('video')
     duration_ms = request.form.get('duration_ms', 0, type=int)
+    scanned_items_raw = request.form.get('scanned_items', '')
 
     if not job_id or not video_file:
         return jsonify({'ok': False, 'error': '필수 데이터 누락'})
@@ -395,14 +397,36 @@ def api_complete_job():
     except Exception as e:
         return jsonify({'ok': False, 'error': f'영상 업로드 실패: {e}'})
 
-    # Job 업데이트
-    db.update_packing_job(int(job_id), {
+    # scanned_items 파싱
+    scanned_items = None
+    if scanned_items_raw:
+        try:
+            import json as _json
+            scanned_items = _json.loads(scanned_items_raw)
+        except Exception:
+            pass
+
+    # order_info에 scanned_items 병합
+    update_data = {
         'status': 'completed',
         'video_path': path,
         'video_size_bytes': len(video_bytes),
         'video_duration_ms': duration_ms,
         'completed_at': now.isoformat(),
-    })
+    }
+    if scanned_items is not None:
+        existing_info = job.get('order_info') or {}
+        if isinstance(existing_info, str):
+            try:
+                import json as _json
+                existing_info = _json.loads(existing_info)
+            except Exception:
+                existing_info = {}
+        existing_info['scanned_items'] = scanned_items
+        update_data['order_info'] = existing_info
+
+    # Job 업데이트
+    db.update_packing_job(int(job_id), update_data)
 
     _packing_log_action('packing_complete_recording',
                         target=job['scanned_barcode'],

@@ -6,7 +6,7 @@
 <style>
     .rec-container { display:flex; gap:16px; height:calc(100vh - 140px); padding:8px; }
     .rec-left { flex:2; display:flex; flex-direction:column; gap:10px; }
-    .rec-right { flex:1; min-width:280px; }
+    .rec-right { flex:1; min-width:320px; }
 
     /* 카메라 */
     .camera-wrap {
@@ -14,9 +14,7 @@
         display:flex; align-items:center; justify-content:center;
     }
     .camera-wrap video { width:100%; height:100%; object-fit:cover; }
-    .camera-placeholder {
-        color:var(--pk-muted); text-align:center;
-    }
+    .camera-placeholder { color:var(--pk-muted); text-align:center; }
     .camera-placeholder i { font-size:3rem; display:block; margin-bottom:8px; }
 
     /* 녹화 표시 */
@@ -39,15 +37,17 @@
         padding:6px 16px; border-radius:20px; font-size:0.85rem; font-weight:600;
     }
     .state-idle { background:var(--pk-header); color:var(--pk-muted); }
-    .state-matched { background:#1b5e20; color:#a5d6a7; }
     .state-recording { background:#b71c1c; color:#ffcdd2; }
     .state-completing { background:#e65100; color:#ffe0b2; }
+    .state-done { background:#1b5e20; color:#a5d6a7; }
 
     /* 바코드 입력 */
     .barcode-area {
         background:var(--pk-darker); border:2px solid var(--pk-header);
         border-radius:8px; padding:10px 16px; display:flex; align-items:center; gap:10px;
     }
+    .barcode-area.recording { border-color:#ff5252; }
+    .barcode-area.all-done { border-color:#4caf50; }
     .barcode-area i { font-size:1.5rem; color:var(--pk-primary); }
     .barcode-area input {
         flex:1; background:transparent; border:none; outline:none;
@@ -57,22 +57,88 @@
 
     /* 주문정보 패널 */
     .order-panel {
-        background:var(--pk-darker); border:1px solid var(--pk-header);
+        background:var(--pk-darker); border:2px solid var(--pk-header);
         border-radius:8px; padding:16px; height:100%;
-        display:flex; flex-direction:column; gap:12px; overflow-y:auto;
+        display:flex; flex-direction:column; gap:10px; overflow-y:auto;
+        transition: border-color 0.3s;
     }
+    .order-panel.all-verified { border-color:#4caf50; }
     .order-panel h5 { color:var(--pk-text); margin:0; font-size:1rem; }
-    .order-field { display:flex; justify-content:space-between; padding:6px 0;
-                   border-bottom:1px solid var(--pk-header); }
-    .order-label { color:var(--pk-muted); font-size:0.85rem; }
+    .order-field { display:flex; justify-content:space-between; padding:5px 0;
+                   border-bottom:1px solid var(--pk-header); font-size:0.9rem; }
+    .order-label { color:var(--pk-muted); font-size:0.8rem; }
     .order-value { color:#fff; font-weight:500; }
-    .order-items { flex:1; }
-    .order-item {
-        background:var(--pk-header); padding:8px 12px; border-radius:6px;
-        margin-bottom:6px; display:flex; justify-content:space-between;
+
+    /* 제품 목록 */
+    .product-list { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .product-item {
+        background:var(--pk-header); padding:10px 12px; border-radius:8px;
+        display:flex; align-items:center; gap:10px; transition: all 0.3s;
+        border-left: 4px solid transparent;
     }
-    .order-item-name { color:var(--pk-text); }
-    .order-item-qty { color:var(--pk-primary); font-weight:700; }
+    .product-item.scanned {
+        background:#1b3a1b; border-left-color:#4caf50;
+    }
+    .product-item.active-scan {
+        animation: scanFlash 0.4s ease;
+    }
+    @keyframes scanFlash {
+        0% { background:#2e7d32; transform:scale(1.02); }
+        100% { background:#1b3a1b; transform:scale(1); }
+    }
+    .product-check {
+        width:22px; height:22px; border-radius:50%; border:2px solid var(--pk-muted);
+        display:flex; align-items:center; justify-content:center;
+        font-size:0.75rem; color:transparent; flex-shrink:0;
+    }
+    .product-item.scanned .product-check {
+        border-color:#4caf50; color:#4caf50; background:rgba(76,175,80,0.15);
+    }
+    .product-info { flex:1; min-width:0; }
+    .product-name { color:var(--pk-text); font-size:0.9rem; font-weight:500;
+                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .product-barcode { color:var(--pk-muted); font-size:0.7rem; font-family:monospace; }
+    .product-qty {
+        text-align:right; flex-shrink:0;
+    }
+    .product-qty-num {
+        font-size:1.2rem; font-weight:700; color:var(--pk-primary);
+    }
+    .product-item.scanned .product-qty-num { color:#4caf50; }
+    .product-qty-label { font-size:0.65rem; color:var(--pk-muted); }
+    .product-progress {
+        width:50px; height:6px; background:var(--pk-darker); border-radius:3px;
+        overflow:hidden; flex-shrink:0;
+    }
+    .product-progress-bar {
+        height:100%; background:var(--pk-primary); border-radius:3px;
+        transition: width 0.3s;
+    }
+    .product-item.scanned .product-progress-bar { background:#4caf50; }
+
+    /* 완료 메시지 */
+    .all-done-msg {
+        display:none; text-align:center; padding:12px;
+        background:rgba(76,175,80,0.15); border-radius:8px;
+        color:#4caf50; font-weight:600;
+    }
+    .all-done-msg.show { display:block; }
+
+    /* 완료 버튼 */
+    .btn-complete {
+        display:none; width:100%; padding:14px; border:none; border-radius:8px;
+        font-size:1.1rem; font-weight:700; cursor:pointer; transition:all 0.3s;
+        background:#455a64; color:#cfd8dc;
+    }
+    .btn-complete.show { display:block; }
+    .btn-complete.ready {
+        background:#2e7d32; color:#fff;
+        animation: pulseGreen 1.5s ease infinite;
+    }
+    @keyframes pulseGreen {
+        0%,100% { box-shadow:0 0 0 0 rgba(76,175,80,0.4); }
+        50% { box-shadow:0 0 0 10px rgba(76,175,80,0); }
+    }
 
     /* 안내 메시지 */
     .guide-msg {
@@ -81,13 +147,8 @@
     .guide-msg i { font-size:2.5rem; display:block; margin-bottom:12px; }
     .guide-msg .step { color:var(--pk-primary); font-weight:600; }
 
-    /* 에러/성공 토스트 */
-    .toast-area {
-        position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
-        z-index:9999;
-    }
-
-    /* 업로드 프로그레스 */
+    /* 토스트/오버레이 */
+    .toast-area { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:9999; }
     .upload-overlay {
         display:none; position:absolute; top:0; left:0; right:0; bottom:0;
         background:rgba(0,0,0,0.8); z-index:10;
@@ -95,6 +156,14 @@
         color:#fff; border-radius:8px;
     }
     .upload-overlay.active { display:flex; }
+
+    /* 스캔 카운터 */
+    .scan-counter {
+        text-align:center; padding:8px; background:var(--pk-header); border-radius:6px;
+        font-size:0.9rem;
+    }
+    .scan-counter .done { color:#4caf50; font-weight:700; font-size:1.1rem; }
+    .scan-counter .total { color:var(--pk-muted); }
 
     @media (max-width:768px) {
         .rec-container { flex-direction:column; height:auto; }
@@ -132,7 +201,7 @@
         </div>
 
         <!-- 바코드 입력 -->
-        <div class="barcode-area">
+        <div class="barcode-area" id="barcodeArea">
             <i class="bi bi-upc-scan"></i>
             <input type="text" id="barcodeInput" placeholder="송장 바코드를 스캔하세요"
                    autocomplete="off" autofocus>
@@ -140,7 +209,7 @@
         </div>
     </div>
 
-    <!-- 오른쪽: 주문 정보 -->
+    <!-- 오른쪽: 주문 정보 + 제품 목록 -->
     <div class="rec-right">
         <div class="order-panel" id="orderPanel">
             <h5><i class="bi bi-clipboard-data me-2"></i>주문 정보</h5>
@@ -148,14 +217,17 @@
             <!-- 대기 상태 안내 -->
             <div class="guide-msg" id="guideMsg">
                 <i class="bi bi-upc-scan"></i>
-                <div class="step">1단계</div>
-                송장 바코드를 스캔하세요
-                <div style="margin-top:20px; font-size:0.8rem; color:var(--pk-muted);">
-                    USB 바코드 스캐너 또는<br>직접 입력 후 Enter
+                <div class="step">송장 바코드를 스캔하세요</div>
+                <div style="margin-top:12px; font-size:0.85rem;">
+                    스캔 즉시 녹화가 시작되고<br>
+                    제품 바코드를 하나씩 찍어주세요
+                </div>
+                <div style="margin-top:20px; font-size:0.75rem; color:var(--pk-muted);">
+                    USB 바코드 스캐너 또는 직접 입력 후 Enter
                 </div>
             </div>
 
-            <!-- 주문 상세 (매칭 후 표시) -->
+            <!-- 주문 상세 (녹화 시작 후 표시) -->
             <div id="orderDetail" style="display:none;">
                 <div class="order-field">
                     <span class="order-label">채널</span>
@@ -170,31 +242,29 @@
                     <span class="order-value" id="odRecipient">-</span>
                 </div>
                 <div class="order-field">
-                    <span class="order-label">택배사</span>
-                    <span class="order-value" id="odCourier">-</span>
-                </div>
-                <div class="order-field">
                     <span class="order-label">송장번호</span>
                     <span class="order-value" id="odBarcode" style="font-family:monospace;">-</span>
                 </div>
 
-                <h6 style="color:var(--pk-text); margin-top:12px;">
-                    <i class="bi bi-box-seam me-1"></i>품목
-                    <span class="badge bg-secondary ms-1" id="odTotalQty">0</span>
-                </h6>
-                <div class="order-items" id="odItems"></div>
+                <!-- 스캔 카운터 -->
+                <div class="scan-counter">
+                    <i class="bi bi-check2-square me-1"></i>
+                    제품 스캔: <span class="done" id="scanDone">0</span>
+                    <span class="total">/ <span id="scanTotal">0</span></span>
+                </div>
 
-                <!-- 녹화 안내 -->
-                <div id="matchedGuide" class="text-center mt-2" style="display:none;">
-                    <div style="color:var(--pk-primary); font-weight:600; font-size:0.95rem;">
-                        <i class="bi bi-arrow-repeat me-1"></i>같은 바코드를 다시 스캔하면 녹화 시작
-                    </div>
+                <!-- 제품 목록 -->
+                <div class="product-list" id="productList"></div>
+
+                <!-- 전체 완료 메시지 -->
+                <div class="all-done-msg" id="allDoneMsg">
+                    <i class="bi bi-check-circle-fill me-1"></i>모든 제품 검증 완료!
                 </div>
-                <div id="recordingGuide" class="text-center mt-2" style="display:none;">
-                    <div style="color:#ff5252; font-weight:600; font-size:0.95rem;">
-                        <i class="bi bi-stop-circle me-1"></i>같은 바코드를 스캔하면 녹화 종료
-                    </div>
-                </div>
+
+                <!-- 완료 버튼 -->
+                <button class="btn-complete" id="btnComplete" onclick="handleComplete()">
+                    <i class="bi bi-stop-circle me-2"></i>녹화 종료 및 저장
+                </button>
             </div>
         </div>
     </div>
@@ -215,26 +285,24 @@
 const CSRF_TOKEN = '{{ csrf_token() }}';
 
 // ── 상태 관리 ──
-const State = {
-    IDLE: 'IDLE',
-    MATCHED: 'MATCHED',
-    RECORDING: 'RECORDING',
-    COMPLETING: 'COMPLETING',
-};
+const State = { IDLE: 'IDLE', RECORDING: 'RECORDING', COMPLETING: 'COMPLETING' };
 
 let state = State.IDLE;
-let currentBarcode = null;
-let currentOrderData = null;
-let currentJobId = null;
+let currentBarcode = null;       // 현재 송장 바코드
+let currentOrderData = null;     // 현재 주문 데이터
+let currentJobId = null;         // 현재 packing_jobs.id
+let productItems = [];           // [{product_name, barcode, totalQty, scannedQty}, ...]
 let mediaRecorder = null;
 let recordedChunks = [];
 let cameraStream = null;
 let timerInterval = null;
 let recordingStartTime = null;
 let audioCtx = null;
+let pendingNextBarcode = null;   // 다음 송장 바코드 (연속 작업)
 
 // ── DOM 참조 ──
 const $barcodeInput = document.getElementById('barcodeInput');
+const $barcodeArea = document.getElementById('barcodeArea');
 const $cameraPreview = document.getElementById('cameraPreview');
 const $cameraPlaceholder = document.getElementById('cameraPlaceholder');
 const $recIndicator = document.getElementById('recIndicator');
@@ -242,10 +310,13 @@ const $recTimer = document.getElementById('recTimer');
 const $stateBadge = document.getElementById('stateBadge');
 const $guideMsg = document.getElementById('guideMsg');
 const $orderDetail = document.getElementById('orderDetail');
-const $matchedGuide = document.getElementById('matchedGuide');
-const $recordingGuide = document.getElementById('recordingGuide');
+const $orderPanel = document.getElementById('orderPanel');
 const $uploadOverlay = document.getElementById('uploadOverlay');
 const $uploadSize = document.getElementById('uploadSize');
+const $btnComplete = document.getElementById('btnComplete');
+const $allDoneMsg = document.getElementById('allDoneMsg');
+const $scanDone = document.getElementById('scanDone');
+const $scanTotal = document.getElementById('scanTotal');
 
 // ── 초기화 ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -257,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initCamera() {
     try {
         cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: {ideal:1280}, height: {ideal:720}, facingMode:'environment' },
+            video: { width:{ideal:1280}, height:{ideal:720}, facingMode:'environment' },
             audio: false,
         });
         $cameraPreview.srcObject = cameraStream;
@@ -281,7 +352,6 @@ function initBarcodeInput() {
             if (barcode) handleBarcodeScan(barcode);
         }
     });
-    // 포커스 유지
     document.addEventListener('click', (e) => {
         if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
             $barcodeInput.focus();
@@ -290,30 +360,29 @@ function initBarcodeInput() {
     $barcodeInput.focus();
 }
 
-// ── 바코드 처리 핵심 ──
+// ═══════════════════════════════════════════════
+// 바코드 처리 핵심
+// ═══════════════════════════════════════════════
 async function handleBarcodeScan(barcode) {
-    if (state === State.COMPLETING) return; // 업로드 중 무시
+    if (state === State.COMPLETING) return;
 
-    if (state === State.RECORDING && barcode === currentBarcode) {
-        // 녹화 중 + 같은 바코드 → 녹화 종료
-        await stopRecording();
-    } else if (state === State.MATCHED && barcode === currentBarcode) {
-        // 매칭 후 + 같은 바코드 → 녹화 시작
-        await startRecording();
-    } else {
-        // 새 바코드 → 조회
-        if (state === State.RECORDING) {
-            showToast('녹화 중입니다. 같은 바코드를 스캔하여 종료하세요.', 'warning');
-            return;
+    if (state === State.IDLE) {
+        // ── IDLE: 송장 바코드 → 조회 + 즉시 녹화 시작 ──
+        await lookupAndStartRecording(barcode);
+    } else if (state === State.RECORDING) {
+        // ── RECORDING: 제품 바코드 or 새 송장 ──
+        const matched = tryMatchProductBarcode(barcode);
+        if (!matched) {
+            // 제품에 없는 바코드 → 새 송장으로 간주 → 현재 녹화 종료 + 새 녹화
+            pendingNextBarcode = barcode;
+            await stopRecording();
         }
-        await lookupBarcode(barcode);
     }
     $barcodeInput.focus();
 }
 
-// ── 바코드 조회 ──
-async function lookupBarcode(barcode) {
-    updateState(State.IDLE);
+// ── 송장 조회 + 녹화 시작 ──
+async function lookupAndStartRecording(barcode) {
     playBeep(1200, 150);
     document.getElementById('barcodeStatus').textContent = '조회 중...';
 
@@ -326,20 +395,25 @@ async function lookupBarcode(barcode) {
         const json = await res.json();
 
         if (!json.ok) {
-            playBeep(400, 300); // 낮은 경고음
+            playBeep(400, 300);
             showToast(json.error, 'danger');
+            speak(json.error);
             document.getElementById('barcodeStatus').textContent = '';
             return;
         }
 
-        // 매칭 성공
         currentBarcode = barcode;
         currentOrderData = json.data;
-        displayOrderInfo(json.data);
-        updateState(State.MATCHED);
         document.getElementById('barcodeStatus').textContent = '';
 
-        // TTS: 주문 정보 읽기
+        // 제품 목록 초기화
+        initProductItems(json.data.items || []);
+        displayOrderInfo(json.data);
+
+        // 즉시 녹화 시작
+        await startRecording();
+
+        // TTS: 주문 정보
         speakOrderInfo(json.data);
 
     } catch(e) {
@@ -348,27 +422,143 @@ async function lookupBarcode(barcode) {
     }
 }
 
+// ── 제품 목록 초기화 ──
+function initProductItems(items) {
+    // 같은 바코드끼리 합산 (동일 제품 여러 행 가능)
+    const map = new Map();
+    items.forEach(it => {
+        const bc = (it.barcode || '').trim();
+        const key = bc || it.product_name; // 바코드 없으면 제품명 기준
+        if (map.has(key)) {
+            const existing = map.get(key);
+            existing.totalQty += Math.abs(it.qty || 0);
+        } else {
+            map.set(key, {
+                product_name: it.product_name || it.option_name || '-',
+                barcode: bc,
+                totalQty: Math.abs(it.qty || 0),
+                scannedQty: 0,
+            });
+        }
+    });
+    productItems = Array.from(map.values());
+}
+
+// ── 제품 바코드 매칭 ──
+function tryMatchProductBarcode(barcode) {
+    // 제품 바코드 목록에서 찾기
+    const item = productItems.find(p => p.barcode && p.barcode === barcode);
+    if (!item) return false;
+
+    if (item.scannedQty >= item.totalQty) {
+        // 이미 다 스캔된 제품
+        playBeep(400, 200);
+        speak('이미 스캔 완료');
+        showToast(`${item.product_name} — 이미 스캔 완료됨`, 'warning');
+        // 하이라이트만
+        highlightProduct(item);
+        return true;
+    }
+
+    // 수량 차감
+    item.scannedQty += 1;
+    playBeep(1200, 150);
+    speak(item.product_name);
+
+    // UI 업데이트
+    renderProductList();
+    highlightProduct(item);
+
+    // 전체 완료 체크
+    checkAllDone();
+
+    return true;
+}
+
+// ── 제품 하이라이트 (스캔 시 깜빡임) ──
+function highlightProduct(item) {
+    const idx = productItems.indexOf(item);
+    const el = document.querySelector(`[data-product-idx="${idx}"]`);
+    if (el) {
+        el.classList.add('active-scan');
+        setTimeout(() => el.classList.remove('active-scan'), 500);
+    }
+}
+
+// ── 전체 완료 체크 ──
+function checkAllDone() {
+    const totalRequired = productItems.reduce((s, p) => s + p.totalQty, 0);
+    const totalScanned = productItems.reduce((s, p) => s + p.scannedQty, 0);
+    const allDone = totalScanned >= totalRequired && totalRequired > 0;
+
+    $allDoneMsg.classList.toggle('show', allDone);
+    $orderPanel.classList.toggle('all-verified', allDone);
+    $barcodeArea.classList.toggle('all-done', allDone);
+    $btnComplete.classList.toggle('ready', allDone);
+
+    if (allDone) {
+        playBeep(1500, 300);
+        speak('모든 제품 검증 완료');
+        updateState('DONE');
+    }
+}
+
 // ── 주문 정보 표시 ──
 function displayOrderInfo(data) {
     $guideMsg.style.display = 'none';
-    $orderDetail.style.display = 'block';
+    $orderDetail.style.display = 'flex';
+    $orderDetail.style.flexDirection = 'column';
+    $orderDetail.style.gap = '8px';
+    $orderDetail.style.flex = '1';
 
     document.getElementById('odChannel').textContent = data.channel || '-';
     document.getElementById('odOrderNo').textContent = data.order_no || '-';
     document.getElementById('odRecipient').textContent = data.recipient_name || '-';
-    document.getElementById('odCourier').textContent = data.courier || '-';
     document.getElementById('odBarcode').textContent = currentBarcode || '-';
-    document.getElementById('odTotalQty').textContent = data.total_qty || 0;
 
-    const $items = document.getElementById('odItems');
-    $items.innerHTML = '';
-    (data.items || []).forEach(it => {
+    const totalQty = productItems.reduce((s, p) => s + p.totalQty, 0);
+    $scanTotal.textContent = totalQty;
+    $scanDone.textContent = '0';
+
+    renderProductList();
+
+    $btnComplete.classList.add('show');
+    $btnComplete.classList.remove('ready');
+}
+
+// ── 제품 목록 렌더링 ──
+function renderProductList() {
+    const $list = document.getElementById('productList');
+    $list.innerHTML = '';
+
+    let totalScanned = 0;
+
+    productItems.forEach((item, idx) => {
+        const done = item.scannedQty >= item.totalQty;
+        const pct = item.totalQty > 0 ? Math.min(100, (item.scannedQty / item.totalQty) * 100) : 0;
+        totalScanned += item.scannedQty;
+
         const div = document.createElement('div');
-        div.className = 'order-item';
-        div.innerHTML = `<span class="order-item-name">${it.product_name || it.option_name || '-'}</span>
-                         <span class="order-item-qty">x${it.qty}</span>`;
-        $items.appendChild(div);
+        div.className = 'product-item' + (done ? ' scanned' : '');
+        div.dataset.productIdx = idx;
+        div.innerHTML = `
+            <div class="product-check"><i class="bi bi-check-lg"></i></div>
+            <div class="product-info">
+                <div class="product-name">${item.product_name}</div>
+                <div class="product-barcode">${item.barcode || '(바코드 없음)'}</div>
+            </div>
+            <div class="product-qty">
+                <div class="product-qty-num">${item.scannedQty}/${item.totalQty}</div>
+                <div class="product-qty-label">스캔/전체</div>
+            </div>
+            <div class="product-progress">
+                <div class="product-progress-bar" style="width:${pct}%"></div>
+            </div>
+        `;
+        $list.appendChild(div);
     });
+
+    $scanDone.textContent = totalScanned;
 }
 
 // ── 녹화 시작 ──
@@ -414,11 +604,11 @@ async function startRecording() {
         if (e.data && e.data.size > 0) recordedChunks.push(e.data);
     };
 
-    mediaRecorder.start(1000); // 1초 단위 chunk
+    mediaRecorder.start(1000);
     recordingStartTime = Date.now();
     updateState(State.RECORDING);
 
-    // 타이머 시작
+    // 타이머
     timerInterval = setInterval(() => {
         const elapsed = Date.now() - recordingStartTime;
         const min = String(Math.floor(elapsed / 60000)).padStart(2, '0');
@@ -426,19 +616,44 @@ async function startRecording() {
         $recTimer.textContent = `${min}:${sec}`;
     }, 500);
 
+    // 바코드 입력 안내 변경
+    $barcodeInput.placeholder = '제품 바코드를 스캔하세요';
+    $barcodeArea.classList.add('recording');
+
     playBeep(1500, 200);
-    speak('녹화를 시작합니다');
+}
+
+// ── 완료 버튼 클릭 ──
+async function handleComplete() {
+    if (state !== State.RECORDING && state !== 'DONE') return;
+
+    const totalRequired = productItems.reduce((s, p) => s + p.totalQty, 0);
+    const totalScanned = productItems.reduce((s, p) => s + p.scannedQty, 0);
+
+    if (totalScanned < totalRequired) {
+        const remain = totalRequired - totalScanned;
+        if (!confirm(`아직 ${remain}개 제품이 미스캔입니다.\n그래도 녹화를 종료하시겠습니까?`)) {
+            $barcodeInput.focus();
+            return;
+        }
+    }
+
+    await stopRecording();
 }
 
 // ── 녹화 종료 ──
 async function stopRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        resetToIdle();
+        return;
+    }
+
     updateState(State.COMPLETING);
     clearInterval(timerInterval);
     const durationMs = Date.now() - recordingStartTime;
 
     playBeep(800, 300);
 
-    // MediaRecorder 정지 후 업로드
     return new Promise((resolve) => {
         mediaRecorder.onstop = async () => {
             const blob = new Blob(recordedChunks, {type:'video/webm'});
@@ -446,11 +661,19 @@ async function stopRecording() {
             $uploadOverlay.classList.add('active');
             $uploadSize.textContent = `${sizeMB} MB`;
 
-            // FormData 업로드
+            // scanned_items 정보
+            const scannedInfo = productItems.map(p => ({
+                product_name: p.product_name,
+                barcode: p.barcode,
+                total_qty: p.totalQty,
+                scanned_qty: p.scannedQty,
+            }));
+
             const formData = new FormData();
             formData.append('video', blob, `${currentBarcode}.webm`);
             formData.append('job_id', currentJobId);
             formData.append('duration_ms', durationMs);
+            formData.append('scanned_items', JSON.stringify(scannedInfo));
             formData.append('csrf_token', CSRF_TOKEN);
 
             try {
@@ -470,7 +693,17 @@ async function stopRecording() {
             }
 
             $uploadOverlay.classList.remove('active');
+
+            // 다음 송장이 대기 중이면 연속 작업
+            const nextBarcode = pendingNextBarcode;
+            pendingNextBarcode = null;
             resetToIdle();
+
+            if (nextBarcode) {
+                // 약간 딜레이 후 다음 송장 자동 시작
+                setTimeout(() => lookupAndStartRecording(nextBarcode), 300);
+            }
+
             resolve();
         };
         mediaRecorder.stop();
@@ -482,6 +715,7 @@ function resetToIdle() {
     currentBarcode = null;
     currentOrderData = null;
     currentJobId = null;
+    productItems = [];
     mediaRecorder = null;
     recordedChunks = [];
     recordingStartTime = null;
@@ -489,6 +723,11 @@ function resetToIdle() {
     $guideMsg.style.display = 'block';
     $orderDetail.style.display = 'none';
     $recTimer.textContent = '00:00';
+    $btnComplete.classList.remove('show', 'ready');
+    $allDoneMsg.classList.remove('show');
+    $orderPanel.classList.remove('all-verified');
+    $barcodeArea.classList.remove('recording', 'all-done');
+    $barcodeInput.placeholder = '송장 바코드를 스캔하세요';
 
     updateState(State.IDLE);
     $barcodeInput.focus();
@@ -499,17 +738,16 @@ function updateState(newState) {
     state = newState;
     const badgeMap = {
         IDLE:       {cls:'state-idle',      text:'대기'},
-        MATCHED:    {cls:'state-matched',    text:'매칭'},
         RECORDING:  {cls:'state-recording',  text:'녹화 중'},
         COMPLETING: {cls:'state-completing', text:'저장 중'},
+        DONE:       {cls:'state-done',       text:'검증 완료'},
     };
-    const b = badgeMap[newState];
+    const b = badgeMap[newState] || badgeMap.IDLE;
     $stateBadge.className = 'state-badge ' + b.cls;
     $stateBadge.textContent = b.text;
 
-    $recIndicator.classList.toggle('active', newState === State.RECORDING);
-    $matchedGuide.style.display = newState === State.MATCHED ? 'block' : 'none';
-    $recordingGuide.style.display = newState === State.RECORDING ? 'block' : 'none';
+    $recIndicator.classList.toggle('active',
+        newState === State.RECORDING || newState === 'DONE');
 }
 
 // ── TTS ──
@@ -531,6 +769,7 @@ function speakOrderInfo(data) {
         parts.push(`${first.product_name} ${first.qty}개`);
         if (data.items.length > 1) parts.push(`외 ${data.items.length - 1}건`);
     }
+    parts.push('녹화를 시작합니다');
     if (parts.length > 0) speak(parts.join(', '));
 }
 
