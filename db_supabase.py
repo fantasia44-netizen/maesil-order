@@ -2506,6 +2506,7 @@ class SupabaseDB(DBBase):
 
     def query_order_transactions_extended(self, date_from=None, date_to=None,
                                            channel=None, status=None,
+                                           outbound=None,
                                            search=None, search_field=None,
                                            limit=100, offset=0):
         """주문 확장 검색 (송장번호/수취인명 검색 포함).
@@ -2538,6 +2539,10 @@ class SupabaseDB(DBBase):
                 q = q.eq("channel", channel)
             if status:
                 q = q.eq("status", status)
+            if outbound == 'done':
+                q = q.eq("is_outbound_done", True)
+            elif outbound == 'not_done':
+                q = q.eq("is_outbound_done", False)
             if search:
                 if search_field == 'order_no':
                     q = q.ilike("order_no", f"%{search}%")

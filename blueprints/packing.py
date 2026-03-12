@@ -407,7 +407,39 @@ def api_complete_job():
     _packing_log_action('packing_complete_recording',
                         target=job['scanned_barcode'],
                         detail=f'job_id={job_id}, size={len(video_bytes)}')
-    return jsonify({'ok': True})
+
+    # ── 출고 처리: 패킹 완료 → 재고차감 + is_outbound_done ──
+    outbound_result = None
+    channel = job.get('channel', '')
+    order_no = job.get('order_no', '')
+    if channel and order_no:
+        try:
+            # order_transactions에서 해당 주문 조회
+            ot_rows = db.client.table("order_transactions").select("id") \
+                .eq("channel", channel).eq("order_no", order_no) \
+                .eq("status", "정상").eq("is_outbound_done", False) \
+                .execute()
+            ot_ids = [r['id'] for r in (ot_rows.data or [])]
+            if ot_ids:
+                from services.order_to_stock_service import process_packing_outbound
+                outbound_results = []
+                for oid in ot_ids:
+                    res = process_packing_outbound(db, oid)
+                    outbound_results.append(res)
+                total_out = sum(r.get('outbound_count', 0) for r in outbound_results)
+                outbound_result = {'outbound_count': total_out, 'orders': len(ot_ids)}
+
+                # order_shipping 배송상태 갱신
+                try:
+                    db.client.table("order_shipping").update({"shipping_status": "출고완료"}) \
+                        .eq("channel", channel).eq("order_no", order_no).execute()
+                except Exception:
+                    pass
+        except Exception as e:
+            # 출고 실패해도 패킹 자체는 성공으로 처리
+            outbound_result = {'error': str(e)}
+
+    return jsonify({'ok': True, 'outbound': outbound_result})
 
 
 @packing_bp.route('/api/cancel-job', methods=['POST'])

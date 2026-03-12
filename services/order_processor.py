@@ -329,6 +329,8 @@ class OrderProcessor:
                 'st': col_map.get('status'),
                 'date': col_map.get('order_date'),
                 'no': col_map.get('order_no'),
+                'courier': col_map.get('courier'),
+                'invoice_no': col_map.get('invoice_no'),
             }
 
             # 필수 컬럼 검증
@@ -465,6 +467,10 @@ class OrderProcessor:
                         raw_dict = {str(df.columns[ci]): str(r.iloc[ci]) for ci in range(len(r)) if str(r.iloc[ci]).strip()}
                         row_data['_raw_data'] = raw_dict
                         row_data['_raw_hash'] = hashlib.sha256(json.dumps(raw_dict, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+                        # 택배사/송장번호 (카카오 등 채널에서 제공 시)
+                        row_data['_courier'] = self.get_safe_val(r, m['courier']) if m.get('courier') is not None else ''
+                        row_data['_invoice_no'] = self.get_safe_val(r, m['invoice_no']) if m.get('invoice_no') is not None else ''
 
                         res.append(row_data)
                     else:
@@ -651,6 +657,28 @@ class OrderProcessor:
                     result['error'] = "송장결과와 주문서 간 매칭 데이터가 없습니다.\n이름+연락처(뒤4자리)로 매칭합니다. 파일을 확인해주세요."
                     return result
 
+                # DB order_shipping에 송장번호 자동 반영
+                if db:
+                    inv_updates = []
+                    seen_orders = set()
+                    for row in rp_f:
+                        # rp_f: [주문일자, 주문번호, 배송방법, 택배사, 송장번호, 이름, 연락처, 제품명, 수량, 바코드]
+                        r_order_no = str(row[1])
+                        r_courier = str(row[3])
+                        r_invoice = str(row[4])
+                        if r_order_no and r_invoice and r_order_no not in seen_orders:
+                            inv_updates.append({
+                                'channel': mode,
+                                'order_no': r_order_no,
+                                'invoice_no': r_invoice,
+                                'courier': r_courier,
+                            })
+                            seen_orders.add(r_order_no)
+                    if inv_updates:
+                        inv_count = db.bulk_update_shipping_invoices(inv_updates)
+                        self.log(f"📦 DB 송장번호 반영: {inv_count}/{len(inv_updates)}건")
+                        result['invoice_updated'] = inv_count
+
                 rp_path = os.path.join(output_dir, f"리얼패킹_{safe_nm}_{ts}.xlsx")
                 pd.DataFrame(rp_f, columns=[
                     "주문일자", "주문번호", "배송방법", "택배사", "송장번호",
@@ -737,6 +765,21 @@ class OrderProcessor:
                     if not ss_ext:
                         result['error'] = "외부송장 매칭 데이터 없음"
                         return result
+                    # DB order_shipping에 송장번호 반영
+                    if db:
+                        inv_updates = []
+                        seen_orders = set()
+                        for row in ss_ext:
+                            # ss_ext: [주문번호, 배송방법, 택배사, 송장번호, 이름, 연락처]
+                            r_ono, r_courier, r_inv = str(row[0]), str(row[2]), str(row[3])
+                            if r_ono and r_inv and r_ono not in seen_orders:
+                                inv_updates.append({'channel': mode, 'order_no': r_ono,
+                                                    'invoice_no': r_inv, 'courier': r_courier})
+                                seen_orders.add(r_ono)
+                        if inv_updates:
+                            inv_cnt = db.bulk_update_shipping_invoices(inv_updates)
+                            self.log(f"📦 DB 송장번호 반영 (외부): {inv_cnt}/{len(inv_updates)}건")
+                            result['invoice_updated'] = inv_cnt
                     ss_ext_path = os.path.join(output_dir, f"스마트스토어_외부_일괄배송_{ts}.xls")
                     _write_xls(ss_ext_path,
                                ["상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"],
@@ -785,6 +828,28 @@ class OrderProcessor:
                                 cp_bulk.at[idx, cp_track_col] = track_no
                                 fill_cnt += 1
                     cp_bulk.drop(columns=['_p_cl'], inplace=True)
+                    # DB order_shipping에 송장번호 반영
+                    if db and fill_cnt > 0:
+                        inv_updates = []
+                        seen_orders = set()
+                        for _, r in ext_df.iterrows():
+                            r_name = r['name']
+                            r_p4 = r['p1'][-4:] if len(r['p1']) >= 4 else r['p1']
+                            match_inv = inv_df[
+                                (inv_df[n_c] == r_name) &
+                                (inv_df['p_cl'].str.endswith(r_p4))
+                            ]
+                            if not match_inv.empty:
+                                track_no = str(match_inv.iloc[0][s_c]).strip()
+                                r_ono = str(r['order_no'])
+                                if track_no and track_no != 'nan' and r_ono not in seen_orders:
+                                    inv_updates.append({'channel': mode, 'order_no': r_ono,
+                                                        'invoice_no': track_no, 'courier': 'CJ대한통운'})
+                                    seen_orders.add(r_ono)
+                        if inv_updates:
+                            inv_cnt = db.bulk_update_shipping_invoices(inv_updates)
+                            self.log(f"📦 DB 송장번호 반영 (외부): {inv_cnt}/{len(inv_updates)}건")
+                            result['invoice_updated'] = inv_cnt
                     # 외부송장 대상만 필터 (E열 송장번호가 채워진 행만)
                     cp_filled = cp_bulk[cp_bulk.iloc[:, 4].astype(str).str.strip().ne('')]
                     cp_ext_path = os.path.join(output_dir, f"쿠팡_외부_일괄배송_{ts}.xlsx")
@@ -903,6 +968,13 @@ class OrderProcessor:
                     "address": str(row.get('addr', '')),
                     "memo": str(row.get('msg', '')),
                 }
+                # 송장번호/택배사 (카카오 등 채널에서 제공 시)
+                _inv = str(row.get('_invoice_no', '')).strip()
+                _cour = str(row.get('_courier', '')).strip()
+                if _inv:
+                    shipping['invoice_no'] = _inv
+                if _cour:
+                    shipping['courier'] = _cour
 
             orders.append({"transaction": transaction, "shipping": shipping})
 

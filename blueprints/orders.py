@@ -474,18 +474,34 @@ def api_orders():
     date_to = request.args.get('date_to')
     channel = request.args.get('channel')
     status = request.args.get('status')
+    outbound_filter = request.args.get('outbound', '')
     search = request.args.get('search')
     search_field = request.args.get('search_field', 'all')
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 50))
     offset = (page - 1) * per_page
 
+    # outbound 필터 매핑: done → is_outbound_done=True, no_invoice/invoice_only → 후처리
+    db_outbound = None
+    if outbound_filter == 'done':
+        db_outbound = 'done'
+    elif outbound_filter in ('no_invoice', 'invoice_only'):
+        db_outbound = 'not_done'  # 미출고만 조회 후 invoice 유무로 필터
+
     orders = current_app.db.query_order_transactions_extended(
         date_from=date_from, date_to=date_to,
         channel=channel, status=status,
+        outbound=db_outbound,
         search=search, search_field=search_field,
-        limit=per_page, offset=offset
+        limit=per_page * 3 if outbound_filter in ('no_invoice', 'invoice_only') else per_page,
+        offset=offset if outbound_filter not in ('no_invoice', 'invoice_only') else 0
     )
+
+    # 송장 유무 기반 후처리 필터
+    if outbound_filter == 'no_invoice':
+        orders = [o for o in orders if not o.get('invoice_no')][:per_page]
+    elif outbound_filter == 'invoice_only':
+        orders = [o for o in orders if o.get('invoice_no')][:per_page]
     # DEBUG: 첫 주문의 recipient_name 확인
     if orders:
         o0 = orders[0]
@@ -497,17 +513,31 @@ def api_orders():
 @role_required('admin', 'manager', 'sales')
 def api_order_detail(order_id):
     """주문 상세 조회 (배송정보 + 변경이력)"""
-    txn = current_app.db.query_order_transaction_by_id(order_id)
+    db = current_app.db
+    txn = db.query_order_transaction_by_id(order_id)
     if not txn:
         return jsonify({'error': '주문을 찾을 수 없습니다'}), 404
 
-    shipping = current_app.db.query_order_shipping(txn['channel'], txn['order_no'])
-    change_log = current_app.db.query_order_change_log(order_id)
+    shipping = db.query_order_shipping(txn['channel'], txn['order_no'])
+    change_log = db.query_order_change_log(order_id)
+
+    # 패킹 이력 조회 (해당 주문의 완료된 패킹 작업)
+    packing_job = None
+    if txn.get('order_no'):
+        try:
+            pj = db.client.table("packing_jobs").select("id,status,username,started_at,completed_at,video_duration_ms") \
+                .eq("order_no", txn['order_no']).eq("status", "completed") \
+                .order("completed_at", desc=True).limit(1).execute()
+            if pj.data:
+                packing_job = pj.data[0]
+        except Exception:
+            pass
 
     return jsonify({
         'transaction': txn,
         'shipping': shipping,
-        'change_log': change_log
+        'change_log': change_log,
+        'packing_job': packing_job,
     })
 
 

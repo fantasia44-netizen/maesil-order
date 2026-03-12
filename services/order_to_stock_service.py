@@ -570,6 +570,136 @@ def process_realtime_outbound(db, import_run_id):
 
 
 # ================================================================
+# 패킹 완료 → 출고 처리 (단건)
+# ================================================================
+
+def process_packing_outbound(db, order_id):
+    """패킹센터에서 영상 촬영 완료 시 단건 출고 처리.
+
+    BOM 분해 → FIFO 재고 차감 → is_outbound_done 마킹.
+    이미 출고 처리된 주문은 스킵.
+
+    Args:
+        db: SupabaseDB instance
+        order_id: order_transactions.id
+
+    Returns:
+        dict: {success, outbound_count, errors, message}
+    """
+    errors = []
+    order = db.query_order_transaction_by_id(order_id)
+    if not order:
+        return {'success': False, 'outbound_count': 0, 'errors': ['주문을 찾을 수 없습니다'],
+                'message': f'order #{order_id} not found'}
+
+    if order.get('is_outbound_done'):
+        return {'success': True, 'outbound_count': 0, 'errors': [],
+                'message': '이미 출고 처리된 주문'}
+
+    if order.get('status') != '정상':
+        return {'success': False, 'outbound_count': 0, 'errors': ['정상 상태가 아닌 주문'],
+                'message': f"status={order.get('status')}"}
+
+    ch = order.get('channel', '')
+    pname = order.get('product_name', '')
+    qty = int(order.get('qty', 0) or 0)
+    odate = order.get('order_date', _stock_date())
+
+    if not pname or qty <= 0:
+        return {'success': False, 'outbound_count': 0, 'errors': ['품목명/수량 없음'],
+                'message': 'missing product_name or qty'}
+
+    # BOM / 라우팅
+    bom_map = _load_bom_map(db)
+    opt_map = _load_option_map(db)
+    bom_all = bom_map.get('모든채널', {})
+    bom_coupang = bom_map.get('쿠팡전용', {})
+
+    rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
+    is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
+
+    if is_n:
+        stk_date = odate if odate else _stock_date()
+        decomposed = {pname: qty}
+    else:
+        coll_date = order.get('collection_date', '')
+        stk_date = coll_date if coll_date else _stock_date()
+        if rev_cat in ('쿠팡매출', '로켓'):
+            decomposed = _decompose(pname, qty, bom_coupang, bom_all)
+        else:
+            decomposed = _decompose(pname, qty, bom_all, None)
+
+    # FIFO 재고 차감
+    from services.excel_io import build_stock_snapshot, snapshot_lookup
+
+    total_outbound = 0
+    for item, iqty in decomposed.items():
+        wh = "CJ용인" if is_n else _get_warehouse(item, opt_map)
+        base_uid = f"SO:{stk_date}:{wh}:{_norm(item)}:{order_id}"
+
+        try:
+            stock_data = db.query_stock_by_location(wh)
+            stock_snap = build_stock_snapshot(stock_data)
+        except Exception as e:
+            errors.append(f"[{wh}] 재고 조회 실패: {e}")
+            continue
+
+        snap = snapshot_lookup(stock_snap, item)
+        groups = snap.get('groups', [])
+        remain = iqty
+        payload = []
+
+        if not groups:
+            payload.append({
+                "transaction_date": stk_date, "type": "SALES_OUT",
+                "product_name": item, "qty": -remain, "location": wh,
+                "unit": snap.get('unit', '개'), "category": snap.get('category', ''),
+                "storage_method": snap.get('storage_method', ''),
+                "manufacture_date": '',
+                "event_uid": f"{base_uid}:0",
+            })
+        else:
+            for gi, g in enumerate(groups):
+                if remain <= 0:
+                    break
+                deduct = min(remain, g['qty'])
+                if deduct <= 0:
+                    continue
+                payload.append({
+                    "transaction_date": stk_date, "type": "SALES_OUT",
+                    "product_name": item, "qty": -deduct, "location": wh,
+                    "category": g.get('category', ''),
+                    "expiry_date": g.get('expiry_date', ''),
+                    "storage_method": g.get('storage_method', ''),
+                    "unit": g.get('unit', '개'),
+                    "manufacture_date": g.get('manufacture_date', ''),
+                    "event_uid": f"{base_uid}:{gi}",
+                })
+                remain -= deduct
+
+        if payload:
+            try:
+                inserted, skipped = db.upsert_stock_ledger_idempotent(payload)
+                total_outbound += inserted
+                logger.info(f"[패킹출고] order#{order_id} | {item} | {iqty} | {wh} | {inserted}건")
+            except Exception as e:
+                errors.append(f"[{wh}] {item} 출고 실패: {e}")
+
+    # 출고 완료 표시
+    try:
+        db.mark_orders_outbound_done([order_id], stk_date, rev_cat)
+    except Exception as e:
+        errors.append(f"mark_done 오류: {e}")
+
+    return {
+        'success': True,
+        'outbound_count': total_outbound,
+        'errors': errors,
+        'message': f'출고 완료: 재고차감 {total_outbound}건',
+    }
+
+
+# ================================================================
 # 역분개: 주문 취소/환불 시 재고 복원
 # ================================================================
 
