@@ -14,6 +14,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required
+from services.storage_helper import backup_bytes_to_storage
 from models import INV_TYPE_LABELS, LEDGER_CATEGORY_MAP
 
 ledger_bp = Blueprint('ledger', __name__, url_prefix='/ledger')
@@ -212,6 +213,7 @@ def export():
         output.seek(0)
 
         fname = f"{sheet_name}_{date_from or 'all'}_{date_to or 'all'}.xlsx"
+        backup_bytes_to_storage(db, output.getvalue(), fname, 'output', 'ledger')
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -317,6 +319,7 @@ def pdf():
             with open(tmp_path, 'rb') as f:
                 pdf_bytes = io.BytesIO(f.read())
             fname = f"{title}_{date_from or 'all'}_{date_to}.pdf"
+            backup_bytes_to_storage(db, pdf_bytes.getvalue(), fname, 'report', 'ledger')
             return send_file(pdf_bytes, mimetype='application/pdf',
                              as_attachment=True, download_name=fname)
         finally:

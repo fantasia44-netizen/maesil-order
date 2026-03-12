@@ -18,6 +18,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage, backup_bytes_to_storage
 from models import REVENUE_CATEGORIES
 
 revenue_bp = Blueprint('revenue', __name__, url_prefix='/revenue')
@@ -83,6 +84,7 @@ def import_revenue():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'revenue')
 
     try:
         from services.excel_io import parse_revenue_payload
@@ -158,6 +160,7 @@ def export():
         output.seek(0)
 
         fname = f"매출_{date_from or 'all'}_{date_to or 'all'}.xlsx"
+        backup_bytes_to_storage(db, output.getvalue(), fname, 'output', 'revenue')
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

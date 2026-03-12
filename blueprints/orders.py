@@ -16,6 +16,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -140,6 +141,7 @@ def process():
     order_saved = f"order_{unique_id}.{order_ext}"
     order_path = os.path.join(upload_dir, order_saved)
     order_file.save(order_path)
+    backup_to_storage(current_app.db, order_path, 'upload', 'orders')
 
     # 옵션 파일 (선택사항: 업로드 시 DB에 추가 등록)
     option_path = None
@@ -148,6 +150,7 @@ def process():
         opt_ext = option_file.filename.rsplit('.', 1)[1].lower() if '.' in option_file.filename else 'xlsx'
         option_path = os.path.join(upload_dir, f"option_{unique_id}.{opt_ext}")
         option_file.save(option_path)
+        backup_to_storage(current_app.db, option_path, 'upload', 'orders')
         imported = _import_option_file_to_db(option_path)
         if imported > 0:
             flash(f'옵션리스트 {imported}건 DB에 추가 등록됨', 'info')
@@ -157,6 +160,7 @@ def process():
     if invoice_file and invoice_file.filename and _allowed(invoice_file.filename):
         invoice_path = os.path.join(upload_dir, secure_filename(invoice_file.filename))
         invoice_file.save(invoice_path)
+        backup_to_storage(current_app.db, invoice_path, 'upload', 'orders')
 
     # ── 채널 자동감지: 파일 컬럼으로 실제 채널 판별 (빠르게 헤더만) ──
     try:

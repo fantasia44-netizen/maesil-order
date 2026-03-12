@@ -12,6 +12,7 @@ from flask import (
 from flask_login import login_required
 
 from auth import role_required
+from services.storage_helper import backup_bytes_to_storage
 
 stock_bp = Blueprint('stock', __name__, url_prefix='/stock')
 
@@ -144,6 +145,7 @@ def pdf():
             with open(tmp_path, 'rb') as f:
                 pdf_bytes = io.BytesIO(f.read())
             fname = f"재고현황_{date_str}.pdf"
+            backup_bytes_to_storage(current_app.db, pdf_bytes.getvalue(), fname, 'report', 'stock')
             return send_file(pdf_bytes, mimetype='application/pdf',
                              as_attachment=True, download_name=fname)
         finally:
@@ -240,6 +242,7 @@ def excel():
 
         buf.seek(0)
         fname = f"재고현황_{date_str}.xlsx"
+        backup_bytes_to_storage(current_app.db, buf.getvalue(), fname, 'output', 'stock')
         return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True, download_name=fname)
 

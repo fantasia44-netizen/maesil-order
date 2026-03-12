@@ -16,6 +16,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 trade_bp = Blueprint('trade', __name__, url_prefix='/trade')
 
@@ -535,6 +536,7 @@ def invoice(trade_id):
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, [trade],
                              trade_date=trade.get('trade_date', ''))
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -584,6 +586,7 @@ def invoice_batch():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, trade_list,
                              trade_date=t_date)
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -713,6 +716,7 @@ def generate_purchase_order():
             invoice_manager=invoice_manager,
             manager_contact=manager_contact,
         )
+        backup_to_storage(current_app.db, pdf_path, 'report', 'purchase_order')
 
         # DB에 발주서 이력 저장
         try:

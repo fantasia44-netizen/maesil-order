@@ -15,6 +15,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 base_data_bp = Blueprint('base_data', __name__, url_prefix='/base-data')
 
@@ -69,6 +70,7 @@ def reset_base():
             filename = secure_filename(file.filename)
             filepath = os.path.join(upload_dir, filename)
             file.save(filepath)
+            backup_to_storage(current_app.db, filepath, 'upload', 'base_data')
 
             try:
                 from services.excel_io import parse_base_data_payload, flexible_column_rename

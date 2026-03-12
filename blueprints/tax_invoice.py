@@ -13,6 +13,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+from services.storage_helper import backup_to_storage
 
 tax_invoice_bp = Blueprint('tax_invoice', __name__, url_prefix='/tax-invoice')
 
@@ -133,6 +134,7 @@ def upload():
 
     try:
         file.save(filepath)
+        backup_to_storage(current_app.db, filepath, 'upload', 'tax_invoice')
         # 홈택스 엑셀은 header가 5행(또는 그 근처)에 있음 → header=None으로 읽고 파서가 자동 탐지
         df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
 

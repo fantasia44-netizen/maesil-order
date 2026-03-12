@@ -13,6 +13,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 master_bp = Blueprint('master', __name__, url_prefix='/master')
 
@@ -72,6 +73,7 @@ def sync_price():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'master')
 
     try:
         xls = pd.ExcelFile(filepath)
@@ -152,6 +154,7 @@ def sync_option():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'master')
 
     try:
         df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
@@ -217,6 +220,7 @@ def _sync_master(key, table_name, label):
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'master')
 
     try:
         df = pd.read_excel(filepath)

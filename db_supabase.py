@@ -2770,57 +2770,86 @@ class SupabaseDB(DBBase):
             print(f"[DB] get_packing_video_signed_url error: {e}")
             return ''
 
-    # ── Order Output File Storage ─────────────────────────
+    # ── 범용 File Storage (Supabase Storage) ─────────────
+    # 버킷: order-outputs (출력), order-uploads (업로드), order-reports (PDF)
 
-    def upload_output_file(self, path, file_bytes, content_type=None):
-        """주문처리 출력 파일 Supabase Storage 업로드.
-        path: 'YYYY-MM-DD/채널_리얼패킹_timestamp.xlsx' 형태
-        """
+    STORAGE_BUCKETS = {
+        'output': 'order-outputs',
+        'upload': 'order-uploads',
+        'report': 'order-reports',
+    }
+
+    def _storage_upload(self, bucket_key, path, file_bytes, content_type=None):
+        """범용 Storage 업로드. bucket_key: 'output'|'upload'|'report'"""
+        bucket = self.STORAGE_BUCKETS.get(bucket_key, bucket_key)
         if content_type is None:
-            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
+            content_type = {
+                'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'xls': 'application/vnd.ms-excel',
+                'csv': 'text/csv',
+                'pdf': 'application/pdf',
+            }.get(ext, 'application/octet-stream')
         try:
-            self.client.storage.from_("order-outputs").upload(
-                path, file_bytes,
-                file_options={"content-type": content_type}
+            self.client.storage.from_(bucket).upload(
+                path, file_bytes, file_options={"content-type": content_type}
             )
             return True
         except Exception as e:
-            # 이미 존재하면 upsert
-            if '409' in str(e) or 'Duplicate' in str(e):
+            if '409' in str(e) or 'Duplicate' in str(e) or 'already exists' in str(e):
                 try:
-                    self.client.storage.from_("order-outputs").update(
-                        path, file_bytes,
-                        file_options={"content-type": content_type}
+                    self.client.storage.from_(bucket).update(
+                        path, file_bytes, file_options={"content-type": content_type}
                     )
                     return True
                 except Exception as e2:
-                    print(f"[DB] upload_output_file update error: {e2}")
+                    print(f"[DB] _storage_upload({bucket}) update error: {e2}")
             else:
-                print(f"[DB] upload_output_file error: {e}")
+                print(f"[DB] _storage_upload({bucket}) error: {e}")
             return False
 
-    def get_output_file_signed_url(self, path, expires_in=3600):
-        """출력 파일 서명 URL 생성 (다운로드용)."""
+    def _storage_signed_url(self, bucket_key, path, expires_in=3600):
+        """범용 서명 URL 생성."""
+        bucket = self.STORAGE_BUCKETS.get(bucket_key, bucket_key)
         try:
-            res = self.client.storage.from_("order-outputs") \
-                .create_signed_url(path, expires_in)
+            res = self.client.storage.from_(bucket).create_signed_url(path, expires_in)
             if isinstance(res, dict):
                 return res.get('signedURL', '') or res.get('signedUrl', '')
             return ''
         except Exception as e:
-            print(f"[DB] get_output_file_signed_url error: {e}")
+            print(f"[DB] _storage_signed_url({bucket}) error: {e}")
             return ''
 
-    def list_output_files(self, prefix='', limit=100):
-        """출력 파일 목록 조회."""
+    def _storage_list(self, bucket_key, prefix='', limit=100):
+        """범용 파일 목록."""
+        bucket = self.STORAGE_BUCKETS.get(bucket_key, bucket_key)
         try:
-            res = self.client.storage.from_("order-outputs").list(
+            res = self.client.storage.from_(bucket).list(
                 prefix, {"limit": limit, "sortBy": {"column": "created_at", "order": "desc"}}
             )
             return res or []
         except Exception as e:
-            print(f"[DB] list_output_files error: {e}")
+            print(f"[DB] _storage_list({bucket}) error: {e}")
             return []
+
+    # 편의 함수
+    def upload_output_file(self, path, file_bytes, content_type=None):
+        return self._storage_upload('output', path, file_bytes, content_type)
+
+    def get_output_file_signed_url(self, path, expires_in=3600):
+        return self._storage_signed_url('output', path, expires_in)
+
+    def list_output_files(self, prefix='', limit=100):
+        return self._storage_list('output', prefix, limit)
+
+    def upload_user_file(self, path, file_bytes, content_type=None):
+        return self._storage_upload('upload', path, file_bytes, content_type)
+
+    def upload_report_file(self, path, file_bytes, content_type=None):
+        return self._storage_upload('report', path, file_bytes, content_type)
+
+    def get_report_signed_url(self, path, expires_in=3600):
+        return self._storage_signed_url('report', path, expires_in)
 
     # ── expenses (간접비/비용 관리) ──
 

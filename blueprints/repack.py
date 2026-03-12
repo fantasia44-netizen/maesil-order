@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage, backup_bytes_to_storage
 from models import INV_TYPE_LABELS
 
 repack_bp = Blueprint('repack', __name__, url_prefix='/repack')
@@ -248,6 +249,7 @@ def process():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'repack')
 
     try:
         from services.repack_service import process_repack
@@ -325,6 +327,7 @@ def export():
         output.seek(0)
 
         fname = f"소분이력_{date_from or 'all'}_{date_to or 'all'}.xlsx"
+        backup_bytes_to_storage(db, output.getvalue(), fname, 'output', 'repack')
         return send_file(
             output,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -383,6 +386,7 @@ def pdf():
             with open(tmp_path, 'rb') as f:
                 pdf_bytes = io.BytesIO(f.read())
             fname = f"소분작업일지_{date_str}.pdf"
+            backup_bytes_to_storage(db, pdf_bytes.getvalue(), fname, 'report', 'repack')
             return send_file(pdf_bytes, mimetype='application/pdf',
                              as_attachment=True, download_name=fname)
         finally:

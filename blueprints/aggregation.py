@@ -30,6 +30,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
@@ -1219,6 +1220,7 @@ def generate_report():
         downloads = []
         for fpath in generated_files:
             fname = os.path.basename(fpath)
+            backup_to_storage(current_app.db, fpath, 'output', 'aggregation')
             downloads.append({
                 'name': fname,
                 'url': url_for('aggregation.download', filename=fname),
@@ -1254,6 +1256,7 @@ def download(filename):
         flash('파일을 찾을 수 없습니다.', 'danger')
         return redirect(url_for('aggregation.index'))
 
+    backup_to_storage(current_app.db, filepath, 'output', 'aggregation')
     return send_file(
         filepath,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

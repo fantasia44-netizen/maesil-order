@@ -15,6 +15,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 transfer_bp = Blueprint('transfer', __name__, url_prefix='/transfer')
 
@@ -201,6 +202,7 @@ def excel():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'transfer')
 
     try:
         df = pd.read_excel(filepath)

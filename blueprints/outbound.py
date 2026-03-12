@@ -18,6 +18,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage
 
 outbound_bp = Blueprint('outbound', __name__, url_prefix='/outbound')
 
@@ -467,6 +468,7 @@ def invoice():
 
         generate_invoice_pdf(pdf_path, my_biz, partner, trades,
                              trade_date=trade_date)
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -543,6 +545,7 @@ def shipping_label():
         fname = f"운송장_{partner_name}_{trade_date}.xlsx"
         xlsx_path = os.path.join(output_dir, fname)
         df.to_excel(xlsx_path, index=False)
+        backup_to_storage(current_app.db, xlsx_path, 'output', 'shipping')
 
         return send_file(
             xlsx_path,
@@ -581,6 +584,7 @@ def batch():
         fname = secure_filename(file.filename)
         filepath = os.path.join(upload_dir, fname)
         file.save(filepath)
+        backup_to_storage(current_app.db, filepath, 'upload', 'outbound')
 
         try:
             from services.outbound_service import process_outbound
@@ -829,6 +833,7 @@ def invoice_trade(trade_id):
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, [trade],
                              trade_date=trade.get('trade_date', ''))
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -887,6 +892,7 @@ def invoice_selected():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, selected_trades,
                              trade_date=t_date)
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -939,6 +945,7 @@ def invoice_batch_trade():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, trade_list,
                              trade_date=t_date)
+        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,

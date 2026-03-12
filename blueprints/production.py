@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
+from services.storage_helper import backup_to_storage, backup_bytes_to_storage
 
 production_bp = Blueprint('production', __name__, url_prefix='/production')
 
@@ -254,6 +255,7 @@ def excel_upload():
     fname = f"prod_{now_kst().strftime('%H%M%S%f')}.{ext}"
     filepath = os.path.join(upload_dir, fname)
     file.save(filepath)
+    backup_to_storage(current_app.db, filepath, 'upload', 'production')
 
     try:
         from services.production_service import process_production
@@ -334,6 +336,7 @@ def log_pdf():
             with open(tmp_path, 'rb') as f:
                 pdf_bytes = io.BytesIO(f.read())
             fname = f"생산일지_{date_str}.pdf"
+            backup_bytes_to_storage(db, pdf_bytes.getvalue(), fname, 'report', 'production')
             return send_file(pdf_bytes, mimetype='application/pdf',
                              as_attachment=True, download_name=fname)
         finally:
