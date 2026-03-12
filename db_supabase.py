@@ -4393,6 +4393,86 @@ class SupabaseDB(DBBase):
             print(f"[DB] query_api_sync_logs error: {e}")
             return []
 
+    # ── work_logs (작업 이력) ──
+
+    def insert_work_log(self, payload):
+        """작업 이력 기록. Returns: 생성된 row (id 포함) or None."""
+        import json as _json
+        try:
+            for key in ('meta',):
+                if key in payload and payload[key] is not None:
+                    if isinstance(payload[key], (dict, list)):
+                        payload[key] = _json.dumps(payload[key], ensure_ascii=False)
+            res = self.client.table("work_logs").insert(payload).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            print(f"[DB] insert_work_log error: {e}")
+            return None
+
+    def update_work_log(self, log_id, update_data):
+        """작업 이력 업데이트 (완료시간, 결과 등)."""
+        import json as _json
+        try:
+            for key in ('meta',):
+                if key in update_data and update_data[key] is not None:
+                    if isinstance(update_data[key], (dict, list)):
+                        update_data[key] = _json.dumps(update_data[key], ensure_ascii=False)
+            self.client.table("work_logs").update(update_data).eq("id", log_id).execute()
+        except Exception as e:
+            print(f"[DB] update_work_log error: {e}")
+
+    def query_work_logs(self, page=1, per_page=50, action_filter=None,
+                        user_filter=None, channel_filter=None,
+                        category_filter=None, date_from=None, date_to=None):
+        """작업 이력 페이지네이션 조회. Returns: (items, total_count)."""
+        try:
+            count_q = self.client.table("work_logs").select("id", count="exact")
+            data_q = self.client.table("work_logs").select("*").order("created_at", desc=True)
+            for q_ref in (count_q, data_q):
+                if action_filter:
+                    q_ref = q_ref.ilike("action", f"%{action_filter}%")
+                if user_filter:
+                    q_ref = q_ref.ilike("user_name", f"%{user_filter}%")
+                if channel_filter:
+                    q_ref = q_ref.eq("channel", channel_filter)
+                if category_filter:
+                    q_ref = q_ref.eq("category", category_filter)
+                if date_from:
+                    q_ref = q_ref.gte("created_at", date_from)
+                if date_to:
+                    q_ref = q_ref.lte("created_at", date_to + 'T23:59:59')
+            # re-apply filters (postgrest builder is mutable)
+            count_q2 = self.client.table("work_logs").select("id", count="exact")
+            data_q2 = self.client.table("work_logs").select("*").order("created_at", desc=True)
+            if action_filter:
+                count_q2 = count_q2.ilike("action", f"%{action_filter}%")
+                data_q2 = data_q2.ilike("action", f"%{action_filter}%")
+            if user_filter:
+                count_q2 = count_q2.ilike("user_name", f"%{user_filter}%")
+                data_q2 = data_q2.ilike("user_name", f"%{user_filter}%")
+            if channel_filter:
+                count_q2 = count_q2.eq("channel", channel_filter)
+                data_q2 = data_q2.eq("channel", channel_filter)
+            if category_filter:
+                count_q2 = count_q2.eq("category", category_filter)
+                data_q2 = data_q2.eq("category", category_filter)
+            if date_from:
+                count_q2 = count_q2.gte("created_at", date_from)
+                data_q2 = data_q2.gte("created_at", date_from)
+            if date_to:
+                count_q2 = count_q2.lte("created_at", date_to + 'T23:59:59')
+                data_q2 = data_q2.lte("created_at", date_to + 'T23:59:59')
+
+            count_res = count_q2.limit(1).execute()
+            total = count_res.count if count_res.count is not None else 0
+
+            offset = (page - 1) * per_page
+            data_res = data_q2.range(offset, offset + per_page - 1).execute()
+            return data_res.data or [], total
+        except Exception as e:
+            print(f"[DB] query_work_logs error: {e}")
+            return [], 0
+
     # ── api_orders ──
 
     def upsert_api_orders_batch(self, orders):

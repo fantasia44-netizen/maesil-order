@@ -219,6 +219,26 @@ class OrderProcessor:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+        # ── 작업로그 시작 기록 ──
+        import time as _time
+        _wlog_start = _time.time()
+        _work_log_id = None
+        if db:
+            try:
+                _wlog = db.insert_work_log({
+                    'user_name': uploaded_by or '(system)',
+                    'action': target_type or '주문처리',
+                    'category': '주문',
+                    'channel': mode,
+                    'target_type': target_type,
+                    'detail': f'[{mode}] {target_type} 처리 시작',
+                    'result_status': 'running',
+                })
+                if _wlog:
+                    _work_log_id = _wlog.get('id')
+            except Exception:
+                pass  # 로그 실패가 본작업을 막으면 안됨
+
         try:
             self.log(f"🚀 v17.0 [{mode}] {target_type} 가동")
 
@@ -680,11 +700,40 @@ class OrderProcessor:
                         result['invoice_updated'] = inv_count
 
                 rp_path = os.path.join(output_dir, f"리얼패킹_{safe_nm}_{ts}.xlsx")
-                pd.DataFrame(rp_f, columns=[
+                rp_df = pd.DataFrame(rp_f, columns=[
                     "주문일자", "주문번호", "배송방법", "택배사", "송장번호",
                     "이름", "연락처", "제품명", "수량", "바코드"
-                ]).to_excel(rp_path, index=False)
+                ])
+                rp_df.to_excel(rp_path, index=False)
                 result['files'].append(rp_path)
+
+                # ── 리얼패킹 결과 DB 보관 (work_logs.meta) ──
+                if db:
+                    try:
+                        # 주문별 송장 매핑 요약 (중복 제거)
+                        _invoice_map = {}
+                        for row in rp_f:
+                            _ono, _inv, _name = str(row[1]), str(row[4]), str(row[5])
+                            if _ono not in _invoice_map:
+                                _invoice_map[_ono] = {'invoice_no': _inv, 'name': _name}
+                        db.insert_work_log({
+                            'user_name': uploaded_by or '(system)',
+                            'action': '리얼패킹',
+                            'category': '송장',
+                            'channel': mode,
+                            'target_type': '리얼패킹',
+                            'detail': f'[{mode}] 리얼패킹 {len(rp_f)}행, 주문 {len(_invoice_map)}건 매칭',
+                            'result_status': 'success',
+                            'total_count': len(_invoice_map),
+                            'success_count': len(_invoice_map),
+                            'meta': {
+                                'invoice_map': _invoice_map,
+                                'file': os.path.basename(rp_path),
+                                'rows': len(rp_f),
+                            }
+                        })
+                    except Exception:
+                        pass
 
                 if mode == "스마트스토어" and ss_bulk:
                     ss_path = os.path.join(output_dir, f"스마트스토어_일괄배송입력_{ts}.xls")
@@ -694,6 +743,31 @@ class OrderProcessor:
                     result['files'].append(ss_path)
                     result['success'] = True
                     self.log("리얼패킹 & 스마트스토어 일괄배송입력 생성 완료!")
+
+                    # ── 일괄배송입력 결과 DB 보관 ──
+                    if db:
+                        try:
+                            _bulk_map = {}
+                            for row in ss_bulk:
+                                # [주문번호, 배송방법, 택배사, 송장번호, 수취인, 전화번호]
+                                _bulk_map[str(row[0])] = {'invoice_no': str(row[3]), 'name': str(row[4])}
+                            db.insert_work_log({
+                                'user_name': uploaded_by or '(system)',
+                                'action': '일괄배송입력',
+                                'category': '송장',
+                                'channel': mode,
+                                'target_type': '리얼패킹',
+                                'detail': f'[{mode}] 일괄배송입력 {len(ss_bulk)}건',
+                                'result_status': 'success',
+                                'total_count': len(_bulk_map),
+                                'success_count': len(_bulk_map),
+                                'meta': {
+                                    'invoice_map': _bulk_map,
+                                    'file': os.path.basename(ss_path),
+                                }
+                            })
+                        except Exception:
+                            pass
 
                 elif mode == "쿠팡":
                     # [쿠팡 일괄배송] DeliveryList 원본 복사 + E열(운송장번호)만 송장결과에서 매칭
@@ -788,6 +862,30 @@ class OrderProcessor:
                     result['success'] = True
                     self.log(f"스마트스토어 외부송장 일괄배송 생성 완료! {len(ss_ext)}건")
 
+                    # ── 외부일괄 결과 DB 보관 ──
+                    if db:
+                        try:
+                            _ext_map = {}
+                            for row in ss_ext:
+                                _ext_map[str(row[0])] = {'invoice_no': str(row[3]), 'name': str(row[4])}
+                            db.insert_work_log({
+                                'user_name': uploaded_by or '(system)',
+                                'action': '외부일괄배송',
+                                'category': '송장',
+                                'channel': mode,
+                                'target_type': '외부일괄',
+                                'detail': f'[{mode}] 외부일괄배송 {len(ss_ext)}건',
+                                'result_status': 'success',
+                                'total_count': len(_ext_map),
+                                'success_count': len(_ext_map),
+                                'meta': {
+                                    'invoice_map': _ext_map,
+                                    'file': os.path.basename(ss_ext_path),
+                                }
+                            })
+                        except Exception:
+                            pass
+
                 elif mode == "쿠팡":
                     if not invoice_file:
                         result['error'] = "3번 외부 송장결과를 선택하세요."
@@ -859,6 +957,28 @@ class OrderProcessor:
                     result['success'] = True
                     self.log(f"쿠팡 외부송장 일괄배송 생성 완료! {fill_cnt}건")
 
+                    # ── 쿠팡 외부일괄 결과 DB 보관 ──
+                    if db and inv_updates:
+                        try:
+                            _cp_map = {u['order_no']: {'invoice_no': u['invoice_no']} for u in inv_updates}
+                            db.insert_work_log({
+                                'user_name': uploaded_by or '(system)',
+                                'action': '외부일괄배송',
+                                'category': '송장',
+                                'channel': mode,
+                                'target_type': '외부일괄',
+                                'detail': f'[{mode}] 외부일괄배송 {fill_cnt}건',
+                                'result_status': 'success',
+                                'total_count': len(_cp_map),
+                                'success_count': len(_cp_map),
+                                'meta': {
+                                    'invoice_map': _cp_map,
+                                    'file': os.path.basename(cp_ext_path),
+                                }
+                            })
+                        except Exception:
+                            pass
+
                 else:
                     result['error'] = f"[{mode}] 외부송장 일괄배송은 스마트스토어/쿠팡만 지원됩니다."
                     return result
@@ -868,6 +988,44 @@ class OrderProcessor:
             result['error'] = str(e)
         finally:
             gc.collect()
+
+            # ── 작업로그 완료 기록 ──
+            if db and _work_log_id:
+                try:
+                    from datetime import datetime, timezone
+                    _elapsed = int((_time.time() - _wlog_start) * 1000)
+                    _db_result = result.get('db_result', {})
+                    _total = _db_result.get('inserted', 0) + _db_result.get('updated', 0) + _db_result.get('skipped', 0)
+                    _success = _db_result.get('inserted', 0) + _db_result.get('updated', 0)
+                    _errors = len(_db_result.get('errors', []))
+                    _inv_meta = {}
+                    # 송장 반영 건수 추적
+                    for log_line in self.logs:
+                        if 'DB 송장번호 반영' in str(log_line):
+                            _inv_meta['invoice_log'] = str(log_line)
+                        if '매칭' in str(log_line) and '건' in str(log_line):
+                            _inv_meta['match_log'] = str(log_line)
+                    _meta = {
+                        'files': [os.path.basename(f) for f in result.get('files', [])],
+                        'db_result': {k: v for k, v in _db_result.items() if k != 'errors'} if _db_result else None,
+                        'logs_summary': self.logs[-5:] if self.logs else [],
+                        **_inv_meta,
+                    }
+                    if result.get('unmatched'):
+                        _meta['unmatched_count'] = len(result['unmatched'])
+
+                    db.update_work_log(_work_log_id, {
+                        'result_status': 'success' if result.get('success') else ('error' if result.get('error') else 'partial'),
+                        'total_count': _total or len(result.get('files', [])),
+                        'success_count': _success,
+                        'error_count': _errors,
+                        'detail': f'[{mode}] {target_type} 완료 — ' + (result.get('error') or f'{len(self.logs)}줄 로그'),
+                        'finished_at': datetime.now(timezone.utc).isoformat(),
+                        'duration_ms': _elapsed,
+                        'meta': _meta,
+                    })
+                except Exception:
+                    pass  # 로그 업데이트 실패가 본작업을 막으면 안됨
 
         return result
 
