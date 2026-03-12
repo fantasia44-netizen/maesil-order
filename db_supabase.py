@@ -245,7 +245,10 @@ class SupabaseDB(DBBase):
             if type_list:
                 q = q.in_("type", type_list)
             if order_desc:
-                q = q.order("transaction_date", desc=True)
+                q = q.order("transaction_date", desc=True).order("id", desc=True)
+            else:
+                # ★ 페이지네이션 시 ORDER BY 없으면 행 중복/누락 발생 방지
+                q = q.order("id")
             return q
         return self._paginate_query("stock_ledger", builder)
 
@@ -253,12 +256,12 @@ class SupabaseDB(DBBase):
         sel_str = ",".join(select_fields) if select_fields else "*"
 
         def builder(table):
-            return self.client.table(table).select(sel_str).eq("location", location)
+            return self.client.table(table).select(sel_str).eq("location", location).order("id")
         return self._paginate_query("stock_ledger", builder)
 
     def query_filter_options(self):
         def builder(table):
-            return self.client.table(table).select("location,category")
+            return self.client.table(table).select("location,category").order("id")
         all_vals = self._paginate_query("stock_ledger", builder)
         locs = sorted(set(r['location'] for r in all_vals if r.get('location')))
         cats = sorted(set(r['category'] for r in all_vals if r.get('category')))
@@ -297,7 +300,7 @@ class SupabaseDB(DBBase):
     def query_unique_product_names(self):
         """stock_ledger에서 고유 품목명+단위 목록 반환 (양수 재고 기준)."""
         def builder(table):
-            return self.client.table(table).select("product_name,qty,unit")
+            return self.client.table(table).select("product_name,qty,unit").order("id")
         all_data = self._paginate_query("stock_ledger", builder)
         totals = {}
         units = {}
@@ -479,7 +482,7 @@ class SupabaseDB(DBBase):
                         q = q.eq("category", legacy_cat)
                     elif category in DAILY_REVENUE_ONLY_CATEGORIES:
                         q = q.eq("category", category)
-                return q
+                return q.order("id")
 
             legacy_rows = self._paginate_query("daily_revenue", dr_legacy_builder)
             for r in legacy_rows:
@@ -515,7 +518,7 @@ class SupabaseDB(DBBase):
                     q = q.eq("category", list(dr_cats)[0])
                 else:
                     q = q.in_("category", list(dr_cats))
-                return q
+                return q.order("id")
 
             dr_rows = self._paginate_query("daily_revenue", dr_current_builder)
             for r in dr_rows:
@@ -631,7 +634,7 @@ class SupabaseDB(DBBase):
 
     def query_master_table(self, table_name):
         def builder(table):
-            return self.client.table(table).select("*")
+            return self.client.table(table).select("*").order("id")
         return self._paginate_query(table_name, builder)
 
     def count_master_table(self, table_name):
@@ -966,7 +969,7 @@ class SupabaseDB(DBBase):
         """
         # stock_ledger
         all_rows = self._paginate_query("stock_ledger",
-            lambda t: self.client.table(t).select("id,product_name"))
+            lambda t: self.client.table(t).select("id,product_name").order("id"))
         fixed = 0
         dupes = {}
         for r in all_rows:
@@ -984,7 +987,7 @@ class SupabaseDB(DBBase):
 
         # daily_revenue
         rev_rows = self._paginate_query("daily_revenue",
-            lambda t: self.client.table(t).select("id,product_name"))
+            lambda t: self.client.table(t).select("id,product_name").order("id"))
         for r in rev_rows:
             pn = r.get('product_name', '')
             norm = str(pn).replace(' ', '').strip()
@@ -1204,10 +1207,15 @@ class SupabaseDB(DBBase):
     # 사용자 관리 (app_users) CRUD
     # ================================================================
 
+    _USER_COLS = (
+        "id,username,name,password_hash,role,is_active_user,is_approved,"
+        "failed_login_count,locked_until,last_login,company_name"
+    )
+
     def query_user_by_id(self, user_id):
         """ID로 사용자 조회. dict or None."""
         try:
-            res = self.client.table("app_users").select("*") \
+            res = self.client.table("app_users").select(self._USER_COLS) \
                 .eq("id", user_id).limit(1).execute()
             return res.data[0] if res.data else None
         except Exception:
@@ -1216,7 +1224,7 @@ class SupabaseDB(DBBase):
     def query_user_by_username(self, username):
         """username으로 사용자 조회. dict or None."""
         try:
-            res = self.client.table("app_users").select("*") \
+            res = self.client.table("app_users").select(self._USER_COLS) \
                 .eq("username", username).limit(1).execute()
             return res.data[0] if res.data else None
         except Exception:
@@ -1237,14 +1245,21 @@ class SupabaseDB(DBBase):
             return self.client.table(table).select("*").order("created_at", desc=True)
         return self._paginate_query("app_users", builder)
 
+    _pending_cache = {'count': 0, 'ts': 0}
+
     def count_pending_users(self):
-        """승인 대기 사용자 수."""
+        """승인 대기 사용자 수 (60초 TTL 캐시)."""
+        now = time.time()
+        if now - self._pending_cache['ts'] < 60:
+            return self._pending_cache['count']
         try:
             res = self.client.table("app_users").select("id", count="exact") \
                 .eq("is_approved", False).eq("is_active_user", True).execute()
-            return res.count if res.count is not None else len(res.data)
+            cnt = res.count if res.count is not None else len(res.data)
+            self._pending_cache.update(count=cnt, ts=now)
+            return cnt
         except Exception:
-            return 0
+            return self._pending_cache.get('count', 0)
 
     # ================================================================
     # 감사 로그 (audit_logs)
@@ -1945,7 +1960,7 @@ class SupabaseDB(DBBase):
                 q = q.gte("order_date", date_from)
             if date_to:
                 q = q.lte("order_date", date_to)
-            txns = self._paginate_query("order_transactions", lambda t: q)
+            txns = self._paginate_query("order_transactions", lambda t: q.order("id"))
 
             if not txns:
                 return []
@@ -2150,7 +2165,7 @@ class SupabaseDB(DBBase):
                     q = q.gte("order_date", date_from)
                 if date_to:
                     q = q.lte("order_date", date_to)
-                return q
+                return q.order("id")
 
             rows = self._paginate_query("order_transactions", builder)
             channels = {}
@@ -2173,7 +2188,8 @@ class SupabaseDB(DBBase):
             def builder(table):
                 return self.client.table(table) \
                     .select("product_name,location,qty") \
-                    .lte("transaction_date", today)
+                    .lte("transaction_date", today) \
+                    .order("id")
 
             all_data = self._paginate_query("stock_ledger", builder)
             # 품목+창고별 합산
@@ -2206,7 +2222,8 @@ class SupabaseDB(DBBase):
                 return self.client.table(table) \
                     .select("product_name,qty,total_amount,settlement") \
                     .gte("order_date", date_from) \
-                    .eq("status", "정상")
+                    .eq("status", "정상") \
+                    .order("id")
 
             all_data = self._paginate_query("order_transactions", builder)
             products = {}
@@ -2470,6 +2487,97 @@ class SupabaseDB(DBBase):
                 u['invoice_no'], u.get('courier')
             ):
                 count += 1
+        return count
+
+    def query_pending_invoice_push(self, channel=None, date_from=None, date_to=None):
+        """송장 push 대기건 조회: order_shipping (invoice_no 있음 + shipping_status='대기')
+        + api_orders (api_order_id, api_line_id, raw_data) 매핑.
+
+        Returns:
+            [{channel, order_no, invoice_no, courier,
+              api_order_id, api_line_id, raw_data}, ...]
+        """
+        try:
+            # 1. order_shipping: 송장번호 있고 대기 상태
+            q = self.client.table("order_shipping") \
+                .select("channel,order_no,invoice_no,courier")
+            q = q.eq("shipping_status", "대기") \
+                .neq("invoice_no", "").not_.is_("invoice_no", "null")
+            if channel:
+                q = q.eq("channel", channel)
+            ship_res = q.order("created_at", desc=True).limit(500).execute()
+            ships = ship_res.data or []
+            if not ships:
+                return []
+
+            # 2. api_orders에서 매핑 정보 조회
+            order_nos = list(set(s['order_no'] for s in ships))
+            api_map = {}  # (channel, order_no) → [{api_order_id, api_line_id, raw_data}]
+            for chunk_start in range(0, len(order_nos), 100):
+                chunk = order_nos[chunk_start:chunk_start + 100]
+                aq = self.client.table("api_orders") \
+                    .select("channel,api_order_id,api_line_id,raw_data") \
+                    .in_("api_order_id", chunk)
+                if channel:
+                    aq = aq.eq("channel", channel)
+                api_res = aq.execute()
+                for a in (api_res.data or []):
+                    key = (a['channel'], a['api_order_id'])
+                    if key not in api_map:
+                        api_map[key] = []
+                    api_map[key].append(a)
+
+            # 3. 조인 결과
+            result = []
+            for s in ships:
+                ch = s['channel']
+                ono = s['order_no']
+                api_rows = api_map.get((ch, ono), [])
+                if api_rows:
+                    for ar in api_rows:
+                        result.append({
+                            'channel': ch,
+                            'order_no': ono,
+                            'invoice_no': s['invoice_no'],
+                            'courier': s.get('courier', ''),
+                            'api_order_id': ar['api_order_id'],
+                            'api_line_id': ar['api_line_id'],
+                            'raw_data': ar.get('raw_data') or {},
+                        })
+                else:
+                    # api_orders에 없는 경우 (수동 주문 등)
+                    result.append({
+                        'channel': ch,
+                        'order_no': ono,
+                        'invoice_no': s['invoice_no'],
+                        'courier': s.get('courier', ''),
+                        'api_order_id': '',
+                        'api_line_id': '',
+                        'raw_data': {},
+                    })
+
+            return result
+        except Exception as e:
+            print(f"[DB] query_pending_invoice_push error: {e}")
+            return []
+
+    def bulk_update_shipping_status(self, updates):
+        """shipping_status 일괄 업데이트.
+
+        Args:
+            updates: [{channel, order_no, shipping_status}]
+        Returns:
+            int: 업데이트 건수
+        """
+        count = 0
+        for u in updates:
+            try:
+                self.client.table("order_shipping").update({
+                    "shipping_status": u['shipping_status'],
+                }).eq("channel", u['channel']).eq("order_no", u['order_no']).execute()
+                count += 1
+            except Exception as e:
+                print(f"[DB] bulk_update_shipping_status error: {u} → {e}")
         return count
 
     def _batch_query_orders_by_keys(self, order_keys, date_from=None, date_to=None,

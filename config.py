@@ -111,6 +111,16 @@ class Config:
     CAFE24_CLIENT_SECRET = os.environ.get('CAFE24_CLIENT_SECRET', '')
     CAFE24_MALL_ID = os.environ.get('CAFE24_MALL_ID', '')
 
+    # 택배사 코드 매핑 (채널별 API 코드 상이)
+    COURIER_CODES = {
+        'CJ대한통운': {
+            'naver': 'CJGLS',
+            'coupang': 'CJGLS',
+            'cafe24': 'cj',
+        },
+    }
+    DEFAULT_COURIER = 'CJ대한통운'
+
     # 채널 표시명 (내부키 → UI 라벨)
     CHANNEL_LABELS = {
         '스마트스토어': '스마트스토어(배마마)',

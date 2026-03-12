@@ -363,6 +363,120 @@ class NaverCommerceClient(MarketplaceBaseClient):
             'raw_data': raw,
         }
 
+    # ── 송장 등록 (발송처리) ──
+
+    def register_invoice(self, orders: list) -> list:
+        """네이버 커머스 발송처리.
+
+        엔드포인트: POST /external/v1/pay-order/seller/product-orders/dispatch
+        같은 송장번호끼리 productOrderIds 배열로 묶어서 한 번에 발송.
+        """
+        if not self.config.get('access_token'):
+            return [{'api_order_id': o.get('api_order_id', ''),
+                      'success': False, 'error': '액세스 토큰 없음'}
+                     for o in orders]
+
+        # 같은 송장번호끼리 그룹핑
+        groups = {}  # invoice_no → [orders]
+        for o in orders:
+            inv = o.get('invoice_no', '')
+            if inv not in groups:
+                groups[inv] = []
+            groups[inv].append(o)
+
+        results = []
+        url = f'{self.BASE_URL}/external/v1/pay-order/seller/product-orders/dispatch'
+
+        for invoice_no, group in groups.items():
+            # productOrderIds: api_line_id 사용 (= productOrderId)
+            product_order_ids = []
+            for o in group:
+                line_id = o.get('api_line_id', '')
+                if line_id:
+                    product_order_ids.append(line_id)
+
+            if not product_order_ids:
+                for o in group:
+                    results.append({
+                        'api_order_id': o.get('api_order_id', ''),
+                        'success': False,
+                        'error': 'productOrderId 누락',
+                    })
+                continue
+
+            courier_code = group[0].get('courier_code', 'CJGLS')
+            payload = {
+                'productOrderIds': product_order_ids,
+                'deliveryMethod': 'DELIVERY',
+                'deliveryCompanyCode': courier_code,
+                'trackingNumber': invoice_no,
+            }
+
+            try:
+                resp = self.session.post(
+                    url,
+                    headers=self._get_headers(),
+                    json=payload,
+                    timeout=15,
+                )
+
+                if self._handle_rate_limit(resp):
+                    resp = self.session.post(
+                        url, headers=self._get_headers(),
+                        json=payload, timeout=15,
+                    )
+
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    # 성공 응답에서 개별 결과 확인
+                    success_ids = set()
+                    fail_data = data.get('data', {}).get('failProductOrderInfos', [])
+                    fail_ids = {f.get('productOrderId') for f in fail_data}
+
+                    for o in group:
+                        lid = o.get('api_line_id', '')
+                        if lid in fail_ids:
+                            fail_info = next(
+                                (f for f in fail_data if f.get('productOrderId') == lid),
+                                {}
+                            )
+                            results.append({
+                                'api_order_id': o.get('api_order_id', ''),
+                                'success': False,
+                                'error': fail_info.get('reason', '발송처리 실패'),
+                            })
+                        else:
+                            results.append({
+                                'api_order_id': o.get('api_order_id', ''),
+                                'success': True,
+                                'error': '',
+                            })
+
+                    succeeded = sum(1 for o in group
+                                    if o.get('api_line_id') not in fail_ids)
+                    logger.info(f'[네이버] 발송처리 {succeeded}/{len(group)}건 성공'
+                                f' (송장: {invoice_no})')
+                else:
+                    err = resp.text[:200]
+                    logger.warning(f'[네이버] 발송처리 실패: {resp.status_code} {err}')
+                    for o in group:
+                        results.append({
+                            'api_order_id': o.get('api_order_id', ''),
+                            'success': False,
+                            'error': f'HTTP {resp.status_code}: {err}',
+                        })
+
+            except Exception as e:
+                logger.error(f'[네이버] 발송처리 오류: {e}')
+                for o in group:
+                    results.append({
+                        'api_order_id': o.get('api_order_id', ''),
+                        'success': False,
+                        'error': str(e),
+                    })
+
+        return results
+
     def test_connection(self, db) -> dict:
         """API 연결 테스트."""
         if not self.is_ready:

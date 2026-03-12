@@ -210,22 +210,47 @@ def api_payroll():
     try:
         rows = db.query_payroll(pay_month=pay_month or None)
 
-        # 직원 이름 매핑
+        # 직원 이름 매핑 (전체 직원)
         employees = db.query_employees()
         emp_map = {e['id']: e for e in employees}
+
+        # 해당 급여월 기준으로 근무 중이었던 직원만 표시
+        # - 재직: 항상 표시
+        # - 퇴사: retire_date 가 급여월 이상(해당월 또는 이후)이면 표시
+        month_str = pay_month or ''  # 'YYYY-MM' 형태
+        enriched = []
         for r in rows:
-            emp = emp_map.get(r.get('employee_id'), {})
+            eid = r.get('employee_id')
+            emp = emp_map.get(eid, {})
+            status = emp.get('status', '')
+            retire_date = emp.get('retire_date') or ''
+
+            if status == '퇴사' or status == '퇴직':
+                # 퇴사일이 급여월보다 이전이면 제외
+                if retire_date and month_str and retire_date[:7] < month_str:
+                    continue
+                # 당월 퇴사 표시
+                if retire_date and month_str and retire_date[:7] == month_str:
+                    r['emp_status'] = '당월퇴사'
+                else:
+                    r['emp_status'] = '퇴사'
+            elif status not in ('재직', ''):
+                continue  # 알 수 없는 상태 제외
+            else:
+                r['emp_status'] = '재직'
+
             r['employee_name'] = emp.get('name', '')
             r['department'] = emp.get('department', '')
             r['position'] = emp.get('position', '')
+            enriched.append(r)
 
-        total_cost = sum(float(r.get('total_cost', 0)) for r in rows)
+        total_cost = sum(float(r.get('total_cost', 0)) for r in enriched)
 
         return jsonify({
             'success': True,
-            'payroll': rows,
+            'payroll': enriched,
             'total_cost': total_cost,
-            'count': len(rows),
+            'count': len(enriched),
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500

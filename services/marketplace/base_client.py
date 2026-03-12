@@ -102,6 +102,18 @@ class MarketplaceBaseClient(ABC):
         ...
 
     @abstractmethod
+    def register_invoice(self, orders: list) -> list:
+        """마켓플레이스에 송장번호 등록 (발송처리).
+
+        Args:
+            orders: [{api_order_id, api_line_id, invoice_no, courier_code, raw_data}, ...]
+
+        Returns:
+            [{api_order_id, success: bool, error: str}, ...]
+        """
+        ...
+
+    @abstractmethod
     def _normalize_order(self, raw: dict) -> dict:
         """API 원본 응답 → api_orders 스키마 변환."""
         ...

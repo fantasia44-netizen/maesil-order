@@ -57,7 +57,8 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary" id="btnLedgerSearch"
+                        onclick="if(this.dataset.loading==='1'){event.preventDefault();return;}this.dataset.loading='1';this.disabled=true;this.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span> 조회중...';this.closest('form').submit();">
                     <i class="bi bi-search"></i> 조회
                 </button>
                 {% if ledger is defined and ledger %}

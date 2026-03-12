@@ -190,28 +190,27 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     if df.empty:
         raise ValueError("엑셀에 데이터가 없습니다.")
 
-    if date_str < datetime.now().strftime('%Y-%m-%d'):
+    from services.tz_utils import today_kst
+    if date_str < today_kst():
         warnings.append(f"작업일자가 과거입니다: {date_str}")
 
-    # ── 수정입력: 올리는 품목만 삭제 (입고/생산과 동일 패턴) ──
+    # ── 올리는 품목의 기존 기록 삭제 (신규/수정 모두 — 중복 방지) ──
     deleted_count = 0
-    if mode == "수정입력":
-        # 엑셀에 있는 품목명만 수집 (산출+투입)
-        target_names = set()
-        for _, row in df.iterrows():
-            out_n = str(row.get('산출품목명', '')).strip()
-            inp_n = str(row.get('투입품목명', '')).strip()
-            sub_n = str(row.get('부자재명', '')).strip() if '부자재명' in cols else ''
-            if out_n:
-                target_names.add(out_n)
-            if inp_n:
-                target_names.add(inp_n)
-            if sub_n:
-                target_names.add(sub_n)
-        if target_names:
-            del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT", product_names=target_names)
-            del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN", product_names=target_names)
-            deleted_count = del1 + del2
+    target_names = set()
+    for _, row in df.iterrows():
+        out_n = str(row.get('산출품목명', '')).strip()
+        inp_n = str(row.get('투입품목명', '')).strip()
+        sub_n = str(row.get('부자재명', '')).strip() if '부자재명' in cols else ''
+        if out_n:
+            target_names.add(out_n)
+        if inp_n:
+            target_names.add(inp_n)
+        if sub_n:
+            target_names.add(sub_n)
+    if target_names:
+        del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT", product_names=target_names)
+        del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN", product_names=target_names)
+        deleted_count = del1 + del2
 
     # ── 투입품 재고 부족 체크 ──
     input_demand = {}
@@ -426,8 +425,9 @@ def process_repack_batch(db, date_str, mode, location, items):
     except ImportError:
         pass
 
+    from services.tz_utils import today_kst
     warnings = []
-    if date_str < datetime.now().strftime('%Y-%m-%d'):
+    if date_str < today_kst():
         warnings.append(f"작업일자가 과거입니다: {date_str}")
 
     loc = normalize_location(location)

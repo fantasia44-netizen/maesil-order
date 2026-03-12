@@ -157,13 +157,27 @@
     }
     .upload-overlay.active { display:flex; }
 
-    /* 스캔 카운터 */
+    /* 스캔 카운터 — 대형 */
     .scan-counter {
-        text-align:center; padding:8px; background:var(--pk-header); border-radius:6px;
-        font-size:0.9rem;
+        text-align:center; padding:14px 10px; background:var(--pk-header); border-radius:8px;
+        transition: background 0.3s, border-color 0.3s;
+        border: 2px solid transparent;
     }
-    .scan-counter .done { color:#4caf50; font-weight:700; font-size:1.1rem; }
-    .scan-counter .total { color:var(--pk-muted); }
+    .scan-counter-label {
+        font-size:0.75rem; color:var(--pk-muted); text-transform:uppercase; letter-spacing:1px;
+        margin-bottom:4px;
+    }
+    .scan-counter-num {
+        font-size:2.4rem; font-weight:800; font-family:'Courier New',monospace;
+        line-height:1; letter-spacing:2px;
+    }
+    .scan-counter-num .done { color:#ff5252; }
+    .scan-counter-num .slash { color:var(--pk-muted); margin:0 4px; }
+    .scan-counter-num .total { color:var(--pk-muted); }
+    .scan-counter.all-scanned {
+        background:rgba(76,175,80,0.15); border-color:#4caf50;
+    }
+    .scan-counter.all-scanned .scan-counter-num .done { color:#4caf50; }
 
     @media (max-width:768px) {
         .rec-container { flex-direction:column; height:auto; }
@@ -246,11 +260,14 @@
                     <span class="order-value" id="odBarcode" style="font-family:monospace;">-</span>
                 </div>
 
-                <!-- 스캔 카운터 -->
-                <div class="scan-counter">
-                    <i class="bi bi-check2-square me-1"></i>
-                    제품 스캔: <span class="done" id="scanDone">0</span>
-                    <span class="total">/ <span id="scanTotal">0</span></span>
+                <!-- 스캔 카운터 (대형) -->
+                <div class="scan-counter" id="scanCounter">
+                    <div class="scan-counter-label"><i class="bi bi-check2-square me-1"></i>제품 스캔 진행</div>
+                    <div class="scan-counter-num">
+                        <span class="done" id="scanDone">0</span>
+                        <span class="slash">/</span>
+                        <span class="total" id="scanTotal">0</span>
+                    </div>
                 </div>
 
                 <!-- 제품 목록 -->
@@ -559,6 +576,9 @@ function renderProductList() {
     });
 
     $scanDone.textContent = totalScanned;
+    const totalRequired = productItems.reduce((s, p) => s + p.totalQty, 0);
+    document.getElementById('scanCounter')
+        .classList.toggle('all-scanned', totalScanned >= totalRequired && totalRequired > 0);
 }
 
 // ── 녹화 시작 ──

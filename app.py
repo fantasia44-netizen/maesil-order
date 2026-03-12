@@ -256,6 +256,23 @@ def create_app(config_class=None):
                         current_biz=biz_conf, current_biz_id=biz_id,
                         businesses=available_biz)
 
+        # ── 사이드바 세션 캐시 (역할+사업자 조합 기준, 5분 TTL) ──
+        import time as _time
+        cache_key = f'_sidebar_{current_user.role}_{biz_id}'
+        cached = session.get(cache_key)
+        now = _time.time()
+
+        if cached and (now - cached.get('ts', 0)) < 300:
+            # 캐시 히트 — pending_users만 갱신 (TTL 캐시됨)
+            pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
+            return dict(sidebar_menus=cached['menus'],
+                        sidebar_groups=cached['groups'],
+                        sidebar_top_menu=cached['top'],
+                        pending_users=pending_users,
+                        current_biz=biz_conf, current_biz_id=biz_id,
+                        businesses=available_biz,
+                        channel_labels=Config.CHANNEL_LABELS)
+
         from collections import OrderedDict
         from models import PAGE_REGISTRY, MENU_GROUPS
         r = current_user.role
@@ -285,6 +302,14 @@ def create_app(config_class=None):
 
         # 빈 그룹 제거
         groups = OrderedDict((k, v) for k, v in groups.items() if v)
+
+        # 세션에 캐시 저장
+        session[cache_key] = {
+            'menus': flat_menus,
+            'groups': dict(groups),
+            'top': top_menu,
+            'ts': now,
+        }
 
         pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
 

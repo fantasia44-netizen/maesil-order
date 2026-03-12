@@ -422,6 +422,83 @@ class Cafe24Client(MarketplaceBaseClient):
                  'item_code': item.get('order_item_code')} if is_item else order),
         }
 
+    # ── 송장 등록 (발송처리) ──
+
+    def register_invoice(self, orders: list) -> list:
+        """Cafe24 배송 정보 등록.
+
+        Cafe24 API: PUT /api/v2/admin/orders/{order_id}/items/{item_id}
+        shipping_code(배송번호) + shipping_company_code(택배사코드) + tracking_no(송장번호) 전송.
+        """
+        results = []
+        for o in orders:
+            order_id = o.get('api_order_id', '')
+            item_code = o.get('api_line_id', '')
+            invoice_no = o.get('invoice_no', '')
+            courier_code = o.get('courier_code', 'cj')
+
+            if not order_id or not invoice_no:
+                results.append({
+                    'api_order_id': order_id,
+                    'success': False,
+                    'error': '주문ID 또는 송장번호 누락',
+                })
+                continue
+
+            try:
+                # Cafe24 배송처리: 주문 아이템 상태 업데이트
+                url = f'{self._base_url}/api/v2/admin/orders/{order_id}/items'
+                payload = {
+                    'request': {
+                        'items': [{
+                            'order_item_code': item_code,
+                            'shipping_company_code': courier_code,
+                            'tracking_no': invoice_no,
+                            'status': 'shipping',
+                        }],
+                    }
+                }
+
+                resp = self.session.put(
+                    url,
+                    headers=self._get_headers(),
+                    json=payload,
+                    timeout=15,
+                )
+
+                if self._handle_rate_limit(resp):
+                    # 재시도
+                    resp = self.session.put(
+                        url, headers=self._get_headers(),
+                        json=payload, timeout=15,
+                    )
+
+                if resp.status_code in (200, 201):
+                    results.append({
+                        'api_order_id': order_id,
+                        'success': True,
+                        'error': '',
+                    })
+                    logger.info(f'[Cafe24] 송장등록 성공: {order_id} → {invoice_no}')
+                else:
+                    err = resp.text[:200]
+                    results.append({
+                        'api_order_id': order_id,
+                        'success': False,
+                        'error': f'HTTP {resp.status_code}: {err}',
+                    })
+                    logger.warning(f'[Cafe24] 송장등록 실패: {order_id} → {err}')
+
+            except Exception as e:
+                results.append({
+                    'api_order_id': order_id,
+                    'success': False,
+                    'error': str(e),
+                })
+                logger.error(f'[Cafe24] 송장등록 오류: {order_id} → {e}')
+
+        return results
+
     def test_connection(self, db) -> dict:
         """API 연결 테스트."""
         if not self.is_ready:

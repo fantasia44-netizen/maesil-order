@@ -144,16 +144,17 @@ def process_inbound(db, excel_df, date_str, mode='신규입력'):
     if unit_check['no_unit']:
         warnings.append("DB에 단위 미설정 품목:\n" + "\n".join(unit_check['no_unit']))
 
-    is_past_date = date_str < datetime.now().strftime('%Y-%m-%d')
+    from services.tz_utils import today_kst
+    is_past_date = date_str < today_kst()
 
     payload = parse_inbound_payload(df, date_str)
 
+    # 올리는 품목의 기존 기록 삭제 (신규/수정 모두 — 중복 방지)
     deleted_count = 0
-    if mode == '수정입력':
-        target_names = set(p['product_name'] for p in payload if p.get('product_name'))
-        if target_names:
-            deleted_count = db.delete_stock_ledger_by(
-                date_str, "INBOUND", product_names=target_names)
+    target_names = set(p['product_name'] for p in payload if p.get('product_name'))
+    if target_names:
+        deleted_count = db.delete_stock_ledger_by(
+            date_str, "INBOUND", product_names=target_names)
 
     db.insert_stock_ledger(payload)
 
@@ -211,14 +212,14 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
     if unit_check['no_unit']:
         warnings.append("DB에 단위 미설정 품목:\n" + "\n".join(unit_check['no_unit']))
 
-    is_past_date = date_str < datetime.now().strftime('%Y-%m-%d')
+    from services.tz_utils import today_kst
+    is_past_date = date_str < today_kst()
 
-    # ── 수정입력: 기존 데이터 먼저 삭제 (snapshot 로드 전에 실행) ──
+    # ── 기존 데이터 먼저 삭제 (신규/수정 모두 — 중복 방지, snapshot 로드 전에 실행) ──
     deleted_count = 0
-    if mode == '수정입력':
-        del1 = db.delete_stock_ledger_by(date_str, "PRODUCTION")
-        del2 = db.delete_stock_ledger_by(date_str, "PROD_OUT")
-        deleted_count = del1 + del2
+    del1 = db.delete_stock_ledger_by(date_str, "PRODUCTION")
+    del2 = db.delete_stock_ledger_by(date_str, "PROD_OUT")
+    deleted_count = del1 + del2
 
     cols = list(df.columns)
     material_groups = detect_material_groups(cols)

@@ -505,20 +505,19 @@ def process_batch_outbound(db, file_paths, date_str, mode='신규입력',
             "같은 창고의 출고가 중복 처리될 수 있습니다."
         )
 
-    # ── 수정입력: 기존 데이터 삭제 ──
+    # ── 기존 데이터 삭제 (신규/수정 모두 — 중복 방지) ──
     deleted_count = 0
-    if mode == '수정입력':
-        for _, wh in outbound_files:
-            deleted_count += db.delete_stock_ledger_by(date_str, "SALES_OUT", wh)
-        for p in integrated_files:
-            try:
-                tdf = pd.read_excel(p).fillna(0)
-                if 'warehouse' in tdf.columns:
-                    for wh_name in tdf['warehouse'].unique():
-                        deleted_count += db.delete_stock_ledger_by(
-                            date_str, "SALES_OUT", str(wh_name).strip())
-            except Exception:
-                pass
+    for _, wh in outbound_files:
+        deleted_count += db.delete_stock_ledger_by(date_str, "SALES_OUT", wh)
+    for p in integrated_files:
+        try:
+            tdf = pd.read_excel(p).fillna(0)
+            if 'warehouse' in tdf.columns:
+                for wh_name in tdf['warehouse'].unique():
+                    deleted_count += db.delete_stock_ledger_by(
+                        date_str, "SALES_OUT", str(wh_name).strip())
+        except Exception:
+            pass
 
     # ── 실제 처리 ──
     results = []

@@ -363,7 +363,7 @@ function renderTable() {
 
         html += `<tr style="cursor:pointer;" onclick="showPayrollDetail(${r.id})">
             <td class="text-muted">${idx + 1}</td>
-            <td><strong>${r.employee_name || ''}</strong></td>
+            <td><strong>${r.employee_name || ''}</strong>${r.emp_status === '당월퇴사' ? ' <span class="badge bg-warning text-dark" style="font-size:0.65rem;">당월퇴사</span>' : r.emp_status === '퇴사' ? ' <span class="badge bg-secondary" style="font-size:0.65rem;">퇴사</span>' : ''}</td>
             <td>${r.department || ''}</td>
             <td class="text-end">${fmtWon(base)}</td>
             <td class="text-end">${fmtWon(allow)}</td>

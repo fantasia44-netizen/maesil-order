@@ -405,3 +405,134 @@ def _finish_log(db, log_id, status, fetched=0, new=0, updated=0,
     if error_message:
         update['error_message'] = error_message[:500]
     db.update_api_sync_log(log_id, update)
+
+
+# ================================================================
+# 송장 Push (발송처리)
+# ================================================================
+
+def push_invoices(db, marketplace_mgr, channel, triggered_by='system'):
+    """마켓플레이스에 송장번호 일괄 전송 (발송처리).
+
+    1. order_shipping에서 대기 중 송장 조회
+    2. api_orders와 매핑하여 마켓 주문ID 확보
+    3. client.register_invoice() 호출
+    4. 성공 건: shipping_status='발송' 업데이트
+    5. api_sync_log에 이력 기록
+
+    Returns:
+        dict: {total, success, failed, errors, log_id}
+    """
+    from config import Config
+
+    client = marketplace_mgr.get_client(channel)
+    if not client or not client.is_ready:
+        return {'total': 0, 'success': 0, 'failed': 0,
+                'error': f'{channel} 클라이언트 미준비'}
+
+    # 동기화 로그
+    log = db.insert_api_sync_log({
+        'channel': channel,
+        'sync_type': 'invoice_push',
+        'status': 'running',
+        'triggered_by': triggered_by,
+    })
+    log_id = log.get('id') if log else None
+
+    try:
+        # 토큰 갱신
+        client.refresh_token(db)
+
+        # 대기 중 송장 조회
+        pending = db.query_pending_invoice_push(channel=channel)
+        if not pending:
+            _finish_log(db, log_id, 'success', fetched=0)
+            return {'total': 0, 'success': 0, 'failed': 0, 'log_id': log_id}
+
+        # api_order_id 있는 건만 필터 (마켓 매핑 필수)
+        pushable = [p for p in pending if p.get('api_order_id')]
+        if not pushable:
+            _finish_log(db, log_id, 'success', fetched=len(pending),
+                        error_message=f'api_orders 매핑 없는 건 {len(pending)}개')
+            return {'total': len(pending), 'success': 0,
+                    'failed': len(pending), 'log_id': log_id,
+                    'error': 'api_orders 매핑 없음'}
+
+        # 택배사 코드 변환
+        courier_name = Config.DEFAULT_COURIER
+        courier_codes = Config.COURIER_CODES.get(courier_name, {})
+
+        # 채널별 택배사 코드 결정
+        channel_key_map = {
+            '스마트스토어': 'naver', '해미애찬': 'naver',
+            '쿠팡': 'coupang', '자사몰': 'cafe24',
+        }
+        code_key = channel_key_map.get(channel, 'naver')
+        courier_code = courier_codes.get(code_key, 'CJGLS')
+
+        # register_invoice 입력 데이터 구성
+        invoice_data = []
+        for p in pushable:
+            invoice_data.append({
+                'api_order_id': p['api_order_id'],
+                'api_line_id': p['api_line_id'],
+                'invoice_no': p['invoice_no'],
+                'courier_code': courier_code,
+                'raw_data': p.get('raw_data', {}),
+            })
+
+        # API 호출
+        results = client.register_invoice(invoice_data)
+
+        # 결과 처리
+        success_count = 0
+        fail_count = 0
+        errors = []
+        status_updates = []
+
+        # order_no 매핑 (결과에서 shipping_status 업데이트용)
+        api_to_order = {}
+        for p in pushable:
+            api_to_order[p['api_order_id']] = (p['channel'], p['order_no'])
+
+        for r in results:
+            if r.get('success'):
+                success_count += 1
+                pair = api_to_order.get(r['api_order_id'])
+                if pair:
+                    status_updates.append({
+                        'channel': pair[0],
+                        'order_no': pair[1],
+                        'shipping_status': '발송',
+                    })
+            else:
+                fail_count += 1
+                if r.get('error'):
+                    errors.append(f"{r['api_order_id']}: {r['error']}")
+
+        # shipping_status 업데이트
+        if status_updates:
+            db.bulk_update_shipping_status(status_updates)
+
+        _finish_log(db, log_id, 'success',
+                    fetched=len(pushable),
+                    new=success_count,
+                    updated=fail_count,
+                    error_message='; '.join(errors[:10]) if errors else None)
+
+        logger.info(f'[{channel}] 송장 push 완료: '
+                    f'{success_count}/{len(pushable)} 성공')
+
+        return {
+            'total': len(pushable),
+            'success': success_count,
+            'failed': fail_count,
+            'errors': errors[:20],
+            'log_id': log_id,
+        }
+
+    except Exception as e:
+        logger.error(f'[{channel}] 송장 push 오류: {e}')
+        _finish_log(db, log_id, 'error', error_message=str(e)[:500])
+        return {'total': 0, 'success': 0, 'failed': 0,
+                'error': str(e), 'log_id': log_id}

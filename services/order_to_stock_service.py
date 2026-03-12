@@ -212,9 +212,9 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
         if not product_name or orig_qty <= 0:
             continue
 
-        # 재고차감일 = 수집일 (송장생성 당일 기준, 매출은 order_date 별도)
+        # 재고차감일: 수집일 > 주문일 > 오늘 (로켓배송 등 주문일 기준 차감 보장)
         collection_date = order.get('collection_date', '')
-        stk_date = collection_date if collection_date else today_date
+        stk_date = collection_date if collection_date else (order_date if order_date else today_date)
 
         # 마감 체크
         stk_closed_for_date = _is_date_closed(stk_date, 'stock')
@@ -447,12 +447,12 @@ def process_realtime_outbound(db, import_run_id):
 
         rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
         is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-        # N배송: 매출일(order_date) 기준, 일반: 수집일(collection_date) 기준
+        # N배송: 매출일(order_date) 기준, 일반: 수집일 > 주문일 > 오늘
         if is_n:
             stk_date = odate if odate else today_str
         else:
             coll_date = order.get('collection_date', '')
-            stk_date = coll_date if coll_date else today_str
+            stk_date = coll_date if coll_date else (odate if odate else today_str)
 
         # BOM 분해
         if is_n:
@@ -623,7 +623,7 @@ def process_packing_outbound(db, order_id):
         decomposed = {pname: qty}
     else:
         coll_date = order.get('collection_date', '')
-        stk_date = coll_date if coll_date else _stock_date()
+        stk_date = coll_date if coll_date else (odate if odate else _stock_date())
         if rev_cat in ('쿠팡매출', '로켓'):
             decomposed = _decompose(pname, qty, bom_coupang, bom_all)
         else:
@@ -812,12 +812,12 @@ def process_single_order_realtime(db, order_id):
 
     rev_cat = CHANNEL_REVENUE_MAP.get(ch, '일반매출')
     is_n = (ch == 'N배송_수동' or rev_cat == 'N배송')
-    # N배송: 매출일(order_date) 기준, 일반: 수집일(collection_date) 기준
+    # N배송: 매출일(order_date) 기준, 일반: 수집일 > 주문일 > 오늘
     if is_n:
         stk_date = odate if odate else _stock_date()
     else:
         coll_date = order.get('collection_date', '')
-        stk_date = coll_date if coll_date else _stock_date()
+        stk_date = coll_date if coll_date else (odate if odate else _stock_date())
 
     # BOM + 마스터 로드
     bom_map = _load_bom_map(db)

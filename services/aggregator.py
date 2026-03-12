@@ -49,7 +49,8 @@ class Aggregator:
         self.price_map = {}
 
     def log(self, msg):
-        t = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        from services.tz_utils import now_kst
+        t = f"[{now_kst().strftime('%H:%M:%S')}] {msg}"
         self.logs.append(t)
 
     def _get_filename(self, file_input):
@@ -535,7 +536,8 @@ class Aggregator:
                 if c in final_df.columns and final_df[c].sum() == 0:
                     final_df.drop(columns=[c], inplace=True)
 
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            from services.tz_utils import now_kst
+            ts = now_kst().strftime("%Y%m%d_%H%M%S")
 
             # 1) 전체 통합집계표 (기존 호환)
             out_path = os.path.join(output_dir, f"통합집계표_{ts}.xlsx")
@@ -570,7 +572,8 @@ class Aggregator:
                     total_rev = 0
                     has_revenue_qty = False
 
-                    today_str = datetime.now().strftime('%Y-%m-%d')
+                    from services.tz_utils import today_kst
+                    today_str = today_kst()
                     for c, price_col in REVENUE_CATEGORIES.items():
                         q = cats.get(c, 0)
                         if q == 0:

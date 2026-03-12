@@ -258,6 +258,47 @@ def sync():
         return jsonify({'error': str(e)}), 500
 
 
+@marketplace_bp.route('/push-invoices', methods=['POST'])
+@role_required('admin', 'general')
+def push_invoices_route():
+    """마켓플레이스에 송장번호 일괄 전송 (발송처리)."""
+    try:
+        db = current_app.db
+        mgr = current_app.marketplace
+        channel = request.form.get('channel', '')
+
+        if not channel:
+            return jsonify({'error': '채널을 선택하세요.'}), 400
+
+        from services.marketplace_sync_service import push_invoices
+        result = push_invoices(
+            db, mgr, channel,
+            triggered_by=current_user.username,
+        )
+
+        _log_action(f'송장 전송: {channel} — '
+                     f'{result.get("success", 0)}/{result.get("total", 0)}건 성공')
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f'[Push] 송장 전송 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/pending-invoices')
+@role_required('admin', 'general')
+def api_pending_invoices():
+    """채널별 송장 push 대기건 카운트."""
+    db = current_app.db
+    mgr = current_app.marketplace
+    counts = {}
+    for channel in mgr.get_active_channels():
+        pending = db.query_pending_invoice_push(channel=channel)
+        pushable = [p for p in pending if p.get('api_order_id')]
+        counts[channel] = len(pushable)
+    return jsonify(counts)
+
+
 @marketplace_bp.route('/diag/<channel>')
 @role_required('admin')
 def diag(channel):

@@ -3,6 +3,7 @@ ledger.py — 수불장(재고원장) 조회/내보내기 Blueprint.
 """
 import os
 import io
+import logging
 import tempfile
 from datetime import datetime
 
@@ -16,6 +17,8 @@ from flask_login import login_required, current_user
 from auth import role_required
 from services.storage_helper import backup_bytes_to_storage
 from models import INV_TYPE_LABELS, LEDGER_CATEGORY_MAP
+
+logger = logging.getLogger(__name__)
 
 ledger_bp = Blueprint('ledger', __name__, url_prefix='/ledger')
 
@@ -39,6 +42,10 @@ def index():
         locations, categories = db.query_filter_options()
     except Exception:
         pass
+
+    # ── 수불장 조회 로그 ──
+    user_name = getattr(current_user, 'name', '?')
+    logger.info(f"[수불장조회] {user_name} | {date_from}~{date_to} | {location} | {ledger_type or '전체'}")
 
     ledger_rows = []
     if date_from or date_to:
@@ -165,6 +172,10 @@ def export():
     location = request.args.get('location', '전체')
     ledger_type = request.args.get('ledger_type', '')
 
+    # ── 수불장 엑셀 출력 로그 ──
+    user_name = getattr(current_user, 'name', '?')
+    logger.info(f"[수불장엑셀] {user_name} | {date_from}~{date_to} | {location} | {ledger_type or '전체'}")
+
     try:
         raw = db.query_stock_ledger(
             date_to=date_to or '9999-12-31',
@@ -242,6 +253,10 @@ def pdf():
         return redirect(url_for('ledger.index'))
 
     db = current_app.db
+
+    # ── 수불장 PDF 출력 로그 ──
+    user_name = getattr(current_user, 'name', '?')
+    logger.info(f"[수불장PDF] {user_name} | {date_from}~{date_to} | {location} | {ledger_type or '전체'} | fit={fit_one_page} multi={multi_col}")
 
     try:
         from services.stock_service import query_ledger_data

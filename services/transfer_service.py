@@ -71,13 +71,12 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
     warnings = []
     deleted_count = 0
 
-    # 수정입력: 해당 날짜의 기존 이동 기록 삭제
-    if mode == "수정입력":
-        del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT")
-        del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN")
-        deleted_count = del1 + del2
+    # 기존 이동 기록 삭제 (신규/수정 모두 — 중복 방지, 해당 품목+창고만)
+    del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT", location=src, product_names={name})
+    del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN", location=dst, product_names={name})
+    deleted_count = del1 + del2
 
-    # 재고 스냅샷 로드 (수정입력으로 삭제된 후 로드해야 정확)
+    # 재고 스냅샷 로드 (삭제된 후 로드해야 정확)
     stock = _load_stock_snapshot(db, src)
     _snap = snapshot_lookup(stock, name)
     groups = _snap.get('groups', [])
@@ -194,11 +193,24 @@ def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
     except ImportError:
         generate_transaction_id = lambda: None
 
-    # 수정입력: 해당 날짜의 기존 이동 기록 삭제
-    if mode == "수정입력":
-        del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT")
-        del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN")
-        deleted_count = del1 + del2
+    # 기존 이동 기록 삭제 (신규/수정 모두 — 중복 방지)
+    # 엑셀에 있는 품목+창고 조합만 정밀 삭제
+    _del_names = set()
+    _del_locs = set()
+    for _, row in df.iterrows():
+        _nm = str(row['품목명']).strip()
+        _src = normalize_location(row['현재창고위치'])
+        _dst = normalize_location(row['이동창고위치'])
+        if _nm:
+            _del_names.add(_nm)
+        if _src:
+            _del_locs.add(_src)
+        if _dst:
+            _del_locs.add(_dst)
+    if _del_names:
+        for _loc in _del_locs:
+            deleted_count += db.delete_stock_ledger_by(date_str, "MOVE_OUT", location=_loc, product_names=_del_names)
+            deleted_count += db.delete_stock_ledger_by(date_str, "MOVE_IN", location=_loc, product_names=_del_names)
 
     # 재고 스냅샷 캐시 (창고별)
     snapshots = {}

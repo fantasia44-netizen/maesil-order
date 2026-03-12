@@ -342,6 +342,103 @@ class CoupangWingClient(MarketplaceBaseClient):
             'raw_data': raw,
         }
 
+    # ── 송장 등록 (발송처리) ──
+
+    def register_invoice(self, orders: list) -> list:
+        """쿠팡 송장업로드.
+
+        엔드포인트: POST /v2/.../vendors/{vendorId}/orders/invoices
+        raw_data에서 shipmentBoxId, orderId, vendorItemId 추출.
+        배열로 일괄 전송 (orderSheetInvoiceApplyDtos).
+        """
+        vendor_id = self.config.get('vendor_id', '')
+        if not vendor_id:
+            return [{'api_order_id': o.get('api_order_id', ''),
+                      'success': False, 'error': 'vendor_id 미설정'}
+                     for o in orders]
+
+        path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/orders/invoices'
+
+        # body 구성
+        dtos = []
+        order_map = {}  # shipmentBoxId → api_order_id 매핑 (결과 추적용)
+        for o in orders:
+            raw = o.get('raw_data', {})
+            shipment_box_id = raw.get('shipmentBoxId')
+            order_id = raw.get('orderId')
+            vendor_item_id = raw.get('vendorItemId')
+
+            if not shipment_box_id or not order_id:
+                continue
+
+            dto = {
+                'shipmentBoxId': shipment_box_id,
+                'orderId': order_id,
+                'deliveryCompanyCode': o.get('courier_code', 'CJGLS'),
+                'invoiceNumber': o.get('invoice_no', ''),
+            }
+            if vendor_item_id:
+                dto['vendorItemId'] = vendor_item_id
+
+            dtos.append(dto)
+            order_map[str(shipment_box_id)] = o.get('api_order_id', '')
+
+        if not dtos:
+            return [{'api_order_id': o.get('api_order_id', ''),
+                      'success': False, 'error': 'shipmentBoxId/orderId 누락'}
+                     for o in orders]
+
+        # HMAC 서명 + POST
+        headers = self._generate_hmac_signature('POST', path)
+        body = {
+            'vendorId': vendor_id,
+            'orderSheetInvoiceApplyDtos': dtos,
+        }
+
+        try:
+            resp = self.session.post(
+                f'{self.BASE_URL}{path}',
+                headers=headers,
+                json=body,
+                timeout=30,
+            )
+
+            if self._handle_rate_limit(resp):
+                headers = self._generate_hmac_signature('POST', path)
+                resp = self.session.post(
+                    f'{self.BASE_URL}{path}',
+                    headers=headers, json=body, timeout=30,
+                )
+
+            if resp.status_code != 200:
+                err = resp.text[:300]
+                logger.error(f'[쿠팡] 송장업로드 실패: {resp.status_code} {err}')
+                return [{'api_order_id': order_map.get(str(d['shipmentBoxId']), ''),
+                          'success': False, 'error': f'HTTP {resp.status_code}'}
+                         for d in dtos]
+
+            # 응답 파싱: responseList 순회
+            data = resp.json().get('data', {})
+            response_list = data.get('responseList', [])
+            results = []
+            for r in response_list:
+                sbox_id = str(r.get('shipmentBoxId', ''))
+                results.append({
+                    'api_order_id': order_map.get(sbox_id, sbox_id),
+                    'success': r.get('succeed', False),
+                    'error': r.get('resultMessage', '') if not r.get('succeed') else '',
+                })
+
+            succeeded = sum(1 for r in results if r['success'])
+            logger.info(f'[쿠팡] 송장업로드 {succeeded}/{len(results)}건 성공')
+            return results
+
+        except Exception as e:
+            logger.error(f'[쿠팡] 송장업로드 오류: {e}')
+            return [{'api_order_id': order_map.get(str(d['shipmentBoxId']), ''),
+                      'success': False, 'error': str(e)}
+                     for d in dtos]
+
     def test_connection(self, db) -> dict:
         """API 연결 테스트 — 간단한 주문 조회."""
         if not self.is_ready:
@@ -350,7 +447,8 @@ class CoupangWingClient(MarketplaceBaseClient):
         vendor_id = self.config['vendor_id']
         path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/ordersheets'
 
-        today = datetime.now().strftime('%Y-%m-%d')
+        from services.tz_utils import today_kst
+        today = today_kst()
         params = {
             'createdAtFrom': today,
             'createdAtTo': today,

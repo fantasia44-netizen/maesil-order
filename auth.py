@@ -1,4 +1,5 @@
 import time
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -268,18 +269,28 @@ def login():
                 flash('관리자 승인 대기 중입니다.', 'warning')
                 return render_template('login.html', form=form)
 
-            # 로그인 성공
-            current_app.db.update_user(user.id, {
-                'failed_login_count': 0,
-                'locked_until': None,
-                'last_login': datetime.now(timezone.utc).isoformat(),
-            })
-
+            # 로그인 성공 — 세션 즉시 설정
             login_user(user, remember=False)
             session.permanent = True
             session['_last_active'] = time.time()
-            _log_action('login', target=user.username,
-                        detail=f'IP: {client_ip}')
+
+            # DB 업데이트 + 감사로그는 백그라운드로 (응답 속도 개선)
+            _db = current_app.db
+            _uid, _uname = user.id, user.username
+            def _post_login():
+                try:
+                    _db.update_user(_uid, {
+                        'failed_login_count': 0,
+                        'locked_until': None,
+                        'last_login': datetime.now(timezone.utc).isoformat(),
+                    })
+                    _db.insert_audit_log({
+                        'user_id': _uid, 'action': 'login',
+                        'target': _uname, 'detail': f'IP: {client_ip}',
+                    })
+                except Exception:
+                    pass
+            threading.Thread(target=_post_login, daemon=True).start()
 
             next_page = request.args.get('next')
             if next_page and not next_page.startswith('/'):

@@ -171,6 +171,10 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         if df.empty:
             return []
 
+    # ── 품목명 공백 정규화 (수불장과 동일 기준 — 일관된 집계 보장) ──
+    if 'product_name' in df.columns:
+        df['product_name'] = df['product_name'].astype(str).str.replace(' ', '', regex=False).str.strip()
+
     for col in ['manufacture_date', 'category', 'storage_method', 'expiry_date', 'origin', 'food_type', 'lot_number', 'grade']:
         if col not in df.columns:
             df[col] = ''

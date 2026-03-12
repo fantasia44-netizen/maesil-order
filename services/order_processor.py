@@ -45,7 +45,8 @@ class OrderProcessor:
         self.logs = []
 
     def log(self, msg):
-        t = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        from services.tz_utils import now_kst
+        t = f"[{now_kst().strftime('%H:%M:%S')}] {msg}"
         try:
             print(t)
         except (UnicodeEncodeError, UnicodeDecodeError, OSError):
@@ -571,7 +572,8 @@ class OrderProcessor:
                                            "failed": len(res), "error": str(db_err)}
 
             res_df = pd.DataFrame(res)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            from services.tz_utils import now_kst
+            ts = now_kst().strftime("%Y%m%d_%H%M%S")
             safe_nm = mode.replace("/", "_")
 
             if target_type == "송장":
