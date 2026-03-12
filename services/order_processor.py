@@ -1027,6 +1027,32 @@ class OrderProcessor:
                 except Exception:
                     pass  # 로그 업데이트 실패가 본작업을 막으면 안됨
 
+            # ── 출력 파일 Supabase Storage 업로드 ──
+            if db and result.get('files'):
+                try:
+                    from datetime import datetime, timezone
+                    _date_prefix = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                    _storage_paths = []
+                    for fpath in result['files']:
+                        if os.path.exists(fpath):
+                            fname = os.path.basename(fpath)
+                            storage_path = f"{_date_prefix}/{fname}"
+                            with open(fpath, 'rb') as _f:
+                                _fbytes = _f.read()
+                            # content-type 판별
+                            _ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            if fname.endswith('.xls'):
+                                _ct = "application/vnd.ms-excel"
+                            elif fname.endswith('.csv'):
+                                _ct = "text/csv"
+                            if db.upload_output_file(storage_path, _fbytes, _ct):
+                                _storage_paths.append(storage_path)
+                                self.log(f"☁️ Storage 업로드: {fname}")
+                    if _storage_paths:
+                        result['storage_paths'] = _storage_paths
+                except Exception as _se:
+                    self.log(f"⚠️ Storage 업로드 실패 (파일은 로컬에 존재): {_se}")
+
         return result
 
     # ─── Phase 1: DB 저장 헬퍼 ───

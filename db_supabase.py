@@ -2770,6 +2770,58 @@ class SupabaseDB(DBBase):
             print(f"[DB] get_packing_video_signed_url error: {e}")
             return ''
 
+    # ── Order Output File Storage ─────────────────────────
+
+    def upload_output_file(self, path, file_bytes, content_type=None):
+        """주문처리 출력 파일 Supabase Storage 업로드.
+        path: 'YYYY-MM-DD/채널_리얼패킹_timestamp.xlsx' 형태
+        """
+        if content_type is None:
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        try:
+            self.client.storage.from_("order-outputs").upload(
+                path, file_bytes,
+                file_options={"content-type": content_type}
+            )
+            return True
+        except Exception as e:
+            # 이미 존재하면 upsert
+            if '409' in str(e) or 'Duplicate' in str(e):
+                try:
+                    self.client.storage.from_("order-outputs").update(
+                        path, file_bytes,
+                        file_options={"content-type": content_type}
+                    )
+                    return True
+                except Exception as e2:
+                    print(f"[DB] upload_output_file update error: {e2}")
+            else:
+                print(f"[DB] upload_output_file error: {e}")
+            return False
+
+    def get_output_file_signed_url(self, path, expires_in=3600):
+        """출력 파일 서명 URL 생성 (다운로드용)."""
+        try:
+            res = self.client.storage.from_("order-outputs") \
+                .create_signed_url(path, expires_in)
+            if isinstance(res, dict):
+                return res.get('signedURL', '') or res.get('signedUrl', '')
+            return ''
+        except Exception as e:
+            print(f"[DB] get_output_file_signed_url error: {e}")
+            return ''
+
+    def list_output_files(self, prefix='', limit=100):
+        """출력 파일 목록 조회."""
+        try:
+            res = self.client.storage.from_("order-outputs").list(
+                prefix, {"limit": limit, "sortBy": {"column": "created_at", "order": "desc"}}
+            )
+            return res or []
+        except Exception as e:
+            print(f"[DB] list_output_files error: {e}")
+            return []
+
     # ── expenses (간접비/비용 관리) ──
 
     def query_expenses(self, month=None, category=None):
