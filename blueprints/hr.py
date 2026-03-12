@@ -178,6 +178,8 @@ def api_retire_employee(emp_id):
 
     try:
         update_data = {'status': '퇴사'}
+        if retire_date:
+            update_data['retire_date'] = retire_date
         if memo:
             update_data['memo'] = memo
         db.update_employee(emp_id, update_data)
@@ -278,13 +280,15 @@ def api_generate_payroll():
             result = db.generate_monthly_payroll_v2(pay_month)
             inserted = result.get('inserted', 0)
             updated = result.get('updated', 0)
+            skipped = result.get('skipped', 0)
             _log_action('generate_payroll',
-                         detail=f'대상월={pay_month}, 신규={inserted}건, 갱신={updated}건, v2=True')
+                         detail=f'대상월={pay_month}, 신규={inserted}건, 갱신={updated}건, 스킵={skipped}건')
             return jsonify({
                 'success': True,
                 'count': inserted + updated,
                 'inserted': inserted,
                 'updated': updated,
+                'skipped': skipped,
             })
         else:
             count = db.generate_monthly_payroll(pay_month)
@@ -329,6 +333,28 @@ def api_sync_expenses():
                      detail=f'대상월={pay_month}, 급여={result["total_cost"]:,.0f}, '
                             f'4대보험={result.get("insurance_cost", 0):,.0f}, '
                             f'액션={result["actions"]}')
+        return jsonify({'success': True, **result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@hr_bp.route('/api/payroll/generate-bulk', methods=['POST'])
+@role_required('admin', 'general')
+def api_generate_bulk_payroll():
+    """여러 월 급여 일괄 생성 (입사일~현재 기간)"""
+    db = current_app.db
+    data = request.get_json() or {}
+    from_month = (data.get('from_month') or '').strip()
+    to_month = (data.get('to_month') or '').strip()
+
+    if not from_month or not to_month:
+        return jsonify({'error': '시작월과 종료월을 지정해주세요.'}), 400
+
+    try:
+        result = db.generate_bulk_payroll(from_month, to_month)
+        _log_action('generate_bulk_payroll',
+                     detail=f'{from_month}~{to_month}, '
+                            f'신규={result["total_inserted"]}건, 갱신={result["total_updated"]}건')
         return jsonify({'success': True, **result})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -2,6 +2,7 @@
 hr_service.py -- 인건비/연차 관리 서비스 레이어.
 직원 요약, 연차 달력, 급여 계산 (한국 급여체계) 로직 제공.
 """
+import calendar
 from datetime import date, timedelta
 from collections import defaultdict
 import math
@@ -121,8 +122,108 @@ DEFAULT_NONTAXABLE_LIMITS = {
 }
 
 
+def calculate_proration_ratio(hire_date_str, retire_date_str, year, month):
+    """월 역일수 기준 일할비율 계산.
+
+    Args:
+        hire_date_str: 입사일 (YYYY-MM-DD 또는 None)
+        retire_date_str: 퇴사일 (YYYY-MM-DD 또는 None)
+        year: 대상 연도
+        month: 대상 월
+
+    Returns:
+        dict: {ratio, work_days, calendar_days}
+    """
+    cal_days = calendar.monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = date(year, month, cal_days)
+
+    work_start = month_start
+    work_end = month_end
+
+    if hire_date_str:
+        hire = date.fromisoformat(str(hire_date_str)[:10])
+        if hire > month_end:
+            # 아직 입사 전
+            return {'ratio': 0.0, 'work_days': 0, 'calendar_days': cal_days}
+        if hire > month_start:
+            work_start = hire
+
+    if retire_date_str:
+        retire = date.fromisoformat(str(retire_date_str)[:10])
+        if retire < month_start:
+            # 이미 퇴사
+            return {'ratio': 0.0, 'work_days': 0, 'calendar_days': cal_days}
+        if retire < month_end:
+            work_end = retire
+
+    work_days = (work_end - work_start).days + 1
+    ratio = round(work_days / cal_days, 4)
+    return {'ratio': ratio, 'work_days': work_days, 'calendar_days': cal_days}
+
+
+def calculate_attendance_deductions(leave_records, base_salary, calendar_days):
+    """근태 차감액 계산.
+
+    Args:
+        leave_records: list of dict - 해당 월의 leave_records
+            (leave_type, days 포함)
+        base_salary: 기본급 (일할 적용 후)
+        calendar_days: 월 역일수
+
+    Returns:
+        dict: {total_deduction, detail: {type: {count/days, amount}}}
+    """
+    if not leave_records or calendar_days <= 0:
+        return {'total_deduction': 0, 'detail': {}}
+
+    daily_wage = base_salary / calendar_days
+    detail = {}
+    total = 0
+
+    # 차감 유형별 집계
+    type_agg = defaultdict(float)  # {leave_type: days합계}
+    for rec in leave_records:
+        lt = rec.get('leave_type', '')
+        days = float(rec.get('days', 1))
+        if lt in ('결근', '조퇴', '무급휴가', '지각'):
+            type_agg[lt] += days
+
+    # 결근: 일급 × 일수
+    if type_agg.get('결근', 0) > 0:
+        days = type_agg['결근']
+        amt = _round_down_ten(daily_wage * days)
+        detail['결근'] = {'days': days, 'amount': amt}
+        total += amt
+
+    # 조퇴: 일급 × 0.5 × 건수
+    if type_agg.get('조퇴', 0) > 0:
+        count = type_agg['조퇴']
+        amt = _round_down_ten(daily_wage * 0.5 * count)
+        detail['조퇴'] = {'count': count, 'amount': amt}
+        total += amt
+
+    # 무급휴가: 일급 × 일수
+    if type_agg.get('무급휴가', 0) > 0:
+        days = type_agg['무급휴가']
+        amt = _round_down_ten(daily_wage * days)
+        detail['무급휴가'] = {'days': days, 'amount': amt}
+        total += amt
+
+    # 지각: 일급 × 0.125 × 건수 (1시간 기준)
+    if type_agg.get('지각', 0) > 0:
+        count = type_agg['지각']
+        amt = _round_down_ten(daily_wage * 0.125 * count)
+        detail['지각'] = {'count': count, 'amount': amt}
+        total += amt
+
+    return {'total_deduction': total, 'detail': detail}
+
+
 def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
-                      insurance_overrides=None):
+                      insurance_overrides=None, proration_ratio=1.0,
+                      attendance_deduction=0, attendance_detail=None,
+                      proration_days=0, calendar_days=0):
     """직원 1인의 월 급여를 전체 계산.
 
     Args:
@@ -132,6 +233,11 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
         nontax_map: dict - {limit_type: monthly_limit} 비과세 한도
         insurance_overrides: list of dict - 개인별 보험요율 오버라이드
             [{insurance_type, employee_rate, employer_rate}, ...]
+        proration_ratio: float - 일할비율 (0.0~1.0, 기본 1.0 = 만근)
+        attendance_deduction: int - 근태차감 총액
+        attendance_detail: dict - 근태차감 상세 (결근/조퇴/무급/지각)
+        proration_days: int - 근무일수
+        calendar_days: int - 월 역일수
 
     Returns:
         dict - 급여 계산 결과 (모든 항목 포함)
@@ -177,36 +283,43 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
             amounts['other_allowance'] += amount
             other_detail[name] = amount
 
-    # ── 2. 총 지급액 계산 ──
+    # ── 2. 일할계산 적용 ──
+    if proration_ratio < 1.0:
+        for key in amounts:
+            amounts[key] = _round_down_ten(amounts[key] * proration_ratio)
+
+    # ── 3. 총 지급액 계산 ──
     gross_salary = sum(amounts.values())
 
-    # ── 3. 비과세액 계산 ──
+    # ── 5. 비과세액 계산 ──
     nontaxable_amount = 0
 
     for comp in salary_components:
         ctype = comp.get('component_type', '')
-        amount = int(float(comp.get('amount', 0)))
+        comp_amount = int(float(comp.get('amount', 0)))
         is_taxable = comp.get('is_taxable', True)
 
+        # 일할 적용 후 비과세 한도 계산
+        if proration_ratio < 1.0:
+            comp_amount = _round_down_ten(comp_amount * proration_ratio)
+
         if not is_taxable:
-            # 명시적으로 비과세 설정된 항목
-            nontaxable_amount += amount
+            nontaxable_amount += comp_amount
         elif ctype in NONTAXABLE_COMPONENT_MAP:
-            # 비과세 한도 적용 대상
             limit_key = NONTAXABLE_COMPONENT_MAP[ctype]
             limit_amount = nontax_map.get(
                 limit_key, DEFAULT_NONTAXABLE_LIMITS.get(limit_key, 0)
             )
-            nontaxable_amount += min(amount, limit_amount)
+            nontaxable_amount += min(comp_amount, limit_amount)
 
     # 직원이 비과세 면제 대상인 경우
     if employee.get('is_tax_exempt'):
         nontaxable_amount = gross_salary
 
-    # ── 4. 과세 대상액 ──
+    # ── 6. 과세 대상액 ──
     taxable_amount = max(gross_salary - nontaxable_amount, 0)
 
-    # ── 5. 4대보험 공제 계산 (근로자 부담분) ──
+    # ── 7. 4대보험 공제 계산 (근로자 부담분) ──
     np_result = _calc_national_pension(taxable_amount, rate_map)
     hi_result = _calc_health_insurance(taxable_amount, rate_map)
     ltc_result = _calc_long_term_care(hi_result['employee'], rate_map)
@@ -218,22 +331,22 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
     long_term_care = ltc_result['employee']
     employment_insurance = ei_result['employee']
 
-    # ── 6. 소득세/지방소득세 계산 ──
+    # ── 8. 소득세/지방소득세 계산 ──
     dependents = int(employee.get('dependents_count', 1))
     # 과세 대상에서 4대보험 공제 후 기준으로 간이세액 계산
     income_tax = calculate_income_tax(taxable_amount, dependents)
     local_income_tax = _round_down_ten(income_tax * 0.1)
 
-    # ── 7. 총 공제액 ──
+    # ── 9. 총 공제액 ──
     total_deductions = (
         national_pension + health_insurance + long_term_care +
         employment_insurance + income_tax + local_income_tax
     )
 
-    # ── 8. 실수령액 ──
-    net_salary = gross_salary - total_deductions
+    # ── 10. 실수령액 (근태차감 반영) ──
+    net_salary = gross_salary - total_deductions - attendance_deduction
 
-    # ── 9. 사업주 부담분 ──
+    # ── 11. 사업주 부담분 ──
     np_employer = np_result['employer']
     hi_employer = hi_result['employer']
     ltc_employer = ltc_result['employer']
@@ -245,7 +358,7 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
         ei_employer + ia_employer
     )
 
-    # ── 10. 총 수당 합계 (기본급 제외) ──
+    # ── 12. 총 수당 합계 (기본급 제외) ──
     total_allowances = gross_salary - amounts['base_salary']
 
     return {
@@ -290,6 +403,13 @@ def calculate_payroll(employee, salary_components, rate_map, nontax_map=None,
         'employment_insurance_employer': ei_employer,
         'industrial_accident_insurance': ia_employer,
         'total_employer_cost': total_employer_cost,
+
+        # 일할계산/근태차감
+        'proration_ratio': proration_ratio,
+        'proration_days': proration_days,
+        'calendar_days': calendar_days,
+        'attendance_deduction': attendance_deduction,
+        'attendance_detail': attendance_detail or {},
     }
 
 

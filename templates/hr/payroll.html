@@ -104,6 +104,9 @@
                 <button class="btn btn-outline-secondary btn-sm" onclick="generatePayroll()">
                     <i class="bi bi-arrow-repeat"></i> 급여 자동생성
                 </button>
+                <button class="btn btn-outline-primary btn-sm" onclick="openBulkModal()">
+                    <i class="bi bi-calendar-range"></i> 일괄 생성
+                </button>
                 <button class="btn btn-success btn-sm" onclick="syncExpenses()">
                     <i class="bi bi-arrow-right-circle"></i> 비용 반영
                 </button>
@@ -202,6 +205,38 @@
 </div>
 
 </div><!-- /tab-content -->
+
+<!-- 일괄 생성 모달 -->
+<div class="modal fade" id="bulkGenerateModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">급여 일괄 생성</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">입사일 기준으로 해당 기간 내 재직 직원의 급여를 일괄 생성합니다.</p>
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label">시작월</label>
+                        <input type="month" id="bulkFromMonth" class="form-control">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">종료월</label>
+                        <input type="month" id="bulkToMonth" class="form-control">
+                    </div>
+                </div>
+                <div id="bulkResult" class="mt-3" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary btn-sm" id="btnBulkGen" onclick="generateBulkPayroll()">
+                    <i class="bi bi-play-fill"></i> 일괄 생성
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- 급여 상세 모달 -->
 <div class="modal fade" id="payrollDetailModal" tabindex="-1">
@@ -391,6 +426,20 @@ function showPayrollDetail(id) {
                 <tr><td class="label">과세 대상</td><td class="value">${fmtWon(g('taxable_amount'))}</td></tr>
                 <tr><td class="label">비과세</td><td class="value">${fmtWon(g('nontaxable_amount'))}</td></tr>
             </table>
+            ${(row.proration_ratio && row.proration_ratio < 1) ? `
+            <div class="alert alert-info py-1 px-2 mt-2 mb-0" style="font-size:0.8rem;">
+                <i class="bi bi-calendar-check"></i>
+                <strong>일할계산</strong> ${row.proration_days || 0}일/${row.calendar_days || 0}일
+                (비율: ${(row.proration_ratio * 100).toFixed(1)}%)
+            </div>` : ''}
+            ${g('attendance_deduction') > 0 ? `
+            <div class="alert alert-warning py-1 px-2 mt-1 mb-0" style="font-size:0.8rem;">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>근태차감</strong> -${fmtWon(g('attendance_deduction'))}
+                ${row.attendance_detail ? Object.entries(row.attendance_detail).map(([k,v]) =>
+                    '<span class="badge bg-secondary ms-1">' + k + ' ' + (v.days || v.count || 0) + (v.days ? '일' : '건') + '</span>'
+                ).join('') : ''}
+            </div>` : ''}
         </div>
 
         <div class="col-md-6">
@@ -521,6 +570,52 @@ function syncExpenses() {
         }
     })
     .catch(err => { console.error(err); alert('비용 반영 중 오류'); });
+}
+
+// ── 일괄 생성 ──
+
+function openBulkModal() {
+    document.getElementById('bulkResult').style.display = 'none';
+    new bootstrap.Modal(document.getElementById('bulkGenerateModal')).show();
+}
+
+function generateBulkPayroll() {
+    const from = document.getElementById('bulkFromMonth').value;
+    const to = document.getElementById('bulkToMonth').value;
+    if (!from || !to) { alert('시작월과 종료월을 선택하세요'); return; }
+    if (from > to) { alert('시작월이 종료월보다 클 수 없습니다'); return; }
+
+    const btn = document.getElementById('btnBulkGen');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 생성 중...';
+
+    fetch('/hr/api/payroll/generate-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ from_month: from, to_month: to }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            let html = `<div class="alert alert-success py-2">
+                <strong>완료!</strong> 신규 ${data.total_inserted}건, 갱신 ${data.total_updated}건
+            </div><div class="small">`;
+            for (const m of (data.months || [])) {
+                html += `<div>${m.month}: 신규 ${m.inserted}, 갱신 ${m.updated}, 스킵 ${m.skipped}</div>`;
+            }
+            html += '</div>';
+            document.getElementById('bulkResult').innerHTML = html;
+            document.getElementById('bulkResult').style.display = '';
+            loadPayroll(); // 현재 월 새로고침
+        } else {
+            alert(data.error || '일괄 생성 실패');
+        }
+    })
+    .catch(err => { console.error(err); alert('일괄 생성 중 오류'); })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill"></i> 일괄 생성';
+    });
 }
 
 // ── 보험요율 관리 ──

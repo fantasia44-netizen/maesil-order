@@ -3376,22 +3376,52 @@ class SupabaseDB(DBBase):
     def generate_monthly_payroll_v2(self, pay_month):
         """한국 급여체계 기반 월 급여 자동 생성.
         각 직원의 salary_components, insurance_rates 기반 자동 계산.
+        hire_date/retire_date 기반 대상자 필터 + 일할계산 + 근태차감.
         이미 해당 월에 급여가 있는 직원은 재계산하여 UPDATE.
 
         Args:
             pay_month: 'YYYY-MM' 형식 대상 월
 
         Returns:
-            dict: {inserted: 신규건수, updated: 갱신건수}
+            dict: {inserted: 신규건수, updated: 갱신건수, skipped: 스킵건수}
         """
-        from services.hr_service import calculate_payroll
+        from services.hr_service import (
+            calculate_payroll, calculate_proration_ratio,
+            calculate_attendance_deductions
+        )
         from datetime import datetime, timezone
-
-        employees = self.query_employees(status='재직')
-        if not employees:
-            return {'inserted': 0, 'updated': 0}
+        import calendar as cal_mod
 
         year = int(pay_month[:4])
+        month = int(pay_month[5:7])
+        cal_days = cal_mod.monthrange(year, month)[1]
+        month_start = f'{year}-{month:02d}-01'
+        month_end = f'{year}-{month:02d}-{cal_days:02d}'
+
+        # 해당 월 재직 대상자: hire_date <= 월말 AND (retire_date IS NULL OR retire_date >= 월초)
+        all_employees = self.query_employees()
+        eligible = []
+        for emp in all_employees:
+            status = emp.get('status', '')
+            hire = emp.get('hire_date', '')
+            retire = emp.get('retire_date') or ''
+
+            # 재직 또는 퇴사자 중 해당 월에 근무한 직원
+            if status not in ('재직', '퇴사', '퇴직'):
+                continue
+            if not hire:
+                if status == '재직':
+                    eligible.append(emp)
+                continue
+            if hire > month_end:
+                continue  # 아직 입사 전
+            if retire and retire < month_start:
+                continue  # 이미 퇴사
+            eligible.append(emp)
+
+        if not eligible:
+            return {'inserted': 0, 'updated': 0, 'skipped': 0}
+
         existing = self.query_payroll(pay_month=pay_month)
         existing_map = {r.get('employee_id'): r for r in existing}
 
@@ -3405,8 +3435,23 @@ class SupabaseDB(DBBase):
 
         inserted = 0
         updated = 0
-        for emp in employees:
+        skipped = 0
+        for emp in eligible:
             emp_id = emp.get('id')
+
+            # 일할비율 계산
+            proration = calculate_proration_ratio(
+                emp.get('hire_date'), emp.get('retire_date'), year, month)
+            if proration['ratio'] <= 0:
+                skipped += 1
+                continue
+
+            # 근태 차감 계산 (결근/조퇴/무급/지각)
+            leave_recs = self._query_leave_records_for_month(emp_id, year, month)
+            att_result = calculate_attendance_deductions(
+                leave_recs,
+                int(float(emp.get('base_salary', 0))) * proration['ratio'],
+                proration['calendar_days'])
 
             # 직원의 급여 항목 조회
             components = self.query_salary_components(emp_id, active_only=True)
@@ -3414,9 +3459,15 @@ class SupabaseDB(DBBase):
             # 개인별 보험요율 오버라이드 조회
             overrides = self.query_employee_insurance_overrides(emp_id)
 
-            # 급여 계산 (개인별 보험요율 적용)
-            result = calculate_payroll(emp, components, rate_map, nontax_map,
-                                       insurance_overrides=overrides)
+            # 급여 계산 (일할 + 근태차감 반영)
+            result = calculate_payroll(
+                emp, components, rate_map, nontax_map,
+                insurance_overrides=overrides,
+                proration_ratio=proration['ratio'],
+                attendance_deduction=att_result['total_deduction'],
+                attendance_detail=att_result['detail'],
+                proration_days=proration['work_days'],
+                calendar_days=proration['calendar_days'])
 
             payroll_data = {
                 'base_salary': result['base_salary'],
@@ -3450,6 +3501,11 @@ class SupabaseDB(DBBase):
                 'employment_insurance_employer': result['employment_insurance_employer'],
                 'industrial_accident_insurance': result['industrial_accident_insurance'],
                 'total_employer_cost': result['total_employer_cost'],
+                'proration_ratio': result['proration_ratio'],
+                'proration_days': result['proration_days'],
+                'calendar_days': result['calendar_days'],
+                'attendance_deduction': result['attendance_deduction'],
+                'attendance_detail': result['attendance_detail'],
             }
 
             existing_payroll = existing_map.get(emp_id)
@@ -3459,6 +3515,8 @@ class SupabaseDB(DBBase):
                     payroll_data['updated_at'] = datetime.now(timezone.utc).isoformat()
                     self.update_payroll(existing_payroll['id'], payroll_data)
                     updated += 1
+                else:
+                    skipped += 1
             else:
                 # 신규 레코드 INSERT
                 payroll_data['employee_id'] = emp_id
@@ -3468,7 +3526,72 @@ class SupabaseDB(DBBase):
                 self.insert_payroll(payroll_data)
                 inserted += 1
 
-        return {'inserted': inserted, 'updated': updated}
+        # 급여 → expenses 자동 동기화
+        if inserted > 0 or updated > 0:
+            try:
+                self.sync_payroll_to_expenses(pay_month)
+            except Exception:
+                pass  # 동기화 실패해도 급여 생성 결과는 유지
+
+        return {'inserted': inserted, 'updated': updated, 'skipped': skipped}
+
+    def _query_leave_records_for_month(self, employee_id, year, month):
+        """특정 직원의 해당 월 leave_records 조회 (결근/조퇴/무급/지각 포함)."""
+        month_start = f'{year}-{month:02d}-01'
+        import calendar as cal_mod
+        cal_days = cal_mod.monthrange(year, month)[1]
+        month_end = f'{year}-{month:02d}-{cal_days:02d}'
+        try:
+            res = self.client.table('leave_records') \
+                .select('*') \
+                .eq('employee_id', employee_id) \
+                .gte('leave_date', month_start) \
+                .lte('leave_date', month_end) \
+                .execute()
+            return res.data or []
+        except Exception:
+            return []
+
+    def generate_bulk_payroll(self, from_month, to_month):
+        """여러 월 급여 일괄 생성.
+
+        Args:
+            from_month: 시작월 'YYYY-MM'
+            to_month: 종료월 'YYYY-MM'
+
+        Returns:
+            dict: {months: [{month, inserted, updated, skipped}, ...], total_inserted, total_updated}
+        """
+        from datetime import date
+        results = []
+        total_ins = 0
+        total_upd = 0
+
+        # 월 목록 생성
+        fy, fm = int(from_month[:4]), int(from_month[5:7])
+        ty, tm = int(to_month[:4]), int(to_month[5:7])
+        y, m = fy, fm
+        while (y, m) <= (ty, tm):
+            pay_month = f'{y}-{m:02d}'
+            r = self.generate_monthly_payroll_v2(pay_month)
+            results.append({
+                'month': pay_month,
+                'inserted': r['inserted'],
+                'updated': r['updated'],
+                'skipped': r.get('skipped', 0),
+            })
+            total_ins += r['inserted']
+            total_upd += r['updated']
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        return {
+            'months': results,
+            'total_inserted': total_ins,
+            'total_updated': total_upd,
+        }
 
     def recalculate_payroll(self, payroll_id):
         """기존 급여 1건 재계산 (급여 항목/보험 요율 변경 시).

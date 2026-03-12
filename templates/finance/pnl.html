@@ -354,7 +354,8 @@ function renderPnlTable(pnl) {
     html += sectionRow('II. 매출원가 (매입 세금계산서)');
     if (pnl.cogs.data_source === 'tax_invoice') {
         const byVendor = pnl.cogs.by_vendor || {};
-        for (const [v, amt] of Object.entries(byVendor).sort((a, b) => b[1] - a[1]).slice(0, 8)) {
+        const vendorEntries = Object.entries(byVendor).sort((a, b) => b[1] - a[1]);
+        for (const [v, amt] of vendorEntries) {
             html += subItemRow(v, amt, _pct(amt, rev));
         }
         // 참고: 수수료/광고비 내역 (매입에 포함됨)

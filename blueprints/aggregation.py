@@ -169,7 +169,7 @@ def api_channel_orders():
 
         # 일자별 그룹별 {date: {group: qty}}
         agg = defaultdict(lambda: defaultdict(int))
-        groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
+        groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출', '기타출고']
 
         # 1. order_transactions (온라인 채널) — collection_date 기준 (없으면 order_date fallback)
         # 1-a: collection_date가 있는 주문
@@ -239,6 +239,18 @@ def api_channel_orders():
             if len(batch) < 1000:
                 break
             offset += 1000
+
+        # 3. stock_ledger ETC_OUT + ADJUST (기타출고/무상출고/재고조정)
+        etc_rows = db.query_stock_ledger(
+            date_from=date_from, date_to=date_to,
+            type_list=['ETC_OUT', 'ADJUST'])
+        for r in etc_rows:
+            d = r.get('transaction_date', '')
+            if not d:
+                continue
+            qty = abs(_safe_int(r.get('qty', 0)))
+            if qty > 0:
+                agg[d]['기타출고'] += qty
 
         # 결과 구성
         dates = sorted(agg.keys())
@@ -921,7 +933,7 @@ def generate_report():
 
             # {date: {(product_name, warehouse): {channel_group: qty}}}
             ch_agg = _dd(lambda: _dd(lambda: _dd(int)))
-            ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출']
+            ch_groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출', '기타출고']
 
             # order_transactions (온라인 채널) — outbound_date(출고일) 기준
             # 통합집계(stock_ledger SALES_OUT)와 동일한 출고일 기준으로 일치시킴
@@ -1005,6 +1017,21 @@ def generate_report():
                 if len(dr_batch) < 1000:
                     break
                 dr_offset += 1000
+
+            # stock_ledger ETC_OUT + ADJUST (기타출고/무상출고/재고조정)
+            etc_rows = db.query_stock_ledger(
+                date_from=date_from, date_to=date_to,
+                type_list=['ETC_OUT', 'ADJUST'])
+            for r in etc_rows:
+                d = r.get('transaction_date', '')
+                pn = _norm(r.get('product_name', ''))
+                if not d or not pn:
+                    continue
+                qty = abs(_safe_int(r.get('qty', 0)))
+                if qty <= 0:
+                    continue
+                wh = r.get('location', '기타')
+                ch_agg[d][(pn, wh)]['기타출고'] += qty
 
             if ch_agg:
                 from openpyxl import Workbook
