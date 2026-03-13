@@ -294,8 +294,6 @@ def api_lookup_barcode():
     # order_transactions에서 전체 주문 상세 조회 — in_() 한 번으로 조회
     order_rows = []
     try:
-        import logging
-        logging.info(f'[PACKING] channel={channel}, order_nos={len(all_order_nos)}개: {all_order_nos[:3]}...')
         res = db.client.table("order_transactions") \
             .select("product_name,qty,original_option,barcode") \
             .eq("channel", channel).in_("order_no", all_order_nos) \
