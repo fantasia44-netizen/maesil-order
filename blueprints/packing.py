@@ -284,15 +284,21 @@ def api_lookup_barcode():
 
     ship = shipping_list[0]
     channel = ship.get('channel', '')
-    order_no = ship.get('order_no', '')
 
-    # order_transactions에서 주문 상세 조회
+    # 동일 송장의 모든 order_no 수집 (스마트스토어 등 상품별 order_no 분리)
+    all_order_nos = list({s.get('order_no', '') for s in shipping_list if s.get('order_no')})
+    order_no = all_order_nos[0] if all_order_nos else ''
+
+    # order_transactions에서 전체 주문 상세 조회
+    order_rows = []
     try:
-        orders = db.client.table("order_transactions").select("*") \
-            .eq("channel", channel).eq("order_no", order_no).execute()
-        order_rows = orders.data or []
+        for ono in all_order_nos:
+            res = db.client.table("order_transactions").select("*") \
+                .eq("channel", channel).eq("order_no", ono) \
+                .eq("status", "정상").execute()
+            order_rows.extend(res.data or [])
     except Exception:
-        order_rows = []
+        pass
 
     # 수취인 마스킹
     name = ship.get('name', '')
@@ -314,12 +320,15 @@ def api_lookup_barcode():
     product_summary = ', '.join(
         f"{it['product_name']} x{it['qty']}" for it in items[:5]
     ) if items else '(품목 없음)'
+    if len(items) > 5:
+        product_summary += f' 외 {len(items) - 5}건'
 
     return jsonify({
         'ok': True,
         'data': {
             'channel': channel,
             'order_no': order_no,
+            'order_nos': all_order_nos,  # 전체 order_no 목록
             'recipient_name': masked,
             'courier': ship.get('courier', ''),
             'items': items,
@@ -348,7 +357,10 @@ def api_start_job():
         'order_no': data.get('order_no', ''),
         'product_name': data.get('product_summary', ''),
         'recipient_name': data.get('recipient_name', ''),
-        'order_info': json.dumps(data.get('items', []), ensure_ascii=False),
+        'order_info': json.dumps({
+            'items': data.get('items', []),
+            'order_nos': data.get('order_nos', []),
+        }, ensure_ascii=False),
         'status': 'recording',
         'started_at': datetime.now(timezone.utc).isoformat(),
     }
@@ -432,8 +444,10 @@ def api_complete_job():
                 existing_info = _json.loads(existing_info)
             except Exception:
                 existing_info = {}
+        if isinstance(existing_info, list):
+            existing_info = {'items': existing_info}
         existing_info['scanned_items'] = scanned_items
-        update_data['order_info'] = existing_info
+        update_data['order_info'] = json.dumps(existing_info, ensure_ascii=False)
 
     # Job 업데이트
     db.update_packing_job(int(job_id), update_data)
@@ -446,29 +460,44 @@ def api_complete_job():
     outbound_result = None
     channel = job.get('channel', '')
     order_no = job.get('order_no', '')
-    if channel and order_no:
+    # order_info에 order_nos 목록이 있으면 전체 처리
+    order_nos = [order_no] if order_no else []
+    try:
+        info = json.loads(job.get('order_info', '{}')) if isinstance(job.get('order_info'), str) else (job.get('order_info') or {})
+        if isinstance(info, dict) and info.get('order_nos'):
+            order_nos = info['order_nos']
+    except Exception:
+        pass
+
+    if channel and order_nos:
         try:
-            # order_transactions에서 해당 주문 조회
-            ot_rows = db.client.table("order_transactions").select("id") \
-                .eq("channel", channel).eq("order_no", order_no) \
-                .eq("status", "정상").eq("is_outbound_done", False) \
-                .execute()
-            ot_ids = [r['id'] for r in (ot_rows.data or [])]
+            from services.order_to_stock_service import process_packing_outbound
+            ot_ids = []
+            for ono in order_nos:
+                ot_rows = db.client.table("order_transactions").select("id") \
+                    .eq("channel", channel).eq("order_no", ono) \
+                    .eq("status", "정상").eq("is_outbound_done", False) \
+                    .execute()
+                ot_ids.extend([r['id'] for r in (ot_rows.data or [])])
+
             if ot_ids:
-                from services.order_to_stock_service import process_packing_outbound
                 outbound_results = []
                 for oid in ot_ids:
-                    res = process_packing_outbound(db, oid)
-                    outbound_results.append(res)
+                    try:
+                        res = process_packing_outbound(db, oid)
+                        outbound_results.append(res)
+                    except Exception as e2:
+                        outbound_results.append({'outbound_count': 0, 'error': str(e2)})
                 total_out = sum(r.get('outbound_count', 0) for r in outbound_results)
                 outbound_result = {'outbound_count': total_out, 'orders': len(ot_ids)}
 
-                # order_shipping 배송상태 갱신
-                try:
-                    db.client.table("order_shipping").update({"shipping_status": "출고완료"}) \
-                        .eq("channel", channel).eq("order_no", order_no).execute()
-                except Exception:
-                    pass
+                # order_shipping 배송상태 갱신 (전체 order_no)
+                for ono in order_nos:
+                    try:
+                        db.client.table("order_shipping").update({"shipping_status": "출고완료"}) \
+                            .eq("channel", channel).eq("order_no", ono).execute()
+                    except Exception:
+                        pass
         except Exception as e:
             # 출고 실패해도 패킹 자체는 성공으로 처리
             outbound_result = {'error': str(e)}
