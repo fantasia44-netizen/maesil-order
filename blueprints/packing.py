@@ -294,13 +294,17 @@ def api_lookup_barcode():
     # order_transactions에서 전체 주문 상세 조회 — in_() 한 번으로 조회
     order_rows = []
     try:
+        import logging
+        logging.info(f'[PACKING] channel={channel}, order_nos={len(all_order_nos)}개: {all_order_nos[:3]}...')
         res = db.client.table("order_transactions") \
-            .select("product_name,qty,option_name,barcode") \
+            .select("product_name,qty,original_option,barcode") \
             .eq("channel", channel).in_("order_no", all_order_nos) \
             .eq("status", "정상").execute()
         order_rows = res.data or []
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.error(f'[PACKING] order_transactions 조회 에러: {e}')
+        order_rows = []
 
     # 수취인 마스킹
     name = ship.get('name', '')
@@ -315,7 +319,7 @@ def api_lookup_barcode():
         items.append({
             'product_name': o.get('product_name', ''),
             'qty': o.get('qty', 0),
-            'option_name': o.get('option_name', ''),
+            'option_name': o.get('original_option', ''),
             'barcode': o.get('barcode', ''),
         })
 
