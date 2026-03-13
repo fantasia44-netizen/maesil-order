@@ -3,10 +3,30 @@ marketplace_validation_service.py — API vs 엑셀 교차검증 서비스.
 
 api_orders (API) ↔ order_transactions (엑셀) 교차검증.
 api_settlements (API) ↔ platform_settlements (계산) 비교.
+옵션마스터 등록 여부 검증 (송장 생성 가능 여부 사전 확인).
 """
 import logging
 
+from services.option_matcher import check_option_registration, prepare_opt_list
+
 logger = logging.getLogger(__name__)
+
+
+def _bulk_update_match(db, updates):
+    """매칭 결과 벌크 업데이트 — 50건씩 묶어서 처리."""
+    BATCH = 50
+    for i in range(0, len(updates), BATCH):
+        batch = updates[i:i + BATCH]
+        for u in batch:
+            try:
+                db.client.table("api_orders") \
+                    .update({
+                        'match_status': u['match_status'],
+                        'matched_order_transaction_id': u['matched_order_transaction_id'],
+                        'match_detail': u['match_detail'],
+                    }).eq("id", u['id']).execute()
+            except Exception as e:
+                logger.warning(f'[검증] match update 실패 id={u["id"]}: {e}')
 
 
 def _query_all_order_transactions(db, channel, date_from, date_to):
@@ -53,18 +73,34 @@ def validate_orders(db, channel, date_from, date_to):
     api_orders_raw = db.query_api_orders(
         channel=channel, date_from=date_from, date_to=date_to, limit=50000)
 
-    # 취소/결제대기 등 제외
+    # 취소/결제대기 등 제외 + N배송(네이버 풀필먼트) 제외
     excluded_count = 0
+    n_delivery_count = 0
+    n_delivery_keys = set()  # N배송 제외된 주문의 매칭 키 (엑셀 비교 시 제외용)
     api_orders = []
     for o in api_orders_raw:
         status = str(o.get('order_status', '')).upper()
-        if status in EXCLUDE_STATUSES or status in {s.upper() for s in EXCLUDE_STATUSES}:
+        if status in EXCLUDE_STATUSES:
             excluded_count += 1
-        else:
-            api_orders.append(o)
+            continue
+        # N배송 제외: fee_detail.delivery_type == 'ARRIVAL_GUARANTEE'
+        fee = o.get('fee_detail') or {}
+        if fee.get('delivery_type') == 'ARRIVAL_GUARANTEE':
+            n_delivery_count += 1
+            # 매칭 키 수집 (엑셀 쪽 비교에서도 제외하기 위해)
+            if channel in ('스마트스토어', '해미애찬'):
+                nk = str(o.get('api_line_id', ''))
+            else:
+                nk = str(o.get('api_order_id', ''))
+            if nk:
+                n_delivery_keys.add(nk)
+            continue
+        api_orders.append(o)
 
     if excluded_count:
         logger.info(f'[검증] {channel}: 취소/대기 등 {excluded_count}건 제외')
+    if n_delivery_count:
+        logger.info(f'[검증] {channel}: N배송 {n_delivery_count}건 제외')
 
     # 엑셀 주문 조회 (페이지네이션으로 전체 조회)
     excel_orders = _query_all_order_transactions(
@@ -103,6 +139,7 @@ def validate_orders(db, channel, date_from, date_to):
     missing_excel = 0
     missing_api = 0
     mismatches = []
+    match_updates = []  # 벌크 DB 업데이트용
 
     # API에서 있는 주문 기준
     api_total_amount = 0
@@ -137,10 +174,11 @@ def validate_orders(db, channel, date_from, date_to):
             else:
                 matched += 1
 
-            # 매칭 결과 DB 업데이트
+            # 매칭 결과 벌크 업데이트용 수집
             match_status = 'matched' if not diffs else 'mismatch'
             if api_o.get('id'):
-                db.update_api_order_match(api_o['id'], {
+                match_updates.append({
+                    'id': api_o['id'],
                     'match_status': match_status,
                     'matched_order_transaction_id': excel_o.get('id'),
                     'match_detail': diffs or {},
@@ -155,9 +193,18 @@ def validate_orders(db, channel, date_from, date_to):
                 'diffs': None,
             })
 
-    # 엑셀에만 있는 주문
+    # 매칭 결과 백그라운드 업데이트 (응답 속도에 영향 안 줌)
+    if match_updates:
+        import threading
+        threading.Thread(
+            target=_bulk_update_match, args=(db, match_updates),
+            daemon=True).start()
+
+    # 엑셀에만 있는 주문 (N배송 제외 키는 무시)
     for key, excel_o in excel_by_key.items():
         if key not in api_by_key:
+            if key in n_delivery_keys:
+                continue  # N배송으로 제외된 주문 — 불일치 아님
             missing_api += 1
             excel_total_amount += int(excel_o.get('total_amount', 0))
             excel_settlement += int(excel_o.get('settlement', 0))
@@ -172,7 +219,41 @@ def validate_orders(db, channel, date_from, date_to):
 
     total_api = len(api_by_key)
     total_excel = len(excel_by_key)
-    match_rate = round(matched / total_api * 100, 1) if total_api > 0 else 0
+    # 매칭률: 전체(API+엑셀 고유) 대비 매칭 건수
+    total_unique = total_api + missing_api  # API 주문 + 엑셀에만 있는 주문
+    match_rate = round(matched / total_unique * 100, 1) if total_unique > 0 else 0
+
+    # ── 옵션마스터 등록 여부 검증 ──
+    # API 주문의 상품명+옵션으로 옵션마스터 Key 조회
+    # 미등록 항목이 있으면 송장 생성 시 실패하므로 사전 경고
+    option_check = {'registered': 0, 'unregistered': 0, 'unregistered_items': []}
+    try:
+        opt_list = db.query_option_master_as_list()
+        if opt_list:
+            _header_vals = {'standard_name', 'product_name', '품목명', 'original_name', '원문명'}
+            opt_list = [o for o in opt_list
+                        if str(o.get('원문명', '')).strip()
+                        and str(o.get('품목명', '')).strip().lower() not in _header_vals]
+            prepare_opt_list(opt_list)  # 정규화 키 미리 계산 (성능)
+            # 쿠팡: API product_name이 vendorItemName(옵션포함)으로 저장됨
+            # 엑셀에서는 sellerProductName(등록상품명)을 사용하므로
+            # raw_data에서 올바른 필드를 추출하여 매칭
+            orders_for_check = api_orders
+            if channel == '쿠팡':
+                orders_for_check = []
+                for o in api_orders:
+                    raw = o.get('raw_data', {})
+                    items = raw.get('orderItems', [{}])
+                    item = items[0] if items else {}
+                    orders_for_check.append({
+                        'product_name': item.get('sellerProductName',
+                                        item.get('vendorItemName', o.get('product_name', ''))),
+                        'option_name': item.get('sellerProductItemName',
+                                      o.get('option_name', '')),
+                    })
+            option_check = check_option_registration(orders_for_check, channel, opt_list)
+    except Exception as e:
+        logger.warning(f'[검증] 옵션마스터 검증 실패: {e}')
 
     return {
         'channel': channel,
@@ -186,6 +267,7 @@ def validate_orders(db, channel, date_from, date_to):
             'missing_api': missing_api,
             'match_rate': match_rate,
             'excluded': excluded_count,  # 취소/대기 제외 건수
+            'n_delivery_excluded': n_delivery_count,  # N배송 제외 건수
         },
         'amount_comparison': {
             'api_total_amount': api_total_amount,
@@ -195,6 +277,7 @@ def validate_orders(db, channel, date_from, date_to):
             'api_commission': api_commission,
             'excel_commission': excel_commission,
         },
+        'option_check': option_check,
         'mismatches': sorted(mismatches, key=lambda x: x['order_no']),
     }
 

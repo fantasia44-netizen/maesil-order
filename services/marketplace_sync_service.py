@@ -411,7 +411,8 @@ def _finish_log(db, log_id, status, fetched=0, new=0, updated=0,
 # 송장 Push (발송처리)
 # ================================================================
 
-def push_invoices(db, marketplace_mgr, channel, triggered_by='system'):
+def push_invoices(db, marketplace_mgr, channel, triggered_by='system',
+                  order_nos=None, max_batch=None):
     """마켓플레이스에 송장번호 일괄 전송 (발송처리).
 
     1. order_shipping에서 대기 중 송장 조회
@@ -419,6 +420,10 @@ def push_invoices(db, marketplace_mgr, channel, triggered_by='system'):
     3. client.register_invoice() 호출
     4. 성공 건: shipping_status='발송' 업데이트
     5. api_sync_log에 이력 기록
+
+    Args:
+        order_nos: 선택적 push — 지정 시 해당 주문만 필터링
+        max_batch: 배치 제한 — 초과 시 에러 반환
 
     Returns:
         dict: {total, success, failed, errors, log_id}
@@ -430,10 +435,12 @@ def push_invoices(db, marketplace_mgr, channel, triggered_by='system'):
         return {'total': 0, 'success': 0, 'failed': 0,
                 'error': f'{channel} 클라이언트 미준비'}
 
+    sync_type = 'invoice_push_test' if order_nos else 'invoice_push'
+
     # 동기화 로그
     log = db.insert_api_sync_log({
         'channel': channel,
-        'sync_type': 'invoice_push',
+        'sync_type': sync_type,
         'status': 'running',
         'triggered_by': triggered_by,
     })
@@ -449,8 +456,21 @@ def push_invoices(db, marketplace_mgr, channel, triggered_by='system'):
             _finish_log(db, log_id, 'success', fetched=0)
             return {'total': 0, 'success': 0, 'failed': 0, 'log_id': log_id}
 
+        # 선택적 push: order_nos 필터
+        if order_nos:
+            order_nos_set = set(order_nos)
+            pending = [p for p in pending if p['order_no'] in order_nos_set]
+
         # api_order_id 있는 건만 필터 (마켓 매핑 필수)
         pushable = [p for p in pending if p.get('api_order_id')]
+
+        # 배치 제한 검사
+        if max_batch and len(pushable) > max_batch:
+            _finish_log(db, log_id, 'error',
+                        error_message=f'배치 제한 초과 ({len(pushable)} > {max_batch})')
+            return {'total': len(pushable), 'success': 0, 'failed': 0,
+                    'error': f'배치 제한 초과 ({len(pushable)}건 > 최대 {max_batch}건)',
+                    'log_id': log_id}
         if not pushable:
             _finish_log(db, log_id, 'success', fetched=len(pending),
                         error_message=f'api_orders 매핑 없는 건 {len(pending)}개')

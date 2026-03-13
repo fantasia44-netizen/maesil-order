@@ -68,6 +68,9 @@
                         {% if result.summary.excluded %}
                         <div class="text-muted" style="font-size:0.72rem;">취소/대기 {{ result.summary.excluded }}건 제외</div>
                         {% endif %}
+                        {% if result.summary.n_delivery_excluded %}
+                        <div class="text-muted" style="font-size:0.72rem;">N배송 {{ result.summary.n_delivery_excluded }}건 제외</div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -142,45 +145,62 @@
             </div>
         </div>
 
-        <!-- 불일치 상세 -->
-        {% if result.mismatches %}
+        <!-- 옵션마스터 검증 -->
+        {% if result.option_check %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-check2-square"></i> 옵션마스터 검증
+                <small class="text-muted ms-2">— 송장 생성 가능 여부 사전 확인</small>
+            </div>
+            <div class="card-body">
+                <div class="d-flex gap-3 mb-2">
+                    <span class="badge bg-success fs-6">등록: {{ result.option_check.registered }}건</span>
+                    {% if result.option_check.unregistered > 0 %}
+                    <span class="badge bg-danger fs-6">미등록: {{ result.option_check.unregistered }}건</span>
+                    {% else %}
+                    <span class="badge bg-secondary fs-6">미등록: 0건</span>
+                    {% endif %}
+                </div>
+                {% if result.option_check.unregistered > 0 %}
+                <div class="alert alert-warning py-2 mb-0 mt-2">
+                    <strong>미등록 항목 (옵션마스터에 등록 필요):</strong>
+                    <ul class="mb-0 mt-1">
+                        {% for item in result.option_check.unregistered_items[:20] %}
+                        <li>{{ item }}</li>
+                        {% endfor %}
+                        {% if result.option_check.unregistered_items|length > 20 %}
+                        <li class="text-muted">... 외 {{ result.option_check.unregistered_items|length - 20 }}건</li>
+                        {% endif %}
+                    </ul>
+                </div>
+                {% else %}
+                <div class="text-success"><i class="bi bi-check-circle"></i> 모든 상품이 옵션마스터에 등록되어 있습니다. 송장 생성 가능.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- 불일치 상세: 금액 불일치만 기본 표시 -->
+        {% set amount_mismatches = result.mismatches|selectattr('type','equalto','amount_mismatch')|list %}
+        {% set excel_missing = result.mismatches|selectattr('type','equalto','missing_excel')|list %}
+        {% set api_missing = result.mismatches|selectattr('type','equalto','missing_api')|list %}
+
+        {% if amount_mismatches %}
         <div class="card">
-            <div class="card-header"><i class="bi bi-exclamation-triangle"></i> 불일치 상세 (상위 50건)</div>
+            <div class="card-header"><i class="bi bi-exclamation-triangle text-warning"></i> 금액 불일치 ({{ amount_mismatches|length }}건)</div>
             <div class="card-body p-0">
                 <table class="table table-sm table-hover detail-table mb-0">
                     <thead class="table-light">
-                        <tr>
-                            <th>주문번호</th>
-                            <th>유형</th>
-                            <th>상품</th>
-                            <th class="text-end">API 금액</th>
-                            <th class="text-end">엑셀 금액</th>
-                            <th class="text-end">차이</th>
-                        </tr>
+                        <tr><th>주문번호</th><th>상품</th><th class="text-end">API 금액</th><th class="text-end">엑셀 금액</th><th class="text-end">차이</th></tr>
                     </thead>
                     <tbody>
-                        {% for m in result.mismatches[:50] %}
+                        {% for m in amount_mismatches[:50] %}
                         <tr>
                             <td>{{ m.order_no }}</td>
-                            <td>
-                                {% if m.type == 'amount_mismatch' %}
-                                    <span class="badge bg-warning">금액불일치</span>
-                                {% elif m.type == 'missing_excel' %}
-                                    <span class="badge bg-danger">엑셀누락</span>
-                                {% elif m.type == 'missing_api' %}
-                                    <span class="badge bg-info">API누락</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ m.api_data.product_name if m.api_data else (m.excel_data.product_name if m.excel_data else '') }}</td>
+                            <td>{{ m.api_data.product_name if m.api_data else '' }}</td>
                             <td class="text-end">{{ '{:,}'.format(m.api_data.total_amount) if m.api_data else '-' }}</td>
                             <td class="text-end">{{ '{:,}'.format(m.excel_data.total_amount) if m.excel_data else '-' }}</td>
-                            <td class="text-end">
-                                {% if m.diffs and m.diffs.total_amount %}
-                                    {{ '{:,}'.format(m.diffs.total_amount.diff) }}
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
+                            <td class="text-end">{% if m.diffs and m.diffs.total_amount %}{{ '{:,}'.format(m.diffs.total_amount.diff) }}{% else %}-{% endif %}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -188,12 +208,275 @@
             </div>
         </div>
         {% endif %}
+
+        {% if excel_missing %}
+        <div class="card mt-3">
+            <div class="card-header" style="cursor:pointer" onclick="this.nextElementSibling.classList.toggle('d-none')">
+                <i class="bi bi-chevron-down text-danger"></i> 엑셀 누락 — API에만 있는 주문 ({{ excel_missing|length }}건)
+                <small class="text-muted ms-2">클릭하여 펼치기</small>
+            </div>
+            <div class="card-body p-0 d-none">
+                <table class="table table-sm table-hover detail-table mb-0">
+                    <thead class="table-light">
+                        <tr><th>주문번호</th><th>상품</th><th class="text-end">API 금액</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for m in excel_missing[:50] %}
+                        <tr>
+                            <td>{{ m.order_no }}</td>
+                            <td>{{ m.api_data.product_name if m.api_data else '' }}</td>
+                            <td class="text-end">{{ '{:,}'.format(m.api_data.total_amount) if m.api_data else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if api_missing %}
+        <div class="card mt-3">
+            <div class="card-header" style="cursor:pointer" onclick="this.nextElementSibling.classList.toggle('d-none')">
+                <i class="bi bi-chevron-down text-info"></i> API 누락 — 엑셀에만 있는 주문 ({{ api_missing|length }}건)
+                <small class="text-muted ms-2">클릭하여 펼치기</small>
+            </div>
+            <div class="card-body p-0 d-none">
+                <table class="table table-sm table-hover detail-table mb-0">
+                    <thead class="table-light">
+                        <tr><th>주문번호</th><th>상품</th><th class="text-end">엑셀 금액</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for m in api_missing[:50] %}
+                        <tr>
+                            <td>{{ m.order_no }}</td>
+                            <td>{{ m.excel_data.product_name if m.excel_data else '' }}</td>
+                            <td class="text-end">{{ '{:,}'.format(m.excel_data.total_amount) if m.excel_data else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
         {% else %}
         <div class="text-center text-muted py-5">
             <i class="bi bi-arrow-up-circle" style="font-size:2rem;"></i>
             <p class="mt-2">채널과 기간을 선택한 후 교차검증을 실행하세요</p>
         </div>
         {% endif %}
+    </div>
+
+    <!-- ── API 주문수집 테스트 (샌드박스) ── -->
+    <div class="card mb-4 mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-cloud-download"></i> API 주문수집 테스트</span>
+            <span class="badge bg-warning text-dark">테스트 모드 — DB 재고/매출 미반영</span>
+        </div>
+        <div class="card-body">
+            <form id="testCollectForm" class="row g-3 align-items-end mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select name="channel" class="form-select form-select-sm">
+                        <option value="all">전체 (4채널)</option>
+                        <option value="스마트스토어">스마트스토어(배마마)</option>
+                        <option value="해미애찬">스마트스토어(해미애찬)</option>
+                        <option value="쿠팡">쿠팡</option>
+                        <option value="자사몰">자사몰</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">시작일</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm"
+                           value="{{ date_from }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">종료일</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm"
+                           value="{{ date_to }}">
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-info btn-sm text-white" onclick="runTestCollect()" id="btnTestCollect">
+                        <i class="bi bi-cloud-download"></i> 수집 실행
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-success btn-sm" onclick="downloadTestCollect()" id="btnTestDownload" disabled>
+                        <i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="previewInvoice()" id="btnInvoicePreview" disabled>
+                        <i class="bi bi-receipt"></i> 송장 미리보기
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-warning btn-sm text-dark" onclick="downloadInvoice()" id="btnInvoiceDownload" disabled>
+                        <i class="bi bi-file-earmark-arrow-down"></i> 송장 다운로드
+                    </button>
+                </div>
+            </form>
+
+            <!-- 진행 표시 -->
+            <div id="testCollectProgress" class="d-none mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="spinner-border spinner-border-sm text-info"></div>
+                    <span id="testCollectStatus">수집 중...</span>
+                </div>
+            </div>
+
+            <!-- 결과 요약 -->
+            <div id="testCollectSummary" class="d-none mb-3">
+                <div class="alert alert-info py-2 mb-2">
+                    <strong>수집 완료:</strong> <span id="testCollectCount">0</span>건
+                </div>
+                <div id="testCollectChannelStatus"></div>
+            </div>
+
+            <!-- 결과 테이블 -->
+            <div id="testCollectTable" class="d-none">
+                <div class="table-responsive" style="max-height:500px; overflow-y:auto;">
+                    <table class="table table-sm table-hover detail-table mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th>채널</th>
+                                <th>주문일자</th>
+                                <th>주문번호</th>
+                                <th>상품명</th>
+                                <th>옵션</th>
+                                <th class="text-end">수량</th>
+                                <th class="text-end">결제금액</th>
+                                <th class="text-end">정산액</th>
+                                <th class="text-end">수수료</th>
+                                <th>상태</th>
+                            </tr>
+                        </thead>
+                        <tbody id="testCollectBody"></tbody>
+                    </table>
+                </div>
+                <div id="testCollectMore" class="text-center text-muted small mt-1 d-none"></div>
+            </div>
+
+            <!-- 송장 미리보기 결과 -->
+            <div id="invoicePreviewArea" class="d-none mt-3">
+                <hr>
+                <h6><i class="bi bi-receipt"></i> 송장 생성 미리보기</h6>
+                <div id="invoicePreviewProgress" class="d-none mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                        <span>옵션 매칭 + 송장 분석 중...</span>
+                    </div>
+                </div>
+                <div id="invoicePreviewResult" class="d-none">
+                    <div class="row g-2 mb-2">
+                        <div class="col-auto"><span class="badge bg-info" id="invTotal"></span></div>
+                        <div class="col-auto"><span class="badge bg-secondary" id="invFiltered"></span></div>
+                        <div class="col-auto"><span class="badge bg-success" id="invMatched"></span></div>
+                        <div class="col-auto"><span class="badge bg-danger" id="invUnmatched"></span></div>
+                    </div>
+                    <!-- 주문상태 분포 -->
+                    <div id="invStatusDist" class="mb-2"></div>
+                    <!-- 미매칭 목록 -->
+                    <div id="invUnmatchedList" class="d-none mb-2">
+                        <div class="alert alert-warning py-2 small">
+                            <strong>미매칭 항목 (옵션마스터 미등록):</strong>
+                            <ul id="invUnmatchedItems" class="mb-0 mt-1"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── API 송장등록 (발송처리) ── -->
+    <div class="card mb-4 mt-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-truck"></i> API 송장등록 (마켓플레이스 발송처리)</span>
+            <span class="badge bg-info text-dark" id="pushBadge">대기건 조회 중...</span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                CJ택배 송장번호가 등록된 주문을 각 마켓플레이스 API로 발송처리합니다.<br>
+                <code>order_shipping</code>에 송장번호가 있고 <code>shipping_status='대기'</code>인 건이 대상입니다.
+            </p>
+
+            <!-- 채널별 대기건 카운트 -->
+            <div id="pushPendingCounts" class="d-flex flex-wrap gap-2 mb-3"></div>
+
+            <!-- 채널 선택 + 조회 -->
+            <div class="row g-3 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select id="pushChannel" class="form-select form-select-sm">
+                        <option value="스마트스토어">스마트스토어(배마마)</option>
+                        <option value="해미애찬">스마트스토어(해미애찬)</option>
+                        <option value="쿠팡">쿠팡</option>
+                        <option value="자사몰">자사몰</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadPendingList()" id="btnLoadList">
+                        <i class="bi bi-list-check"></i> 대기건 목록 조회
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="pushInvoices()" id="btnPush">
+                        <i class="bi bi-send"></i> 전체 발송처리
+                    </button>
+                </div>
+            </div>
+
+            <!-- 대기건 목록 테이블 -->
+            <div id="pushPendingTable" class="d-none mt-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small">체크한 주문만 선택적으로 발송처리합니다 (최대 10건)</span>
+                    <label class="small"><input type="checkbox" id="pushSelectAll" onchange="togglePushSelectAll(this)"> 전체 선택</label>
+                </div>
+                <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                    <table class="table table-sm table-hover detail-table mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width:30px;"></th>
+                                <th>주문번호</th>
+                                <th>송장번호</th>
+                                <th>택배사</th>
+                                <th>상품명</th>
+                                <th>API매핑</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pushPendingBody"></tbody>
+                    </table>
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-warning btn-sm text-dark" onclick="pushSelectedInvoices()" id="btnPushSelected" disabled>
+                        <i class="bi bi-send"></i> 선택건 발송처리 (<span id="pushSelectedCount">0</span>건)
+                    </button>
+                    <span class="text-muted small ms-2">* 최대 10건, 실제 마켓플레이스에 발송처리됩니다</span>
+                </div>
+            </div>
+
+            <!-- 진행 표시 -->
+            <div id="pushProgress" class="d-none mt-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="spinner-border spinner-border-sm text-danger"></div>
+                    <span id="pushStatus">마켓플레이스 API에 송장 등록 중...</span>
+                </div>
+            </div>
+
+            <!-- 결과 -->
+            <div id="pushResult" class="d-none mt-3">
+                <div class="alert py-2 mb-2" id="pushResultAlert">
+                    <span id="pushResultText"></span>
+                </div>
+                <div id="pushErrors" class="d-none">
+                    <div class="alert alert-warning py-2 small">
+                        <strong>실패 상세:</strong>
+                        <ul id="pushErrorList" class="mb-0 mt-1"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="mt-3">
@@ -208,6 +491,511 @@
 <script>
 const CSRF = '{{ csrf_token() }}';
 
+/* ── API 주문수집 테스트 ── */
+let _lastCollectParams = null;
+
+function runTestCollect() {
+    const form = document.getElementById('testCollectForm');
+    const fd = new FormData(form);
+    const btn = document.getElementById('btnTestCollect');
+    const prog = document.getElementById('testCollectProgress');
+    const summary = document.getElementById('testCollectSummary');
+    const tbl = document.getElementById('testCollectTable');
+    const dlBtn = document.getElementById('btnTestDownload');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 수집 중...';
+    prog.classList.remove('d-none');
+    document.getElementById('testCollectStatus').textContent = '채널 API에서 주문 수집 중...';
+    summary.classList.add('d-none');
+    tbl.classList.add('d-none');
+    dlBtn.disabled = true;
+
+    _lastCollectParams = {
+        channel: fd.get('channel'),
+        date_from: fd.get('date_from'),
+        date_to: fd.get('date_to'),
+    };
+
+    fetch('/marketplace/api/test-collect', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        prog.classList.add('d-none');
+        if (data.error) { alert('오류: ' + data.error); return; }
+
+        // 요약
+        document.getElementById('testCollectCount').textContent = data.count;
+        summary.classList.remove('d-none');
+
+        // 채널별 상태
+        const statusDiv = document.getElementById('testCollectChannelStatus');
+        statusDiv.innerHTML = '';
+        if (data.channel_status) {
+            for (const [ch, st] of Object.entries(data.channel_status)) {
+                const isErr = st.includes('오류') || st.includes('실패') || st.includes('없음') || st.includes('미완료');
+                statusDiv.innerHTML += `<span class="badge ${isErr ? 'bg-danger' : 'bg-success'} me-2 mb-1">${ch}: ${st}</span>`;
+            }
+        }
+
+        // 테이블
+        const tbody = document.getElementById('testCollectBody');
+        tbody.innerHTML = '';
+        const orders = data.orders || [];
+        const maxShow = 100;
+        orders.slice(0, maxShow).forEach(o => {
+            if (o._error) {
+                tbody.innerHTML += `<tr class="table-danger"><td colspan="10">${o.channel}: ${o._error}</td></tr>`;
+                return;
+            }
+            tbody.innerHTML += `<tr>
+                <td>${o.channel||''}</td>
+                <td>${o.order_date||''}</td>
+                <td style="font-size:0.75rem">${o.api_order_id||''}</td>
+                <td>${o.product_name||''}</td>
+                <td style="font-size:0.75rem">${o.option_name||''}</td>
+                <td class="text-end">${o.qty||0}</td>
+                <td class="text-end">${(o.total_amount||0).toLocaleString()}</td>
+                <td class="text-end">${(o.settlement_amount||0).toLocaleString()}</td>
+                <td class="text-end">${(o.commission||0).toLocaleString()}</td>
+                <td><span class="badge bg-secondary">${o.order_status||''}</span></td>
+            </tr>`;
+        });
+        tbl.classList.remove('d-none');
+        const moreDiv = document.getElementById('testCollectMore');
+        if (orders.length > maxShow) {
+            moreDiv.textContent = `... 외 ${orders.length - maxShow}건 (엑셀 다운로드로 전체 확인)`;
+            moreDiv.classList.remove('d-none');
+        } else {
+            moreDiv.classList.add('d-none');
+        }
+        dlBtn.disabled = false;
+        document.getElementById('btnInvoicePreview').disabled = false;
+    })
+    .catch(e => { prog.classList.add('d-none'); alert('오류: ' + e); })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download"></i> 수집 실행';
+    });
+}
+
+function downloadTestCollect() {
+    if (!_lastCollectParams) { alert('먼저 수집을 실행하세요'); return; }
+    const btn = document.getElementById('btnTestDownload');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 다운로드 중...';
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', _lastCollectParams.channel);
+    fd.append('date_from', _lastCollectParams.date_from);
+    fd.append('date_to', _lastCollectParams.date_to);
+
+    fetch('/marketplace/api/test-collect/download', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => {
+        if (!r.ok) throw new Error('다운로드 실패');
+        return r.blob();
+    })
+    .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ch = _lastCollectParams.channel === 'all' ? '전체' : _lastCollectParams.channel;
+        a.download = `API주문수집_테스트_${ch}_${_lastCollectParams.date_from}_${_lastCollectParams.date_to}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+    })
+    .catch(e => alert('오류: ' + e))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-file-earmark-excel"></i> 엑셀 다운로드';
+    });
+}
+
+/* ── 송장 미리보기 / 다운로드 ── */
+function previewInvoice() {
+    if (!_lastCollectParams) { alert('먼저 수집을 실행하세요'); return; }
+    const btn = document.getElementById('btnInvoicePreview');
+    const area = document.getElementById('invoicePreviewArea');
+    const prog = document.getElementById('invoicePreviewProgress');
+    const result = document.getElementById('invoicePreviewResult');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 분석 중...';
+    area.classList.remove('d-none');
+    prog.classList.remove('d-none');
+    result.classList.add('d-none');
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', _lastCollectParams.channel);
+    fd.append('date_from', _lastCollectParams.date_from);
+    fd.append('date_to', _lastCollectParams.date_to);
+
+    fetch('/marketplace/api/test-collect/invoice-preview', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        prog.classList.add('d-none');
+        if (data.error) { alert('오류: ' + data.error); return; }
+
+        result.classList.remove('d-none');
+        document.getElementById('invTotal').textContent = `전체: ${data.total}건`;
+        document.getElementById('invFiltered').textContent = `취소/환불 제외: ${data.excluded}건`;
+        document.getElementById('invMatched').textContent = `매칭: ${data.matched}건`;
+        document.getElementById('invUnmatched').textContent = `미매칭: ${data.unmatched_count}건`;
+
+        // 주문상태 분포
+        const distDiv = document.getElementById('invStatusDist');
+        distDiv.innerHTML = '<small class="text-muted">주문상태 분포: </small>';
+        if (data.status_counts) {
+            for (const [st, cnt] of Object.entries(data.status_counts)) {
+                const isCancel = st.includes('취소') || st.includes('환불') || st.includes('CANCEL');
+                distDiv.innerHTML += `<span class="badge ${isCancel ? 'bg-danger' : 'bg-secondary'} me-1">${st}: ${cnt}</span>`;
+            }
+        }
+
+        // 미매칭 목록
+        const umDiv = document.getElementById('invUnmatchedList');
+        const umItems = document.getElementById('invUnmatchedItems');
+        if (data.unmatched && data.unmatched.length > 0) {
+            umDiv.classList.remove('d-none');
+            umItems.innerHTML = '';
+            data.unmatched.forEach(nm => {
+                umItems.innerHTML += `<li>${nm}</li>`;
+            });
+        } else {
+            umDiv.classList.add('d-none');
+        }
+
+        // 매칭 결과가 있으면 송장 다운로드 활성화
+        document.getElementById('btnInvoiceDownload').disabled = !(data.matched > 0);
+    })
+    .catch(e => { prog.classList.add('d-none'); alert('오류: ' + e); })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-receipt"></i> 송장 미리보기';
+    });
+}
+
+function downloadInvoice() {
+    if (!_lastCollectParams) { alert('먼저 수집을 실행하세요'); return; }
+    const btn = document.getElementById('btnInvoiceDownload');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 생성 중...';
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', _lastCollectParams.channel);
+    fd.append('date_from', _lastCollectParams.date_from);
+    fd.append('date_to', _lastCollectParams.date_to);
+
+    fetch('/marketplace/api/test-collect/invoice', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => {
+        if (!r.ok) return r.json().then(d => { throw new Error(d.error || '송장 생성 실패'); });
+        const ct = r.headers.get('Content-Type') || '';
+        if (ct.includes('application/json')) {
+            return r.json().then(d => { throw new Error(d.error || '송장 파일 생성 실패 (미매칭 확인)'); });
+        }
+        const summary = r.headers.get('X-Invoice-Summary') || '';
+        const unmatchedRaw = r.headers.get('X-Invoice-Unmatched') || '';
+        return r.blob().then(blob => ({blob, summary, unmatchedRaw}));
+    })
+    .then(({blob, summary, unmatchedRaw}) => {
+        // 파일 다운로드 — Content-Type에 따라 확장자 결정
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ch = _lastCollectParams.channel === 'all' ? '전체' : _lastCollectParams.channel;
+        const ext = blob.type.includes('zip') ? '.zip' : (blob.type.includes('ms-excel') ? '.xls' : '.xlsx');
+        a.download = `API테스트_송장_${ch}_${_lastCollectParams.date_from}_${_lastCollectParams.date_to}${ext}`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        // 미리보기 영역에 결과 자동 표시
+        if (summary) {
+            const parts = Object.fromEntries(summary.split(',').map(s => s.split('=')));
+            _showInvoiceResult(parts, unmatchedRaw);
+        }
+    })
+    .catch(e => alert('오류: ' + e))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-file-earmark-arrow-down"></i> 송장 다운로드';
+    });
+}
+
+function _showInvoiceResult(parts, unmatchedRaw) {
+    const area = document.getElementById('invoicePreviewArea');
+    const result = document.getElementById('invoicePreviewResult');
+    const prog = document.getElementById('invoicePreviewProgress');
+
+    area.classList.remove('d-none');
+    prog.classList.add('d-none');
+    result.classList.remove('d-none');
+
+    document.getElementById('invTotal').textContent = `매칭: ${parts.matched||0}건`;
+    document.getElementById('invFiltered').textContent = `취소/환불 제외: ${parts.excluded||0}건`;
+    document.getElementById('invMatched').textContent = `주소 합포장: ${parts.addresses||0}건`;
+    document.getElementById('invUnmatched').textContent = `미매칭: ${parts.unmatched||0}건`;
+
+    // 상태 분포 (다운로드에서는 없으므로 숨김)
+    document.getElementById('invStatusDist').innerHTML = '';
+
+    // 미매칭 목록
+    const umDiv = document.getElementById('invUnmatchedList');
+    const umItems = document.getElementById('invUnmatchedItems');
+    if (unmatchedRaw) {
+        umDiv.classList.remove('d-none');
+        umItems.innerHTML = '';
+        try {
+            const names = decodeURIComponent(unmatchedRaw).split('|');
+            names.forEach(nm => {
+                if (nm) umItems.innerHTML += `<li>${nm}</li>`;
+            });
+        } catch(e) {
+            umItems.innerHTML = `<li>${unmatchedRaw}</li>`;
+        }
+    } else {
+        umDiv.classList.add('d-none');
+    }
+}
+
+/* ── API 송장등록 (발송처리) ── */
+function loadPendingCounts() {
+    fetch('/marketplace/api/pending-invoices')
+    .then(r => r.json())
+    .then(data => {
+        const container = document.getElementById('pushPendingCounts');
+        const badge = document.getElementById('pushBadge');
+        container.innerHTML = '';
+        let total = 0;
+        for (const [ch, cnt] of Object.entries(data)) {
+            total += cnt;
+            container.innerHTML += `<span class="badge ${cnt > 0 ? 'bg-warning text-dark' : 'bg-secondary'}">${ch}: ${cnt}건 대기</span>`;
+        }
+        badge.textContent = `총 ${total}건 대기`;
+        badge.className = `badge ${total > 0 ? 'bg-warning text-dark' : 'bg-secondary'}`;
+    })
+    .catch(() => {
+        document.getElementById('pushBadge').textContent = '조회 실패';
+    });
+}
+
+function pushInvoices() {
+    const channel = document.getElementById('pushChannel').value;
+    const btn = document.getElementById('btnPush');
+    const prog = document.getElementById('pushProgress');
+    const result = document.getElementById('pushResult');
+
+    if (!confirm(`[${channel}] 대기 중인 송장을 마켓플레이스 API로 등록하시겠습니까?`)) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 등록 중...';
+    prog.classList.remove('d-none');
+    result.classList.add('d-none');
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', channel);
+
+    fetch('/marketplace/push-invoices', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        prog.classList.add('d-none');
+        result.classList.remove('d-none');
+
+        const alert = document.getElementById('pushResultAlert');
+        const text = document.getElementById('pushResultText');
+
+        if (data.error) {
+            alert.className = 'alert alert-danger py-2 mb-2';
+            text.textContent = `오류: ${data.error}`;
+        } else {
+            const isOk = data.failed === 0;
+            alert.className = `alert ${isOk ? 'alert-success' : 'alert-warning'} py-2 mb-2`;
+            text.innerHTML = `<strong>${channel}</strong> 송장등록: 총 ${data.total}건 중 <strong>${data.success}건 성공</strong>, ${data.failed}건 실패`;
+        }
+
+        // 실패 상세
+        const errDiv = document.getElementById('pushErrors');
+        const errList = document.getElementById('pushErrorList');
+        if (data.errors && data.errors.length > 0) {
+            errDiv.classList.remove('d-none');
+            errList.innerHTML = '';
+            data.errors.slice(0, 20).forEach(e => {
+                errList.innerHTML += `<li>${e}</li>`;
+            });
+        } else {
+            errDiv.classList.add('d-none');
+        }
+
+        // 대기건 새로고침
+        loadPendingCounts();
+    })
+    .catch(e => {
+        prog.classList.add('d-none');
+        result.classList.remove('d-none');
+        document.getElementById('pushResultAlert').className = 'alert alert-danger py-2 mb-2';
+        document.getElementById('pushResultText').textContent = `오류: ${e}`;
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i> 전체 발송처리';
+    });
+}
+
+/* ── 대기건 목록 조회 + 선택적 push ── */
+function loadPendingList() {
+    const channel = document.getElementById('pushChannel').value;
+    const btn = document.getElementById('btnLoadList');
+    const tbl = document.getElementById('pushPendingTable');
+    const tbody = document.getElementById('pushPendingBody');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 조회 중...';
+    tbl.classList.add('d-none');
+
+    fetch(`/marketplace/api/pending-invoices/list?channel=${encodeURIComponent(channel)}`)
+    .then(r => r.json())
+    .then(items => {
+        tbody.innerHTML = '';
+        if (!items.length || items.error) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-3">${items.error || '대기건 없음'}</td></tr>`;
+            tbl.classList.remove('d-none');
+            return;
+        }
+        items.forEach(item => {
+            const hasApi = !!item.api_order_id;
+            const cls = hasApi ? '' : 'class="table-secondary text-muted"';
+            const chk = hasApi
+                ? `<input type="checkbox" class="push-chk" data-order="${item.order_no}" onchange="updatePushCount()">`
+                : `<input type="checkbox" disabled title="API 매핑 없음">`;
+            tbody.innerHTML += `<tr ${cls}>
+                <td>${chk}</td>
+                <td style="font-size:0.75rem">${item.order_no}</td>
+                <td style="font-size:0.75rem">${item.invoice_no}</td>
+                <td>${item.courier}</td>
+                <td>${item.product_name || '-'}</td>
+                <td>${hasApi ? '<span class="badge bg-success">O</span>' : '<span class="badge bg-secondary">X</span>'}</td>
+            </tr>`;
+        });
+        tbl.classList.remove('d-none');
+        updatePushCount();
+    })
+    .catch(e => alert('오류: ' + e))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-list-check"></i> 대기건 목록 조회';
+    });
+}
+
+function togglePushSelectAll(cb) {
+    document.querySelectorAll('.push-chk:not(:disabled)').forEach(c => c.checked = cb.checked);
+    updatePushCount();
+}
+
+function updatePushCount() {
+    const checked = document.querySelectorAll('.push-chk:checked');
+    const cnt = checked.length;
+    document.getElementById('pushSelectedCount').textContent = cnt;
+    document.getElementById('btnPushSelected').disabled = cnt === 0 || cnt > 10;
+}
+
+function pushSelectedInvoices() {
+    const channel = document.getElementById('pushChannel').value;
+    const checked = document.querySelectorAll('.push-chk:checked');
+    const orderNos = Array.from(checked).map(c => c.dataset.order);
+
+    if (orderNos.length === 0) { alert('주문을 선택하세요'); return; }
+    if (orderNos.length > 10) { alert('최대 10건까지 선택 가능합니다'); return; }
+
+    const listStr = orderNos.map(n => `  - ${n}`).join('\n');
+    if (!confirm(`[${channel}] ${orderNos.length}건의 송장을 마켓플레이스에 등록하시겠습니까?\n\n${listStr}\n\n* 실제 마켓플레이스에 발송처리됩니다.`)) return;
+
+    const btn = document.getElementById('btnPushSelected');
+    const prog = document.getElementById('pushProgress');
+    const result = document.getElementById('pushResult');
+
+    btn.disabled = true;
+    prog.classList.remove('d-none');
+    result.classList.add('d-none');
+
+    const fd = new FormData();
+    fd.append('csrf_token', CSRF);
+    fd.append('channel', channel);
+    fd.append('order_nos', JSON.stringify(orderNos));
+
+    fetch('/marketplace/api/push-invoices/selective', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        prog.classList.add('d-none');
+        result.classList.remove('d-none');
+
+        const alertEl = document.getElementById('pushResultAlert');
+        const text = document.getElementById('pushResultText');
+
+        if (data.error) {
+            alertEl.className = 'alert alert-danger py-2 mb-2';
+            text.textContent = `오류: ${data.error}`;
+        } else {
+            const isOk = data.failed === 0;
+            alertEl.className = `alert ${isOk ? 'alert-success' : 'alert-warning'} py-2 mb-2`;
+            text.innerHTML = `<strong>${channel}</strong> 선택 발송처리: 총 ${data.total}건 중 <strong>${data.success}건 성공</strong>, ${data.failed}건 실패`;
+        }
+
+        // 실패 상세
+        const errDiv = document.getElementById('pushErrors');
+        const errList = document.getElementById('pushErrorList');
+        if (data.errors && data.errors.length > 0) {
+            errDiv.classList.remove('d-none');
+            errList.innerHTML = '';
+            data.errors.forEach(e => { errList.innerHTML += `<li>${e}</li>`; });
+        } else {
+            errDiv.classList.add('d-none');
+        }
+
+        // 대기건 새로고침
+        loadPendingCounts();
+        loadPendingList();
+    })
+    .catch(e => {
+        prog.classList.add('d-none');
+        result.classList.remove('d-none');
+        document.getElementById('pushResultAlert').className = 'alert alert-danger py-2 mb-2';
+        document.getElementById('pushResultText').textContent = `오류: ${e}`;
+    })
+    .finally(() => {
+        btn.disabled = false;
+    });
+}
+
+// 페이지 로드 시 대기건 조회
+document.addEventListener('DOMContentLoaded', loadPendingCounts);
+
+/* ── 교차검증 ── */
 function runValidation() {
     const form = document.getElementById('validationForm');
     const fd = new FormData(form);
@@ -225,11 +1013,12 @@ function runValidation() {
     })
     .then(r => r.json())
     .then(data => {
-        // 페이지 리로드로 결과 표시 (서버사이드 렌더링)
+        // 캐시 키로 리다이렉트 → 서버에서 캐시된 결과 사용 (중복 실행 방지)
         const params = new URLSearchParams({
             channel: fd.get('channel'),
             date_from: fd.get('date_from'),
             date_to: fd.get('date_to'),
+            _vc: data._vc || '',
         });
         location.href = `/marketplace/validation?${params}`;
     })

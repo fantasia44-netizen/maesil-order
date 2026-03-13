@@ -6,6 +6,7 @@ API 매출 대시보드 (총무/경리용).
 """
 import io
 import logging
+import uuid
 from collections import defaultdict
 from flask import (Blueprint, render_template, request, current_app,
                    jsonify, flash, redirect, url_for)
@@ -14,6 +15,9 @@ from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
 
 logger = logging.getLogger(__name__)
+
+# 교차검증 결과 서버 메모리 캐시 (세션 쿠키는 용량 부족)
+_validation_cache = {}
 
 
 def _utc_to_kst_str(ts_str: str) -> str:
@@ -299,6 +303,67 @@ def api_pending_invoices():
     return jsonify(counts)
 
 
+@marketplace_bp.route('/api/pending-invoices/list')
+@role_required('admin', 'general')
+def api_pending_invoices_list():
+    """채널별 송장 push 대기건 상세 목록."""
+    db = current_app.db
+    channel = request.args.get('channel', '')
+    if not channel:
+        return jsonify({'error': '채널 필수'}), 400
+
+    pending = db.query_pending_invoice_push(channel=channel)
+    items = []
+    for p in pending:
+        # raw_data에서 상품명 추출
+        raw = p.get('raw_data') or {}
+        product_name = raw.get('product_name', '') or raw.get('productOrder', {}).get('productName', '')
+        items.append({
+            'channel': p.get('channel', ''),
+            'order_no': p.get('order_no', ''),
+            'invoice_no': p.get('invoice_no', ''),
+            'courier': p.get('courier', ''),
+            'api_order_id': p.get('api_order_id', ''),
+            'api_line_id': p.get('api_line_id', ''),
+            'product_name': product_name,
+        })
+    return jsonify(items)
+
+
+@marketplace_bp.route('/api/push-invoices/selective', methods=['POST'])
+@role_required('admin', 'general')
+def push_invoices_selective():
+    """선택적 송장 push (테스트용, 최대 10건)."""
+    import json
+    db = current_app.db
+    mgr = current_app.marketplace
+    channel = request.form.get('channel', '')
+    order_nos_raw = request.form.get('order_nos', '[]')
+
+    if not channel:
+        return jsonify({'error': '채널을 선택하세요.'}), 400
+
+    try:
+        order_nos = json.loads(order_nos_raw)
+    except (json.JSONDecodeError, TypeError):
+        return jsonify({'error': 'order_nos 형식 오류'}), 400
+
+    if not order_nos or len(order_nos) > 10:
+        return jsonify({'error': f'1~10건 선택 필요 (현재 {len(order_nos)}건)'}), 400
+
+    from services.marketplace_sync_service import push_invoices
+    result = push_invoices(
+        db, mgr, channel,
+        triggered_by=current_user.username,
+        order_nos=order_nos,
+        max_batch=10,
+    )
+
+    _log_action(f'선택적 송장 전송: {channel} — '
+                f'{result.get("success", 0)}/{result.get("total", 0)}건 성공')
+    return jsonify(result)
+
+
 @marketplace_bp.route('/diag/<channel>')
 @role_required('admin')
 def diag(channel):
@@ -357,15 +422,15 @@ def sync_log():
 @role_required('admin', 'general')
 def validation():
     """교차검증 대시보드."""
-    db = current_app.db
     channel = request.args.get('channel', '')
     date_from = request.args.get('date_from', days_ago_kst(7))
     date_to = request.args.get('date_to', today_kst())
 
+    # AJAX run_validation()에서 캐시한 결과 사용 (중복 실행 방지)
+    cache_key = request.args.get('_vc')
     validation_result = None
-    if channel:
-        from services.marketplace_validation_service import validate_orders
-        validation_result = validate_orders(db, channel, date_from, date_to)
+    if cache_key:
+        validation_result = _validation_cache.pop(cache_key, None)
 
     return render_template('marketplace/validation.html',
                            channel=channel,
@@ -388,13 +453,584 @@ def run_validation():
 
     from services.marketplace_validation_service import validate_orders, validate_settlements
 
+    orders_result = validate_orders(db, channel, date_from, date_to)
+    settlements_result = validate_settlements(db, channel, date_from, date_to)
+
+    # 서버 메모리 캐시 → GET validation()에서 재사용 (중복 실행 방지)
+    cache_key = uuid.uuid4().hex[:12]
+    _validation_cache[cache_key] = orders_result
+    # 오래된 캐시 정리 (10개 초과 시 가장 오래된 것 삭제)
+    while len(_validation_cache) > 10:
+        _validation_cache.pop(next(iter(_validation_cache)))
+
     result = {
-        'orders': validate_orders(db, channel, date_from, date_to),
-        'settlements': validate_settlements(db, channel, date_from, date_to),
+        'orders': orders_result,
+        'settlements': settlements_result,
+        '_vc': cache_key,
     }
 
     _log_action(f'마켓플레이스 교차검증: {channel} {date_from}~{date_to}')
     return jsonify(result)
+
+
+# ── API 주문수집 테스트 (샌드박스 — DB 미반영) ──
+
+@marketplace_bp.route('/api/test-collect', methods=['POST'])
+@role_required('admin', 'general')
+def test_collect():
+    """API 주문수집 테스트 — fetch_orders()만 호출, DB 저장 안 함."""
+    try:
+        mgr = current_app.marketplace
+        channel = request.form.get('channel', '')
+        date_from = request.form.get('date_from', days_ago_kst(7))
+        date_to = request.form.get('date_to', today_kst())
+
+        channels = [channel] if channel != 'all' else mgr.get_active_channels()
+        all_orders = []
+        channel_status = {}
+
+        for ch in channels:
+            client = mgr.get_client(ch)
+            if not client:
+                channel_status[ch] = '클라이언트 없음 (API 설정 확인)'
+                continue
+            if not client.is_ready:
+                channel_status[ch] = '인증 미완료 (토큰 갱신 필요)'
+                # 토큰 갱신 시도
+                try:
+                    db = current_app.db
+                    client.refresh_token(db)
+                    if not client.is_ready:
+                        continue
+                except Exception as e:
+                    channel_status[ch] = f'토큰 갱신 실패: {e}'
+                    continue
+            try:
+                orders = client.fetch_orders(date_from, date_to)
+                for o in orders:
+                    o['channel'] = ch
+                all_orders.extend(orders)
+                channel_status[ch] = f'{len(orders)}건 수집'
+            except Exception as e:
+                logger.warning(f'[TestCollect] {ch} 수집 오류: {e}')
+                channel_status[ch] = f'오류: {e}'
+                all_orders.append({'channel': ch, '_error': str(e)})
+
+        # 날짜순 정렬
+        all_orders.sort(key=lambda x: x.get('order_date', ''), reverse=True)
+
+        # 필요한 필드만 추출 (raw_data 제외 — 용량 절감)
+        slim = []
+        for o in all_orders:
+            if '_error' in o:
+                slim.append(o)
+                continue
+            slim.append({
+                'channel': o.get('channel', ''),
+                'order_date': o.get('order_date', ''),
+                'api_order_id': o.get('api_order_id', ''),
+                'api_line_id': o.get('api_line_id', ''),
+                'product_name': o.get('product_name', ''),
+                'option_name': o.get('option_name', ''),
+                'qty': o.get('qty', 0),
+                'unit_price': o.get('unit_price', 0),
+                'total_amount': o.get('total_amount', 0),
+                'settlement_amount': o.get('settlement_amount', 0),
+                'commission': o.get('commission', 0),
+                'shipping_fee': o.get('shipping_fee', 0),
+                'order_status': o.get('order_status', ''),
+            })
+
+        return jsonify({'count': len(slim), 'orders': slim, 'channel_status': channel_status})
+
+    except Exception as e:
+        logger.error(f'[TestCollect] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/test-collect/download', methods=['POST'])
+@role_required('admin', 'general')
+def test_collect_download():
+    """API 주문수집 테스트 결과 엑셀 다운로드 — DB 미반영."""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+
+        mgr = current_app.marketplace
+        channel = request.form.get('channel', '')
+        date_from = request.form.get('date_from', days_ago_kst(7))
+        date_to = request.form.get('date_to', today_kst())
+
+        channels = [channel] if channel != 'all' else mgr.get_active_channels()
+        all_orders = []
+
+        for ch in channels:
+            client = mgr.get_client(ch)
+            if not client or not client.is_ready:
+                continue
+            try:
+                orders = client.fetch_orders(date_from, date_to)
+                for o in orders:
+                    o['channel'] = ch
+                all_orders.extend(orders)
+            except Exception as e:
+                logger.warning(f'[TestCollect DL] {ch} 수집 오류: {e}')
+
+        all_orders.sort(key=lambda x: x.get('order_date', ''))
+
+        # 엑셀 생성
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'API 주문수집 테스트'
+
+        headers = ['채널', '주문일자', '주문번호', '상품주문번호', '상품명',
+                    '옵션명', '수량', '단가', '결제금액', '정산예정액',
+                    '수수료', '배송비', '주문상태']
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF', size=10)
+
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center')
+
+        for i, o in enumerate(all_orders, 2):
+            ws.cell(row=i, column=1, value=o.get('channel', ''))
+            ws.cell(row=i, column=2, value=o.get('order_date', ''))
+            ws.cell(row=i, column=3, value=o.get('api_order_id', ''))
+            ws.cell(row=i, column=4, value=o.get('api_line_id', ''))
+            ws.cell(row=i, column=5, value=o.get('product_name', ''))
+            ws.cell(row=i, column=6, value=o.get('option_name', ''))
+            ws.cell(row=i, column=7, value=o.get('qty', 0))
+            ws.cell(row=i, column=8, value=o.get('unit_price', 0))
+            ws.cell(row=i, column=9, value=o.get('total_amount', 0))
+            ws.cell(row=i, column=10, value=o.get('settlement_amount', 0))
+            ws.cell(row=i, column=11, value=o.get('commission', 0))
+            ws.cell(row=i, column=12, value=o.get('shipping_fee', 0))
+            ws.cell(row=i, column=13, value=o.get('order_status', ''))
+
+        # 컬럼 너비 자동 조정
+        col_widths = [10, 12, 18, 18, 30, 20, 6, 10, 12, 12, 10, 10, 10]
+        for col, w in enumerate(col_widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = w
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        from flask import send_file
+        ch_label = channel if channel != 'all' else '전체'
+        filename = f'API주문수집_테스트_{ch_label}_{date_from}_{date_to}.xlsx'
+        return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True, download_name=filename)
+
+    except Exception as e:
+        logger.error(f'[TestCollect DL] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ── API 주문 → 송장 생성 (테스트 — DB 미반영) ──
+
+def _extract_customer(channel, order):
+    """raw_data에서 고객 배송정보 추출 (채널별)."""
+    raw = order.get('raw_data', {})
+    info = {'name': '', 'addr': '', 'addr2': '', 'phone': '', 'phone2': '', 'memo': ''}
+
+    if channel in ('스마트스토어', '해미애찬'):
+        po = raw.get('productOrder', {})
+        sa = po.get('shippingAddress', {})
+        info['name'] = sa.get('name', '')
+        info['addr'] = sa.get('baseAddress', '')
+        info['addr2'] = sa.get('detailedAddress', '')
+        info['phone'] = sa.get('tel1', '')
+        info['phone2'] = sa.get('tel2', '')
+        info['memo'] = po.get('shippingMemo', '')
+    elif channel == '쿠팡':
+        rcv = raw.get('receiver', {})
+        info['name'] = rcv.get('name', '')
+        info['addr'] = rcv.get('addr1', '')
+        info['addr2'] = rcv.get('addr2', '')
+        info['phone'] = rcv.get('receiverTel1', '')
+        info['phone2'] = rcv.get('receiverTel2', '')
+        info['memo'] = raw.get('parcelPrintMessage', '')
+    elif channel == '자사몰':
+        order = raw.get('order', raw)
+        receivers = order.get('receivers', [])
+        rcv = receivers[0] if receivers else {}
+        info['name'] = rcv.get('name', rcv.get('receiver_name',
+                       order.get('shipping_name', order.get('receiver_name', ''))))
+        info['addr'] = (rcv.get('address1', '') + ' ' + rcv.get('address2', '')).strip() \
+                       or order.get('shipping_address', order.get('receiver_address', ''))
+        info['phone'] = rcv.get('cellphone', rcv.get('receiver_cellphone',
+                        order.get('shipping_phone', order.get('receiver_phone', ''))))
+        info['phone2'] = rcv.get('phone', rcv.get('receiver_phone', ''))
+        info['memo'] = rcv.get('shipping_message', order.get('shipping_memo', ''))
+
+    return info
+
+
+def _api_orders_to_excel_df(orders, channel):
+    """API raw_data → 채널별 엑셀 컬럼 형식 DataFrame.
+
+    OrderProcessor가 인식하는 엑셀 컬럼명으로 변환하여
+    채널별 모든 차이점(옵션/단일상품/공백 등)이 동일하게 적용되도록 함.
+    """
+    import pandas as pd
+    rows = []
+    _coupang_logged = False
+
+    for o in orders:
+        raw = o.get('raw_data', {})
+
+        if channel in ('스마트스토어', '해미애찬'):
+            po = raw.get('productOrder', {})
+            # N배송(네이버 풀필먼트) 제외 — 직접 배송 대상 아님
+            if po.get('deliveryAttributeType') == 'ARRIVAL_GUARANTEE':
+                continue
+            sa = po.get('shippingAddress', {})
+            rows.append({
+                '상품주문번호': str(po.get('productOrderId', '')),
+                '주문번호': str(raw.get('order', {}).get('orderId', '')),
+                '주문일시': str(raw.get('order', {}).get('orderDate', ''))[:16],
+                '상품명': po.get('productName', ''),
+                '옵션정보': po.get('productOption', ''),
+                '수량': int(po.get('quantity', 0)),
+                '수취인명': sa.get('name', ''),
+                '수취인연락처1': sa.get('tel1', ''),
+                '수취인연락처2': sa.get('tel2', ''),
+                '기본배송지': sa.get('baseAddress', ''),
+                '상세배송지': sa.get('detailedAddress', ''),
+                '배송메세지': po.get('shippingMemo', ''),
+                '주문상태': po.get('productOrderStatus', ''),
+                '상품가격': int(po.get('unitPrice', 0)),
+                '최종 상품별 총 주문금액': int(po.get('totalPaymentAmount', 0)),
+                '정산예정금액': int(po.get('expectedSettlementAmount', 0)),
+                '배송비 합계': int(po.get('deliveryFeeAmount', 0)),
+                '배송속성': po.get('deliveryAttributeType', ''),
+            })
+
+        elif channel == '쿠팡':
+            items = raw.get('orderItems', [])
+            recv = raw.get('receiver', {})
+            # api_orders는 라인별 1행 저장, raw_data에는 전체 orderItems 포함
+            # → api_line_id(vendorItemId)와 매칭되는 아이템만 추출
+            line_id = str(o.get('api_line_id', ''))
+            matched_items = [it for it in items if str(it.get('vendorItemId', '')) == line_id] if line_id else items
+            # 매칭 실패 시 전체(하위호환), 첫 행만 배송비 부여
+            is_first_line = (items and str(items[0].get('vendorItemId', '')) == line_id)
+            for item in (matched_items or items[:1]):
+                rows.append({
+                    '주문번호': str(raw.get('orderId', '')),
+                    '묶음배송번호': str(raw.get('shipmentBoxId', '')),
+                    '주문일': str(raw.get('orderedAt', ''))[:10],
+                    '등록상품명': item.get('sellerProductName', item.get('vendorItemName', '')),
+                    '등록옵션명': item.get('sellerProductItemName', ''),
+                    '노출상품명': item.get('vendorItemName', ''),
+                    '구매수(수량)': int(item.get('shippingCount', 0)),
+                    '수취인이름': recv.get('name', ''),
+                    '수취인전화번호': recv.get('safeNumber', recv.get('receiverNumber', '')),
+                    '수취인 주소': f"{recv.get('addr1', '')} {recv.get('addr2', '')}".strip(),
+                    '배송메세지': raw.get('parcelPrintMessage', ''),
+                    '주문상태명': raw.get('status', ''),
+                    '옵션판매가(판매단가)': int(item.get('salesPrice', 0)),
+                    '결제액': int(item.get('orderPrice', 0)),
+                    '배송비': int(raw.get('shippingPrice', 0)) if is_first_line else 0,
+                })
+
+        elif channel == '자사몰':
+            item = raw.get('item', raw)
+            order = raw.get('order', raw)
+            # Cafe24: receivers 배열에서 배송 정보 추출
+            receivers = order.get('receivers', [])
+            rcv = receivers[0] if receivers else {}
+            rows.append({
+                '쇼핑몰번호': '1',
+                '주문번호': str(order.get('order_id', '')),
+                '발주일': str(order.get('order_date', ''))[:10],
+                '주문상품명': item.get('product_name', ''),
+                '옵션정보': item.get('option_value', '') or o.get('option_name', ''),
+                '수량': int(item.get('quantity', item.get('qty', 1)) or 1),
+                '수령인': rcv.get('name', rcv.get('receiver_name',
+                         order.get('shipping_name', order.get('receiver_name', '')))),
+                '핸드폰': rcv.get('cellphone', rcv.get('receiver_cellphone',
+                         order.get('shipping_phone', order.get('receiver_phone', '')))),
+                '수령지전화': rcv.get('phone', rcv.get('receiver_phone',
+                             order.get('shipping_cellphone', ''))),
+                '주소': (rcv.get('address1', '') + ' ' + rcv.get('address2', '')).strip()
+                       or order.get('shipping_address', order.get('receiver_address', '')),
+                '비고': rcv.get('shipping_message', order.get('shipping_memo', '')),
+                '판매가': int(float(item.get('product_price', 0) or 0)),
+                '결제금액': int(float(item.get('payment_amount',
+                               item.get('actual_payment_amount', 0)) or 0)),
+                '배송비': int(float(order.get('shipping_fee', 0) or 0)),
+            })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+@marketplace_bp.route('/api/test-collect/invoice', methods=['POST'])
+@role_required('admin', 'general')
+def test_collect_invoice():
+    """API 주문 → OrderProcessor 송장 생성 (테스트) — DB 미반영.
+
+    API raw_data를 채널별 엑셀 형식으로 변환 후
+    기존 OrderProcessor.run()을 save_to_db=False로 호출.
+    채널별 옵션매칭/필터링/합포장 로직이 100% 동일하게 적용됩니다.
+    """
+    import os, tempfile, zipfile
+
+    try:
+        mgr = current_app.marketplace
+        db = current_app.db
+        channel = request.form.get('channel', '')
+        date_from = request.form.get('date_from', days_ago_kst(7))
+        date_to = request.form.get('date_to', today_kst())
+
+        channels = [channel] if channel != 'all' else mgr.get_active_channels()
+        channel_status = {}
+        all_files = []
+        all_logs = []
+        total_unmatched = []
+
+        output_dir = tempfile.mkdtemp(prefix='api_invoice_')
+
+        for ch in channels:
+            client = mgr.get_client(ch)
+            if not client:
+                channel_status[ch] = '클라이언트 없음'
+                continue
+            if not client.is_ready:
+                try:
+                    client.refresh_token(db)
+                    if not client.is_ready:
+                        channel_status[ch] = '인증 미완료'
+                        continue
+                except Exception as e:
+                    channel_status[ch] = f'토큰 갱신 실패: {e}'
+                    continue
+
+            try:
+                orders = client.fetch_orders(date_from, date_to)
+                if not orders:
+                    channel_status[ch] = '0건'
+                    continue
+
+                # API raw_data → 엑셀 형식 DataFrame
+                df = _api_orders_to_excel_df(orders, ch)
+                if df.empty:
+                    channel_status[ch] = 'DataFrame 변환 실패'
+                    continue
+
+                logger.info(f'[TestInvoice] {ch}: {len(orders)}건 수집 → {len(df)}행 DataFrame')
+                logger.info(f'[TestInvoice] {ch} 컬럼: {list(df.columns)}')
+
+                # DataFrame → BytesIO 엑셀
+                excel_buf = io.BytesIO()
+                df.to_excel(excel_buf, index=False, engine='openpyxl')
+                excel_buf.seek(0)
+                excel_buf.name = f'{ch}_api_orders.xlsx'
+
+                # OrderProcessor 실행 (save_to_db=False!)
+                from services.order_processor import OrderProcessor
+                proc = OrderProcessor()
+                result = proc.run(
+                    mode=ch,
+                    order_file=excel_buf,
+                    option_file=None,
+                    invoice_file=None,
+                    target_type='송장',
+                    output_dir=output_dir,
+                    db=db,
+                    option_source='db',
+                    save_to_db=False,   # DB 미반영!
+                    uploaded_by='(API테스트)',
+                )
+
+                if result.get('success'):
+                    all_files.extend(result.get('files', []))
+                    channel_status[ch] = f'{len(orders)}건 수집 → 송장 생성 성공'
+                elif result.get('unmatched'):
+                    total_unmatched.extend(result['unmatched'])
+                    channel_status[ch] = f"미매칭 {len(result['unmatched'])}건: {result.get('error', '')[:80]}"
+                else:
+                    channel_status[ch] = f"처리 실패: {result.get('error', '')[:100]}"
+
+                all_logs.extend(result.get('logs', []))
+
+            except Exception as e:
+                logger.error(f'[TestInvoice] {ch} 오류: {e}', exc_info=True)
+                channel_status[ch] = f'오류: {e}'
+
+        if not all_files:
+            return jsonify({
+                'error': '생성된 송장 파일 없음',
+                'channel_status': channel_status,
+                'logs': all_logs[-20:],
+                'unmatched': total_unmatched[:30],
+            })
+
+        # 파일이 1개면 그대로, 여러 개면 ZIP으로 묶기
+        from flask import send_file
+        from services.tz_utils import now_kst
+        ts = now_kst().strftime('%Y%m%d_%H%M%S')
+        ch_label = channel if channel != 'all' else '전체'
+
+        # 요약 헤더 생성
+        summary_parts = []
+        summary_parts.append(f"files={len(all_files)}")
+        summary_parts.append(f"unmatched={len(total_unmatched)}")
+        for ch, st in channel_status.items():
+            summary_parts.append(f"{ch}={st}")
+        from urllib.parse import quote
+        summary_header = quote(','.join(summary_parts))
+        unmatched_header = quote('|'.join(total_unmatched[:20]))
+
+        def _add_headers(resp):
+            resp.headers['X-Invoice-Summary'] = summary_header
+            resp.headers['X-Invoice-Unmatched'] = unmatched_header
+            resp.headers['Access-Control-Expose-Headers'] = 'X-Invoice-Summary, X-Invoice-Unmatched'
+            return resp
+
+        if len(all_files) == 1:
+            fp = all_files[0]
+            mime = ('application/vnd.ms-excel' if fp.endswith('.xls')
+                    else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            resp = send_file(
+                fp,
+                mimetype=mime,
+                as_attachment=True,
+                download_name=os.path.basename(fp)
+            )
+            return _add_headers(resp)
+        else:
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for fp in all_files:
+                    zf.write(fp, os.path.basename(fp))
+            zip_buf.seek(0)
+            resp = send_file(
+                zip_buf,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=f'API테스트_송장_{ch_label}_{ts}.zip'
+            )
+            return _add_headers(resp)
+
+    except Exception as e:
+        logger.error(f'[TestInvoice] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/test-collect/invoice-preview', methods=['POST'])
+@role_required('admin', 'general')
+def test_collect_invoice_preview():
+    """송장 생성 미리보기 — option_matcher 기반 매칭 결과 JSON 반환.
+
+    OrderProcessor와 동일한 option_matcher 공통 모듈로 매칭 수/미매칭 목록을 계산.
+    OrderProcessor는 미매칭 1건이라도 있으면 중단하지만,
+    미리보기는 전체 매칭/미매칭 수를 정확히 보여줍니다.
+    """
+    try:
+        mgr = current_app.marketplace
+        db = current_app.db
+        channel = request.form.get('channel', '')
+        date_from = request.form.get('date_from', days_ago_kst(7))
+        date_to = request.form.get('date_to', today_kst())
+
+        channels = [channel] if channel != 'all' else mgr.get_active_channels()
+        channel_status = {}
+        total_count = 0
+        total_matched = 0
+        total_unmatched = []
+        total_excluded = 0
+        status_counts = defaultdict(int)
+
+        # 옵션마스터 로드 (한 번만)
+        from services.option_matcher import check_option_registration
+        opt_list = db.query_option_master_as_list() or []
+        _header_vals = {'standard_name', 'product_name', '품목명', 'original_name', '원문명'}
+        opt_list = [o for o in opt_list
+                    if str(o.get('원문명', '')).strip()
+                    and str(o.get('품목명', '')).strip().lower() not in _header_vals]
+
+        for ch in channels:
+            client = mgr.get_client(ch)
+            if not client:
+                channel_status[ch] = '클라이언트 없음'
+                continue
+            if not client.is_ready:
+                try:
+                    client.refresh_token(db)
+                    if not client.is_ready:
+                        channel_status[ch] = '인증 미완료'
+                        continue
+                except Exception:
+                    channel_status[ch] = '인증 미완료'
+                    continue
+
+            try:
+                orders = client.fetch_orders(date_from, date_to)
+                if not orders:
+                    channel_status[ch] = '0건'
+                    continue
+
+                # 취소/환불 필터링
+                filtered = [o for o in orders
+                            if not any(ex in str(o.get('order_status', '')).upper()
+                                       for ex in ('취소', '환불', 'CANCEL', 'REFUND'))]
+                # N배송 필터링 (스마트스토어/해미애찬)
+                if ch in ('스마트스토어', '해미애찬'):
+                    filtered = [o for o in filtered
+                                if (o.get('fee_detail') or {}).get('delivery_type') != 'ARRIVAL_GUARANTEE']
+                excluded = len(orders) - len(filtered)
+                total_count += len(orders)
+                total_excluded += excluded
+
+                # 상태 분포 집계
+                for o in orders:
+                    status_counts[o.get('order_status', '(없음)')] += 1
+
+                # 쿠팡: raw_data에서 sellerProductName 사용
+                orders_for_check = filtered
+                if ch == '쿠팡':
+                    orders_for_check = []
+                    for o in filtered:
+                        raw = o.get('raw_data', {})
+                        items = raw.get('orderItems', [{}])
+                        item = items[0] if items else {}
+                        orders_for_check.append({
+                            'product_name': item.get('sellerProductName',
+                                            item.get('vendorItemName', o.get('product_name', ''))),
+                            'option_name': item.get('sellerProductItemName',
+                                          o.get('option_name', '')),
+                            'order_status': o.get('order_status', ''),
+                        })
+
+                # option_matcher로 매칭 검사
+                chk = check_option_registration(orders_for_check, ch, opt_list)
+                total_matched += chk['registered']
+                total_unmatched.extend(chk['unregistered_items'])
+                channel_status[ch] = f"{len(orders)}건 → 매칭 {chk['registered']}건, 미매칭 {chk['unregistered']}건"
+
+            except Exception as e:
+                logger.error(f'[InvoicePreview] {ch} 오류: {e}', exc_info=True)
+                channel_status[ch] = f'오류: {e}'
+
+        return jsonify({
+            'total': total_count,
+            'filtered': total_count - total_excluded,
+            'excluded': total_excluded,
+            'matched': total_matched,
+            'unmatched_count': len(total_unmatched),
+            'unmatched': total_unmatched[:30],
+            'status_counts': dict(status_counts),
+            'channel_status': channel_status,
+        })
+
+    except Exception as e:
+        logger.error(f'[InvoicePreview] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 # ── 쿠팡 로켓배송 정산 엑셀 업로드 ──

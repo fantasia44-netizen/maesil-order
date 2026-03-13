@@ -198,6 +198,7 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     outbound_groups = {}  # { (date, warehouse): [{"product_name": ..., "qty": ...}, ...] }
     order_ids_done = []    # 처리 완료된 order_transaction id 목록
     order_revenue_cats = {}  # order_id → revenue_category
+    order_stk_dates = {}   # order_id → stk_date (outbound_date용)
     skipped_closed = 0     # 마감으로 스킵된 주문 수
 
     today_str = _now_kst().strftime('%Y-%m-%d')
@@ -255,6 +256,7 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
         order_ids_done.append(order_id)
         order_revenue_cats[order_id] = rev_cat
+        order_stk_dates[order_id] = stk_date
 
     if skipped_closed:
         log(f"⚠ 마감된 날짜로 인해 {skipped_closed}건 스킵됨")
@@ -358,17 +360,18 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
     if total_skipped:
         log(f"⚠ 총 {total_skipped}건 중복 스킵됨 (idempotency)")
 
-    # 5. 주문 처리 완료 표시
+    # 5. 주문 처리 완료 표시 (주문별 stk_date=collection_date 기준)
     if order_ids_done:
-        outbound_date = date_to or today_str
-        cat_groups = {}
+        # (outbound_date, revenue_category) 그룹별로 묶어서 처리
+        done_groups = {}  # (date, cat) → [order_ids]
         for oid in order_ids_done:
             cat = order_revenue_cats.get(oid, '일반매출')
-            cat_groups.setdefault(cat, []).append(oid)
+            odate = order_stk_dates.get(oid, date_to or today_str)
+            done_groups.setdefault((odate, cat), []).append(oid)
 
-        for cat, ids in cat_groups.items():
+        for (odate, cat), ids in done_groups.items():
             try:
-                db.mark_orders_outbound_done(ids, outbound_date, cat)
+                db.mark_orders_outbound_done(ids, odate, cat)
             except Exception as e:
                 errors.append(f"mark_orders_outbound_done 실패 ({cat}): {e}")
 

@@ -121,8 +121,11 @@ class SupabaseDB(DBBase):
                     if self._is_connection_error(e) and attempt < max_retries - 1:
                         self._reconnect()
             if rows is None:
-                print(f"[DB] _paginate_query({table}) 페이지 {offset // page_size} "
-                      f"최종 실패, 현재까지 {len(all_data)}건")
+                import logging
+                msg = (f"[DB] _paginate_query({table}) 페이지 {offset // page_size} "
+                       f"최종 실패, 현재까지 {len(all_data)}건 — 부분 데이터 반환 주의!")
+                logging.getLogger(__name__).error(msg)
+                print(msg)
                 break
             all_data.extend(rows)
             if len(rows) < page_size:
@@ -1750,8 +1753,9 @@ class SupabaseDB(DBBase):
                     if rec.get("raw_hash") and rec.get("raw_hash") == txn.get("raw_hash"):
                         skipped += 1
                         continue
-                    # UPDATE 대상
-                    txn_update = {k: v for k, v in txn.items() if k != "raw_data"}
+                    # UPDATE 대상 (collection_date는 최초 수집일 보존 — 덮어쓰기 방지)
+                    txn_update = {k: v for k, v in txn.items()
+                                  if k not in ("raw_data", "collection_date")}
                     txn_update["import_run_id"] = import_run_id
                     if "raw_data" in txn:
                         txn_update["raw_data"] = txn["raw_data"]
@@ -1999,19 +2003,41 @@ class SupabaseDB(DBBase):
     # ================================================================
 
     def query_pending_outbound_orders(self, date_from=None, date_to=None, channel=None):
-        """미처리 주문 조회 (is_outbound_done=false, status='정상')."""
+        """미처리 주문 조회 (is_outbound_done=false, status='정상').
+        collection_date 기준 필터 (stock_ledger/통합집계와 일관성 유지).
+        collection_date가 NULL인 주문은 order_date로 fallback.
+        """
         try:
+            results = []
+            # 1) collection_date가 있는 주문
             q = self.client.table("order_transactions").select("*") \
-                .eq("is_outbound_done", False).eq("status", "정상")
+                .eq("is_outbound_done", False).eq("status", "정상") \
+                .not_.is_("collection_date", "null")
             if date_from:
-                q = q.gte("order_date", date_from)
+                q = q.gte("collection_date", date_from)
             if date_to:
-                q = q.lte("order_date", date_to)
+                q = q.lte("collection_date", date_to)
             if channel:
                 q = q.eq("channel", channel)
-            q = q.order("order_date").order("id")
+            q = q.order("collection_date").order("id")
             res = q.execute()
-            return res.data or []
+            results.extend(res.data or [])
+
+            # 2) collection_date가 NULL인 주문 (기존 데이터 호환)
+            q2 = self.client.table("order_transactions").select("*") \
+                .eq("is_outbound_done", False).eq("status", "정상") \
+                .is_("collection_date", "null")
+            if date_from:
+                q2 = q2.gte("order_date", date_from)
+            if date_to:
+                q2 = q2.lte("order_date", date_to)
+            if channel:
+                q2 = q2.eq("channel", channel)
+            q2 = q2.order("order_date").order("id")
+            res2 = q2.execute()
+            results.extend(res2.data or [])
+
+            return results
         except Exception as e:
             print(f"[DB] query_pending_outbound_orders error: {e}")
             return []
@@ -2429,6 +2455,7 @@ class SupabaseDB(DBBase):
 
     def search_order_shipping(self, keyword, field='all'):
         """order_shipping 검색 (송장번호/수취인명).
+        송장번호는 하이픈 유무와 관계없이 매칭.
 
         Args:
             keyword: 검색어
@@ -2437,17 +2464,59 @@ class SupabaseDB(DBBase):
         Returns: list of {channel, order_no, name, phone, invoice_no, ...}
         """
         try:
-            q = self.client.table("order_shipping").select("*") \
-                .eq("is_anonymized", False)
+            def _invoice_search(kw):
+                """송장번호 검색 — 하이픈 유무 모두 시도"""
+                kw_clean = kw.replace('-', '')
+                # 1차: 원본 키워드로 검색
+                q = self.client.table("order_shipping").select("*") \
+                    .eq("is_anonymized", False) \
+                    .ilike("invoice_no", f"%{kw}%") \
+                    .order("created_at", desc=True).limit(100)
+                results = (q.execute()).data or []
+                if results:
+                    return results
+                # 2차: 하이픈 제거 값이 다르면 재시도
+                if kw_clean != kw:
+                    q2 = self.client.table("order_shipping").select("*") \
+                        .eq("is_anonymized", False) \
+                        .ilike("invoice_no", f"%{kw_clean}%") \
+                        .order("created_at", desc=True).limit(100)
+                    results = (q2.execute()).data or []
+                    if results:
+                        return results
+                # 3차: 12자리 숫자 → 하이픈 포맷(XXXX-XXXX-XXXX) 변환 후 재시도
+                if len(kw_clean) == 12 and kw_clean.isdigit():
+                    kw_fmt = f"{kw_clean[:4]}-{kw_clean[4:8]}-{kw_clean[8:]}"
+                    q3 = self.client.table("order_shipping").select("*") \
+                        .eq("is_anonymized", False) \
+                        .ilike("invoice_no", f"%{kw_fmt}%") \
+                        .order("created_at", desc=True).limit(100)
+                    results = (q3.execute()).data or []
+                return results
+
             if field == 'invoice':
-                q = q.ilike("invoice_no", f"%{keyword}%")
+                return _invoice_search(keyword)
             elif field == 'name':
-                q = q.ilike("name", f"%{keyword}%")
+                q = self.client.table("order_shipping").select("*") \
+                    .eq("is_anonymized", False) \
+                    .ilike("name", f"%{keyword}%")
             else:
-                q = q.or_(
-                    f"invoice_no.ilike.%{keyword}%,"
-                    f"name.ilike.%{keyword}%"
-                )
+                # 'all': 이름 검색 + 송장 검색 합산
+                invoice_results = _invoice_search(keyword)
+                name_q = self.client.table("order_shipping").select("*") \
+                    .eq("is_anonymized", False) \
+                    .ilike("name", f"%{keyword}%") \
+                    .order("created_at", desc=True).limit(100)
+                name_results = (name_q.execute()).data or []
+                # 중복 제거 (id 기준)
+                seen = set()
+                merged = []
+                for r in invoice_results + name_results:
+                    if r['id'] not in seen:
+                        seen.add(r['id'])
+                        merged.append(r)
+                return merged[:100]
+
             q = q.order("created_at", desc=True).limit(100)
             res = q.execute()
             return res.data or []

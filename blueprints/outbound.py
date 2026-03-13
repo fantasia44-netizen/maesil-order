@@ -956,3 +956,22 @@ def invoice_batch_trade():
     except Exception as e:
         flash(f'거래명세서 생성 중 오류: {e}', 'danger')
         return redirect(url_for('outbound.index'))
+
+
+@outbound_bp.route('/reprocess-outbound', methods=['POST'])
+@role_required('admin')
+def reprocess_outbound():
+    """미처리 주문 재출고 (is_outbound_done=false → SALES_OUT 재생성)."""
+    date_from = request.form.get('date_from')
+    date_to = request.form.get('date_to')
+    if not date_from or not date_to:
+        return jsonify({'error': 'date_from, date_to 필수'}), 400
+
+    db = current_app.db
+    try:
+        from services.order_to_stock_service import process_orders_to_stock
+        result = process_orders_to_stock(
+            db, date_from=date_from, date_to=date_to, force_shortage=True)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

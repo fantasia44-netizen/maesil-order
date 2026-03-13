@@ -175,7 +175,7 @@ class Cafe24Client(MarketplaceBaseClient):
                 'end_date': date_to,
                 'limit': limit,
                 'offset': offset,
-                'embed': 'items',  # 상품 상세 포함
+                'embed': 'items,receivers',  # 상품 상세 + 배송정보 포함
             }
 
             try:

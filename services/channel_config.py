@@ -113,6 +113,7 @@ CHANNEL_COLUMN_MAP = {
         "order_no":    ["주문번호"],
         "order_date":  ["발주일"],
         "product":     ["주문상품명"],
+        "option":      ["옵션정보"],
         "name":        ["수령인"],
         "phone":       ["핸드폰"],
         "phone2":      ["수령지전화"],

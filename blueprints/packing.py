@@ -267,7 +267,17 @@ def api_lookup_barcode():
     db = current_app.db
 
     # order_shipping에서 invoice_no로 검색
+    # 바코드 스캔 시 하이픈 없이 읽히므로 양쪽 모두 시도
     shipping_list = db.search_order_shipping(barcode, field='invoice')
+    if not shipping_list:
+        # 하이픈 제거 후 재검색
+        barcode_clean = barcode.replace('-', '')
+        if barcode_clean != barcode:
+            shipping_list = db.search_order_shipping(barcode_clean, field='invoice')
+        # 그래도 없으면 하이픈 포맷(XXXX-XXXX-XXXX)으로 변환 후 재검색
+        if not shipping_list and len(barcode_clean) == 12:
+            barcode_fmt = f"{barcode_clean[:4]}-{barcode_clean[4:8]}-{barcode_clean[8:]}"
+            shipping_list = db.search_order_shipping(barcode_fmt, field='invoice')
     if not shipping_list:
         return jsonify({'ok': False,
                         'error': f'송장번호 "{barcode}"에 해당하는 주문이 없습니다.'})

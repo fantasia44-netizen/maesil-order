@@ -264,9 +264,17 @@ def create_app(config_class=None):
 
         if cached and (now - cached.get('ts', 0)) < 300:
             # 캐시 히트 — pending_users만 갱신 (TTL 캐시됨)
+            # 세션 직렬화로 dict 순서가 깨질 수 있으므로 MENU_GROUPS 순서로 복원
+            from collections import OrderedDict
+            from models import MENU_GROUPS
+            raw_groups = cached['groups']
+            ordered = OrderedDict()
+            for g in MENU_GROUPS:
+                if g in raw_groups:
+                    ordered[g] = raw_groups[g]
             pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
             return dict(sidebar_menus=cached['menus'],
-                        sidebar_groups=cached['groups'],
+                        sidebar_groups=ordered,
                         sidebar_top_menu=cached['top'],
                         pending_users=pending_users,
                         current_biz=biz_conf, current_biz_id=biz_id,
@@ -449,15 +457,21 @@ def init_db(app):
                     print(f'[{biz_id}] 관리자 계정 없음 → 생성 시도')
                     admin_user = User()
                     admin_user.set_password('admin1234!')
-                    db_inst.insert_user({
-                        'username': 'admin',
-                        'name': '관리자',
-                        'password_hash': admin_user.password_hash,
-                        'role': 'admin',
-                        'is_approved': True,
-                        'is_active_user': True,
-                    })
-                    print(f'[{biz_id}] 관리자 계정 생성 완료 (admin / admin1234!)')
+                    try:
+                        db_inst.insert_user({
+                            'username': 'admin',
+                            'name': '관리자',
+                            'password_hash': admin_user.password_hash,
+                            'role': 'admin',
+                            'is_approved': True,
+                            'is_active_user': True,
+                        })
+                        print(f'[{biz_id}] 관리자 계정 생성 완료 (admin / admin1234!)')
+                    except Exception as ie:
+                        if '23505' in str(ie):
+                            print(f'[{biz_id}] 관리자 계정 이미 존재 (OK)')
+                        else:
+                            raise
             except Exception as e:
                 print(f'[{biz_id}] 사용자 테이블 초기화 실패: {e}')
 

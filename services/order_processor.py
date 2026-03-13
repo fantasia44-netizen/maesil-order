@@ -9,6 +9,7 @@ from services.channel_config import (
     MONEY_FIELDS, SIMPLE_INVOICE_CHANNELS,
 )
 from services.tz_utils import today_kst
+from services.option_matcher import build_match_key, match_option
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -382,20 +383,7 @@ class OrderProcessor:
                         target = target[~n_ship_col.str.contains('N배송', na=False)].copy()
                         self.log(f"🚫 N배송 상품 {n_excluded}건 자동 제외 (잔여: {len(target)}건)")
 
-            # [3] 매칭 프로세스
-            # "옵션 없음" 판별용 키워드 — 이 값이 option에 있으면 상품명으로 폴백
-            _NO_OPT = {'단일상품', '옵션없음', '옵션 없음', '기본', '해당없음',
-                        '없음', '-', 'noption', 'none', 'n/a', '상품정보참조'}
-
-            def _is_no_option(val):
-                """option 값이 실질적으로 '없음'인지 판별"""
-                if not val:
-                    return True
-                v = val.strip()
-                if not v:
-                    return True
-                return v in _NO_OPT or any(nk in v for nk in ('단일상품',))
-
+            # [3] 매칭 프로세스 (option_matcher 공통 모듈 사용)
             unmatched = []  # 매칭 실패 항목 수집
             matched_keys = set()  # 매칭 성공한 Key 수집 (last_matched_at 갱신용)
             for i, r in target.iterrows():
@@ -403,29 +391,9 @@ class OrderProcessor:
                     v_opt = self.get_safe_val(r, m['opt'])   # 옵션값
                     v_prod = self.get_safe_val(r, m['prod'])  # 상품명
 
-                    if mode == "쿠팡":
-                        # 쿠팡: 단일상품/빈옵션 → 상품명만, 아니면 상품명+옵션
-                        k = v_prod if _is_no_option(v_opt) else v_prod + v_opt
-                    elif mode == "옥션/G마켓":
-                        # 옥션/G마켓: 옵션에서 '/' 앞부분 사용, 없으면 상품명
-                        k = v_opt.split('/')[0].strip() if v_opt and not _is_no_option(v_opt) else v_prod
-                    else:
-                        # 스마트스토어/자사몰/오아시스/11번가/카카오 등
-                        # 옵션이 유효하면 옵션 사용, 단일상품/빈값이면 상품명 폴백
-                        k = v_opt if v_opt and not _is_no_option(v_opt) else v_prod
-
-                    c_k = k.replace(" ", "").upper()
-                    # 1차: 정확 매칭 (우선)
-                    match = next((o for o in opt_list if c_k == o['Key']), None)
-                    # 2차: 부분 매칭 (가장 긴 Key 우선 → 오트밀가루 > 오트밀)
-                    # — Key 최소 4자 + 품목명 비어있지 않은 항목만 (쓰레기 매칭 방지)
-                    if not match:
-                        candidates = [o for o in opt_list
-                                      if len(o['Key']) >= 4
-                                      and o.get('품목명', '').strip()
-                                      and o['Key'] in c_k]
-                        if candidates:
-                            match = max(candidates, key=lambda o: len(o['Key']))
+                    k = build_match_key(mode, v_prod, v_opt)
+                    c_k = k.replace(" ", "").upper() if k else ""
+                    match = match_option(k, opt_list)
 
                     if match:
                         matched_keys.add(match['Key'])

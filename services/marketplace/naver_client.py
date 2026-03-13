@@ -130,37 +130,72 @@ class NaverCommerceClient(MarketplaceBaseClient):
     # ── 주문 조회 ──
 
     def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """변경 주문 조회 + 상세 일괄조회.
+        """결제일 기준 전체 주문 조회.
 
         네이버 API는 최대 24시간 범위만 허용하므로 자동 분할 처리.
+        PAYED_DATETIME 기준으로 조회하여 상태 변경과 무관하게 전체 주문 수집.
         """
         if not self.config.get('access_token'):
             logger.warning('[네이버] 액세스 토큰 없음')
             return []
 
-        # 1단계: 24시간 윈도우로 분할하여 변경 주문 ID 수집
-        product_order_ids = []
-        windows = self._split_date_range(date_from, date_to)
-        for win_from, win_to in windows:
-            ids = self._fetch_changed_order_ids_window(win_from, win_to)
-            for pid in ids:
-                if pid not in product_order_ids:
-                    product_order_ids.append(pid)
-
-        logger.info(f'[네이버] 총 변경주문 {len(product_order_ids)}건 발견')
-
-        if not product_order_ids:
-            return []
-
-        # 2단계: 상세 일괄조회 (최대 300개씩)
         all_orders = []
-        batch_size = 300
-        for i in range(0, len(product_order_ids), batch_size):
-            batch = product_order_ids[i:i + batch_size]
-            details = self._fetch_order_details(batch)
-            all_orders.extend(details)
+        seen_ids = set()
+        windows = self._split_date_range(date_from, date_to)
 
+        for win_from, win_to in windows:
+            orders = self._fetch_orders_window(win_from, win_to)
+            for o in orders:
+                pid = o.get('api_line_id', '')
+                if pid and pid not in seen_ids:
+                    seen_ids.add(pid)
+                    all_orders.append(o)
+
+        logger.info(f'[네이버] 총 주문 {len(all_orders)}건 조회 (결제일 기준)')
         return all_orders
+
+    def _fetch_orders_window(self, from_str: str, to_str: str) -> list:
+        """단일 24시간 윈도우에서 전체 주문 조회 (결제일 기준, 페이지네이션)."""
+        url = f'{self.BASE_URL}/external/v1/pay-order/seller/product-orders'
+        orders = []
+        page = 1
+
+        while True:
+            try:
+                params = {
+                    'from': from_str,
+                    'to': to_str,
+                    'rangeType': 'PAYED_DATETIME',
+                    'pageSize': 100,
+                    'page': page,
+                }
+                resp = self.session.get(url, headers=self._get_headers(),
+                                        params=params, timeout=30)
+                if self._handle_rate_limit(resp):
+                    continue
+                if resp.status_code != 200:
+                    logger.error(f'[네이버] 주문조회 실패: {resp.status_code} {resp.text[:200]}')
+                    break
+
+                data = resp.json().get('data', {})
+                items = data.get('contents', [])
+
+                for item in items:
+                    # product-orders API: {productOrderId, content: {order, productOrder, delivery}}
+                    content = item.get('content', item)
+                    orders.append(self._normalize_order(content))
+
+                # 페이지네이션: hasNext 방식
+                pagination = data.get('pagination', {})
+                if not pagination.get('hasNext', False):
+                    break
+                page += 1
+
+            except Exception as e:
+                logger.error(f'[네이버] 주문조회 오류: {e}')
+                break
+
+        return orders
 
     @staticmethod
     def _split_date_range(date_from: str, date_to: str) -> list:
