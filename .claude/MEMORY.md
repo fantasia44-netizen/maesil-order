@@ -16,7 +16,7 @@
 - admin(100), ceo(90), manager(80), sales(50), logistics(50), production(50), general(50)
 - CEO: 모바일 대시보드 전용 (ceo_dashboard.html)
 
-## 주요 모듈 (blueprints/ — 29개)
+## 주요 모듈 (blueprints/ — 34개+)
 - dashboard, master, inbound, outbound, production, repack, transfer
 - stock, ledger, revenue, trade, aggregation, set_assembly
 - adjustment, etc_outbound, history, promotions, price_mgmt
@@ -25,8 +25,14 @@
 - **shipment** — 출고관리
 - **integrity** — 정합성 검사 (무결성 계층)
 - **planning** — 생산계획 + 판매분석
+- **accounting** — 회계 대시보드, 매출-입금 매칭
+- **bank** — 은행/카드 계좌 연결, 거래내역, 엑셀 업로드
+- **tax_invoice** — 세금계산서 (홈택스 엑셀 업/다운로드)
+- **journal** — 분개장 (복식부기)
+- **marketplace** — 마켓플레이스 송장등록/정산/검증
+- **packing** — 택배 송장 (CJ대한통운 연동)
 
-## 주요 서비스 (services/ — 24개)
+## 주요 서비스 (services/ — 35개+)
 - ledger_service, revenue_service, transfer_service, validation
 - inbound_service, outbound_service, production_service
 - set_assembly_service, bom_cost_service, yield_service
@@ -37,6 +43,17 @@
 - **sales_analysis_service** — 월간 판매분석
 - **stock_service, repack_service** — 재고/소분 서비스
 - **tz_utils** — KST 시간대 유틸리티
+- **codef_service** — CODEF 은행/카드 API (인증서 로그인 포함)
+- **popbill_service** — 팝빌 세금계산서 API (보류중)
+- **bank_service / bank_excel_service** — 은행 거래내역 + 엑셀 파서
+- **card_service** — 카드 거래내역 동기화
+- **tax_invoice_service** — 세금계산서 (홈택스 파서)
+- **matching_service** — 매출-입금-정산-매입 자동매칭
+- **journal_service** — 분개장 복식부기
+- **settlement_service** — 채널별 정산
+- **marketplace_sync_service** — 마켓플레이스 송장 push
+- **marketplace_validation_service** — 마켓플레이스 데이터 검증
+- **courier/cj_client** — CJ대한통운 택배 연동
 
 ## core/ (데이터 무결성 계층)
 - **validation_engine.py** — 1차 실시간 검증 (트랜잭션 전)
@@ -86,9 +103,17 @@
 - **급여**: hr_service.py — 4대보험, 6단계 세율, 일할계산, 근태차감
   - payroll → expenses → P&L 자동 sync (sync_payroll_to_expenses)
 
-## 은행/정산
-- bank_transactions, bank_matching (미지급금 수동매칭)
-- 은행 엑셀 업로드 기능
+## 은행/카드/정산 (2026-03-13 최신)
+- **CODEF 연동**: 은행 계좌 + 카드 거래내역 자동 동기화
+  - 모드: sandbox(테스트) / demo(실은행,무료) / product(실은행,유료)
+  - 환경변수: CODEF_MODE, CODEF_DEMO_CLIENT_ID/SECRET, CODEF_PUBLIC_KEY
+  - **공인인증서 로그인 지원**: loginType='0', derFile + keyFile (Base64) + 비밀번호(RSA)
+  - ID/PW 로그인: loginType='1'
+  - 인증서 파일 위치: `C:\Users\{사용자}\AppData\LocalLow\NPKI\` (signCert.der + signPri.key)
+- **은행 엑셀 업로드**: bank_excel_service.py — 국민/신한/우리/농협 등 은행별 파서
+- **카드 거래내역**: card_service.py — CODEF 카드사 연동 + 분류
+- **매칭 엔진**: matching_service.py — 매출-입금, 정산-입금, 매입-출금 자동매칭
+- bank_transactions, bank_matching, card_transactions 테이블
 
 ## SQL 마이그레이션 파일
 - migrate_closing.sql — 일일마감 테이블
@@ -113,6 +138,28 @@
 - **품목명 공백 정규화**: db_supabase.py `_normalize_product_names()` INSERT 시 적용
   - stock_service.py query_all_stock_data에서 조회 시에도 공백 제거
 - **로그인 속도 최적화**: 백그라운드 스레드(auth.py), TTL 캐시(db_supabase.py), 세션 캐시(app.py)
+
+## 세금계산서 (2026-03-13 최신)
+- **팝빌 → 홈택스 엑셀 전환**: 팝빌 비용 문제로 보류, 홈택스 엑셀 업/다운로드 방식
+- **파서**: tax_invoice_service.py `parse_hometax_excel()` — 헤더 자동 탐지 + 면세/과세 판별
+- **배치 중복 체크**: `query_existing_invoice_numbers()` → 승인번호 기준
+- **취소 로직**: 팝빌 취소 실패해도 DB 취소 처리 (데모 데이터 등)
+- **테스트 데이터 삭제**: `/delete-test-data` — draft + cancelled 건 일괄 삭제
+- 팝빌 코드 주석 보존 → 추후 복원 가능
+
+## 분개장 (journal) — 2026-03-13 추가
+- blueprints/journal.py, services/journal_service.py
+- 복식부기 분개 입력/조회, 시산표
+
+## 레포 구조 (2PC/3PC 공유)
+- **autotool** (Private): `C:\autotool_git\autotool\` → Render 배포 (메인)
+- **autotool_accounting** (Public): `C:\autotool_git\` → 회계 전용 개발
+- 회계 코드는 autotool에 합쳐져 있음. **양쪽 수정 시 동기화 필요**
+- `.claude/MEMORY.md`를 git으로 3대 PC 공유
+
+## 중요 Jinja2/Python 주의사항
+- `dict.items`는 Jinja2에서 dict의 `.items()` 메서드로 해석됨 → `dict['items']`로 접근
+- Python 같은 클래스 내 동일 이름 메서드 → 나중 정의가 덮어씀 (중복 주의)
 
 ## 상세 문서
 - [프로젝트 구조 상세](project_structure.md)
