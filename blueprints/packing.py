@@ -266,18 +266,20 @@ def api_lookup_barcode():
 
     db = current_app.db
 
-    # order_shipping에서 invoice_no로 검색
-    # 바코드 스캔 시 하이픈 없이 읽히므로 양쪽 모두 시도
-    shipping_list = db.search_order_shipping(barcode, field='invoice')
+    # invoice_no_clean (하이픈 제거) 컬럼으로 1회 exact match 검색
+    barcode_clean = barcode.replace('-', '')
+    try:
+        res = db.client.table("order_shipping").select("*") \
+            .eq("invoice_no_clean", barcode_clean) \
+            .eq("is_anonymized", False) \
+            .limit(100).execute()
+        shipping_list = res.data or []
+    except Exception:
+        shipping_list = []
+
+    # fallback: invoice_no_clean이 없는 구 데이터 대비
     if not shipping_list:
-        # 하이픈 제거 후 재검색
-        barcode_clean = barcode.replace('-', '')
-        if barcode_clean != barcode:
-            shipping_list = db.search_order_shipping(barcode_clean, field='invoice')
-        # 그래도 없으면 하이픈 포맷(XXXX-XXXX-XXXX)으로 변환 후 재검색
-        if not shipping_list and len(barcode_clean) == 12:
-            barcode_fmt = f"{barcode_clean[:4]}-{barcode_clean[4:8]}-{barcode_clean[8:]}"
-            shipping_list = db.search_order_shipping(barcode_fmt, field='invoice')
+        shipping_list = db.search_order_shipping(barcode, field='invoice')
     if not shipping_list:
         return jsonify({'ok': False,
                         'error': f'송장번호 "{barcode}"에 해당하는 주문이 없습니다.'})
@@ -289,14 +291,14 @@ def api_lookup_barcode():
     all_order_nos = list({s.get('order_no', '') for s in shipping_list if s.get('order_no')})
     order_no = all_order_nos[0] if all_order_nos else ''
 
-    # order_transactions에서 전체 주문 상세 조회
+    # order_transactions에서 전체 주문 상세 조회 — in_() 한 번으로 조회
     order_rows = []
     try:
-        for ono in all_order_nos:
-            res = db.client.table("order_transactions").select("*") \
-                .eq("channel", channel).eq("order_no", ono) \
-                .eq("status", "정상").execute()
-            order_rows.extend(res.data or [])
+        res = db.client.table("order_transactions") \
+            .select("product_name,qty,option_name,barcode") \
+            .eq("channel", channel).in_("order_no", all_order_nos) \
+            .eq("status", "정상").execute()
+        order_rows = res.data or []
     except Exception:
         pass
 
@@ -472,13 +474,11 @@ def api_complete_job():
     if channel and order_nos:
         try:
             from services.order_to_stock_service import process_packing_outbound
-            ot_ids = []
-            for ono in order_nos:
-                ot_rows = db.client.table("order_transactions").select("id") \
-                    .eq("channel", channel).eq("order_no", ono) \
-                    .eq("status", "정상").eq("is_outbound_done", False) \
-                    .execute()
-                ot_ids.extend([r['id'] for r in (ot_rows.data or [])])
+            ot_rows = db.client.table("order_transactions").select("id") \
+                .eq("channel", channel).in_("order_no", order_nos) \
+                .eq("status", "정상").eq("is_outbound_done", False) \
+                .execute()
+            ot_ids = [r['id'] for r in (ot_rows.data or [])]
 
             if ot_ids:
                 outbound_results = []
