@@ -311,14 +311,34 @@ def api_lookup_barcode():
     else:
         masked = '***'
 
+    # option_master에서 바코드 보강 (order_transactions.barcode가 비어있는 경우)
+    product_names_need_barcode = [
+        o.get('product_name', '') for o in order_rows
+        if not (o.get('barcode') or '').strip()
+    ]
+    barcode_map = {}
+    if product_names_need_barcode:
+        try:
+            opt_list = db.query_option_master_as_list()  # 캐시 사용
+            for opt in opt_list:
+                pn = opt.get('품목명', '')
+                bc = (opt.get('바코드') or '').strip()
+                if pn and bc and pn in product_names_need_barcode:
+                    barcode_map[pn] = bc
+        except Exception:
+            pass
+
     # 대표 품목명 (바코드 포함)
     items = []
     for o in order_rows:
+        bc = (o.get('barcode') or '').strip()
+        if not bc:
+            bc = barcode_map.get(o.get('product_name', ''), '')
         items.append({
             'product_name': o.get('product_name', ''),
             'qty': o.get('qty', 0),
             'option_name': o.get('original_option', ''),
-            'barcode': o.get('barcode', ''),
+            'barcode': bc,
         })
 
     product_summary = ', '.join(
@@ -460,11 +480,15 @@ def api_complete_job():
                         target=job['scanned_barcode'],
                         detail=f'job_id={job_id}, size={len(video_bytes)}')
 
-    # ── 출고 처리: 패킹 완료 → 재고차감 + is_outbound_done ──
-    outbound_result = None
+    # ── 출고 처리 ──
+    outbound_result = _process_outbound(db, job)
+    return jsonify({'ok': True, 'outbound': outbound_result})
+
+
+def _process_outbound(db, job):
+    """패킹 완료 후 출고 처리 — 재고차감 + is_outbound_done."""
     channel = job.get('channel', '')
     order_no = job.get('order_no', '')
-    # order_info에 order_nos 목록이 있으면 전체 처리
     order_nos = [order_no] if order_no else []
     try:
         info = json.loads(job.get('order_info', '{}')) if isinstance(job.get('order_info'), str) else (job.get('order_info') or {})
@@ -473,37 +497,89 @@ def api_complete_job():
     except Exception:
         pass
 
-    if channel and order_nos:
-        try:
-            from services.order_to_stock_service import process_packing_outbound
-            ot_rows = db.client.table("order_transactions").select("id") \
-                .eq("channel", channel).in_("order_no", order_nos) \
-                .eq("status", "정상").eq("is_outbound_done", False) \
-                .execute()
-            ot_ids = [r['id'] for r in (ot_rows.data or [])]
+    if not channel or not order_nos:
+        return None
 
-            if ot_ids:
-                outbound_results = []
-                for oid in ot_ids:
-                    try:
-                        res = process_packing_outbound(db, oid)
-                        outbound_results.append(res)
-                    except Exception as e2:
-                        outbound_results.append({'outbound_count': 0, 'error': str(e2)})
-                total_out = sum(r.get('outbound_count', 0) for r in outbound_results)
-                outbound_result = {'outbound_count': total_out, 'orders': len(ot_ids)}
+    try:
+        from services.order_to_stock_service import process_packing_outbound
+        ot_rows = db.client.table("order_transactions").select("id") \
+            .eq("channel", channel).in_("order_no", order_nos) \
+            .eq("status", "정상").eq("is_outbound_done", False) \
+            .execute()
+        ot_ids = [r['id'] for r in (ot_rows.data or [])]
 
-                # order_shipping 배송상태 갱신 (전체 order_no)
-                for ono in order_nos:
-                    try:
-                        db.client.table("order_shipping").update({"shipping_status": "출고완료"}) \
-                            .eq("channel", channel).eq("order_no", ono).execute()
-                    except Exception:
-                        pass
-        except Exception as e:
-            # 출고 실패해도 패킹 자체는 성공으로 처리
-            outbound_result = {'error': str(e)}
+        if ot_ids:
+            outbound_results = []
+            for oid in ot_ids:
+                try:
+                    res = process_packing_outbound(db, oid)
+                    outbound_results.append(res)
+                except Exception as e2:
+                    outbound_results.append({'outbound_count': 0, 'error': str(e2)})
+            total_out = sum(r.get('outbound_count', 0) for r in outbound_results)
 
+            # order_shipping 배송상태 갱신 (전체 order_no)
+            for ono in order_nos:
+                try:
+                    db.client.table("order_shipping").update({"shipping_status": "출고완료"}) \
+                        .eq("channel", channel).eq("order_no", ono).execute()
+                except Exception:
+                    pass
+
+            return {'outbound_count': total_out, 'orders': len(ot_ids)}
+    except Exception as e:
+        return {'error': str(e)}
+
+    return None
+
+
+@packing_bp.route('/api/complete-job-no-video', methods=['POST'])
+@packing_required
+def api_complete_job_no_video():
+    """영상 없이 작업 완료 (카메라 없는 검증 모드)."""
+    data = request.get_json(silent=True) or {}
+    job_id = data.get('job_id')
+    if not job_id:
+        return jsonify({'ok': False, 'error': 'job_id 누락'})
+
+    db = current_app.db
+    job = db.get_packing_job(int(job_id))
+    if not job:
+        return jsonify({'ok': False, 'error': '작업을 찾을 수 없습니다.'})
+
+    if current_user.role not in _INTERNAL_ROLES and job['user_id'] != current_user.id:
+        return jsonify({'ok': False, 'error': '권한 없음'})
+
+    duration_ms = data.get('duration_ms', 0)
+    scanned_items = data.get('scanned_items')
+
+    now = datetime.now(timezone.utc)
+    update_data = {
+        'status': 'completed',
+        'video_path': None,
+        'video_size_bytes': 0,
+        'video_duration_ms': duration_ms,
+        'completed_at': now.isoformat(),
+    }
+    if scanned_items is not None:
+        existing_info = job.get('order_info') or {}
+        if isinstance(existing_info, str):
+            try:
+                existing_info = json.loads(existing_info)
+            except Exception:
+                existing_info = {}
+        if isinstance(existing_info, list):
+            existing_info = {'items': existing_info}
+        existing_info['scanned_items'] = scanned_items
+        update_data['order_info'] = json.dumps(existing_info, ensure_ascii=False)
+
+    db.update_packing_job(int(job_id), update_data)
+
+    _packing_log_action('packing_complete_no_video',
+                        target=job['scanned_barcode'],
+                        detail=f'job_id={job_id}')
+
+    outbound_result = _process_outbound(db, job)
     return jsonify({'ok': True, 'outbound': outbound_result})
 
 

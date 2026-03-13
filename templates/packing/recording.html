@@ -390,9 +390,22 @@ async function handleBarcodeScan(barcode) {
         // ── RECORDING: 제품 바코드 or 새 송장 ──
         const matched = tryMatchProductBarcode(barcode);
         if (!matched) {
-            // 제품에 없는 바코드 → 새 송장으로 간주 → 현재 녹화 종료 + 새 녹화
-            pendingNextBarcode = barcode;
-            await stopRecording();
+            // 송장번호 패턴인지 판별 (CJ: 10-12자리 숫자 또는 하이픈 포함)
+            const cleanBC = barcode.replace(/-/g, '');
+            const looksLikeInvoice = /^\d{10,13}$/.test(cleanBC) && !productItems.some(p => p.barcode === barcode);
+            // 제품 바코드가 하나라도 등록돼 있으면 → 미매칭 = 제품 바코드 오류
+            const hasAnyProductBarcode = productItems.some(p => p.barcode);
+
+            if (hasAnyProductBarcode && !looksLikeInvoice) {
+                // 제품 바코드인데 목록에 없음
+                playBeep(400, 300);
+                showToast(`바코드 "${barcode}" — 현재 주문 품목에 없습니다`, 'warning');
+                speak('일치하는 제품 없음');
+            } else {
+                // 새 송장으로 간주 → 현재 녹화 종료 + 새 녹화
+                pendingNextBarcode = barcode;
+                await stopRecording();
+            }
         }
     }
     $barcodeInput.focus();
@@ -583,11 +596,6 @@ function renderProductList() {
 
 // ── 녹화 시작 ──
 async function startRecording() {
-    if (!cameraStream) {
-        showToast('카메라가 연결되어 있지 않습니다.', 'danger');
-        return;
-    }
-
     // 서버에 job 생성
     try {
         const res = await fetch('/packing/api/start-job', {
@@ -609,22 +617,27 @@ async function startRecording() {
         return;
     }
 
-    // MediaRecorder 시작
+    // MediaRecorder 시작 (카메라 없으면 녹화 없이 검증 모드)
     recordedChunks = [];
-    try {
-        mediaRecorder = new MediaRecorder(cameraStream, {
-            mimeType: 'video/webm;codecs=vp8',
-            videoBitsPerSecond: {{ config.get('PACKING_VIDEO_BITRATE', 1000000) }},
-        });
-    } catch(e) {
-        mediaRecorder = new MediaRecorder(cameraStream);
+    if (cameraStream) {
+        try {
+            mediaRecorder = new MediaRecorder(cameraStream, {
+                mimeType: 'video/webm;codecs=vp8',
+                videoBitsPerSecond: {{ config.get('PACKING_VIDEO_BITRATE', 1000000) }},
+            });
+        } catch(e) {
+            mediaRecorder = new MediaRecorder(cameraStream);
+        }
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.start(1000);
+    } else {
+        showToast('카메라 없음 — 바코드 검증 모드', 'warning');
     }
 
-    mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-    };
-
-    mediaRecorder.start(1000);
     recordingStartTime = Date.now();
     updateState(State.RECORDING);
 
@@ -663,71 +676,115 @@ async function handleComplete() {
 
 // ── 녹화 종료 ──
 async function stopRecording() {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-        resetToIdle();
-        return;
-    }
-
     updateState(State.COMPLETING);
     clearInterval(timerInterval);
-    const durationMs = Date.now() - recordingStartTime;
+    const durationMs = Date.now() - (recordingStartTime || Date.now());
 
     playBeep(800, 300);
 
-    return new Promise((resolve) => {
-        mediaRecorder.onstop = async () => {
-            const blob = new Blob(recordedChunks, {type:'video/webm'});
-            const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
-            $uploadOverlay.classList.add('active');
-            $uploadSize.textContent = `${sizeMB} MB`;
+    // scanned_items 정보
+    const scannedInfo = productItems.map(p => ({
+        product_name: p.product_name,
+        barcode: p.barcode,
+        total_qty: p.totalQty,
+        scanned_qty: p.scannedQty,
+    }));
 
-            // scanned_items 정보
-            const scannedInfo = productItems.map(p => ({
-                product_name: p.product_name,
-                barcode: p.barcode,
-                total_qty: p.totalQty,
-                scanned_qty: p.scannedQty,
-            }));
+    // 카메라가 있으면 녹화 중지 후 영상 업로드
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        return new Promise((resolve) => {
+            mediaRecorder.onstop = async () => {
+                await _uploadAndFinish(durationMs, scannedInfo);
+                resolve();
+            };
+            mediaRecorder.stop();
+        });
+    } else {
+        // 카메라 없는 경우 — 영상 없이 작업 완료
+        await _completeJobNoVideo(durationMs, scannedInfo);
+    }
+}
 
-            const formData = new FormData();
-            formData.append('video', blob, `${currentBarcode}.webm`);
-            formData.append('job_id', currentJobId);
-            formData.append('duration_ms', durationMs);
-            formData.append('scanned_items', JSON.stringify(scannedInfo));
-            formData.append('csrf_token', CSRF_TOKEN);
+// ── 영상 업로드 + 작업 완료 ──
+async function _uploadAndFinish(durationMs, scannedInfo) {
+    const blob = new Blob(recordedChunks, {type:'video/webm'});
+    const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
+    $uploadOverlay.classList.add('active');
+    $uploadSize.textContent = `${sizeMB} MB`;
 
-            try {
-                const res = await fetch('/packing/api/complete-job', {
-                    method: 'POST',
-                    body: formData,
-                });
-                const json = await res.json();
-                if (json.ok) {
-                    showToast('녹화 완료! 영상이 저장되었습니다.', 'success');
-                    speak('녹화 완료');
-                } else {
-                    showToast(json.error || '업로드 실패', 'danger');
-                }
-            } catch(e) {
-                showToast('업로드 중 오류 발생', 'danger');
-            }
+    const formData = new FormData();
+    formData.append('video', blob, `${currentBarcode}.webm`);
+    formData.append('job_id', currentJobId);
+    formData.append('duration_ms', durationMs);
+    formData.append('scanned_items', JSON.stringify(scannedInfo));
+    formData.append('csrf_token', CSRF_TOKEN);
 
-            $uploadOverlay.classList.remove('active');
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60초 타임아웃
+        const res = await fetch('/packing/api/complete-job', {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        const json = await res.json();
+        if (json.ok) {
+            showToast('녹화 완료! 영상이 저장되었습니다.', 'success');
+            speak('녹화 완료');
+        } else {
+            showToast(json.error || '업로드 실패', 'danger');
+        }
+    } catch(e) {
+        if (e.name === 'AbortError') {
+            showToast('업로드 시간 초과 — 다시 시도해주세요', 'danger');
+        } else {
+            showToast('업로드 중 오류 발생', 'danger');
+        }
+    }
 
-            // 다음 송장이 대기 중이면 연속 작업
-            const nextBarcode = pendingNextBarcode;
-            pendingNextBarcode = null;
-            resetToIdle();
+    $uploadOverlay.classList.remove('active');
+    _afterComplete();
+}
 
-            if (nextBarcode) {
-                // 약간 딜레이 후 다음 송장 자동 시작
-                setTimeout(() => lookupAndStartRecording(nextBarcode), 300);
-            }
+// ── 영상 없이 작업 완료 (카메라 없는 경우) ──
+async function _completeJobNoVideo(durationMs, scannedInfo) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const res = await fetch('/packing/api/complete-job-no-video', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN},
+            body: JSON.stringify({
+                job_id: currentJobId,
+                duration_ms: durationMs,
+                scanned_items: scannedInfo,
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        const json = await res.json();
+        if (json.ok) {
+            showToast('검증 완료!', 'success');
+            speak('검증 완료');
+        } else {
+            showToast(json.error || '완료 처리 실패', 'danger');
+        }
+    } catch(e) {
+        showToast('완료 처리 중 오류', 'danger');
+    }
+    _afterComplete();
+}
 
-            resolve();
-        };
-        mediaRecorder.stop();
-    });
+// ── 공통 후처리 ──
+function _afterComplete() {
+    const nextBarcode = pendingNextBarcode;
+    pendingNextBarcode = null;
+    resetToIdle();
+
+    if (nextBarcode) {
+        setTimeout(() => lookupAndStartRecording(nextBarcode), 300);
+    }
 }
 
 // ── 상태 초기화 ──
