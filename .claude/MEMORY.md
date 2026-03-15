@@ -161,6 +161,16 @@
 - `dict.items`는 Jinja2에서 dict의 `.items()` 메서드로 해석됨 → `dict['items']`로 접근
 - Python 같은 클래스 내 동일 이름 메서드 → 나중 정의가 덮어씀 (중복 주의)
 
+## 3PL — PackFlow SaaS (2026-03-15 신규)
+- **경로**: autotool_accounting 레포 `3pl/` 폴더
+- **별도 Flask 앱** (Supabase, Multi-tenant operator_id 기반)
+- **구조**: blueprints(api/client/operator/packing), repositories(10개), services(7개)
+- **과금/정산**: 7개 카테고리(입고/출고/보관/택배/부자재/반품/부가서비스), 21개 프리셋
+- **출고관리**: 일반출고, 반품출고, 창고이동 (shipment_type)
+- **migrations**: 7개 SQL (001~007)
+- **버그점검 완료**: 반품출고 재고 미반영 수정 (log_movement + adjust_stock)
+- **상세**: `3pl/docs/architecture_review_20260315.md`
+
 ## 상세 문서
 - [프로젝트 구조 상세](project_structure.md)
 - [Phase 1 계획서](phase1_plan.md)
