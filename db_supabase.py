@@ -3974,27 +3974,6 @@ class SupabaseDB(DBBase):
     # 회계 ERP 메서드 (은행/세금계산서/매칭/정산)
     # ══════════════════════════════════════════════════════════
 
-    # ── codef_connections ──
-
-    def insert_codef_connection(self, payload):
-        """CODEF 연결 정보 저장 (upsert)."""
-        try:
-            self.client.table("codef_connections").upsert(
-                payload, on_conflict="connected_id"
-            ).execute()
-        except Exception as e:
-            print(f"[DB] insert_codef_connection error: {e}")
-
-    def query_codef_connections(self):
-        """CODEF 연결 목록."""
-        try:
-            res = self.client.table("codef_connections") \
-                .select("*").order("created_at", desc=True).execute()
-            return res.data or []
-        except Exception as e:
-            print(f"[DB] query_codef_connections error: {e}")
-            return []
-
     # ── bank_accounts ──
 
     def query_bank_accounts(self):
@@ -4032,14 +4011,6 @@ class SupabaseDB(DBBase):
                 .update(update_data).eq("id", account_id).execute()
         except Exception as e:
             print(f"[DB] update_bank_account error: {e}")
-
-    def delete_bank_account(self, account_id):
-        """은행 계좌 삭제."""
-        try:
-            self.client.table("bank_accounts") \
-                .delete().eq("id", account_id).execute()
-        except Exception as e:
-            print(f"[DB] delete_bank_account error: {e}")
 
     # ── bank_transactions ──
 

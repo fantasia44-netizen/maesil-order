@@ -1,7 +1,7 @@
 import os
 import time
 
-from flask import Flask, redirect, request, session, url_for, flash, jsonify, g
+from flask import Flask, redirect, request, session, url_for, flash, jsonify
 from flask_login import LoginManager, current_user, logout_user, login_required
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
