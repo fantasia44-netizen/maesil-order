@@ -262,6 +262,147 @@ def sync():
         return jsonify({'error': str(e)}), 500
 
 
+@marketplace_bp.route('/api/cj-tracking-upload', methods=['POST'])
+@role_required('admin', 'general')
+def cj_tracking_upload():
+    """CJ 송장결과 파일 업로드 → 이름+전화뒷4자리로 매칭 → order_shipping 반영."""
+    import io, re
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'ok': False, 'error': '파일이 없습니다.'})
+
+    filename = file.filename.lower()
+    if not filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'ok': False, 'error': 'xlsx 또는 xls 파일만 지원합니다.'})
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(file.read()), read_only=False)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        wb.close()
+
+        if len(rows) < 2:
+            return jsonify({'ok': False, 'error': '데이터가 없습니다.'})
+
+        headers = [str(c or '').replace('\r\n', '').replace(' ', '') for c in rows[0]]
+
+        # CJ 표준 형식: 컬럼 인덱스로 감지 (40컬럼)
+        # 또는 컬럼명으로 감지
+        col_invoice = col_name = col_phone = None
+
+        for i, h in enumerate(headers):
+            if '운송장번호' in h:
+                col_invoice = i
+            elif h == '받는분' or (h == '받는분' and col_name is None):
+                col_name = i
+            elif '받는분전화' in h or '받는분휴대' in h:
+                col_phone = i
+
+        # 컬럼명으로 못 찾으면 CJ 표준 인덱스 사용 (40컬럼)
+        if col_invoice is None and len(headers) >= 22:
+            col_invoice = 7   # 운송장번호
+        if col_name is None and len(headers) >= 22:
+            col_name = 20     # 받는분
+        if col_phone is None and len(headers) >= 22:
+            col_phone = 21    # 받는분전화번호
+
+        if col_invoice is None or col_name is None or col_phone is None:
+            return jsonify({'ok': False,
+                            'error': '필수 컬럼을 찾을 수 없습니다. '
+                                     '"운송장번호", "받는분", "받는분전화번호" 컬럼이 필요합니다.'})
+
+        # CJ 파일 파싱: {이름+전화뒷4자리 → 운송장번호}
+        cj_map = {}
+        for row in rows[1:]:
+            row_list = list(row)
+            inv_no = str(row_list[col_invoice] or '').strip()
+            name = str(row_list[col_name] or '').strip()
+            phone = re.sub(r'[^0-9]', '', str(row_list[col_phone] or ''))
+
+            if not inv_no or not name or not phone:
+                continue
+            key = f"{name}_{phone[-4:]}" if len(phone) >= 4 else f"{name}_{phone}"
+            cj_map[key] = inv_no
+
+        if not cj_map:
+            return jsonify({'ok': False, 'error': '유효한 송장 데이터가 없습니다.'})
+
+        # api_orders에서 수취인 정보 추출 → CJ 파일과 매칭
+        db = current_app.db
+        from datetime import date, timedelta
+        today = date.today().strftime('%Y-%m-%d')
+        week_ago = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
+
+        api_rows = db.query_api_orders(date_from=week_ago, date_to=today)
+
+        # raw_data에서 채널별 수취인 이름+전화번호 추출
+        collected = []
+        for row in api_rows:
+            ch = row.get('channel', '')
+            raw = row.get('raw_data') or {}
+            order_no = row.get('api_line_id') or row.get('api_order_id', '')
+            name = phone = ''
+
+            if ch in ('스마트스토어', '해미애찬'):
+                po = raw.get('productOrder', {})
+                sa = po.get('shippingAddress', {})
+                name = sa.get('name', '')
+                phone = sa.get('tel1', '') or sa.get('tel2', '')
+            elif ch == '쿠팡':
+                # 쿠팡 ordersheets: receiver.{name, safeNumber, receiverNumber}
+                rcv = raw.get('receiver', {})
+                name = rcv.get('name', '')
+                phone = rcv.get('safeNumber', '') or rcv.get('receiverNumber', '')
+            elif ch == '자사몰':
+                name = raw.get('shipping_name', '') or raw.get('buyer_name', '')
+                phone = raw.get('shipping_phone', '') or raw.get('buyer_cellphone', '')
+
+            if name and order_no:
+                collected.append({
+                    'channel': ch,
+                    'order_no': order_no,
+                    'name': name,
+                    'phone': re.sub(r'[^0-9]', '', str(phone)),
+                })
+
+        # 이름+전화뒷4자리로 매칭
+        updates = []
+        matched = 0
+        seen = set()
+        for item in collected:
+            key = f"{item['name']}_{item['phone'][-4:]}" if len(item['phone']) >= 4 else f"{item['name']}_{item['phone']}"
+            if key in cj_map and item['order_no'] not in seen:
+                updates.append({
+                    'channel': item['channel'],
+                    'order_no': item['order_no'],
+                    'invoice_no': cj_map[key],
+                    'courier': 'CJ대한통운',
+                })
+                matched += 1
+                seen.add(item['order_no'])
+
+        if not updates:
+            return jsonify({'ok': False,
+                            'error': f'매칭 건이 없습니다. CJ 파일 {len(cj_map)}건, '
+                                     f'수집된 주문 {len(collected)}건'})
+
+        success_count = db.bulk_update_shipping_invoices(updates)
+
+        _log_action(f'CJ 송장파일 업로드: {file.filename} — '
+                    f'매칭 {matched}건, DB반영 {success_count}건')
+
+        return jsonify({
+            'ok': True,
+            'total': len(cj_map),
+            'matched': matched,
+            'success': success_count,
+        })
+    except Exception as e:
+        logger.error(f'[CJ Upload] 오류: {e}', exc_info=True)
+        return jsonify({'ok': False, 'error': str(e)})
+
+
 @marketplace_bp.route('/push-invoices', methods=['POST'])
 @role_required('admin', 'general')
 def push_invoices_route():
