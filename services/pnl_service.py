@@ -662,8 +662,11 @@ def calculate_pnl_trend(db, months=6):
         'gross_profit': [],
         'sga': [],
         'operating_profit': [],
+        'non_operating': [],
+        'net_profit': [],
         'gross_margin': [],
         'operating_margin': [],
+        'net_margin': [],
     }
 
     for i in range(months - 1, -1, -1):
@@ -678,13 +681,17 @@ def calculate_pnl_trend(db, months=6):
         try:
             pnl = calculate_monthly_pnl(db, ym)
             result['months'].append(ym)
-            result['revenue'].append(pnl['revenue']['total'])
+            rev_total = pnl['revenue']['total']
+            result['revenue'].append(rev_total)
             result['cogs'].append(pnl['cogs']['total'])
             result['gross_profit'].append(pnl['gross_profit'])
             result['sga'].append(pnl['sga']['total'])
             result['operating_profit'].append(pnl['operating_profit'])
+            result['non_operating'].append(pnl['sga'].get('total_non_operating', 0))
+            result['net_profit'].append(pnl.get('net_profit', pnl['operating_profit']))
             result['gross_margin'].append(pnl['gross_margin'])
             result['operating_margin'].append(pnl['operating_margin'])
+            result['net_margin'].append(round(pnl.get('net_profit', pnl['operating_profit']) / rev_total * 100, 1) if rev_total else 0)
         except Exception as e:
             logger.warning(f"[P&L] {ym} 추이 계산 실패: {e}")
             result['months'].append(ym)
@@ -693,7 +700,10 @@ def calculate_pnl_trend(db, months=6):
             result['gross_profit'].append(0)
             result['sga'].append(0)
             result['operating_profit'].append(0)
+            result['non_operating'].append(0)
+            result['net_profit'].append(0)
             result['gross_margin'].append(0)
             result['operating_margin'].append(0)
+            result['net_margin'].append(0)
 
     return result

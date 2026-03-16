@@ -51,7 +51,7 @@
     <div class="col-md-3">
         <div class="card summary-card operating">
             <div class="card-body py-2 px-3">
-                <small class="text-muted">영업이익</small>
+                <small class="text-muted">당기순이익</small>
                 <div class="kpi-value" id="kpiOperatingProfit" style="color:#e67e22;">-</div>
                 <div class="kpi-sub" id="kpiOperatingMargin"></div>
             </div>
@@ -60,7 +60,7 @@
     <div class="col-md-3">
         <div class="card summary-card margin">
             <div class="card-body py-2 px-3">
-                <small class="text-muted">영업이익률</small>
+                <small class="text-muted">순이익률</small>
                 <div class="kpi-value" id="kpiMarginPct" style="color:#9b59b6;">-</div>
                 <div class="kpi-sub" id="kpiMarginChange"></div>
             </div>
@@ -162,7 +162,7 @@
             <div class="card-body">
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <h6 class="text-muted mb-2"><i class="bi bi-bar-chart"></i> 매출 / 영업이익 추이</h6>
+                        <h6 class="text-muted mb-2"><i class="bi bi-bar-chart"></i> 매출 / 당기순이익 추이</h6>
                         <div class="trend-chart-container">
                             <canvas id="trendBarChart"></canvas>
                         </div>
@@ -281,8 +281,10 @@ function loadTrend() {
 function renderKpiCards(pnl) {
     document.getElementById('kpiRevenue').textContent = fmtWon(pnl.revenue.total);
     document.getElementById('kpiGrossProfit').textContent = fmtWon(pnl.gross_profit);
-    document.getElementById('kpiOperatingProfit').textContent = fmtWon(pnl.operating_profit);
-    document.getElementById('kpiMarginPct').textContent = pnl.operating_margin + '%';
+    document.getElementById('kpiOperatingProfit').textContent = fmtWon(pnl.net_profit != null ? pnl.net_profit : pnl.operating_profit);
+    const rev = pnl.revenue.total || 1;
+    const netMargin = pnl.net_profit != null ? Math.round(pnl.net_profit / rev * 1000) / 10 : pnl.operating_margin;
+    document.getElementById('kpiMarginPct').textContent = netMargin + '%';
 
     // 전월 대비
     const cmp = pnl.prev_month_comparison || {};
@@ -529,7 +531,7 @@ function renderTrendCharts(trend) {
         return `${mo}월`;
     });
 
-    // 바 차트: 매출 / 영업이익
+    // 바 차트: 매출 / 당기순이익
     if (trendBarChart) trendBarChart.destroy();
     const barCtx = document.getElementById('trendBarChart').getContext('2d');
     trendBarChart = new Chart(barCtx, {
@@ -546,11 +548,11 @@ function renderTrendCharts(trend) {
                     borderRadius: 4,
                 },
                 {
-                    label: '영업이익',
-                    data: trend.operating_profit,
-                    backgroundColor: trend.operating_profit.map(v =>
+                    label: '당기순이익',
+                    data: trend.net_profit,
+                    backgroundColor: (trend.net_profit || []).map(v =>
                         v >= 0 ? 'rgba(46, 204, 113, 0.7)' : 'rgba(231, 76, 60, 0.7)'),
-                    borderColor: trend.operating_profit.map(v =>
+                    borderColor: (trend.net_profit || []).map(v =>
                         v >= 0 ? '#2ecc71' : '#e74c3c'),
                     borderWidth: 1,
                     borderRadius: 4,
@@ -597,10 +599,10 @@ function renderTrendCharts(trend) {
                     pointHoverRadius: 7,
                 },
                 {
-                    label: '영업이익률',
-                    data: trend.operating_margin,
-                    borderColor: '#e67e22',
-                    backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                    label: '순이익률',
+                    data: trend.net_margin || trend.operating_margin,
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
                     fill: true,
                     tension: 0.3,
                     pointRadius: 5,
@@ -649,7 +651,9 @@ function renderTrendTable(trend) {
         { label: '매출총이익률', data: trend.gross_margin, fmt: v => v + '%' },
         { label: '판매관리비', data: trend.sga, fmt: fmtWon },
         { label: '영업이익', data: trend.operating_profit, fmt: fmtWon, bold: true },
-        { label: '영업이익률', data: trend.operating_margin, fmt: v => v + '%', bold: true },
+        { label: '영업외비용', data: trend.non_operating || [], fmt: fmtWon },
+        { label: '당기순이익', data: trend.net_profit || [], fmt: fmtWon, bold: true },
+        { label: '순이익률', data: trend.net_margin || [], fmt: v => v + '%', bold: true },
     ];
 
     let html = '';
