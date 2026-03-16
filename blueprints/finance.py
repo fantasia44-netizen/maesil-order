@@ -26,15 +26,19 @@ def expenses():
 @finance_bp.route('/api/expenses')
 @role_required('admin', 'general')
 def api_expenses():
-    """비용 목록 JSON API (월별/카테고리 필터)"""
+    """비용 목록 JSON API (월별 또는 기간별/카테고리 필터)"""
     db = current_app.db
     month = request.args.get('month', '')
     category = request.args.get('category', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
 
     try:
         rows = db.query_expenses(
             month=month or None,
             category=category or None,
+            date_from=date_from or None,
+            date_to=date_to or None,
         )
         categories = db.query_expense_categories()
 
@@ -47,10 +51,10 @@ def api_expenses():
             cat_totals[cat] = cat_totals.get(cat, 0) + amt
             grand_total += amt
 
-        # 전월 데이터 조회 (증감 비교용)
+        # 전월 데이터 조회 (증감 비교용) — 월 선택 모드일 때만
         prev_total = 0
         prev_cat_totals = {}
-        if month:
+        if month and not date_from and not date_to:
             parts = month.split('-')
             year, mon = int(parts[0]), int(parts[1])
             if mon == 1:
@@ -115,9 +119,13 @@ def api_create_expense():
 
     try:
         result = db.insert_expense(payload)
+        # new_value에 생성된 ID 포함 (되돌리기용)
+        log_value = dict(payload)
+        if result and result.get('id'):
+            log_value['id'] = result['id']
         _log_action('create_expense', target=category,
                      detail=f'날짜={expense_date}, 금액={amount:,.0f}',
-                     new_value=payload)
+                     new_value=log_value)
         return jsonify({'success': True, 'expense': result})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -158,27 +166,31 @@ def api_update_expense(expense_id):
     }
 
     try:
+        # 수정 전 데이터 조회 (되돌리기용)
+        old_rows = db.query_expenses()
+        old_data = next((r for r in old_rows if r.get('id') == expense_id), None)
+
         result = db.update_expense(expense_id, payload)
         _log_action('update_expense', target=f'{category} (id={expense_id})',
                      detail=f'날짜={expense_date}, 금액={amount:,.0f}',
-                     new_value=payload)
+                     old_value=old_data, new_value=payload)
         return jsonify({'success': True, 'expense': result})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @finance_bp.route('/api/expenses/<int:expense_id>', methods=['DELETE'])
-@role_required('admin')
+@role_required('admin', 'general')
 def api_delete_expense(expense_id):
-    """비용 1건 삭제 -- 관리자만"""
+    """비용 1건 블라인드 처리 (admin, general)"""
     db = current_app.db
     try:
         # 삭제 전 데이터 조회
         rows = db.query_expenses()
         old_data = next((r for r in rows if r.get('id') == expense_id), None)
 
-        db.delete_expense(expense_id)
-        _log_action('delete_expense', target=f'id={expense_id}',
+        db.delete_expense(expense_id, deleted_by=current_user.username)
+        _log_action('blind_expense', target=f'id={expense_id}',
                      old_value=old_data)
         return jsonify({'success': True})
     except Exception as e:

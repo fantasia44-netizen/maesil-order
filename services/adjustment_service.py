@@ -2,6 +2,7 @@
 adjustment_service.py — 재고 조정 비즈니스 로직.
 양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
 """
+import time
 from datetime import datetime
 from services.excel_io import normalize_location, safe_qty, build_stock_snapshot, snapshot_lookup
 
@@ -38,6 +39,7 @@ def process_adjustment_batch(db, date_str, items, created_by=None):
     payload = []
     increase_count = 0
     decrease_count = 0
+    ts_ms = int(time.time() * 1000)
 
     # 재고 스냅샷 캐시 (차감 검증용)
     _snapshots = {}
@@ -85,6 +87,7 @@ def process_adjustment_batch(db, date_str, items, created_by=None):
             "qty": qty,
             "location": location,
             "memo": memo,
+            "event_uid": f"ADJ:{date_str}:{location}:{name}:{ts_ms}",
             "created_by": created_by,
             "status": "active",
         }
@@ -133,4 +136,5 @@ def process_adjustment_batch(db, date_str, items, created_by=None):
         'increase_count': increase_count,
         'decrease_count': decrease_count,
         'warnings': warnings,
+        'batch_ts': ts_ms,
     }

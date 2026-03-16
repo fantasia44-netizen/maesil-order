@@ -276,17 +276,24 @@ def audit_logs():
 _REVERTABLE_ACTIONS = {
     'update_product_cost', 'delete_product_cost',
     'update_channel_cost', 'delete_channel_cost',
-    'edit_stock_ledger', 'delete_stock_ledger',
+    'edit_stock_ledger', 'delete_stock_ledger', 'blind_stock_ledger',
     'update_price', 'batch_update_price',
     'delete_revenue', 'delete_purchase_order',
     'delete_trade', 'delete_partner', 'delete_business',
-    'update_partner',
-    # 재고원장 기반 (생산/입고/조정/소분/세트)
-    'delete_production', 'update_production',
-    'delete_inbound', 'update_inbound',
-    'delete_adjustment', 'update_adjustment',
-    'delete_repack', 'update_repack',
+    'update_partner', 'update_trade', 'update_purchase_order',
+    # 재고원장 기반 (생산/입고/조정/소분/세트) — 삭제
+    'delete_production', 'delete_inbound', 'delete_adjustment', 'delete_repack',
     'delete_set_assembly',
+    # 재고원장 기반 — 소프트 삭제
+    'blind_production', 'blind_inbound', 'blind_adjustment', 'blind_repack',
+    'blind_set_assembly',
+    # 재고원장 기반 — 수정 복원
+    'update_production', 'update_inbound', 'update_adjustment', 'update_repack',
+    'replace_production', 'replace_inbound', 'replace_adjustment', 'replace_repack',
+    # 배치 생성 (일괄 등록 되돌리기)
+    'batch_inbound', 'batch_production', 'batch_repack', 'batch_adjustment',
+    # 비용
+    'create_expense', 'update_expense', 'blind_expense',
 }
 
 
@@ -310,8 +317,22 @@ def revert_audit_log(log_id):
     if action not in _REVERTABLE_ACTIONS:
         return jsonify({'error': f'{action}은(는) 되돌리기를 지원하지 않습니다.'}), 400
 
-    if not old_value:
-        return jsonify({'error': '이전 데이터(old_value)가 없어 되돌릴 수 없습니다.'}), 400
+    # 배치 생성/create 액션은 new_value를 사용
+    new_value = log_entry.get('new_value')
+    _USES_NEW_VALUE = {'batch_inbound', 'batch_production', 'batch_repack',
+                       'batch_adjustment', 'create_expense'}
+
+    if action in _USES_NEW_VALUE:
+        if not new_value:
+            return jsonify({'error': '생성 데이터(new_value)가 없어 되돌릴 수 없습니다.'}), 400
+        if isinstance(new_value, str):
+            try:
+                new_value = json.loads(new_value)
+            except (json.JSONDecodeError, TypeError):
+                return jsonify({'error': 'new_value 파싱 오류'}), 400
+    else:
+        if not old_value:
+            return jsonify({'error': '이전 데이터(old_value)가 없어 되돌릴 수 없습니다.'}), 400
 
     # JSON string → dict 변환
     if isinstance(old_value, str):
@@ -342,20 +363,12 @@ def revert_audit_log(log_id):
             )
 
         elif action == 'delete_product_cost':
-            # old_value: 삭제 전 전체 데이터
-            db.upsert_product_cost(
-                product_name=target,
-                cost_price=old_value.get('cost_price', 0),
-                unit=old_value.get('unit', ''),
-                memo=old_value.get('memo', ''),
-                weight=old_value.get('weight', 0),
-                weight_unit=old_value.get('weight_unit', 'g'),
-                cost_type=old_value.get('cost_type', '매입'),
-                material_type=old_value.get('material_type', '원료'),
-                purchase_unit=old_value.get('purchase_unit', ''),
-                standard_unit=old_value.get('standard_unit', ''),
-                conversion_ratio=old_value.get('conversion_ratio', 1),
-            )
+            # 소프트 삭제 복원
+            pn = old_value.get('product_name') or target
+            if pn:
+                db.client.table("product_costs").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("product_name", pn).execute()
 
         elif action == 'update_channel_cost':
             db.upsert_channel_cost(
@@ -368,14 +381,12 @@ def revert_audit_log(log_id):
             )
 
         elif action == 'delete_channel_cost':
-            db.upsert_channel_cost(
-                channel=target,
-                fee_rate=old_value.get('fee_rate', 0),
-                shipping=old_value.get('shipping', 0),
-                packaging=old_value.get('packaging', 0),
-                other_cost=old_value.get('other_cost', 0),
-                memo=old_value.get('memo', ''),
-            )
+            # 소프트 삭제 복원
+            ch = old_value.get('channel') or target
+            if ch:
+                db.client.table("channel_costs").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("channel", ch).execute()
 
         elif action == 'edit_stock_ledger':
             # old_value: 수정 전 필드들
@@ -383,46 +394,50 @@ def revert_audit_log(log_id):
             db.update_stock_ledger(row_id, old_value)
 
         elif action == 'delete_stock_ledger':
-            # old_value: 삭제 전 전체 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at', 'is_deleted', 'deleted_at', 'deleted_by')}
-            if restore_data.get('product_name'):
-                db.insert_stock_ledger([restore_data])
+            # old_value: 삭제 전 전체 레코드 → is_deleted 복원
+            row_id = old_value.get('id') or int(target)
+            db.restore_stock_ledger(row_id)
+
+        elif action == 'blind_stock_ledger':
+            # 소프트 삭제 복원 → is_deleted=False, status='active'
+            row_id = old_value.get('id') or int(target)
+            db.restore_stock_ledger(row_id)
 
         elif action == 'delete_revenue':
-            # old_value: daily_revenue 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at')}
-            if restore_data.get('product_name'):
-                db.client.table("daily_revenue").insert(restore_data).execute()
+            # 소프트 삭제 복원 → is_deleted=False
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("daily_revenue").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
 
         elif action == 'delete_purchase_order':
-            # old_value: purchase_orders 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at')}
-            if restore_data:
-                db.client.table("purchase_orders").insert(restore_data).execute()
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("purchase_orders").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
 
         elif action == 'delete_trade':
-            # old_value: manual_trades 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at')}
-            if restore_data:
-                db.client.table("manual_trades").insert(restore_data).execute()
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("manual_trades").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
 
         elif action == 'delete_partner':
-            # old_value: business_partners 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at')}
-            if restore_data.get('partner_name'):
-                db.insert_partner(restore_data)
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("business_partners").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
 
         elif action == 'delete_business':
-            # old_value: my_business 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at')}
-            if restore_data:
-                db.client.table("my_business").insert(restore_data).execute()
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("my_business").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
 
         elif action == 'update_partner':
             # old_value: 수정 전 파트너 필드들
@@ -435,12 +450,10 @@ def revert_audit_log(log_id):
         # ── 재고원장 삭제 복원 (생산/입고/조정/소분) ──
         elif action in ('delete_production', 'delete_inbound',
                         'delete_adjustment', 'delete_repack'):
-            # old_value: stock_ledger 단일 레코드 → 재삽입
-            restore_data = {k: v for k, v in old_value.items()
-                           if k not in ('id', 'created_at', 'is_deleted',
-                                        'deleted_at', 'deleted_by')}
-            if restore_data.get('product_name'):
-                db.insert_stock_ledger([restore_data])
+            # 소프트 삭제 복원 → is_deleted=False, status='active'
+            row_id = old_value.get('id')
+            if row_id:
+                db.restore_stock_ledger(row_id)
 
         # ── 재고원장 수정 복원 (생산/입고/조정/소분) ──
         elif action in ('update_production', 'update_inbound',
@@ -454,21 +467,151 @@ def revert_audit_log(log_id):
                 db.update_stock_ledger(row_id, restore_fields)
 
         # ── 세트작업 삭제 복원 (다건) ──
-        elif action == 'delete_set_assembly':
-            # old_value: stock_ledger 레코드 리스트 → 전부 재삽입
+        elif action in ('delete_set_assembly', 'blind_set_assembly'):
+            # 소프트 삭제 복원 → is_deleted=False, status='active'
             if isinstance(old_value, list):
                 for rec in old_value:
-                    restore_data = {k: v for k, v in rec.items()
-                                   if k not in ('id', 'created_at', 'is_deleted',
-                                                'deleted_at', 'deleted_by')}
-                    if restore_data.get('product_name'):
-                        db.insert_stock_ledger([restore_data])
+                    row_id = rec.get('id')
+                    if row_id:
+                        db.restore_stock_ledger(row_id)
             elif isinstance(old_value, dict):
-                restore_data = {k: v for k, v in old_value.items()
-                               if k not in ('id', 'created_at', 'is_deleted',
-                                            'deleted_at', 'deleted_by')}
-                if restore_data.get('product_name'):
-                    db.insert_stock_ledger([restore_data])
+                row_id = old_value.get('id')
+                if row_id:
+                    db.restore_stock_ledger(row_id)
+
+        # ── 비용 삭제 복원 ──
+        elif action == 'blind_expense':
+            row_id = old_value.get('id')
+            if row_id:
+                db.client.table("expenses").update(
+                    {"is_deleted": False, "deleted_by": None}
+                ).eq("id", row_id).execute()
+
+        # ── 재고원장 소프트 삭제 복원 (blind_*) ──
+        elif action in ('blind_production', 'blind_inbound',
+                        'blind_adjustment', 'blind_repack'):
+            row_id = old_value.get('id')
+            if row_id:
+                db.restore_stock_ledger(row_id)
+
+        # ── 재고원장 수정 복원 (replace_*) ──
+        elif action in ('replace_production', 'replace_inbound',
+                        'replace_adjustment', 'replace_repack'):
+            # old_value: 수정 전 전체 레코드 → 원래 값으로 복원
+            row_id = old_value.get('id') or int(target)
+            restore_fields = {k: v for k, v in old_value.items()
+                             if k not in ('id', 'created_at', 'is_deleted',
+                                          'deleted_at', 'deleted_by',
+                                          'replaced_by', 'replaces')}
+            if restore_fields:
+                db.update_stock_ledger(row_id, restore_fields)
+                # replaced → active 복원
+                db.restore_stock_ledger(row_id)
+
+        # ── 거래 수정 복원 ──
+        elif action == 'update_trade':
+            trade_id = int(target)
+            restore_fields = {}
+            if old_value.get('qty') is not None:
+                restore_fields['qty'] = old_value['qty']
+            if old_value.get('unit_price') is not None:
+                restore_fields['unit_price'] = old_value['unit_price']
+            if old_value.get('amount') is not None:
+                restore_fields['amount'] = old_value['amount']
+            if restore_fields:
+                db.client.table("manual_trades").update(
+                    restore_fields
+                ).eq("id", trade_id).execute()
+
+        # ── 발주서 수정 복원 ──
+        elif action == 'update_purchase_order':
+            po_id = int(target)
+            restore_fields = {k: v for k, v in old_value.items()
+                             if k not in ('id', 'created_at', 'is_deleted',
+                                          'deleted_at', 'deleted_by')}
+            if restore_fields:
+                db.client.table("purchase_orders").update(
+                    restore_fields
+                ).eq("id", po_id).execute()
+
+        # ── 비용 생성 되돌리기 (soft delete) ──
+        elif action == 'create_expense':
+            expense_id = new_value.get('id')
+            if expense_id:
+                db.client.table("expenses").update(
+                    {"is_deleted": True, "deleted_by": "revert"}
+                ).eq("id", expense_id).execute()
+            else:
+                return jsonify({'error': '생성된 비용 ID를 찾을 수 없습니다.'}), 400
+
+        # ── 비용 수정 복원 ──
+        elif action == 'update_expense':
+            # target: "카테고리 (id=123)" 형태
+            import re
+            m = re.search(r'id=(\d+)', target)
+            if m and old_value:
+                expense_id = int(m.group(1))
+                restore_fields = {k: v for k, v in old_value.items()
+                                 if k not in ('id', 'created_at', 'is_deleted',
+                                              'deleted_at', 'deleted_by',
+                                              'registered_by')}
+                if restore_fields:
+                    db.client.table("expenses").update(
+                        restore_fields
+                    ).eq("id", expense_id).execute()
+            else:
+                return jsonify({'error': '비용 ID를 찾을 수 없습니다.'}), 400
+
+        # ── 배치 입고 되돌리기 (일괄 soft delete) ──
+        elif action == 'batch_inbound':
+            batch_ts = new_value.get('batch_ts')
+            if batch_ts:
+                # event_uid LIKE 'INB:%:{batch_ts}:%'
+                db.client.table("stock_ledger").update(
+                    {"is_deleted": True, "status": "cancelled",
+                     "deleted_by": "revert"}
+                ).like("event_uid", f"%:{batch_ts}:%").eq(
+                    "status", "active"
+                ).execute()
+            else:
+                return jsonify({'error': '배치 타임스탬프를 찾을 수 없습니다.'}), 400
+
+        # ── 배치 생산 되돌리기 (batch_id별 soft delete) ──
+        elif action == 'batch_production':
+            batch_ids = new_value.get('batch_ids', [])
+            if batch_ids:
+                for bid in batch_ids:
+                    db.client.table("stock_ledger").update(
+                        {"is_deleted": True, "status": "cancelled",
+                         "deleted_by": "revert"}
+                    ).eq("batch_id", bid).eq("status", "active").execute()
+            else:
+                return jsonify({'error': '배치 ID를 찾을 수 없습니다.'}), 400
+
+        # ── 배치 소분 되돌리기 (doc_no별 soft delete) ──
+        elif action == 'batch_repack':
+            doc_nos = new_value.get('doc_nos', [])
+            if doc_nos:
+                for dn in doc_nos:
+                    db.client.table("stock_ledger").update(
+                        {"is_deleted": True, "status": "cancelled",
+                         "deleted_by": "revert"}
+                    ).eq("repack_doc_no", dn).eq("status", "active").execute()
+            else:
+                return jsonify({'error': '소분번호를 찾을 수 없습니다.'}), 400
+
+        # ── 배치 조정 되돌리기 (event_uid로 soft delete) ──
+        elif action == 'batch_adjustment':
+            batch_ts = new_value.get('batch_ts')
+            if batch_ts:
+                db.client.table("stock_ledger").update(
+                    {"is_deleted": True, "status": "cancelled",
+                     "deleted_by": "revert"}
+                ).like("event_uid", f"ADJ:%:{batch_ts}").eq(
+                    "status", "active"
+                ).execute()
+            else:
+                return jsonify({'error': '배치 타임스탬프를 찾을 수 없습니다.'}), 400
 
         else:
             return jsonify({'error': f'{action} 롤백 미구현'}), 400

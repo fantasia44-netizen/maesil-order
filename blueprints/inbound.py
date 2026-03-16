@@ -172,7 +172,9 @@ def batch():
             created_by=current_user.username)
         _log_action('batch_inbound',
                      detail=f'{date_str} 일괄입고 {result.get("count", 0)}건 등록 '
-                            f'(항목 {len(items)}건)')
+                            f'(항목 {len(items)}건)',
+                     new_value={'date': date_str, 'batch_ts': result.get('batch_ts'),
+                                'count': result.get('count', 0)})
         return jsonify({
             'success': True,
             'count': result.get('count', 0),

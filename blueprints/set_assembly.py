@@ -192,7 +192,7 @@ def delete():
             _log_action('blind_set_assembly', target=date_str,
                          old_value=old_records,
                          detail=f'{blinded}건 블라인드')
-            flash(f'{date_str} 세트작업 이력 {blinded}건 블라인드 처리 완료', 'success')
+            flash(f'{date_str} 세트작업 이력 {blinded}건 삭제 완료', 'success')
         else:
             flash(f'{date_str} 에 처리할 세트작업 이력이 없습니다.', 'warning')
     except Exception as e:

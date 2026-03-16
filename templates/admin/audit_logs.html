@@ -118,16 +118,20 @@
                             {% set revertable = ['update_product_cost','delete_product_cost',
                                                  'update_channel_cost','delete_channel_cost',
                                                  'edit_stock_ledger','delete_stock_ledger',
+                                                 'blind_stock_ledger',
                                                  'update_price','batch_update_price',
                                                  'delete_revenue','delete_purchase_order',
                                                  'delete_trade','delete_partner','delete_business',
-                                                 'update_partner',
-                                                 'delete_production','update_production',
-                                                 'delete_inbound','update_inbound',
-                                                 'delete_adjustment','update_adjustment',
-                                                 'delete_repack','update_repack',
-                                                 'delete_set_assembly'] %}
-                            {% if log.action in revertable and log.get('old_value') and not log.get('is_reverted') %}
+                                                 'update_partner','update_trade','update_purchase_order',
+                                                 'delete_production','delete_inbound','delete_adjustment','delete_repack',
+                                                 'blind_production','blind_inbound','blind_adjustment','blind_repack',
+                                                 'update_production','update_inbound','update_adjustment','update_repack',
+                                                 'replace_production','replace_inbound','replace_adjustment','replace_repack',
+                                                 'delete_set_assembly','blind_set_assembly',
+                                                 'batch_inbound','batch_production','batch_repack','batch_adjustment',
+                                                 'create_expense','update_expense','blind_expense'] %}
+                            {% set uses_new = ['batch_inbound','batch_production','batch_repack','batch_adjustment','create_expense'] %}
+                            {% if log.action in revertable and (log.get('old_value') or (log.action in uses_new and log.get('new_value'))) and not log.get('is_reverted') %}
                             <button class="btn btn-outline-warning btn-sm py-0 px-1"
                                     onclick="revertLog({{ log.id }})" title="되돌리기"
                                     style="font-size:0.72rem;">

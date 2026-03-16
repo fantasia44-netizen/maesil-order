@@ -215,7 +215,10 @@ def batch():
                      detail=f'{date_str} {location} 소분 — '
                             f'투입 {result.get("repack_out_count", 0)}건, '
                             f'산출 {result.get("repack_in_count", 0)}건 '
-                            f'(항목 {len(items)}건)')
+                            f'(항목 {len(items)}건)',
+                     new_value={'date': date_str, 'location': location,
+                                'doc_nos': result.get('doc_nos', []),
+                                'count': result.get('repack_in_count', 0) + result.get('repack_out_count', 0)})
         return jsonify({
             'success': True,
             'repack_in_count': result.get('repack_in_count', 0),

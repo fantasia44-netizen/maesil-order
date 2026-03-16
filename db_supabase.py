@@ -220,13 +220,16 @@ class SupabaseDB(DBBase):
         return inserted, skipped
 
     def delete_stock_ledger_all(self):
-        res = self.client.table("stock_ledger").delete().neq("id", 0).execute()
+        res = self.client.table("stock_ledger").update(
+            {"is_deleted": True, "status": "cancelled"}
+        ).neq("id", 0).execute()
         return len(res.data) if res.data else 0
 
     def delete_stock_ledger_by(self, date_str, record_type, location=None,
                                product_names=None):
-        q = self.client.table("stock_ledger").delete() \
-            .eq("transaction_date", date_str).eq("type", record_type)
+        q = self.client.table("stock_ledger").update(
+            {"is_deleted": True, "status": "cancelled"}
+        ).eq("transaction_date", date_str).eq("type", record_type)
         if location:
             q = q.eq("location", location)
         if product_names:
@@ -339,7 +342,10 @@ class SupabaseDB(DBBase):
         self.client.table("stock_ledger").update(update_data).eq("id", row_id).execute()
 
     def delete_stock_ledger_by_id(self, row_id):
-        self.client.table("stock_ledger").delete().eq("id", row_id).execute()
+        """stock_ledger 레코드 소프트 삭제 (is_deleted=True)."""
+        self.client.table("stock_ledger").update(
+            {"is_deleted": True, "status": "cancelled"}
+        ).eq("id", row_id).execute()
 
     def delete_stock_ledger_sales_out(self, date_str, product_name, location, qty):
         """특정 SALES_OUT 레코드 삭제 (거래 삭제 시 재고 복원용).
@@ -376,7 +382,9 @@ class SupabaseDB(DBBase):
 
         deleted = 0
         for rid in to_delete:
-            self.client.table("stock_ledger").delete().eq("id", rid).execute()
+            self.client.table("stock_ledger").update(
+                {"is_deleted": True, "status": "cancelled"}
+            ).eq("id", rid).execute()
             deleted += 1
         return deleted
 
@@ -473,7 +481,7 @@ class SupabaseDB(DBBase):
             q = self.client.table(table).select(
                 "revenue_date,product_name,category,channel,"
                 "qty,unit_price,revenue"
-            ).order("revenue_date", desc=True)
+            ).or_("is_deleted.is.null,is_deleted.eq.false").order("revenue_date", desc=True)
             if date_from:
                 q = q.gte("revenue_date", date_from)
             if date_to:
@@ -559,11 +567,13 @@ class SupabaseDB(DBBase):
         return result
 
     def delete_revenue_all(self):
-        res = self.client.table("daily_revenue").delete().neq("id", 0).execute()
+        res = self.client.table("daily_revenue").update(
+            {"is_deleted": True}
+        ).neq("id", 0).execute()
         return len(res.data) if res.data else 0
 
     def delete_revenue_by_date(self, date_from=None, date_to=None, exclude_categories=None):
-        query = self.client.table("daily_revenue").delete()
+        query = self.client.table("daily_revenue").update({"is_deleted": True})
         if date_from:
             query = query.gte("revenue_date", date_from)
         if date_to:
@@ -575,8 +585,10 @@ class SupabaseDB(DBBase):
         return len(res.data) if res.data else 0
 
     def delete_revenue_by_id(self, revenue_id):
-        """daily_revenue 1건 삭제 (ID 기준)."""
-        self.client.table("daily_revenue").delete().eq("id", revenue_id).execute()
+        """daily_revenue 1건 소프트 삭제."""
+        self.client.table("daily_revenue").update(
+            {"is_deleted": True}
+        ).eq("id", revenue_id).execute()
 
     # --- daily_closing (일일마감) ---
 
@@ -638,7 +650,7 @@ class SupabaseDB(DBBase):
     # --- master tables ---
 
     def sync_master_table(self, table_name, payload_list, batch_size=500):
-        self.client.table(table_name).delete().neq("id", 0).execute()
+        self.client.table(table_name).update({"is_deleted": True}).neq("id", 0).execute()
         for i in range(0, len(payload_list), batch_size):
             self.client.table(table_name).insert(payload_list[i:i + batch_size]).execute()
 
@@ -688,7 +700,7 @@ class SupabaseDB(DBBase):
         """product_costs 전체 조회 → {product_name: {cost_price, unit, memo, cost_type, weight, weight_unit}} dict."""
         try:
             rows = self._paginate_query("product_costs",
-                lambda t: self.client.table(t).select("*").order("product_name"))
+                lambda t: self.client.table(t).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("product_name"))
             return {r['product_name']: r for r in rows}
         except Exception:
             return {}
@@ -760,10 +772,10 @@ class SupabaseDB(DBBase):
             ).execute()
 
     def delete_product_cost(self, product_name):
-        """품목 매입단가 1건 삭제."""
-        self.client.table("product_costs").delete().eq(
-            "product_name", product_name
-        ).execute()
+        """품목 매입단가 1건 소프트 삭제."""
+        self.client.table("product_costs").update(
+            {"is_deleted": True}
+        ).eq("product_name", product_name).execute()
 
     # --- product_cost_history (매입단가 이력) ---
 
@@ -810,7 +822,7 @@ class SupabaseDB(DBBase):
         """채널별 비용 전체 조회 → {channel: {fee_rate, shipping, packaging, other_cost, memo}}."""
         try:
             rows = self._paginate_query("channel_costs",
-                lambda t: self.client.table(t).select("*").order("channel"))
+                lambda t: self.client.table(t).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("channel"))
             return {r['channel']: r for r in rows}
         except Exception:
             return {}
@@ -833,17 +845,17 @@ class SupabaseDB(DBBase):
         ).execute()
 
     def delete_channel_cost(self, channel):
-        """채널 비용 1건 삭제."""
-        self.client.table("channel_costs").delete().eq(
-            "channel", channel
-        ).execute()
+        """채널 비용 1건 소프트 삭제."""
+        self.client.table("channel_costs").update(
+            {"is_deleted": True}
+        ).eq("channel", channel).execute()
 
     # --- business_partners ---
 
     def query_partners(self):
         """거래처 전체 조회 (이름순)."""
         def builder(table):
-            return self.client.table(table).select("*").order("partner_name")
+            return self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("partner_name")
         return self._paginate_query("business_partners", builder)
 
     def insert_partner(self, payload):
@@ -859,8 +871,10 @@ class SupabaseDB(DBBase):
                 payload_list[i:i + 500]).execute()
 
     def delete_partner(self, partner_id):
-        """거래처 1건 삭제."""
-        self.client.table("business_partners").delete().eq("id", partner_id).execute()
+        """거래처 1건 소프트 삭제."""
+        self.client.table("business_partners").update(
+            {"is_deleted": True}
+        ).eq("id", partner_id).execute()
 
     def update_partner(self, partner_id, payload):
         """거래처 1건 수정."""
@@ -871,7 +885,7 @@ class SupabaseDB(DBBase):
     def query_my_business(self):
         """내 사업장 전체 조회."""
         def builder(table):
-            return self.client.table(table).select("*").order("id")
+            return self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("id")
         return self._paginate_query("my_business", builder)
 
     def upsert_my_business(self, payload):
@@ -879,8 +893,10 @@ class SupabaseDB(DBBase):
         self.client.table("my_business").upsert(payload).execute()
 
     def delete_my_business(self, biz_id):
-        """내 사업장 삭제."""
-        self.client.table("my_business").delete().eq("id", biz_id).execute()
+        """내 사업장 소프트 삭제."""
+        self.client.table("my_business").update(
+            {"is_deleted": True}
+        ).eq("id", biz_id).execute()
 
     def set_default_business(self, biz_id):
         """기본 사업장 지정 (나머지 해제)."""
@@ -905,7 +921,7 @@ class SupabaseDB(DBBase):
     def query_manual_trades(self, date_from=None, date_to=None, partner_name=None):
         """수동 거래 조회 (날짜/거래처 필터)."""
         def builder(table):
-            q = self.client.table(table).select("*").order("trade_date", desc=True)
+            q = self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("trade_date", desc=True)
             if date_from:
                 q = q.gte("trade_date", date_from)
             if date_to:
@@ -921,22 +937,32 @@ class SupabaseDB(DBBase):
 
     def query_manual_trade_by_id(self, trade_id):
         """수동 거래 1건 조회 (ID 기준)."""
-        res = self.client.table("manual_trades").select("*").eq("id", trade_id).execute()
+        res = self.client.table("manual_trades").select("*").eq("id", trade_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
         return res.data[0] if res.data else None
 
     def delete_manual_trade(self, trade_id):
-        """수동 거래 1건 삭제."""
-        self.client.table("manual_trades").delete().eq("id", trade_id).execute()
+        """수동 거래 1건 소프트 삭제."""
+        self.client.table("manual_trades").update(
+            {"is_deleted": True}
+        ).eq("id", trade_id).execute()
 
     def delete_revenue_specific(self, revenue_date, product_name, category):
-        """daily_revenue에서 특정 조건의 레코드 삭제."""
-        res = (self.client.table("daily_revenue")
-               .delete()
+        """daily_revenue에서 특정 조건의 레코드 소프트 삭제."""
+        # 먼저 대상 조회
+        res = (self.client.table("daily_revenue").select("id")
                .eq("revenue_date", revenue_date)
                .eq("product_name", product_name)
                .eq("category", category)
                .execute())
-        return len(res.data) if res.data else 0
+        if not res.data:
+            return 0
+        count = 0
+        for row in res.data:
+            self.client.table("daily_revenue").update(
+                {"is_deleted": True}
+            ).eq("id", row["id"]).execute()
+            count += 1
+        return count
 
     # --- 발주서 이력 ---
 
@@ -947,7 +973,7 @@ class SupabaseDB(DBBase):
     def query_purchase_orders(self, date_from=None, date_to=None, partner_name=None):
         """발주서 이력 조회 (날짜/거래처 필터)."""
         def builder(table):
-            q = self.client.table(table).select("*").order("order_date", desc=True)
+            q = self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("order_date", desc=True)
             if date_from:
                 q = q.gte("order_date", date_from)
             if date_to:
@@ -959,7 +985,7 @@ class SupabaseDB(DBBase):
 
     def query_purchase_order_by_id(self, po_id):
         """발주서 1건 조회 (ID 기준)."""
-        res = self.client.table("purchase_orders").select("*").eq("id", po_id).execute()
+        res = self.client.table("purchase_orders").select("*").eq("id", po_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
         return res.data[0] if res.data else None
 
     def update_purchase_order(self, po_id, update_data):
@@ -967,8 +993,10 @@ class SupabaseDB(DBBase):
         self.client.table("purchase_orders").update(update_data).eq("id", po_id).execute()
 
     def delete_purchase_order(self, po_id):
-        """발주서 1건 삭제."""
-        self.client.table("purchase_orders").delete().eq("id", po_id).execute()
+        """발주서 1건 소프트 삭제."""
+        self.client.table("purchase_orders").update(
+            {"is_deleted": True}
+        ).eq("id", po_id).execute()
 
     # --- 품목명 공백 정리 ---
 
@@ -1025,7 +1053,7 @@ class SupabaseDB(DBBase):
             return _option_cache['data']
 
         def builder(table):
-            return self.client.table(table).select("*").order("sort_order").order("id")
+            return self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("sort_order").order("id")
         data = self._paginate_query("option_master", builder)
 
         # 캐시 갱신
@@ -1105,8 +1133,10 @@ class SupabaseDB(DBBase):
         self._invalidate_option_cache()
 
     def delete_option_master(self, option_id):
-        """옵션마스터 1건 삭제."""
-        self.client.table("option_master").delete().eq("id", option_id).execute()
+        """옵션마스터 1건 소프트 삭제."""
+        self.client.table("option_master").update(
+            {"is_deleted": True}
+        ).eq("id", option_id).execute()
         self._invalidate_option_cache()
 
     def count_option_master(self):
@@ -1115,7 +1145,7 @@ class SupabaseDB(DBBase):
         if cached is not None and (time.time() - _option_cache['ts']) < _option_cache['ttl']:
             return len(cached)
         try:
-            res = self.client.table("option_master").select("id", count="exact").limit(1).execute()
+            res = self.client.table("option_master").select("id", count="exact").or_("is_deleted.is.null,is_deleted.eq.false").limit(1).execute()
             return res.count if res.count is not None else len(res.data)
         except Exception:
             return -1
@@ -1130,8 +1160,8 @@ class SupabaseDB(DBBase):
             seen[row['match_key']] = row
         deduped = list(seen.values())
 
-        # 기존 데이터 전체 삭제 후 삽입
-        self.client.table("option_master").delete().neq("id", 0).execute()
+        # 기존 데이터 전체 소프트 삭제 후 삽입
+        self.client.table("option_master").update({"is_deleted": True}).neq("id", 0).execute()
         for i in range(0, len(deduped), batch_size):
             self.client.table("option_master").insert(
                 deduped[i:i + batch_size]
@@ -1172,11 +1202,11 @@ class SupabaseDB(DBBase):
         try:
             # last_matched_at이 NULL인 항목 (한 번도 매칭 안 됨)
             res1 = self.client.table("option_master").select("*") \
-                .is_("last_matched_at", "null").execute()
+                .is_("last_matched_at", "null").or_("is_deleted.is.null,is_deleted.eq.false").execute()
             stale.extend(res1.data or [])
             # last_matched_at이 cutoff보다 오래된 항목
             res2 = self.client.table("option_master").select("*") \
-                .lt("last_matched_at", cutoff).execute()
+                .lt("last_matched_at", cutoff).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             stale.extend(res2.data or [])
         except Exception:
             pass
@@ -1199,14 +1229,16 @@ class SupabaseDB(DBBase):
         for i in range(0, len(ids), 50):
             chunk = ids[i:i + 50]
             try:
-                self.client.table("option_master").delete() \
-                    .in_("id", chunk).execute()
+                self.client.table("option_master").update(
+                    {"is_deleted": True}
+                ).in_("id", chunk).execute()
                 deleted += len(chunk)
             except Exception:
                 for rid in chunk:
                     try:
-                        self.client.table("option_master").delete() \
-                            .eq("id", rid).execute()
+                        self.client.table("option_master").update(
+                            {"is_deleted": True}
+                        ).eq("id", rid).execute()
                         deleted += 1
                     except Exception:
                         pass
@@ -1490,7 +1522,7 @@ class SupabaseDB(DBBase):
                          date_from=None, date_to=None, active_only=False):
         """행사 목록 조회."""
         try:
-            q = self.client.table("promotions").select("*")
+            q = self.client.table("promotions").select("*").or_("is_deleted.is.null,is_deleted.eq.false")
             if product_name:
                 q = q.ilike("product_name", f"%{product_name}%")
             if category:
@@ -1514,6 +1546,7 @@ class SupabaseDB(DBBase):
                 .eq("product_name", product_name) \
                 .eq("category", category) \
                 .eq("is_active", True) \
+                .or_("is_deleted.is.null,is_deleted.eq.false") \
                 .lte("start_date", target_date) \
                 .gte("end_date", target_date) \
                 .order("created_at", desc=True) \
@@ -1534,8 +1567,10 @@ class SupabaseDB(DBBase):
             .eq("id", promo_id).execute()
 
     def delete_promotion(self, promo_id):
-        """행사 1건 삭제."""
-        self.client.table("promotions").delete().eq("id", promo_id).execute()
+        """행사 1건 소프트 삭제."""
+        self.client.table("promotions").update(
+            {"is_deleted": True}
+        ).eq("id", promo_id).execute()
 
     # ================================================================
     # 쿠폰 관리 (coupons)
@@ -1545,7 +1580,7 @@ class SupabaseDB(DBBase):
                       date_from=None, date_to=None, active_only=False):
         """쿠폰 목록 조회."""
         try:
-            q = self.client.table("coupons").select("*")
+            q = self.client.table("coupons").select("*").or_("is_deleted.is.null,is_deleted.eq.false")
             if product_name:
                 q = q.ilike("product_name", f"%{product_name}%")
             if category:
@@ -1569,6 +1604,7 @@ class SupabaseDB(DBBase):
                 .eq("product_name", product_name) \
                 .eq("category", category) \
                 .eq("is_active", True) \
+                .or_("is_deleted.is.null,is_deleted.eq.false") \
                 .lte("start_date", target_date) \
                 .gte("end_date", target_date) \
                 .order("created_at", desc=True) \
@@ -1589,8 +1625,10 @@ class SupabaseDB(DBBase):
             .eq("id", coupon_id).execute()
 
     def delete_coupon(self, coupon_id):
-        """쿠폰 1건 삭제."""
-        self.client.table("coupons").delete().eq("id", coupon_id).execute()
+        """쿠폰 1건 소프트 삭제."""
+        self.client.table("coupons").update(
+            {"is_deleted": True}
+        ).eq("id", coupon_id).execute()
 
     # ================================================================
     # 단가 결정 (행사 > 쿠폰 > 기본가)
@@ -2213,7 +2251,8 @@ class SupabaseDB(DBBase):
                 def builder(table):
                     return self.client.table(table).select(
                         'revenue_date,category,revenue'
-                    ).gte('revenue_date', date_from) \
+                    ).or_("is_deleted.is.null,is_deleted.eq.false") \
+                     .gte('revenue_date', date_from) \
                      .lte('revenue_date', legacy_end) \
                      .order('revenue_date')
 
@@ -3084,11 +3123,19 @@ class SupabaseDB(DBBase):
 
     # ── expenses (간접비/비용 관리) ──
 
-    def query_expenses(self, month=None, category=None):
-        """비용 목록 조회. month='2026-03', category='인건비' 등 필터 가능."""
+    def query_expenses(self, month=None, category=None,
+                        date_from=None, date_to=None):
+        """비용 목록 조회. month 또는 date_from/date_to 기간 필터, category 필터."""
         try:
             q = self.client.table("expenses").select("*")
-            if month:
+            q = q.or_("is_deleted.is.null,is_deleted.eq.false")
+            if date_from and date_to:
+                q = q.gte("expense_date", date_from).lte("expense_date", date_to)
+            elif date_from:
+                q = q.gte("expense_date", date_from)
+            elif date_to:
+                q = q.lte("expense_date", date_to)
+            elif month:
                 q = q.eq("expense_month", month)
             if category:
                 q = q.eq("category", category)
@@ -3111,9 +3158,12 @@ class SupabaseDB(DBBase):
         ).execute()
         return res.data[0] if res.data else None
 
-    def delete_expense(self, expense_id):
-        """비용 1건 삭제."""
-        self.client.table("expenses").delete().eq(
+    def delete_expense(self, expense_id, deleted_by=None):
+        """비용 1건 블라인드 처리 (소프트 삭제)."""
+        data = {"is_deleted": True}
+        if deleted_by:
+            data["deleted_by"] = deleted_by
+        self.client.table("expenses").update(data).eq(
             "id", int(expense_id)
         ).execute()
 
@@ -3183,7 +3233,7 @@ class SupabaseDB(DBBase):
     def query_employees(self, status=None):
         """직원 목록 조회. status='재직'/'퇴직' 필터 가능."""
         try:
-            q = self.client.table("employees").select("*")
+            q = self.client.table("employees").select("*").or_("is_deleted.is.null,is_deleted.eq.false")
             if status:
                 q = q.eq("status", status)
             q = q.order("name")
@@ -3206,10 +3256,10 @@ class SupabaseDB(DBBase):
         return res.data[0] if res.data else None
 
     def delete_employee(self, emp_id):
-        """직원 삭제."""
-        self.client.table("employees").delete().eq(
-            "id", int(emp_id)
-        ).execute()
+        """직원 소프트 삭제."""
+        self.client.table("employees").update(
+            {"is_deleted": True}
+        ).eq("id", int(emp_id)).execute()
 
     # ── payroll_monthly (급여 관리) ──
 
@@ -3677,7 +3727,7 @@ class SupabaseDB(DBBase):
         """
         try:
             res = self.client.table("employee_insurance_overrides") \
-                .select("*").eq("employee_id", employee_id).execute()
+                .select("*").eq("employee_id", employee_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data or []
         except Exception as e:
             print(f"[DB] query_employee_insurance_overrides error: {e}")
@@ -3711,10 +3761,11 @@ class SupabaseDB(DBBase):
             raise
 
     def delete_employee_insurance_override(self, employee_id, insurance_type):
-        """직원 보험요율 오버라이드 삭제 (기본값으로 복원)."""
+        """직원 보험요율 오버라이드 소프트 삭제 (기본값으로 복원)."""
         try:
             self.client.table("employee_insurance_overrides") \
-                .delete().eq("employee_id", employee_id) \
+                .update({"is_deleted": True}) \
+                .eq("employee_id", employee_id) \
                 .eq("insurance_type", insurance_type).execute()
         except Exception as e:
             print(f"[DB] delete_employee_insurance_override error: {e}")
@@ -4034,7 +4085,7 @@ class SupabaseDB(DBBase):
         """은행 계좌 전체 조회."""
         try:
             res = self.client.table("bank_accounts") \
-                .select("*").order("bank_name").execute()
+                .select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("bank_name").execute()
             return res.data or []
         except Exception as e:
             print(f"[DB] query_bank_accounts error: {e}")
@@ -4044,7 +4095,7 @@ class SupabaseDB(DBBase):
         """은행 계좌 1건 조회."""
         try:
             res = self.client.table("bank_accounts") \
-                .select("*").eq("id", account_id).execute()
+                .select("*").eq("id", account_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data[0] if res.data else None
         except Exception as e:
             print(f"[DB] query_bank_account_by_id error: {e}")
@@ -4075,6 +4126,7 @@ class SupabaseDB(DBBase):
         try:
             q = self.client.table("bank_transactions") \
                 .select("*, bank_accounts(bank_name, account_number)") \
+                .or_("is_deleted.is.null,is_deleted.eq.false") \
                 .order("transaction_date", desc=True) \
                 .order("transaction_time", desc=True)
             if date_from:
@@ -4100,7 +4152,7 @@ class SupabaseDB(DBBase):
         """은행 거래내역 1건 조회."""
         try:
             res = self.client.table("bank_transactions") \
-                .select("*").eq("id", tx_id).execute()
+                .select("*").eq("id", tx_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data[0] if res.data else None
         except Exception as e:
             print(f"[DB] query_bank_transaction_by_id error: {e}")
@@ -4126,7 +4178,7 @@ class SupabaseDB(DBBase):
         """세금계산서 목록 조회."""
         try:
             q = self.client.table("tax_invoices") \
-                .select("*").order("write_date", desc=True)
+                .select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("write_date", desc=True)
             if direction:
                 q = q.eq("direction", direction)
             if status:
@@ -4153,7 +4205,7 @@ class SupabaseDB(DBBase):
         """세금계산서 1건 조회."""
         try:
             res = self.client.table("tax_invoices") \
-                .select("*").eq("id", invoice_id).execute()
+                .select("*").eq("id", invoice_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data[0] if res.data else None
         except Exception as e:
             print(f"[DB] query_tax_invoice_by_id error: {e}")
@@ -4206,10 +4258,10 @@ class SupabaseDB(DBBase):
             print(f"[DB] update_tax_invoice error: {e}")
 
     def delete_tax_invoice(self, invoice_id):
-        """세금계산서 삭제."""
+        """세금계산서 소프트 삭제."""
         try:
             self.client.table("tax_invoices") \
-                .delete().eq("id", invoice_id).execute()
+                .update({"is_deleted": True}).eq("id", invoice_id).execute()
         except Exception as e:
             print(f"[DB] delete_tax_invoice error: {e}")
 
@@ -4219,7 +4271,7 @@ class SupabaseDB(DBBase):
         """매출-입금 매칭 목록 조회."""
         try:
             q = self.client.table("payment_matches") \
-                .select("*").order("matched_at", desc=True)
+                .select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("matched_at", desc=True)
             if date_from:
                 q = q.gte("matched_at", date_from)
             if date_to:
@@ -4236,7 +4288,7 @@ class SupabaseDB(DBBase):
         """매칭 1건 조회."""
         try:
             res = self.client.table("payment_matches") \
-                .select("*").eq("id", match_id).execute()
+                .select("*").eq("id", match_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data[0] if res.data else None
         except Exception as e:
             print(f"[DB] query_payment_match_by_id error: {e}")
@@ -4254,10 +4306,10 @@ class SupabaseDB(DBBase):
             return None
 
     def delete_payment_match(self, match_id):
-        """매칭 해제."""
+        """매칭 해제 (소프트 삭제)."""
         try:
             self.client.table("payment_matches") \
-                .delete().eq("id", match_id).execute()
+                .update({"is_deleted": True}).eq("id", match_id).execute()
         except Exception as e:
             print(f"[DB] delete_payment_match error: {e}")
 
@@ -4346,7 +4398,7 @@ class SupabaseDB(DBBase):
         """거래처 1건 조회."""
         try:
             res = self.client.table("business_partners") \
-                .select("*").eq("id", partner_id).execute()
+                .select("*").eq("id", partner_id).or_("is_deleted.is.null,is_deleted.eq.false").execute()
             return res.data[0] if res.data else None
         except Exception as e:
             print(f"[DB] query_partner_by_id error: {e}")
@@ -4366,13 +4418,13 @@ class SupabaseDB(DBBase):
     # ══════════════════════════════════════════
 
     def delete_all_bank_transactions(self, bank_account_id=None):
-        """은행 거래내역 전체 삭제 (재동기화용)."""
+        """은행 거래내역 전체 소프트 삭제 (재동기화용)."""
         def _do():
             q = self.client.table("bank_transactions")
             if bank_account_id:
-                q = q.delete().eq("bank_account_id", bank_account_id)
+                q = q.update({"is_deleted": True}).eq("bank_account_id", bank_account_id)
             else:
-                q = q.delete().neq("id", 0)
+                q = q.update({"is_deleted": True}).neq("id", 0)
             q.execute()
         try:
             self._retry_on_disconnect(_do)
@@ -4380,10 +4432,10 @@ class SupabaseDB(DBBase):
             print(f"[DB] delete_all_bank_transactions error: {e}")
 
     def delete_bank_account(self, account_id):
-        """은행 계좌 삭제."""
+        """은행 계좌 소프트 삭제."""
         try:
             self.client.table("bank_accounts") \
-                .delete().eq("id", account_id).execute()
+                .update({"is_deleted": True}).eq("id", account_id).execute()
         except Exception as e:
             print(f"[DB] delete_bank_account error: {e}")
             raise
@@ -4401,6 +4453,7 @@ class SupabaseDB(DBBase):
                 res = self.client.table("tax_invoices") \
                     .select("id") \
                     .eq("invoice_number", invoice_number) \
+                    .or_("is_deleted.is.null,is_deleted.eq.false") \
                     .limit(1).execute()
                 if res.data:
                     return res.data[0]['id']
@@ -4408,6 +4461,7 @@ class SupabaseDB(DBBase):
                 res = self.client.table("tax_invoices") \
                     .select("id") \
                     .eq("mgt_key", mgt_key) \
+                    .or_("is_deleted.is.null,is_deleted.eq.false") \
                     .limit(1).execute()
                 if res.data:
                     return res.data[0]['id']
@@ -4428,6 +4482,7 @@ class SupabaseDB(DBBase):
         def _do():
             q = self.client.table("card_transactions") \
                 .select("*, bank_accounts(bank_name, account_number)") \
+                .or_("is_deleted.is.null,is_deleted.eq.false") \
                 .order("approval_date", desc=True) \
                 .order("approval_time", desc=True)
             if date_from:
@@ -4458,6 +4513,7 @@ class SupabaseDB(DBBase):
                 .eq("approval_date", approval_date) \
                 .eq("approval_no", approval_no) \
                 .eq("amount", amount) \
+                .or_("is_deleted.is.null,is_deleted.eq.false") \
                 .limit(1).execute()
             return len(res.data or []) > 0
         try:
@@ -4482,13 +4538,13 @@ class SupabaseDB(DBBase):
             print(f"[DB] update_card_transaction error: {e}")
 
     def delete_all_card_transactions(self, bank_account_id=None):
-        """카드 이용내역 전체 삭제."""
+        """카드 이용내역 전체 소프트 삭제."""
         try:
             q = self.client.table("card_transactions")
             if bank_account_id:
-                q = q.delete().eq("bank_account_id", bank_account_id)
+                q = q.update({"is_deleted": True}).eq("bank_account_id", bank_account_id)
             else:
-                q = q.delete().neq("id", 0)
+                q = q.update({"is_deleted": True}).neq("id", 0)
             q.execute()
         except Exception as e:
             print(f"[DB] delete_all_card_transactions error: {e}")

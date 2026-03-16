@@ -117,9 +117,9 @@ def delete(row_id):
         db.blind_stock_ledger(row_id, blinded_by=current_user.username)
         _log_action('blind_stock_ledger', target=str(row_id),
                      old_value=old_record)
-        flash(f'이력 #{row_id} 블라인드 처리 완료', 'success')
+        flash(f'이력 #{row_id} 삭제 완료', 'success')
     except Exception as e:
-        flash(f'블라인드 처리 중 오류: {e}', 'danger')
+        flash(f'삭제 처리 중 오류: {e}', 'danger')
 
     return redirect(url_for('history.index'))
 

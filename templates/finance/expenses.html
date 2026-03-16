@@ -66,8 +66,29 @@
     <div class="card-body py-2">
         <div class="d-flex flex-wrap gap-2 align-items-center">
             <div>
+                <label class="form-label mb-0 small text-muted">조회 방식</label>
+                <select id="filterMode" class="form-select form-select-sm" style="width:120px;">
+                    <option value="month">월별</option>
+                    <option value="range">기간별</option>
+                </select>
+            </div>
+            <div id="monthFilterGroup">
                 <label class="form-label mb-0 small text-muted">월 선택</label>
                 <input type="month" id="filterMonth" class="form-control form-control-sm" style="width:160px;">
+            </div>
+            <div id="rangeFilterGroup" style="display:none;" class="d-flex gap-1 align-items-end">
+                <div>
+                    <label class="form-label mb-0 small text-muted">시작일</label>
+                    <input type="date" id="filterDateFrom" class="form-control form-control-sm" style="width:150px;">
+                </div>
+                <span class="text-muted pb-1">~</span>
+                <div>
+                    <label class="form-label mb-0 small text-muted">종료일</label>
+                    <input type="date" id="filterDateTo" class="form-control form-control-sm" style="width:150px;">
+                </div>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadData()" style="height:31px;">
+                    <i class="bi bi-search"></i>
+                </button>
             </div>
             <div>
                 <label class="form-label mb-0 small text-muted">카테고리</label>
@@ -209,7 +230,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const ym = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     document.getElementById('filterMonth').value = ym;
 
+    // 기간별 기본값: 당월 1일 ~ 오늘
+    const today = now.toISOString().slice(0, 10);
+    document.getElementById('filterDateFrom').value = ym + '-01';
+    document.getElementById('filterDateTo').value = today;
+
     loadData();
+
+    // 조회 방식 전환
+    document.getElementById('filterMode').addEventListener('change', function() {
+        const isRange = this.value === 'range';
+        document.getElementById('monthFilterGroup').style.display = isRange ? 'none' : '';
+        document.getElementById('rangeFilterGroup').style.display = isRange ? 'flex' : 'none';
+        loadData();
+    });
 
     document.getElementById('filterMonth').addEventListener('change', loadData);
     document.getElementById('filterCategory').addEventListener('change', loadData);
@@ -218,10 +252,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── 데이터 로드 ──
 function loadData() {
-    const month = document.getElementById('filterMonth').value || '';
+    const mode = document.getElementById('filterMode').value;
     const category = document.getElementById('filterCategory').value || '';
     const params = new URLSearchParams();
-    if (month) params.set('month', month);
+
+    if (mode === 'range') {
+        const dateFrom = document.getElementById('filterDateFrom').value || '';
+        const dateTo = document.getElementById('filterDateTo').value || '';
+        if (dateFrom) params.set('date_from', dateFrom);
+        if (dateTo) params.set('date_to', dateTo);
+    } else {
+        const month = document.getElementById('filterMonth').value || '';
+        if (month) params.set('month', month);
+    }
     if (category) params.set('category', category);
 
     fetch(`/finance/api/expenses?${params}`, {

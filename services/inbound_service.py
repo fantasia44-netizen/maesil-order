@@ -77,4 +77,5 @@ def process_inbound_batch(db, date_str, items, created_by=None):
     return {
         'count': len(payload),
         'warnings': warnings,
+        'batch_ts': ts_ms,
     }

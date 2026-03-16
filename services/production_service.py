@@ -368,6 +368,7 @@ def process_production_batch(db, date_str, location, items, created_by=None):
     payload = []
     prod_count = 0
     raw_count = 0
+    batch_ids = []
 
     for item in items:
         name = str(item.get('product_name', '')).strip()
@@ -378,6 +379,7 @@ def process_production_batch(db, date_str, location, items, created_by=None):
 
         # 이 항목(생산제품)에 대한 고유 batch_id — PRODUCTION+PROD_OUT 연결
         batch_id = f"PROD_{date_str}_{uuid.uuid4().hex[:8]}"
+        batch_ids.append(batch_id)
 
         # PRODUCTION 산출
         payload.append({
@@ -506,4 +508,5 @@ def process_production_batch(db, date_str, location, items, created_by=None):
         'materials_used': raw_count,
         'warnings': warnings,
         'shortage': shortage,
+        'batch_ids': batch_ids,
     }

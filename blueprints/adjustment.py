@@ -179,7 +179,9 @@ def batch():
                      detail=f'{date_str} 재고조정 {result.get("count", 0)}건 '
                             f'(증가 {result.get("increase_count", 0)}건, '
                             f'감소 {result.get("decrease_count", 0)}건, '
-                            f'항목 {len(items)}건)')
+                            f'항목 {len(items)}건)',
+                     new_value={'date': date_str, 'batch_ts': result.get('batch_ts'),
+                                'count': result.get('count', 0)})
         return jsonify({
             'success': True,
             'count': result.get('count', 0),

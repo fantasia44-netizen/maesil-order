@@ -221,7 +221,10 @@ def batch():
                      detail=f'{date_str} {location} 생산 — '
                             f'산출 {result.get("produced", 0)}건, '
                             f'원재료 차감 {result.get("materials_used", 0)}건 '
-                            f'(항목 {len(items)}건)')
+                            f'(항목 {len(items)}건)',
+                     new_value={'date': date_str, 'location': location,
+                                'batch_ids': result.get('batch_ids', []),
+                                'produced': result.get('produced', 0)})
         return jsonify({
             'success': True,
             'produced': result.get('produced', 0),
