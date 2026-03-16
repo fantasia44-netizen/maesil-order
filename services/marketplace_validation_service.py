@@ -70,8 +70,13 @@ def validate_orders(db, channel, date_from, date_to):
         dict: {channel, date_range, summary, amount_comparison, mismatches}
     """
     # API 주문 조회 (페이지네이션 지원)
+    _validation_cols = (
+        "id,channel,api_order_id,api_line_id,order_date,order_status,"
+        "total_amount,settlement_amount,commission,fee_detail,match_status"
+    )
     api_orders_raw = db.query_api_orders(
-        channel=channel, date_from=date_from, date_to=date_to, limit=50000)
+        channel=channel, date_from=date_from, date_to=date_to,
+        limit=50000, columns=_validation_cols)
 
     # 취소/결제대기 등 제외 + N배송(네이버 풀필먼트) 제외
     excluded_count = 0
