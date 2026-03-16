@@ -831,7 +831,8 @@ def test_collect_invoice():
                     continue
 
             try:
-                orders = client.fetch_orders(date_from, date_to)
+                orders = client.fetch_orders(date_from, date_to,
+                                             status_filter='invoice_target')
                 if not orders:
                     channel_status[ch] = '0건'
                     continue
@@ -990,7 +991,8 @@ def test_collect_invoice_preview():
                     continue
 
             try:
-                orders = client.fetch_orders(date_from, date_to)
+                orders = client.fetch_orders(date_from, date_to,
+                                             status_filter='invoice_target')
                 if not orders:
                     channel_status[ch] = '0건'
                     continue

@@ -129,33 +129,45 @@ class NaverCommerceClient(MarketplaceBaseClient):
 
     # ── 주문 조회 ──
 
-    def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """결제일 기준 전체 주문 조회.
+    # 송장 대상 상태 — 결제완료(송장 미입력) 주문만
+    INVOICE_TARGET_STATUSES = ['PAYED']
+
+    def fetch_orders(self, date_from: str, date_to: str,
+                     status_filter: str = None) -> list:
+        """결제일 기준 주문 조회.
 
         네이버 API는 최대 24시간 범위만 허용하므로 자동 분할 처리.
         PAYED_DATETIME 기준으로 조회하여 상태 변경과 무관하게 전체 주문 수집.
+
+        Args:
+            status_filter: 'invoice_target' → 결제완료(PAYED)만 수집
+                           None → 전체 상태 수집 (기존 동작)
         """
         if not self.config.get('access_token'):
             logger.warning('[네이버] 액세스 토큰 없음')
             return []
+
+        statuses = self.INVOICE_TARGET_STATUSES if status_filter == 'invoice_target' else None
 
         all_orders = []
         seen_ids = set()
         windows = self._split_date_range(date_from, date_to)
 
         for win_from, win_to in windows:
-            orders = self._fetch_orders_window(win_from, win_to)
+            orders = self._fetch_orders_window(win_from, win_to, statuses=statuses)
             for o in orders:
                 pid = o.get('api_line_id', '')
                 if pid and pid not in seen_ids:
                     seen_ids.add(pid)
                     all_orders.append(o)
 
-        logger.info(f'[네이버] 총 주문 {len(all_orders)}건 조회 (결제일 기준)')
+        filter_label = f', 필터={statuses}' if statuses else ''
+        logger.info(f'[네이버] 총 주문 {len(all_orders)}건 조회 (결제일 기준{filter_label})')
         return all_orders
 
-    def _fetch_orders_window(self, from_str: str, to_str: str) -> list:
-        """단일 24시간 윈도우에서 전체 주문 조회 (결제일 기준, 페이지네이션)."""
+    def _fetch_orders_window(self, from_str: str, to_str: str,
+                             statuses: list = None) -> list:
+        """단일 24시간 윈도우에서 주문 조회 (결제일 기준, 페이지네이션)."""
         url = f'{self.BASE_URL}/external/v1/pay-order/seller/product-orders'
         orders = []
         page = 1
@@ -169,6 +181,8 @@ class NaverCommerceClient(MarketplaceBaseClient):
                     'pageSize': 100,
                     'page': page,
                 }
+                if statuses:
+                    params['productOrderStatuses'] = statuses
                 resp = self.session.get(url, headers=self._get_headers(),
                                         params=params, timeout=30)
                 if self._handle_rate_limit(resp):

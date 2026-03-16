@@ -84,9 +84,17 @@ class CoupangWingClient(MarketplaceBaseClient):
         'DELIVERING',      # 배송중
         'FINAL_DELIVERY',  # 배송완료
     ]
+    # 송장 대상 — 결제완료(출고 전) 주문만
+    INVOICE_TARGET_STATUSES = ['ACCEPT', 'INSTRUCT']
 
-    def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """주문 목록 조회 — 모든 상태를 순회하여 전체 주문 수집."""
+    def fetch_orders(self, date_from: str, date_to: str,
+                     status_filter: str = None) -> list:
+        """주문 목록 조회 — 상태를 순회하여 주문 수집.
+
+        Args:
+            status_filter: 'invoice_target' → ACCEPT/INSTRUCT만 (출고 전)
+                           None → 전체 상태 수집 (기존 동작)
+        """
         vendor_id = self.config.get('vendor_id', '')
         if not vendor_id:
             logger.warning('[쿠팡] vendor_id 미설정')
@@ -94,8 +102,9 @@ class CoupangWingClient(MarketplaceBaseClient):
 
         path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/ordersheets'
         all_orders = []
+        statuses = self.INVOICE_TARGET_STATUSES if status_filter == 'invoice_target' else self.ORDER_STATUSES
 
-        for status in self.ORDER_STATUSES:
+        for status in statuses:
             next_token = ''
             status_count = 0
 

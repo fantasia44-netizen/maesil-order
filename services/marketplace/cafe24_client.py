@@ -159,8 +159,17 @@ class Cafe24Client(MarketplaceBaseClient):
 
     # ── 주문 조회 ──
 
-    def fetch_orders(self, date_from: str, date_to: str) -> list:
-        """주문 목록 조회."""
+    # 송장 대상 — 결제완료/상품준비중/배송보류 (출고 전)
+    INVOICE_TARGET_STATUSES = ['N10', 'N20', 'N22']
+
+    def fetch_orders(self, date_from: str, date_to: str,
+                     status_filter: str = None) -> list:
+        """주문 목록 조회.
+
+        Args:
+            status_filter: 'invoice_target' → N10/N20/N22만 (출고 전)
+                           None → 전체 상태 수집 (기존 동작)
+        """
         if not self.config.get('access_token'):
             logger.warning('[Cafe24] 액세스 토큰 없음')
             return []
@@ -177,6 +186,8 @@ class Cafe24Client(MarketplaceBaseClient):
                 'offset': offset,
                 'embed': 'items,receivers',  # 상품 상세 + 배송정보 포함
             }
+            if status_filter == 'invoice_target':
+                params['order_status'] = ','.join(self.INVOICE_TARGET_STATUSES)
 
             try:
                 resp = self.session.get(
