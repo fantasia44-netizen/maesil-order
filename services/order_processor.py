@@ -541,6 +541,10 @@ class OrderProcessor:
                                            "failed": len(res), "error": str(db_err)}
 
             res_df = pd.DataFrame(res)
+            # 연락처가 float로 추론되는 것 방지 (50245466097 → 50245466097.0 문제)
+            for _pc in ('p1', 'p2'):
+                if _pc in res_df.columns:
+                    res_df[_pc] = res_df[_pc].astype(str).str.replace(r'\.0$', '', regex=True)
             from services.tz_utils import now_kst
             ts = now_kst().strftime("%Y%m%d_%H%M%S")
             safe_nm = mode.replace("/", "_")
@@ -568,23 +572,25 @@ class OrderProcessor:
                     if not d.empty:
                         inv = []
                         for a_c, gp in d.groupby(['clean_addr'], sort=False):
+                            # 출력순서(sort) 기준 정렬 → NAS/API 동일 순서 보장
+                            gp_sorted = gp.sort_values('sort') if 'sort' in gp.columns else gp
                             if _is_simple:
                                 # 단순 채널: 단(段) 구분 없이 품목명만 나열
                                 items = []
-                                for _, rd in gp.iterrows():
+                                for _, rd in gp_sorted.iterrows():
                                     items.append(f"{rd['display_nm']}x{rd['qty']}")
-                                item_str = ", ".join(items) + f" 총{gp['qty'].sum()}개"
+                                item_str = ", ".join(items) + f" 총{gp_sorted['qty'].sum()}개"
                             else:
                                 # 배마마: 단별 그룹핑 (1단/2단/3단)
                                 stg = {}
-                                for _, rd in gp.iterrows():
+                                for _, rd in gp_sorted.iterrows():
                                     c = rd['code']
                                     if c not in stg:
                                         stg[c] = []
                                     stg[c].append(f"{rd['display_nm']}x{rd['qty']}")
                                 item_str = " ".join(
                                     [f"{s_nms.get(k, f'{k}라인')}({', '.join(v)})" for k, v in sorted(stg.items()) if v]
-                                ) + f" 총{gp['qty'].sum()}개"
+                                ) + f" 총{gp_sorted['qty'].sum()}개"
                             rep = gp.iloc[0]
                             inv.append([
                                 rep['name'], "", rep['addr'], rep['p1'], rep['p2'],
