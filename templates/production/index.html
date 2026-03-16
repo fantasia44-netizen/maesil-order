@@ -12,20 +12,13 @@
                 <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <!-- 기준일 + 모드 + 위치 -->
+                <!-- 기준일 + 위치 -->
                 <div class="row mb-3">
-                    <div class="col-sm-3">
+                    <div class="col-sm-4">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" id="prodDate" class="form-control" required>
                     </div>
                     <div class="col-sm-4">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select id="prodMode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 생산 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="col-sm-3">
                         <label class="form-label fw-semibold">생산 위치</label>
                         <select id="prodLocation" class="form-select">
                             <option value="">선택</option>
@@ -202,37 +195,10 @@
         </div>
     </div>
 
-    <!-- 엑셀 + PDF -->
+    <!-- PDF + 결과 -->
     <div class="col-lg-4">
-        <div class="card">
-            <div class="card-header"><i class="bi bi-file-earmark-excel"></i> 엑셀 생산 업로드</div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('production.excel_upload') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (기존 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">필수: 품목명, 생산수량, 창고위치</div>
-                    </div>
-                    <button type="submit" class="btn btn-warning w-100">
-                        <i class="bi bi-upload"></i> 엑셀 생산 업로드
-                    </button>
-                </form>
-            </div>
-        </div>
-
         <!-- 생산일지 PDF -->
-        <div class="card mt-3">
+        <div class="card">
             <div class="card-header"><i class="bi bi-file-earmark-pdf"></i> 생산일지 PDF</div>
             <div class="card-body">
                 <form method="GET" action="{{ url_for('production.log_pdf') }}" class="row g-2 align-items-end">
@@ -340,7 +306,6 @@
     let editMode = isAdmin;
 
     const dateInput = document.getElementById('prodDate');
-    const modeSelect = document.getElementById('prodMode');
     const locSelect = document.getElementById('prodLocation');
     const prodNameInput = document.getElementById('prodNameInput');
     const prodQtyInput = document.getElementById('prodQtyInput');
@@ -627,15 +592,11 @@
     // 일괄 생산 처리
     submitBtn.addEventListener('click', async function() {
         const dateVal = dateInput.value;
-        const modeVal = modeSelect.value;
         const locVal = locSelect.value;
         if (!dateVal) { alert('기준일을 입력하세요.'); return; }
         if (!locVal) { alert('생산 위치를 선택하세요.'); return; }
         if (!pendingItems.length) return;
-        const msg = modeVal === '수정입력'
-            ? `${dateVal} 기존 생산 삭제 후 ${pendingItems.length}건 재입력합니다.`
-            : `${pendingItems.length}건 생산 처리하시겠습니까?`;
-        if (!confirm(msg)) return;
+        if (!confirm(`${pendingItems.length}건 생산 처리하시겠습니까?`)) return;
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
@@ -643,7 +604,7 @@
             const res = await fetch(BATCH_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
-                body: JSON.stringify({ date: dateVal, mode: modeVal, location: locVal, items: pendingItems }),
+                body: JSON.stringify({ date: dateVal, location: locVal, items: pendingItems }),
             });
             // 세션 만료 등으로 로그인 페이지 리다이렉트 감지
             const ct = res.headers.get('content-type') || '';
@@ -660,7 +621,6 @@
             else {
                 let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i> 생산 완료:
                     산출 <strong>${data.produced}건</strong>, 재료 차감 <strong>${data.materials_used}건</strong></p>`;
-                if (data.deleted_count) html += `<p class="mb-1 text-info small">기존 ${data.deleted_count}건 삭제 후 재입력</p>`;
                 if (data.warnings && data.warnings.length) {
                     html += '<hr class="my-1"><ul class="mb-0 small">';
                     data.warnings.forEach(w => html += `<li class="text-warning">${escapeHtml(w)}</li>`);
@@ -751,7 +711,7 @@
     };
     // 개별 삭제 (admin)
     window._deleteHist = function(id) {
-        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        if(!confirm('이 이력을 블라인드 처리하시겠습니까? (DB에서 비활성화되며 복원 가능합니다)')) return;
         fetch(`/production/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
             .then(r => {
                 const ct = r.headers.get('content-type') || '';

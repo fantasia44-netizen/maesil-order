@@ -52,6 +52,7 @@ def generate_repack_doc_no(db, date_str):
     date_part = date_str.replace('-', '')
     try:
         res = db.client.table("stock_ledger").select("repack_doc_no") \
+            .eq("status", "active") \
             .eq("transaction_date", date_str) \
             .in_("type", ["REPACK_OUT", "REPACK_IN"]) \
             .execute()
@@ -68,6 +69,11 @@ def generate_repack_doc_no(db, date_str):
 
 
 def process_repack(db, excel_df, date_str, mode="신규입력"):
+    """엑셀 소분 기능은 비활성화되었습니다."""
+    raise NotImplementedError("엑셀 소분 기능은 비활성화되었습니다. 시스템 입력을 사용하세요.")
+
+
+def _process_repack_original(db, excel_df, date_str, mode="신규입력"):
     """소분(리패킹) 엑셀 업로드 처리.
 
     벌크/대포장 투입품을 FIFO로 차감(REPACK_OUT)하고 산출품을 입고(REPACK_IN)합니다.
@@ -397,13 +403,12 @@ def process_repack(db, excel_df, date_str, mode="신규입력"):
     }
 
 
-def process_repack_batch(db, date_str, mode, location, items):
+def process_repack_batch(db, date_str, location, items, created_by=None):
     """시스템 입력 다건 소분 처리.
 
     Args:
         db: SupabaseDB instance
         date_str: 작업일자 (YYYY-MM-DD)
-        mode: "신규입력" or "수정입력"
         location: 작업 위치/창고
         items: [{
             product_name: str (산출품),
@@ -411,9 +416,10 @@ def process_repack_batch(db, date_str, mode, location, items):
             category, unit, storage_method, expiry_date, manufacture_date, lot_number,
             materials: [{product_name, qty}]  (투입품)
         }]
+        created_by: 작성자 (optional)
 
     Returns:
-        dict: {repack_in_count, repack_out_count, warnings, deleted_count, doc_nos}
+        dict: {repack_in_count, repack_out_count, warnings, doc_nos}
     """
     _validate_date(date_str)
 
@@ -456,25 +462,6 @@ def process_repack_batch(db, date_str, mode, location, items):
     if shortage:
         raise ValueError("투입품 재고 부족:\n" + "\n".join(shortage))
 
-    # ── 수정입력: 올리는 품목만 삭제 (입고/생산과 동일 패턴) ──
-    deleted_count = 0
-    if mode == "수정입력":
-        target_names = set()
-        for item in items:
-            out_n = str(item.get('product_name', '')).strip()
-            if out_n:
-                target_names.add(out_n)
-            for mat in item.get('materials', []):
-                mat_n = str(mat.get('product_name', '')).strip()
-                if mat_n:
-                    target_names.add(mat_n)
-        if target_names:
-            del1 = db.delete_stock_ledger_by(date_str, "REPACK_OUT", product_names=target_names)
-            del2 = db.delete_stock_ledger_by(date_str, "REPACK_IN", product_names=target_names)
-            deleted_count = del1 + del2
-        # 수정입력 후 스냅샷 재로드
-        snapshot = _load_stock_snapshot(db, loc) if loc else {}
-
     # ── 문서번호 생성 ──
     doc_no = generate_repack_doc_no(db, date_str)
 
@@ -506,6 +493,8 @@ def process_repack_batch(db, date_str, mode, location, items):
             "food_type": str(item.get('food_type', '')).strip(),
             "lot_number": str(item.get('lot_number', '')).strip() or None,
             "repack_doc_no": doc_no,
+            "created_by": created_by,
+            "status": "active",
         })
         repack_in_count += 1
 
@@ -532,6 +521,8 @@ def process_repack_batch(db, date_str, mode, location, items):
                     "qty": -remain,
                     "location": loc,
                     "repack_doc_no": doc_no,
+                    "created_by": created_by,
+                    "status": "active",
                     "unit": '개',
                 })
                 repack_out_count += 1
@@ -553,6 +544,8 @@ def process_repack_batch(db, date_str, mode, location, items):
                         "storage_method": g.get('storage_method', ''),
                         "unit": g.get('unit', '개'),
                         "repack_doc_no": doc_no,
+                        "created_by": created_by,
+                        "status": "active",
                     })
                     g['qty'] -= deduct
                     remain -= deduct
@@ -562,18 +555,12 @@ def process_repack_batch(db, date_str, mode, location, items):
         raise ValueError("생성할 소분 거래가 없습니다.")
 
     # ── DB 저장 ──
-    try:
-        db.insert_stock_ledger(payload)
-    except Exception as e:
-        if mode == "수정입력" and deleted_count > 0:
-            warnings.append(f"주의: 기존 {deleted_count}건이 삭제되었으나 새 데이터 저장에 실패했습니다. 수정입력으로 재시도하세요.")
-        raise
+    db.insert_stock_ledger(payload)
 
     return {
         "repack_in_count": repack_in_count,
         "repack_out_count": repack_out_count,
         "warnings": warnings,
-        "deleted_count": deleted_count,
         "doc_nos": [doc_no],
     }
 

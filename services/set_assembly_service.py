@@ -105,7 +105,7 @@ def explode_bom(bom_lookup, set_name, channel, multiplier=1, _visited=None):
 
 def process_set_assembly(db, date_str, set_name, channel, location, qty,
                          sub_materials=None, storage_method_override=None,
-                         food_type=None):
+                         food_type=None, created_by=None):
     """세트작업 처리 메인 함수.
 
     Args:
@@ -317,7 +317,10 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
     payload.append(set_in_payload)
     set_in_count = 1
 
-    # 8. DB 삽입
+    # 8. DB 삽입 — created_by / status 일괄 주입
+    for p in payload:
+        p['created_by'] = created_by
+        p['status'] = 'active'
     try:
         db.insert_stock_ledger(payload)
     except Exception as e:

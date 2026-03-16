@@ -13,7 +13,7 @@ def _validate_date(date_str):
         raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
 
 
-def process_adjustment_batch(db, date_str, items):
+def process_adjustment_batch(db, date_str, items, created_by=None):
     """다건 재고 조정 처리.
 
     Args:
@@ -85,6 +85,8 @@ def process_adjustment_batch(db, date_str, items):
             "qty": qty,
             "location": location,
             "memo": memo,
+            "created_by": created_by,
+            "status": "active",
         }
         if unit:
             row["unit"] = unit

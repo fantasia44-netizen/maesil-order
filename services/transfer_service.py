@@ -30,7 +30,7 @@ def _load_stock_snapshot(db, location):
 
 
 def process_manual_transfer(db, product_name, qty, from_location, to_location,
-                            date_str, mode="신규입력", lot_number=None, grade=None):
+                            date_str, lot_number=None, grade=None, created_by=None):
     """수동 창고 이동 (FIFO 자동 상속).
 
     Args:
@@ -40,13 +40,12 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
         from_location: 현재 창고 (정규화 전)
         to_location: 이동 창고 (정규화 전)
         date_str: 이동 일자 (YYYY-MM-DD)
-        mode: "신규입력" or "수정입력"
+        created_by: 작성자 (선택)
 
     Returns:
         dict: {
             "moved_count": int,   # 이동 처리된 FIFO 그룹 수
             "warnings": list,     # 경고 메시지 목록
-            "deleted_count": int  # 수정입력 시 삭제된 기존 건수
         }
 
     Raises:
@@ -69,14 +68,8 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
     dst = normalize_location(to_location)
 
     warnings = []
-    deleted_count = 0
 
-    # 기존 이동 기록 삭제 (신규/수정 모두 — 중복 방지, 해당 품목+창고만)
-    del1 = db.delete_stock_ledger_by(date_str, "MOVE_OUT", location=src, product_names={name})
-    del2 = db.delete_stock_ledger_by(date_str, "MOVE_IN", location=dst, product_names={name})
-    deleted_count = del1 + del2
-
-    # 재고 스냅샷 로드 (삭제된 후 로드해야 정확)
+    # 재고 스냅샷 로드
     stock = _load_stock_snapshot(db, src)
     _snap = snapshot_lookup(stock, name)
     groups = _snap.get('groups', [])
@@ -101,6 +94,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
             "manufacture_date": '',
             "lot_number": req_lot or None, "grade": req_grade or None,
             "transfer_id": transfer_id,
+            "created_by": created_by, "status": "active",
         })
         payload.append({
             "transaction_date": date_str, "type": "MOVE_IN",
@@ -108,6 +102,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
             "manufacture_date": '',
             "lot_number": req_lot or None, "grade": req_grade or None,
             "transfer_id": transfer_id,
+            "created_by": created_by, "status": "active",
         })
     else:
         # 이력번호 지정 시 해당 lot 그룹만 대상
@@ -134,6 +129,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "lot_number": g.get('lot_number', '') or None,
                 "grade": g.get('grade', '') or None,
                 "transfer_id": transfer_id,
+                "created_by": created_by, "status": "active",
             })
             payload.append({
                 "transaction_date": date_str, "type": "MOVE_IN",
@@ -148,6 +144,7 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
                 "lot_number": g.get('lot_number', '') or None,
                 "grade": g.get('grade', '') or None,
                 "transfer_id": transfer_id,
+                "created_by": created_by, "status": "active",
             })
             remain -= deduct
 
@@ -156,143 +153,9 @@ def process_manual_transfer(db, product_name, qty, from_location, to_location,
     return {
         "moved_count": len(payload) // 2,
         "warnings": warnings,
-        "deleted_count": deleted_count,
     }
 
 
-def process_transfer_excel(db, excel_df, date_str, mode="신규입력"):
-    """엑셀 일괄 창고 이동 (FIFO 자동 상속).
-
-    Args:
-        db: SupabaseDB instance
-        excel_df: pandas DataFrame (컬럼: 품목명, 현재창고위치, 이동창고위치, 수량입력)
-        date_str: 이동 일자 (YYYY-MM-DD)
-        mode: "신규입력" or "수정입력"
-
-    Returns:
-        dict: {
-            "count": int,         # 이동 처리된 건수 (MOVE_OUT/MOVE_IN 쌍 수)
-            "warnings": list,     # 경고 메시지 목록
-            "deleted_count": int  # 수정입력 시 삭제된 기존 건수
-        }
-
-    Raises:
-        ValueError: 날짜 형식 오류
-        KeyError: 필수 컬럼 누락
-        Exception: DB 오류
-    """
-    _validate_date(date_str)
-
-    df = excel_df.fillna("")
-    warnings = []
-    deleted_count = 0
-
-    # transfer_id 생성
-    try:
-        from core.validation_engine import generate_transaction_id
-    except ImportError:
-        generate_transaction_id = lambda: None
-
-    # 기존 이동 기록 삭제 (신규/수정 모두 — 중복 방지)
-    # 엑셀에 있는 품목+창고 조합만 정밀 삭제
-    _del_names = set()
-    _del_locs = set()
-    for _, row in df.iterrows():
-        _nm = str(row['품목명']).strip()
-        _src = normalize_location(row['현재창고위치'])
-        _dst = normalize_location(row['이동창고위치'])
-        if _nm:
-            _del_names.add(_nm)
-        if _src:
-            _del_locs.add(_src)
-        if _dst:
-            _del_locs.add(_dst)
-    if _del_names:
-        for _loc in _del_locs:
-            deleted_count += db.delete_stock_ledger_by(date_str, "MOVE_OUT", location=_loc, product_names=_del_names)
-            deleted_count += db.delete_stock_ledger_by(date_str, "MOVE_IN", location=_loc, product_names=_del_names)
-
-    # 재고 스냅샷 캐시 (창고별)
-    snapshots = {}
-
-    # 1단계: 재고 부족 체크
-    shortage = []
-    for _, row in df.iterrows():
-        name = str(row['품목명']).strip()
-        src = normalize_location(row['현재창고위치'])
-        move_qty = int(row['수량입력'])
-        if src not in snapshots:
-            snapshots[src] = _load_stock_snapshot(db, src)
-        _snap = snapshot_lookup(snapshots[src], name)
-        total = _snap.get('total', 0)
-        u = _snap.get('unit', '개')
-        if move_qty > total:
-            shortage.append(f"[{src}] {name}: 요청 {move_qty}{u} / 재고 {total}{u}")
-
-    if shortage:
-        warnings.extend([f"재고 부족: {s}" for s in shortage])
-
-    # 2단계: FIFO 이동 payload 생성
-    payload = []
-    for _, row in df.iterrows():
-        name = str(row['품목명']).strip()
-        src = normalize_location(row['현재창고위치'])
-        dst = normalize_location(row['이동창고위치'])
-        remain = int(row['수량입력'])
-        tid = generate_transaction_id()
-
-        groups = snapshot_lookup(snapshots[src], name).get('groups', [])
-
-        if not groups:
-            payload.append({
-                "transaction_date": date_str, "type": "MOVE_OUT",
-                "product_name": name, "qty": -remain, "location": src,
-                "manufacture_date": '', "transfer_id": tid,
-            })
-            payload.append({
-                "transaction_date": date_str, "type": "MOVE_IN",
-                "product_name": name, "qty": remain, "location": dst,
-                "manufacture_date": '', "transfer_id": tid,
-            })
-        else:
-            for g in groups:
-                if remain <= 0:
-                    break
-                deduct = min(remain, g['qty'])
-                payload.append({
-                    "transaction_date": date_str, "type": "MOVE_OUT",
-                    "product_name": name,
-                    "qty": -deduct, "location": src,
-                    "category": g['category'], "expiry_date": g['expiry_date'],
-                    "storage_method": g['storage_method'],
-                    "unit": g.get('unit', '개'),
-                    "origin": g.get('origin', ''),
-                    "manufacture_date": g.get('manufacture_date', ''),
-                    "food_type": g.get('food_type', ''),
-                    "lot_number": g.get('lot_number', '') or None,
-                    "grade": g.get('grade', '') or None,
-                    "transfer_id": tid,
-                })
-                payload.append({
-                    "transaction_date": date_str, "type": "MOVE_IN",
-                    "product_name": name,
-                    "qty": deduct, "location": dst,
-                    "category": g['category'], "expiry_date": g['expiry_date'],
-                    "storage_method": g['storage_method'],
-                    "unit": g.get('unit', '개'),
-                    "origin": g.get('origin', ''),
-                    "manufacture_date": g.get('manufacture_date', ''),
-                    "food_type": g.get('food_type', ''),
-                    "lot_number": g.get('lot_number', '') or None,
-                    "grade": g.get('grade', '') or None,
-                    "transfer_id": tid,
-                })
-                remain -= deduct
-
-    db.insert_stock_ledger(payload)
-
-    return {
-        "count": len(payload) // 2,
-        "warnings": warnings,
-        "deleted_count": deleted_count,
-    }
+def process_transfer_excel(db, excel_df, date_str, **kwargs):
+    """엑셀 일괄 창고 이동 — 비활성화됨."""
+    raise NotImplementedError("엑셀 이동 기능은 비활성화되었습니다. 시스템 입력을 사용하세요.")

@@ -91,11 +91,11 @@ def api_history():
 @adjustment_bp.route('/api/delete/<int:record_id>', methods=['POST'])
 @role_required('admin')
 def api_delete(record_id):
-    """개별 조정 이력 삭제 (admin 전용)"""
+    """개별 조정 이력 블라인드 처리 (admin 전용)"""
     try:
         old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.delete_stock_ledger_by_id(record_id)
-        _log_action('delete_adjustment', target=str(record_id),
+        current_app.db.blind_stock_ledger(record_id, blinded_by=current_user.username)
+        _log_action('blind_adjustment', target=str(record_id),
                      old_value=old_record)
         return jsonify({'success': True})
     except Exception as e:
@@ -129,11 +129,11 @@ def api_update(record_id):
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
-        old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.update_stock_ledger(record_id, update_data)
-        _log_action('update_adjustment', target=str(record_id),
-                     old_value=old_record, new_value=update_data)
-        return jsonify({'success': True})
+        result = current_app.db.replace_stock_ledger(
+            record_id, update_data, replaced_by_user=current_user.username)
+        _log_action('replace_adjustment', target=str(record_id),
+                     old_value=result.get('old_record'), new_value=update_data)
+        return jsonify({'success': True, 'new_id': result.get('new_id')})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -172,7 +172,9 @@ def batch():
 
     try:
         from services.adjustment_service import process_adjustment_batch
-        result = process_adjustment_batch(current_app.db, date_str, items)
+        result = process_adjustment_batch(
+            current_app.db, date_str, items,
+            created_by=current_user.username)
         _log_action('batch_adjustment',
                      detail=f'{date_str} 재고조정 {result.get("count", 0)}건 '
                             f'(증가 {result.get("increase_count", 0)}건, '

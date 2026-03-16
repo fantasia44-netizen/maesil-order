@@ -1,7 +1,8 @@
 """
 inbound_service.py — 입고 관리 비즈니스 로직.
-시스템 입력(다건 배치) 처리.
+시스템 입력(다건 배치) 처리. 순수 누적 INSERT 방식.
 """
+import time
 from datetime import datetime
 from services.excel_io import safe_date, normalize_location, safe_qty
 
@@ -13,25 +14,24 @@ def _validate_date(date_str):
         raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
 
 
-def process_inbound_batch(db, date_str, mode, items):
-    """시스템 입력 다건 입고 처리.
+def process_inbound_batch(db, date_str, items, created_by=None):
+    """시스템 입력 다건 입고 처리 (누적 INSERT).
 
     Args:
         db: SupabaseDB instance
         date_str: 입고일자 (YYYY-MM-DD)
-        mode: '신규입력' or '수정입력'
         items: list of dicts:
             {product_name, qty, location, category, unit,
              expiry_date, storage_method, manufacture_date,
              origin?, lot_number?, grade?}
+        created_by: 작업자명
 
     Returns:
-        dict: {count, warnings, deleted_count}
+        dict: {count, warnings}
     """
     # ── 1차 실시간 검증 (Validation Engine) ──
     try:
         from core.validation_engine import validate
-        # 입고 payload 형식으로 변환하여 검증
         validate.inbound(db, date_str, items)
     except ImportError:
         pass  # core 미설치 시 기존 동작 유지
@@ -39,20 +39,10 @@ def process_inbound_batch(db, date_str, mode, items):
     _validate_date(date_str)
 
     warnings = []
-    deleted_count = 0
-
-    # 올리는 품목의 기존 기록 삭제 (신규/수정 모두 — 중복 방지)
-    target_names = set()
-    for item in items:
-        nm = str(item.get('product_name', '')).strip()
-        if nm:
-            target_names.add(nm)
-    if target_names:
-        deleted_count = db.delete_stock_ledger_by(
-            date_str, "INBOUND", product_names=target_names)
+    ts_ms = int(time.time() * 1000)
 
     payload = []
-    for item in items:
+    for idx, item in enumerate(items):
         name = str(item.get('product_name', '')).strip()
         unit = str(item.get('unit', '개')).strip() or '개'
         qty = safe_qty(item.get('qty', 0), unit=unit)
@@ -76,18 +66,15 @@ def process_inbound_batch(db, date_str, mode, items):
             "origin": str(item.get('origin', '')).strip() or None,
             "lot_number": str(item.get('lot_number', '')).strip() or None,
             "grade": str(item.get('grade', '')).strip() or None,
+            "event_uid": f"INB:{date_str}:{location}:{name}:{ts_ms}:{idx}",
+            "created_by": created_by,
+            "status": "active",
         })
 
     if payload:
-        try:
-            db.insert_stock_ledger(payload)
-        except Exception as e:
-            if mode == '수정입력' and deleted_count > 0:
-                warnings.append(f"주의: 기존 {deleted_count}건이 삭제되었으나 새 데이터 저장에 실패했습니다. 수정입력으로 재시도하세요.")
-            raise
+        db.insert_stock_ledger(payload)
 
     return {
         'count': len(payload),
         'warnings': warnings,
-        'deleted_count': deleted_count,
     }

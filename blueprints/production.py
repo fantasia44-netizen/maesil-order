@@ -121,11 +121,11 @@ def api_history():
 @production_bp.route('/api/delete/<int:record_id>', methods=['POST'])
 @role_required('admin')
 def api_delete(record_id):
-    """개별 생산 이력 삭제 (admin 전용)"""
+    """개별 생산 이력 블라인드 처리 (admin 전용)"""
     try:
         old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.delete_stock_ledger_by_id(record_id)
-        _log_action('delete_production', target=str(record_id),
+        current_app.db.blind_stock_ledger(record_id, blinded_by=current_user.username)
+        _log_action('blind_production', target=str(record_id),
                      old_value=old_record)
         return jsonify({'success': True})
     except Exception as e:
@@ -160,11 +160,11 @@ def api_update(record_id):
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
-        old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.update_stock_ledger(record_id, update_data)
-        _log_action('update_production', target=str(record_id),
-                     old_value=old_record, new_value=update_data)
-        return jsonify({'success': True})
+        result = current_app.db.replace_stock_ledger(
+            record_id, update_data, replaced_by_user=current_user.username)
+        _log_action('replace_production', target=str(record_id),
+                     old_value=result.get('old_record'), new_value=update_data)
+        return jsonify({'success': True, 'new_id': result.get('new_id')})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -181,7 +181,6 @@ def batch():
 
     items = data.get('items', [])
     date_str = data.get('date', today_kst())
-    mode = data.get('mode', '신규입력')
     location = data.get('location', '')
 
     if not items:
@@ -216,18 +215,18 @@ def batch():
     try:
         from services.production_service import process_production_batch
         result = process_production_batch(
-            current_app.db, date_str, mode, location, items)
+            current_app.db, date_str, location, items,
+            created_by=current_user.username)
         _log_action('batch_production',
                      detail=f'{date_str} {location} 생산 — '
                             f'산출 {result.get("produced", 0)}건, '
                             f'원재료 차감 {result.get("materials_used", 0)}건 '
-                            f'(모드: {mode}, 항목 {len(items)}건)')
+                            f'(항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'produced': result.get('produced', 0),
             'materials_used': result.get('materials_used', 0),
             'warnings': result.get('warnings', []),
-            'deleted_count': result.get('deleted_count', 0),
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -240,48 +239,8 @@ def batch():
 @production_bp.route('/excel', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production')
 def excel_upload():
-    """생산 엑셀 업로드 → DB 반영 (생산 산출 + 원재료 차감)"""
-    file = request.files.get('file')
-    if not file or not _allowed(file.filename):
-        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
-        return redirect(url_for('production.index'))
-
-    date_str = request.form.get('date', today_kst())
-    mode = request.form.get('mode', '신규입력')
-
-    upload_dir = current_app.config['UPLOAD_FOLDER']
-    os.makedirs(upload_dir, exist_ok=True)
-    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'xlsx'
-    fname = f"prod_{now_kst().strftime('%H%M%S%f')}.{ext}"
-    filepath = os.path.join(upload_dir, fname)
-    file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'production')
-
-    try:
-        from services.production_service import process_production
-        df = pd.read_excel(filepath).fillna("")
-        result = process_production(current_app.db, df, date_str, mode)
-
-        if result.get('warnings'):
-            for w in result['warnings']:
-                flash(w, 'warning')
-
-        _log_action('excel_production',
-                     detail=f'{file.filename}: {date_str} 생산 — '
-                            f'산출 {result.get("produced", 0)}건, '
-                            f'원재료 차감 {result.get("materials_used", 0)}건 '
-                            f'(모드: {mode})')
-        flash(f"생산 처리 완료: 산출 {result.get('produced', 0)}건, "
-              f"원재료 차감 {result.get('materials_used', 0)}건"
-              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
-              'success')
-    except Exception as e:
-        flash(f'생산 처리 중 오류: {e}', 'danger')
-    finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-    return redirect(url_for('production.index'))
+    """생산 엑셀 업로드 — 비활성화 (추후 재구현)"""
+    return jsonify({'error': '엑셀 업로드 기능은 비활성화되었습니다. 추후 재구현 예정입니다.'}), 410
 
 
 # ── 생산일지 PDF ──

@@ -419,8 +419,8 @@
                     const dBtn = document.createElement('button');
                     dBtn.type = 'button';
                     dBtn.className = 'btn btn-outline-danger btn-sm py-0 px-1 ms-1';
-                    dBtn.title = '삭제';
-                    dBtn.innerHTML = '<i class="bi bi-trash3"></i>';
+                    dBtn.title = '블라인드';
+                    dBtn.innerHTML = '<i class="bi bi-eye-slash"></i>';
                     dBtn.addEventListener('click', function(e) { e.stopPropagation(); window._deleteHist(String(r.id)); });
                     td.appendChild(eBtn);
                     td.appendChild(dBtn);
@@ -451,10 +451,10 @@
     };
     // 개별 삭제 (admin)
     window._deleteHist = function(id) {
-        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        if(!confirm('이 이력을 블라인드 처리하시겠습니까?')) return;
         fetch(`/adjustment/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
             .then(r=>r.json())
-            .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('삭제 실패: '+(data.error||'')); })
+            .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('블라인드 처리 실패: '+(data.error||'')); })
             .catch(e=>alert('통신 오류: '+e));
     };
 

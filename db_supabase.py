@@ -235,9 +235,12 @@ class SupabaseDB(DBBase):
         return len(res.data) if res.data else 0
 
     def query_stock_ledger(self, date_to, date_from=None, location=None,
-                            category=None, type_list=None, order_desc=False):
+                            category=None, type_list=None, order_desc=False,
+                            include_blind=False):
         def builder(table):
             q = self.client.table(table).select("*")
+            if not include_blind:
+                q = q.eq("status", "active")
             q = q.lte("transaction_date", date_to)
             if date_from:
                 q = q.gte("transaction_date", date_from)
@@ -259,12 +262,14 @@ class SupabaseDB(DBBase):
         sel_str = ",".join(select_fields) if select_fields else "*"
 
         def builder(table):
-            return self.client.table(table).select(sel_str).eq("location", location).order("id")
+            return self.client.table(table).select(sel_str) \
+                .eq("status", "active").eq("location", location).order("id")
         return self._paginate_query("stock_ledger", builder)
 
     def query_filter_options(self):
         def builder(table):
-            return self.client.table(table).select("location,category").order("id")
+            return self.client.table(table).select("location,category") \
+                .eq("status", "active").order("id")
         all_vals = self._paginate_query("stock_ledger", builder)
         locs = sorted(set(r['location'] for r in all_vals if r.get('location')))
         cats = sorted(set(r['category'] for r in all_vals if r.get('category')))
@@ -280,7 +285,8 @@ class SupabaseDB(DBBase):
         logger = logging.getLogger(__name__)
         try:
             rows = self._paginate_query("stock_ledger",
-                lambda t: self.client.table(t).select("product_name,category").order("id", desc=True))
+                lambda t: self.client.table(t).select("product_name,category")
+                    .eq("status", "active").order("id", desc=True))
             cat_map = {}
             for r in rows:
                 name = (r.get('product_name') or '').strip()
@@ -303,7 +309,8 @@ class SupabaseDB(DBBase):
     def query_unique_product_names(self):
         """stock_ledger에서 고유 품목명+단위 목록 반환 (양수 재고 기준)."""
         def builder(table):
-            return self.client.table(table).select("product_name,qty,unit").order("id")
+            return self.client.table(table).select("product_name,qty,unit") \
+                .eq("status", "active").order("id")
         all_data = self._paginate_query("stock_ledger", builder)
         totals = {}
         units = {}
@@ -319,7 +326,7 @@ class SupabaseDB(DBBase):
     def query_unit_for_product(self, product_name):
         try:
             res = self.client.table("stock_ledger").select("unit") \
-                .eq("product_name", product_name).limit(1).execute()
+                .eq("status", "active").eq("product_name", product_name).limit(1).execute()
             if res.data:
                 return res.data[0].get('unit') or ''
             return None
@@ -1328,13 +1335,14 @@ class SupabaseDB(DBBase):
         self.client.table("audit_logs").update(update_data) \
             .eq("id", log_id).execute()
 
-    # --- 소프트 삭제 지원 ---
+    # --- 소프트 삭제 / 블라인드 / 교체 지원 ---
 
     def soft_delete_stock_ledger(self, row_id, deleted_by=None):
         """stock_ledger 소프트 삭제 (is_deleted=True). 원본 데이터 보존."""
         from datetime import datetime, timezone
         update = {
             'is_deleted': True,
+            'status': 'cancelled',
             'deleted_at': datetime.now(timezone.utc).isoformat(),
         }
         if deleted_by:
@@ -1342,9 +1350,55 @@ class SupabaseDB(DBBase):
         self.client.table("stock_ledger").update(update) \
             .eq("id", row_id).execute()
 
-    def restore_stock_ledger(self, row_id):
-        """stock_ledger 소프트 삭제 복원."""
+    def blind_stock_ledger(self, row_id, blinded_by=None):
+        """stock_ledger 블라인드 처리 (status='cancelled'). 원본 이력 보존."""
+        from datetime import datetime, timezone
+        update = {
+            'status': 'cancelled',
+            'is_deleted': True,
+            'deleted_at': datetime.now(timezone.utc).isoformat(),
+        }
+        if blinded_by:
+            update['deleted_by'] = blinded_by
+        self.client.table("stock_ledger").update(update) \
+            .eq("id", row_id).execute()
+
+    def replace_stock_ledger(self, old_id, new_payload, replaced_by_user=None):
+        """수정: 원본을 블라인드(replaced) 처리하고 새 레코드 INSERT. 양방향 링크.
+
+        Returns:
+            int: 새 레코드 ID
+        """
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # 1) 원본 status → 'replaced'
         self.client.table("stock_ledger").update({
+            'status': 'replaced',
+            'updated_at': now_iso,
+            'updated_by': replaced_by_user,
+        }).eq("id", old_id).execute()
+
+        # 2) 새 레코드 INSERT
+        new_payload['replaces'] = old_id
+        new_payload['created_by'] = replaced_by_user
+        new_payload['status'] = 'active'
+        filtered = self._filter_payload([new_payload])
+        res = self.client.table("stock_ledger").insert(filtered).execute()
+        new_id = res.data[0]['id'] if res.data else None
+
+        # 3) 원본에 replaced_by 링크
+        if new_id:
+            self.client.table("stock_ledger").update({
+                'replaced_by': new_id,
+            }).eq("id", old_id).execute()
+
+        return new_id
+
+    def restore_stock_ledger(self, row_id):
+        """stock_ledger 블라인드/삭제 복원 (status → 'active')."""
+        self.client.table("stock_ledger").update({
+            'status': 'active',
             'is_deleted': False,
             'deleted_at': None,
             'deleted_by': None,

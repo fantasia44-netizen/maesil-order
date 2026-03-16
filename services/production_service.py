@@ -107,72 +107,19 @@ def _check_unit_mismatch_result(df, db, unit_col='단위'):
 # ─── 입고 처리 ───
 
 def process_inbound(db, excel_df, date_str, mode='신규입력'):
-    """입고 엑셀 데이터를 DB에 등록.
-    app.py의 run_inbound_ledger 로직과 동일.
-
-    Args:
-        db: SupabaseDB instance
-        excel_df: pd.DataFrame -- 이미 pd.read_excel().fillna("") 된 상태
-        date_str: 처리일자 (YYYY-MM-DD)
-        mode: '신규입력' 또는 '수정입력'
-
-    Returns:
-        dict: {
-            'success': bool,
-            'count': int,              -- 등록 건수
-            'warnings': list of str,   -- 경고 메시지
-            'is_past_date': bool,      -- 과거 날짜 여부
-            'unit_check': dict,        -- 단위 불일치 결과
-            'deleted_count': int,      -- 수정입력 시 삭제 건수
-            'mode': str,               -- 처리 모드
-        }
-
-    Raises:
-        ValueError: 날짜 형식 오류
-        Exception: DB 오류 등
-    """
-    _validate_date(date_str)
-
-    df = flexible_column_rename(excel_df)
-
-    # 단위 불일치 검사
-    unit_check = _check_unit_mismatch_result(df, db)
-
-    warnings = []
-    if unit_check['mismatch']:
-        warnings.append("단위 불일치 품목:\n" + "\n".join(unit_check['mismatch']))
-    if unit_check['no_unit']:
-        warnings.append("DB에 단위 미설정 품목:\n" + "\n".join(unit_check['no_unit']))
-
-    from services.tz_utils import today_kst
-    is_past_date = date_str < today_kst()
-
-    payload = parse_inbound_payload(df, date_str)
-
-    # 올리는 품목의 기존 기록 삭제 (신규/수정 모두 — 중복 방지)
-    deleted_count = 0
-    target_names = set(p['product_name'] for p in payload if p.get('product_name'))
-    if target_names:
-        deleted_count = db.delete_stock_ledger_by(
-            date_str, "INBOUND", product_names=target_names)
-
-    db.insert_stock_ledger(payload)
-
-    return {
-        'success': True,
-        'count': len(payload),
-        'warnings': warnings,
-        'is_past_date': is_past_date,
-        'unit_check': unit_check,
-        'deleted_count': deleted_count,
-        'mode': mode,
-    }
+    """입고 엑셀 업로드 — 비활성화됨 (추후 재구현)."""
+    raise NotImplementedError("엑셀 입고 기능은 비활성화되었습니다. 시스템 입력을 사용하세요.")
 
 
-# ─── 생산 처리 ───
+# ─── 생산 처리 (엑셀 — 비활성화) ───
 
 def process_production(db, excel_df, date_str, mode='신규입력'):
-    """생산 엑셀 데이터를 DB에 등록. FIFO 재료 차감 포함.
+    """생산 엑셀 업로드 — 비활성화됨 (추후 재구현)."""
+    raise NotImplementedError("엑셀 생산 기능은 비활성화되었습니다. 시스템 입력을 사용하세요.")
+
+
+def _process_production_original(db, excel_df, date_str, mode='신규입력'):
+    """[원본 보존용 — 호출되지 않음] 생산 엑셀 데이터를 DB에 등록. FIFO 재료 차감 포함.
     app.py의 run_production_ledger 로직과 동일.
 
     Args:
@@ -336,6 +283,8 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
                         "lot_number": g.get('lot_number', '') or None,
                         "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
+                        "created_by": created_by,
+                        "status": "active",
                     })
                     g['qty'] -= deduct
                     remain -= deduct
@@ -360,21 +309,21 @@ def process_production(db, excel_df, date_str, mode='신규입력'):
 
 # ─── 시스템 입력 생산 배치 처리 ───
 
-def process_production_batch(db, date_str, mode, location, items):
-    """시스템 입력 다건 생산 처리 (FIFO 재료 차감 포함).
+def process_production_batch(db, date_str, location, items, created_by=None):
+    """시스템 입력 다건 생산 처리 (FIFO 재료 차감 포함, 누적 INSERT).
 
     Args:
         db: SupabaseDB instance
         date_str: 생산일자 (YYYY-MM-DD)
-        mode: '신규입력' or '수정입력'
         location: 생산 위치
         items: list of dicts:
             {product_name, qty, expiry_date, category, storage_method,
              unit, manufacture_date,
              materials: [{product_name, qty}]}
+        created_by: 작업자명
 
     Returns:
-        dict: {produced, materials_used, warnings, shortage, deleted_count}
+        dict: {produced, materials_used, warnings, shortage}
     """
     from services.excel_io import normalize_location as norm_loc
 
@@ -390,13 +339,6 @@ def process_production_batch(db, date_str, mode, location, items):
 
     warnings = []
     shortage = []
-    deleted_count = 0
-
-    # 수정입력: 기존 데이터 삭제
-    if mode == '수정입력':
-        del1 = db.delete_stock_ledger_by(date_str, "PRODUCTION")
-        del2 = db.delete_stock_ledger_by(date_str, "PROD_OUT")
-        deleted_count = del1 + del2
 
     # 재고 스냅샷 + 메타데이터 로드 (재료 차감용)
     if loc:
@@ -453,6 +395,9 @@ def process_production_batch(db, date_str, mode, location, items):
             "lot_number": str(item.get('lot_number', '')).strip() or None,
             "grade": str(item.get('grade', '')).strip() or None,
             "batch_id": batch_id,
+            "event_uid": f"PROD:{date_str}:{loc}:{name}:{batch_id}",
+            "created_by": created_by,
+            "status": "active",
         })
         prod_count += 1
 
@@ -486,6 +431,8 @@ def process_production_batch(db, date_str, mode, location, items):
                     "origin": meta.get('origin', ''),
                     "manufacture_date": mat_mfg_date or meta.get('manufacture_date', ''),
                     "batch_id": batch_id,
+                    "created_by": created_by,
+                    "status": "active",
                 })
                 raw_count += 1
             elif mat_mfg_date:
@@ -514,6 +461,8 @@ def process_production_batch(db, date_str, mode, location, items):
                         "lot_number": g.get('lot_number', '') or None,
                         "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
+                        "created_by": created_by,
+                        "status": "active",
                     })
                     g['qty'] -= deduct
                     remain -= deduct
@@ -542,23 +491,19 @@ def process_production_batch(db, date_str, mode, location, items):
                         "lot_number": g.get('lot_number', '') or None,
                         "grade": g.get('grade', '') or None,
                         "batch_id": batch_id,
+                        "created_by": created_by,
+                        "status": "active",
                     })
                     g['qty'] -= deduct
                     remain -= deduct
                     raw_count += 1
 
     if payload:
-        try:
-            db.insert_stock_ledger(payload)
-        except Exception as e:
-            if mode == '수정입력' and deleted_count > 0:
-                warnings.append(f"주의: 기존 {deleted_count}건이 삭제되었으나 새 데이터 저장에 실패했습니다. 수정입력으로 재시도하세요.")
-            raise
+        db.insert_stock_ledger(payload)
 
     return {
         'produced': prod_count,
         'materials_used': raw_count,
         'warnings': warnings,
         'shortage': shortage,
-        'deleted_count': deleted_count,
     }

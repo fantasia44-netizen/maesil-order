@@ -12,18 +12,11 @@
                 <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <!-- 기준일 + 입력모드 -->
+                <!-- 기준일 -->
                 <div class="row mb-3">
                     <div class="col-sm-6">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" id="transferDate" class="form-control" required>
-                    </div>
-                    <div class="col-sm-6">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select id="transferMode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 이동 삭제 후 재입력)</option>
-                        </select>
                     </div>
                 </div>
 
@@ -123,42 +116,9 @@
         </div>
     </div>
 
-    <!-- 엑셀 일괄 이동 -->
+    <!-- 결과 영역 -->
     <div class="col-lg-5">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-file-earmark-excel"></i> 엑셀 일괄 이동
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('transfer.excel') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 이동 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">
-                            필수 컬럼: 품목명, 현재창고위치, 이동창고위치, 수량입력
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-warning w-100">
-                        <i class="bi bi-upload"></i> 엑셀 일괄 이동 처리
-                    </button>
-                </form>
-            </div>
-        </div>
-
-        <!-- 결과 영역 -->
-        <div class="card mt-3" id="resultCard" style="display:none;">
+        <div class="card" id="resultCard" style="display:none;">
             <div class="card-header">
                 <i class="bi bi-check-circle"></i> 처리 결과
             </div>
@@ -167,26 +127,6 @@
     </div>
 </div>
 
-<!-- 서버사이드 플래시 결과 (엑셀 전용) -->
-{% if result is defined and result %}
-<div class="card mt-4">
-    <div class="card-header">
-        <i class="bi bi-check-circle"></i> 처리 결과
-    </div>
-    <div class="card-body">
-        <p class="mb-1">처리 건수: <strong>{{ result.count|default(0) }}건</strong></p>
-        {% if result.warnings %}
-        <hr>
-        <h6 class="text-warning"><i class="bi bi-exclamation-triangle"></i> 경고</h6>
-        <ul class="mb-0">
-            {% for w in result.warnings %}
-            <li class="text-warning">{{ w }}</li>
-            {% endfor %}
-        </ul>
-        {% endif %}
-    </div>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -213,7 +153,6 @@
     const lotInput = document.getElementById('lotInput');
     const gradeInput = document.getElementById('gradeInput');
     const dateInput = document.getElementById('transferDate');
-    const modeSelect = document.getElementById('transferMode');
     const resultCard = document.getElementById('resultCard');
     const resultBody = document.getElementById('resultBody');
 
@@ -403,15 +342,11 @@
     // ===== 일괄 이동 처리 =====
     submitBtn.addEventListener('click', async function() {
         const dateVal = dateInput.value;
-        const modeVal = modeSelect.value;
 
         if (!dateVal) { alert('기준일을 입력하세요.'); dateInput.focus(); return; }
         if (pendingItems.length === 0) { alert('이동할 항목이 없습니다.'); return; }
 
-        const msg = modeVal === '수정입력'
-            ? `${dateVal} 해당일 기존 이동을 삭제 후 ${pendingItems.length}건 재입력합니다. 계속하시겠습니까?`
-            : `${pendingItems.length}건 창고 이동을 처리하시겠습니까?`;
-        if (!confirm(msg)) return;
+        if (!confirm(`${pendingItems.length}건 창고 이동을 처리하시겠습니까?`)) return;
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
@@ -419,7 +354,6 @@
         try {
             const payload = {
                 date: dateVal,
-                mode: modeVal,
                 items: pendingItems.map(item => ({
                     product_name: item.product_name,
                     qty: item.qty,
@@ -446,9 +380,6 @@
             } else {
                 let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i>
                     이동 처리 완료: <strong>${data.count}건</strong></p>`;
-                if (data.deleted_count) {
-                    html += `<p class="mb-1 text-info small">기존 ${data.deleted_count}건 삭제 후 재입력</p>`;
-                }
                 if (data.warnings && data.warnings.length > 0) {
                     html += '<hr class="my-2"><h6 class="text-warning small"><i class="bi bi-exclamation-triangle"></i> 경고</h6><ul class="mb-0 small">';
                     data.warnings.forEach(w => { html += `<li class="text-warning">${escapeHtml(w)}</li>`; });

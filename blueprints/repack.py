@@ -120,11 +120,11 @@ def api_history():
 @repack_bp.route('/api/delete/<int:record_id>', methods=['POST'])
 @role_required('admin')
 def api_delete(record_id):
-    """개별 소분 이력 삭제 (admin 전용)"""
+    """개별 소분 이력 블라인드 처리 (admin 전용)"""
     try:
         old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.delete_stock_ledger_by_id(record_id)
-        _log_action('delete_repack', target=str(record_id),
+        current_app.db.blind_stock_ledger(record_id, blinded_by=current_user.username)
+        _log_action('blind_repack', target=str(record_id),
                      old_value=old_record)
         return jsonify({'success': True})
     except Exception as e:
@@ -154,11 +154,11 @@ def api_update(record_id):
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
-        old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.update_stock_ledger(record_id, update_data)
-        _log_action('update_repack', target=str(record_id),
-                     old_value=old_record, new_value=update_data)
-        return jsonify({'success': True})
+        result = current_app.db.replace_stock_ledger(
+            record_id, update_data, replaced_by_user=current_user.username)
+        _log_action('replace_repack', target=str(record_id),
+                     old_value=result.get('old_record'), new_value=update_data)
+        return jsonify({'success': True, 'new_id': result.get('new_id')})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -175,7 +175,6 @@ def batch():
 
     items = data.get('items', [])
     date_str = data.get('date', today_kst())
-    mode = data.get('mode', '신규입력')
     location = data.get('location', '')
 
     if not items:
@@ -210,18 +209,18 @@ def batch():
     try:
         from services.repack_service import process_repack_batch
         result = process_repack_batch(
-            current_app.db, date_str, mode, location, items)
+            current_app.db, date_str, location, items,
+            created_by=current_user.username)
         _log_action('batch_repack',
                      detail=f'{date_str} {location} 소분 — '
                             f'투입 {result.get("repack_out_count", 0)}건, '
                             f'산출 {result.get("repack_in_count", 0)}건 '
-                            f'(모드: {mode}, 항목 {len(items)}건)')
+                            f'(항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'repack_in_count': result.get('repack_in_count', 0),
             'repack_out_count': result.get('repack_out_count', 0),
             'warnings': result.get('warnings', []),
-            'deleted_count': result.get('deleted_count', 0),
             'doc_nos': result.get('doc_nos', []),
         })
     except ValueError as e:
@@ -235,47 +234,8 @@ def batch():
 @repack_bp.route('/process', methods=['POST'])
 @role_required('admin', 'manager', 'production')
 def process():
-    """소분 엑셀 업로드 → DB 반영"""
-    file = request.files.get('file')
-    if not file or not _allowed(file.filename):
-        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
-        return redirect(url_for('repack.index'))
-
-    date_str = request.form.get('date', today_kst())
-    mode = request.form.get('mode', '신규입력')
-
-    upload_dir = current_app.config['UPLOAD_FOLDER']
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(upload_dir, filename)
-    file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'repack')
-
-    try:
-        from services.repack_service import process_repack
-        df = pd.read_excel(filepath).fillna("")
-        result = process_repack(current_app.db, df, date_str, mode)
-
-        if result.get('warnings'):
-            for w in result['warnings']:
-                flash(w, 'warning')
-
-        _log_action('excel_repack',
-                     detail=f'{file.filename}: {date_str} 소분 — '
-                            f'투입 {result.get("repack_out_count", 0)}건, '
-                            f'산출 {result.get("repack_in_count", 0)}건 '
-                            f'(모드: {mode})')
-        flash(f"소분 처리 완료: 투입 {result.get('repack_out_count', 0)}건, "
-              f"산출 {result.get('repack_in_count', 0)}건"
-              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
-              'success')
-    except Exception as e:
-        flash(f'소분 처리 중 오류: {e}', 'danger')
-    finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-    return redirect(url_for('repack.index'))
+    """소분 엑셀 업로드 — 비활성화 (추후 재구현)"""
+    return jsonify({'error': '엑셀 업로드 기능은 비활성화되었습니다. 추후 재구현 예정입니다.'}), 410
 
 
 # ── 소분 이력 엑셀 다운로드 ──

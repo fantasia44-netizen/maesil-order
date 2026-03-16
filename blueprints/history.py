@@ -72,17 +72,10 @@ def index():
 @history_bp.route('/edit/<int:row_id>', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def edit(row_id):
-    """개별 이력 수정 (변경 전 데이터를 감사로그에 보존)"""
+    """개별 이력 수정 (원본 블라인드 + 새 레코드 INSERT, 양방향 링크)"""
     db = current_app.db
 
     try:
-        # 수정 전 데이터 조회 (롤백용)
-        old_record = db.query_stock_ledger_by_id(row_id)
-        old_value = None
-        if old_record:
-            old_value = {k: v for k, v in old_record.items()
-                         if k not in ('id', 'created_at', 'is_deleted', 'deleted_at', 'deleted_by')}
-
         update_data = {}
 
         # 폼에서 수정 가능한 필드들
@@ -101,11 +94,12 @@ def edit(row_id):
             flash('수정할 내용이 없습니다.', 'warning')
             return redirect(url_for('history.index'))
 
-        db.update_stock_ledger(row_id, update_data)
-        _log_action('edit_stock_ledger', target=str(row_id),
+        result = db.replace_stock_ledger(
+            row_id, update_data, replaced_by_user=current_user.username)
+        _log_action('replace_stock_ledger', target=str(row_id),
                      detail=str(update_data),
-                     old_value=old_value, new_value=update_data)
-        flash(f'이력 #{row_id} 수정 완료', 'success')
+                     old_value=result.get('old_record'), new_value=update_data)
+        flash(f'이력 #{row_id} 수정 완료 (새 레코드 #{result.get("new_id")})', 'success')
     except Exception as e:
         flash(f'수정 중 오류: {e}', 'danger')
 
@@ -115,23 +109,17 @@ def edit(row_id):
 @history_bp.route('/delete/<int:row_id>', methods=['POST'])
 @role_required('admin')
 def delete(row_id):
-    """개별 이력 삭제 — 관리자/책임자만 (삭제 전 데이터 보존)"""
+    """개별 이력 블라인드 처리 — 관리자 전용 (원본 DB 보존)"""
     db = current_app.db
 
     try:
-        # 삭제 전 데이터 조회 (롤백용)
         old_record = db.query_stock_ledger_by_id(row_id)
-        old_value = None
-        if old_record:
-            old_value = {k: v for k, v in old_record.items()
-                         if k not in ('id', 'created_at')}
-
-        db.delete_stock_ledger_by_id(row_id)
-        _log_action('delete_stock_ledger', target=str(row_id),
-                     old_value=old_value)
-        flash(f'이력 #{row_id} 삭제 완료', 'success')
+        db.blind_stock_ledger(row_id, blinded_by=current_user.username)
+        _log_action('blind_stock_ledger', target=str(row_id),
+                     old_value=old_record)
+        flash(f'이력 #{row_id} 블라인드 처리 완료', 'success')
     except Exception as e:
-        flash(f'삭제 중 오류: {e}', 'danger')
+        flash(f'블라인드 처리 중 오류: {e}', 'danger')
 
     return redirect(url_for('history.index'))
 

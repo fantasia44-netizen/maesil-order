@@ -12,20 +12,13 @@
                 <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <!-- 기준일 + 모드 + 위치 -->
+                <!-- 기준일 + 위치 -->
                 <div class="row mb-3">
-                    <div class="col-sm-3">
+                    <div class="col-sm-4">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" id="repackDate" class="form-control" required>
                     </div>
                     <div class="col-sm-4">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select id="repackMode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 소분 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="col-sm-3">
                         <label class="form-label fw-semibold">작업 위치</label>
                         <select id="repackLocation" class="form-select">
                             <option value="">선택</option>
@@ -155,34 +148,8 @@
         </div>
     </div>
 
-    <!-- 엑셀 업로드 + PDF -->
+    <!-- PDF -->
     <div class="col-lg-4">
-        <div class="card mb-3">
-            <div class="card-header"><i class="bi bi-upload"></i> 엑셀 업로드</div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('repack.process') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-2">
-                        <label class="form-label fw-semibold small">기준일</label>
-                        <input type="date" name="date" class="form-control form-control-sm" required>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label fw-semibold small">입력 모드</label>
-                        <select name="mode" class="form-select form-select-sm">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력</option>
-                        </select>
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label fw-semibold small">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-sm w-100">
-                        <i class="bi bi-upload"></i> 소분 처리
-                    </button>
-                </form>
-            </div>
-        </div>
         <div class="card">
             <div class="card-header"><i class="bi bi-file-earmark-pdf"></i> 소분작업일지</div>
             <div class="card-body">
@@ -589,14 +556,10 @@
         if(!pendingItems.length){ alert('소분 항목을 추가하세요.'); return; }
         const location = document.getElementById('repackLocation').value;
         if(!location){ alert('작업 위치를 선택하세요.'); return; }
-
-        const mode = document.getElementById('repackMode').value;
-        if(mode === '수정입력' && !confirm('수정입력 모드입니다. 해당일의 기존 소분 데이터가 삭제됩니다. 계속하시겠습니까?')) return;
         if(!confirm(`총 ${pendingItems.length}건의 소분을 처리하시겠습니까?`)) return;
 
         const payload = {
             date: document.getElementById('repackDate').value,
-            mode: mode,
             location: location,
             items: pendingItems
         };
@@ -613,7 +576,6 @@
         .then(data=>{
             if(data.success){
                 let msg = `소분 처리 완료: 산출 ${data.repack_in_count}건, 투입 ${data.repack_out_count}건`;
-                if(data.deleted_count) msg += `, 기존 ${data.deleted_count}건 삭제`;
                 if(data.doc_nos && data.doc_nos.length) msg += `\n문서번호: ${data.doc_nos.join(', ')}`;
                 if(data.warnings && data.warnings.length) msg += '\n\n⚠ ' + data.warnings.join('\n');
                 alert(msg);
@@ -710,10 +672,10 @@
     };
     // 개별 삭제 (admin)
     window._deleteHist = function(id) {
-        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        if(!confirm('이 이력을 블라인드 처리하시겠습니까? (DB에서 비활성화되며 복원 가능합니다)')) return;
         fetch(`/repack/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken': csrf} })
             .then(r=>r.json())
-            .then(data=>{ if(data.success){ document.getElementById('histSearchBtn').click(); } else alert('삭제 실패: '+(data.error||'')); })
+            .then(data=>{ if(data.success){ document.getElementById('histSearchBtn').click(); } else alert('처리 실패: '+(data.error||'')); })
             .catch(e=>alert('통신 오류: '+e));
     };
 

@@ -12,18 +12,11 @@
                 <span class="badge bg-primary" id="itemCountBadge">0건</span>
             </div>
             <div class="card-body">
-                <!-- 기준일 + 입력모드 -->
+                <!-- 기준일 -->
                 <div class="row mb-3">
                     <div class="col-sm-6">
                         <label class="form-label fw-semibold">기준일</label>
                         <input type="date" id="inboundDate" class="form-control" required>
-                    </div>
-                    <div class="col-sm-6">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select id="inboundMode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (해당일 입고 삭제 후 재입력)</option>
-                        </select>
                     </div>
                 </div>
 
@@ -185,40 +178,10 @@
         </div>
     </div>
 
-    <!-- 엑셀 입고 + 결과 -->
+    <!-- PDF + 결과 -->
     <div class="col-lg-5">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-file-earmark-excel"></i> 엑셀 입고 업로드
-            </div>
-            <div class="card-body">
-                <form method="POST" action="{{ url_for('inbound.excel') }}" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">기준일</label>
-                        <input type="date" name="date" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">입력 모드</label>
-                        <select name="mode" class="form-select">
-                            <option value="신규입력">신규입력</option>
-                            <option value="수정입력">수정입력 (기존 삭제 후 재입력)</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">엑셀 파일</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
-                        <div class="form-text">필수: 품목명, 창고위치, 입고수량</div>
-                    </div>
-                    <button type="submit" class="btn btn-warning w-100">
-                        <i class="bi bi-upload"></i> 엑셀 입고 업로드
-                    </button>
-                </form>
-            </div>
-        </div>
-
         <!-- 입고일지 PDF -->
-        <div class="card mt-3">
+        <div class="card">
             <div class="card-header"><i class="bi bi-file-earmark-pdf"></i> 입고일지 PDF</div>
             <div class="card-body">
                 <form method="GET" action="{{ url_for('inbound.log_pdf') }}">
@@ -328,7 +291,6 @@
     const itemCountBadge = document.getElementById('itemCountBadge');
     const submitCount = document.getElementById('submitCount');
     const dateInput = document.getElementById('inboundDate');
-    const modeSelect = document.getElementById('inboundMode');
     const resultCard = document.getElementById('resultCard');
     const resultBody = document.getElementById('resultBody');
 
@@ -447,13 +409,9 @@
     // 일괄 입고 처리
     submitBtn.addEventListener('click', async function() {
         const dateVal = dateInput.value;
-        const modeVal = modeSelect.value;
         if (!dateVal) { alert('기준일을 입력하세요.'); return; }
         if (pendingItems.length === 0) { alert('입고 항목이 없습니다.'); return; }
-        const msg = modeVal === '수정입력'
-            ? `${dateVal} 기존 입고를 삭제 후 ${pendingItems.length}건 재입력합니다.`
-            : `${pendingItems.length}건 입고 처리하시겠습니까?`;
-        if (!confirm(msg)) return;
+        if (!confirm(`${pendingItems.length}건 입고 처리하시겠습니까?`)) return;
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 처리 중...';
@@ -461,14 +419,13 @@
             const res = await fetch(BATCH_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
-                body: JSON.stringify({ date: dateVal, mode: modeVal, items: pendingItems }),
+                body: JSON.stringify({ date: dateVal, items: pendingItems }),
             });
             const data = await res.json();
             if (!res.ok || data.error) {
                 showResult('danger', data.error || '처리 실패');
             } else {
                 let html = `<p class="mb-1 text-success"><i class="bi bi-check-circle"></i> 입고 완료: <strong>${data.count}건</strong></p>`;
-                if (data.deleted_count) html += `<p class="mb-1 text-info small">기존 ${data.deleted_count}건 삭제 후 재입력</p>`;
                 showResult('success', html, true);
                 pendingItems = []; renderTable();
             }
@@ -544,10 +501,10 @@
     };
     // 개별 삭제 (admin)
     window._deleteHist = function(id) {
-        if(!confirm('이 이력을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+        if(!confirm('이 이력을 블라인드 처리하시겠습니까? (DB에서 비활성화되며 복원 가능합니다)')) return;
         fetch(`/inbound/api/delete/${id}`, { method:'POST', headers:{'X-CSRFToken':csrf_token} })
             .then(r=>r.json())
-            .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('삭제 실패: '+(data.error||'')); })
+            .then(data=>{ if(data.success){ document.getElementById('searchHistoryBtn').click(); } else alert('처리 실패: '+(data.error||'')); })
             .catch(e=>alert('통신 오류: '+e));
     };
 

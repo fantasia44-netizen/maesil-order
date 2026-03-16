@@ -142,6 +142,7 @@ def process():
             sub_materials=sub_materials,
             storage_method_override=storage_method_override or None,
             food_type=food_type or None,
+            created_by=current_user.username,
         )
 
         if result.get('warnings'):
@@ -169,7 +170,7 @@ def process():
 @set_assembly_bp.route('/delete', methods=['POST'])
 @role_required('admin')
 def delete():
-    """세트작업 이력 삭제 (해당일 SET_OUT + SET_IN 전부 삭제)"""
+    """세트작업 이력 블라인드 처리 (해당일 SET_OUT + SET_IN 전부 블라인드)"""
     db = current_app.db
     date_str = request.form.get('delete_date', '').strip()
 
@@ -178,22 +179,24 @@ def delete():
         return redirect(url_for('set_assembly.index'))
 
     try:
-        # 삭제 전 원본 데이터 조회 (되돌리기용)
         old_records = db.query_stock_ledger(
             date_from=date_str, date_to=date_str,
             type_list=['SET_OUT', 'SET_IN'])
-        cnt1 = db.delete_stock_ledger_by(date_str, 'SET_OUT')
-        cnt2 = db.delete_stock_ledger_by(date_str, 'SET_IN')
-        total = (cnt1 or 0) + (cnt2 or 0)
-        if total > 0:
-            _log_action('delete_set_assembly', target=date_str,
+        blinded = 0
+        for r in old_records:
+            rid = r.get('id')
+            if rid:
+                db.blind_stock_ledger(rid, blinded_by=current_user.username)
+                blinded += 1
+        if blinded > 0:
+            _log_action('blind_set_assembly', target=date_str,
                          old_value=old_records,
-                         detail=f'{total}건 삭제')
-            flash(f'{date_str} 세트작업 이력 {total}건 삭제 완료', 'success')
+                         detail=f'{blinded}건 블라인드')
+            flash(f'{date_str} 세트작업 이력 {blinded}건 블라인드 처리 완료', 'success')
         else:
-            flash(f'{date_str} 에 삭제할 세트작업 이력이 없습니다.', 'warning')
+            flash(f'{date_str} 에 처리할 세트작업 이력이 없습니다.', 'warning')
     except Exception as e:
-        flash(f'세트작업 이력 삭제 중 오류: {e}', 'danger')
+        flash(f'세트작업 이력 처리 중 오류: {e}', 'danger')
 
     return redirect(url_for('set_assembly.index'))
 

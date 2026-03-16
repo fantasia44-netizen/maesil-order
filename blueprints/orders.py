@@ -553,6 +553,7 @@ def api_product_list():
         db = current_app.db
         raw = db.client.table("stock_ledger") \
             .select("product_name") \
+            .eq("status", "active") \
             .execute()
         names = sorted(set(
             r['product_name'] for r in (raw.data or [])
@@ -1560,11 +1561,13 @@ def integrity_check():
         for order in (done_orders.data or []):
             oid = order['id']
             sl_check = db.client.table('stock_ledger').select('id').eq(
-                'type', 'SALES_OUT'
+                'status', 'active'
+            ).eq('type', 'SALES_OUT'
             ).like('event_uid', f'%:{oid}:%').limit(1).execute()
             if not sl_check.data:
                 sl_check2 = db.client.table('stock_ledger').select('id').eq(
-                    'type', 'SALES_OUT'
+                    'status', 'active'
+                ).eq('type', 'SALES_OUT'
                 ).like('event_uid', f'%:{oid}:0').limit(1).execute()
                 if not sl_check2.data:
                     results['ghost_outbound'].append({

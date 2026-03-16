@@ -73,7 +73,6 @@ def manual():
     from_location = request.form.get('from_location', '').strip()
     to_location = request.form.get('to_location', '').strip()
     date_str = request.form.get('date', today_kst())
-    mode = request.form.get('mode', '신규입력')
 
     if not product_name or qty <= 0 or not from_location or not to_location:
         flash('품목명, 수량, 출발/도착 창고를 모두 입력하세요.', 'danger')
@@ -90,8 +89,9 @@ def manual():
         from services.transfer_service import process_manual_transfer
         result = process_manual_transfer(
             current_app.db, product_name, qty,
-            from_location, to_location, date_str, mode,
+            from_location, to_location, date_str,
             lot_number=lot_number, grade=grade,
+            created_by=current_user.username,
         )
 
         if result.get('warnings'):
@@ -101,10 +101,8 @@ def manual():
         _log_action('manual_transfer',
                      detail=f'{date_str} {product_name} x{qty} '
                             f'{from_location}→{to_location} '
-                            f'({result.get("moved_count", 0)}건 처리, 모드: {mode})')
-        flash(f"창고 이동 완료: {result.get('moved_count', 0)}건 처리"
-              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
-              'success')
+                            f'({result.get("moved_count", 0)}건 처리)')
+        flash(f"창고 이동 완료: {result.get('moved_count', 0)}건 처리", 'success')
     except ValueError as e:
         flash(str(e), 'danger')
     except Exception as e:
@@ -123,7 +121,6 @@ def batch():
 
     items = data.get('items', [])
     date_str = data.get('date', today_kst())
-    mode = data.get('mode', '신규입력')
 
     if not items:
         return jsonify({'error': '이동 항목이 없습니다.'}), 400
@@ -150,11 +147,8 @@ def batch():
 
         total_count = 0
         all_warnings = []
-        deleted_count = 0
 
         for i, item in enumerate(items):
-            # 수정입력은 첫 항목에서만 적용 (한 번만 삭제)
-            item_mode = mode if i == 0 else '신규입력'
             result = process_manual_transfer(
                 current_app.db,
                 str(item['product_name']).strip(),
@@ -162,22 +156,20 @@ def batch():
                 str(item['from_location']).strip(),
                 str(item['to_location']).strip(),
                 date_str,
-                item_mode,
                 lot_number=str(item.get('lot_number', '')).strip() or None,
                 grade=str(item.get('grade', '')).strip() or None,
+                created_by=current_user.username,
             )
             total_count += result.get('moved_count', 0)
             all_warnings.extend(result.get('warnings', []))
-            deleted_count += result.get('deleted_count', 0)
 
         _log_action('batch_transfer',
                      detail=f'{date_str} 일괄 창고이동 {total_count}건 처리 '
-                            f'(항목 {len(items)}건, 모드: {mode})')
+                            f'(항목 {len(items)}건)')
         return jsonify({
             'success': True,
             'count': total_count,
             'warnings': all_warnings,
-            'deleted_count': deleted_count,
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
@@ -188,51 +180,5 @@ def batch():
 @transfer_bp.route('/excel', methods=['POST'])
 @role_required('admin', 'manager', 'logistics', 'general')
 def excel():
-    """엑셀 일괄 창고 이동"""
-    file = request.files.get('file')
-    if not file or not _allowed(file.filename):
-        flash('엑셀 파일(.xlsx/.xls)을 선택하세요.', 'danger')
-        return redirect(url_for('transfer.index'))
-
-    date_str = request.form.get('date', today_kst())
-    mode = request.form.get('mode', '신규입력')
-
-    upload_dir = current_app.config['UPLOAD_FOLDER']
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(upload_dir, filename)
-    file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'transfer')
-
-    try:
-        df = pd.read_excel(filepath)
-        required_cols = {'품목명', '현재창고위치', '이동창고위치', '수량입력'}
-        if not required_cols.issubset(set(df.columns)):
-            missing = required_cols - set(df.columns)
-            flash(f'필수 컬럼 누락: {", ".join(missing)}', 'danger')
-            return redirect(url_for('transfer.index'))
-
-        from services.transfer_service import process_transfer_excel
-        result = process_transfer_excel(current_app.db, df, date_str, mode)
-
-        if result.get('warnings'):
-            for w in result['warnings']:
-                flash(w, 'warning')
-
-        _log_action('excel_transfer',
-                     detail=f'{file.filename}: {date_str} 엑셀 창고이동 '
-                            f'{result.get("count", 0)}건 처리 (모드: {mode})')
-        flash(f"엑셀 이동 완료: {result.get('count', 0)}건 처리"
-              + (f", 기존 {result.get('deleted_count', 0)}건 삭제" if mode == '수정입력' else ''),
-              'success')
-    except KeyError as e:
-        flash(f'엑셀 컬럼 오류: {e}', 'danger')
-    except ValueError as e:
-        flash(str(e), 'danger')
-    except Exception as e:
-        flash(f'엑셀 이동 처리 중 오류: {e}', 'danger')
-    finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-
-    return redirect(url_for('transfer.index'))
+    """엑셀 일괄 창고 이동 — 비활성화 (추후 재구현)"""
+    return jsonify({'error': '엑셀 업로드 기능은 비활성화되었습니다. 추후 재구현 예정입니다.'}), 410
