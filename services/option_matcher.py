@@ -49,19 +49,28 @@ def build_match_key(mode: str, product_name: str, option_name: str) -> str:
 
 
 def _normalize(key: str) -> str:
-    """공백 제거 + 대문자 정규화 (Key 비교 기준)."""
-    return str(key or '').replace(' ', '').upper()
+    """공백 제거 + 대문자 + 구분자 통일 (Key 비교 기준).
+
+    자사몰(Cafe24) API는 옵션 구분자로 ','를 사용하지만
+    옵션마스터에는 ';', ' / ', ':' 등 다양한 형식이 등록되어 있음.
+    모든 구분자를 ';'로 통일하여 매칭률 향상.
+    """
+    s = str(key or '').replace(' ', '').upper()
+    # 구분자 통일: , → ;  (API vs 옵션마스터 호환)
+    s = s.replace(',', ';')
+    return s
 
 
 def prepare_opt_list(opt_list: list) -> None:
     """옵션 리스트에 정규화 Key를 미리 계산해 주입 (성능 최적화).
 
-    opt_list 각 항목에 'Key' 필드가 없으면 '원문명' 기준으로 생성.
+    opt_list 각 항목의 Key를 _normalize()로 재정규화.
+    DB match_key에 구분자 통일(, → ;)이 반영 안 됐을 수 있으므로 항상 재계산.
     in-place 수정.
     """
     for o in opt_list:
-        if 'Key' not in o or not o['Key']:
-            o['Key'] = _normalize(str(o.get('원문명', '')))
+        raw = o.get('Key') or str(o.get('원문명', ''))
+        o['Key'] = _normalize(raw)
 
 
 def match_option(key: str, opt_list: list) -> dict | None:
