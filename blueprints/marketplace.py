@@ -506,7 +506,8 @@ def test_collect():
                     channel_status[ch] = f'토큰 갱신 실패: {e}'
                     continue
             try:
-                orders = client.fetch_orders(date_from, date_to)
+                orders = client.fetch_orders(date_from, date_to,
+                                             status_filter='invoice_target')
                 for o in orders:
                     o['channel'] = ch
                 all_orders.extend(orders)
@@ -569,7 +570,8 @@ def test_collect_download():
             if not client or not client.is_ready:
                 continue
             try:
-                orders = client.fetch_orders(date_from, date_to)
+                orders = client.fetch_orders(date_from, date_to,
+                                             status_filter='invoice_target')
                 for o in orders:
                     o['channel'] = ch
                 all_orders.extend(orders)

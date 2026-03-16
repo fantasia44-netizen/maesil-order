@@ -159,8 +159,8 @@ class Cafe24Client(MarketplaceBaseClient):
 
     # ── 주문 조회 ──
 
-    # 송장 대상 — 결제완료/상품준비중/배송보류 (출고 전)
-    INVOICE_TARGET_STATUSES = ['N10', 'N20', 'N22']
+    # 송장 대상 — 결제완료/상품준비중 (출고 전)
+    INVOICE_TARGET_STATUSES = ['N10', 'N20']
 
     def fetch_orders(self, date_from: str, date_to: str,
                      status_filter: str = None) -> list:
