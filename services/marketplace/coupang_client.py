@@ -287,7 +287,7 @@ class CoupangWingClient(MarketplaceBaseClient):
                 'api_order_id': order_id,
                 'api_line_id': str(item.get('vendorItemId', '')),
                 'order_date': order_date,
-                'product_name': item.get('vendorItemName', ''),
+                'product_name': item.get('sellerProductName', item.get('vendorItemName', '')),
                 'option_name': item.get('sellerProductItemName', ''),
                 'qty': int(item.get('shippingCount', 0)),
                 'unit_price': int(item.get('salesPrice', 0)),

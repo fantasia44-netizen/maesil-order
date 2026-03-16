@@ -5,8 +5,9 @@ services/option_matcher.py
 OrderProcessor, marketplace_validation_service, marketplace blueprint에서
 공통으로 사용하는 옵션 매칭 유틸리티.
 
-Key 규칙: 원문명.replace(" ", "").upper()
+Key 규칙: NFKC 정규화 + 공백제거 + 대문자 + 구분자 통일
 """
+import unicodedata
 
 # "옵션 없음" 판별용 키워드 — 이 값이 option에 있으면 상품명으로 폴백
 _NO_OPT = {'단일상품', '옵션없음', '옵션 없음', '기본', '해당없음',
@@ -49,15 +50,19 @@ def build_match_key(mode: str, product_name: str, option_name: str) -> str:
 
 
 def _normalize(key: str) -> str:
-    """공백 제거 + 대문자 + 구분자 통일 (Key 비교 기준).
+    """NFKC 정규화 + 공백 제거 + 대문자 + 구분자 통일 (Key 비교 기준).
 
-    자사몰(Cafe24) API는 옵션 구분자로 ','를 사용하지만
-    옵션마스터에는 ';', ' / ', ':' 등 다양한 형식이 등록되어 있음.
-    모든 구분자를 ';'로 통일하여 매칭률 향상.
+    1. NFKC: 전각→반각(１００ｇ→100g), 특수공백, 한글 자모분리 통합
+    2. 공백 제거 + 대문자
+    3. 구분자 통일: , → ;  (Cafe24 API는 ','사용, 마스터는 ';')
+
+    DB match_key 저장(db_supabase.py)에서도 이 함수를 호출하므로
+    런타임 매칭과 DB 저장이 항상 동일 결과를 보장.
     """
-    s = str(key or '').replace(' ', '').upper()
-    # 구분자 통일: , → ;  (API vs 옵션마스터 호환)
-    s = s.replace(',', ';')
+    s = str(key or '')
+    s = unicodedata.normalize('NFKC', s)   # 전각→반각, 자모 통합
+    s = s.replace(' ', '').upper()
+    s = s.replace(',', ';')                # 구분자 통일
     return s
 
 

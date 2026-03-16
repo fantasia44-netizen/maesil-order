@@ -9,7 +9,7 @@ from services.channel_config import (
     MONEY_FIELDS, SIMPLE_INVOICE_CHANNELS,
 )
 from services.tz_utils import today_kst
-from services.option_matcher import build_match_key, match_option
+from services.option_matcher import build_match_key, match_option, prepare_opt_list
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
@@ -258,6 +258,7 @@ class OrderProcessor:
                             and str(o.get('원문명', '')).strip().lower() not in _header_vals_ovr]
                 opt_raw = pd.DataFrame(opt_list)[['원문명', '품목명', '라인코드', '출력순서', '바코드']]
                 opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+                prepare_opt_list(opt_list)
                 self.log(f"✅ 옵션마스터(DB직접) 로드: {len(opt_list)}건")
             elif option_source == 'db' and db is not None:
                 opt_list = db.query_option_master_as_list()
@@ -272,6 +273,7 @@ class OrderProcessor:
                             and str(o.get('원문명', '')).strip().lower() not in _header_vals]
                 opt_raw = pd.DataFrame(opt_list)[['원문명', '품목명', '라인코드', '출력순서', '바코드']]
                 opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
+                prepare_opt_list(opt_list)
                 self.log(f"✅ 옵션마스터(DB) 로드: {len(opt_list)}건")
             else:
                 opt_df = self.load_generic(option_file)
@@ -282,8 +284,7 @@ class OrderProcessor:
                 opt_raw.columns = ['원문명', '품목명', '라인코드', '출력순서', '바코드']
                 opt_raw['출력순서'] = pd.to_numeric(opt_raw['출력순서'], errors='coerce').fillna(999)
                 opt_list = opt_raw.to_dict('records')
-                for o in opt_list:
-                    o['Key'] = str(o['원문명']).replace(" ", "").upper()
+                prepare_opt_list(opt_list)
 
             # [검증] 같은 출력순서(E열)에 품목명(B열)이 다른 경우 체크
             # — 빈 품목명, 헤더 잔여값(Standard_Name 등), 출력순서 999(미지정)는 검증 제외

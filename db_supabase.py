@@ -8,6 +8,7 @@ from supabase import create_client, Client
 from db_base import DBBase
 from config import SUPABASE_URL, SUPABASE_KEY
 from services.tz_utils import today_kst, days_ago_kst
+from services.option_matcher import _normalize as normalize_match_key
 
 # 옵션마스터 메모리 캐시 (TTL 기반)
 _option_cache = {
@@ -1098,7 +1099,7 @@ class SupabaseDB(DBBase):
     def insert_option_master(self, payload):
         """옵션마스터 1건 등록/갱신 (match_key 자동 계산, 중복 시 upsert)."""
         orig = payload.get('original_name', '')
-        payload['match_key'] = str(orig).replace(' ', '').upper()
+        payload['match_key'] = normalize_match_key(orig)
         self.client.table("option_master").upsert(
             payload, on_conflict="match_key"
         ).execute()
@@ -1108,7 +1109,7 @@ class SupabaseDB(DBBase):
         """옵션마스터 일괄 등록 (중복 시 upsert)."""
         for row in payload_list:
             orig = row.get('original_name', '')
-            row['match_key'] = str(orig).replace(' ', '').upper()
+            row['match_key'] = normalize_match_key(orig)
         for i in range(0, len(payload_list), batch_size):
             chunk = payload_list[i:i + batch_size]
             try:
@@ -1128,7 +1129,7 @@ class SupabaseDB(DBBase):
     def update_option_master(self, option_id, update_data):
         """옵션마스터 1건 수정."""
         if 'original_name' in update_data:
-            update_data['match_key'] = str(update_data['original_name']).replace(' ', '').upper()
+            update_data['match_key'] = normalize_match_key(update_data['original_name'])
         self.client.table("option_master").update(update_data).eq("id", option_id).execute()
         self._invalidate_option_cache()
 
@@ -1156,7 +1157,7 @@ class SupabaseDB(DBBase):
         seen = {}
         for row in payload_list:
             orig = row.get('original_name', '')
-            row['match_key'] = str(orig).replace(' ', '').upper()
+            row['match_key'] = normalize_match_key(orig)
             seen[row['match_key']] = row
         deduped = list(seen.values())
 

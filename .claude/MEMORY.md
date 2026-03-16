@@ -130,6 +130,18 @@
 - **택배사 코드**: config.py COURIER_CODES (CJ대한통운만, 채널별 코드 상이)
 - **DB**: 기존 order_shipping + api_orders 테이블 재사용, 신규 SQL 불필요
 
+## 치명적 사고 이력 — 재발 방지 필수
+
+### 1. 새 파일 커밋 누락 사고 (2026-03-13~16, option_matcher.py)
+- `order_processor.py`에서 매칭 로직을 `option_matcher.py`로 분리 후 **새 파일을 git add 안 함**
+- 로컬은 정상, Render 배포 → `No module named` → 온라인주문처리 3일 장애
+- 다른 PC에서 복구 시 원본 로직 모르고 단순화 → 옵션매칭 전면 깨짐
+- **규칙**: 커밋 전 `git status`로 untracked 새 파일 확인, import와 새 파일은 반드시 같은 커밋, 복구 시 `git show 커밋^` 으로 원본 로직 확인
+
+### 2. RPC 동시 수정 누락 (2026-03-05, collection_date)
+- order_transactions에 컬럼 추가 후 Supabase RPC 미수정 → collection_date 누락
+- **규칙**: 스키마 변경 시 관련 RPC 함수도 반드시 동시 수정
+
 ## 중요 버그 수정 이력 (2026-03-12)
 - **페이지네이션 ORDER BY 누락**: _paginate_query 사용하는 14곳에 .order("id") 추가
   - ORDER BY 없이 OFFSET 페이지네이션 → 행 중복/누락 → 수불장 수치 매번 다름

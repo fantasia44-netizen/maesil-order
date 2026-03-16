@@ -670,6 +670,20 @@ def _extract_customer(channel, order):
     return info
 
 
+def _sanitize_receiver_name(name, fallback_name=''):
+    """수취인명 검증 — CJ 택배 거부 방지.
+
+    '집', '집.', '회사', 1글자 등 비정상 이름은 주문자명으로 대체.
+    """
+    _INVALID = {'집', '집.', '회사', '회사.', '사무실', '사무실.', '경비실',
+                '문앞', '현관', '-', '.', '..', '본인', '자택'}
+    n = str(name or '').strip()
+    fb = str(fallback_name or '').strip()
+    if not n or n in _INVALID or len(n) == 1:
+        return fb or n  # fallback도 없으면 원본 유지
+    return n
+
+
 def _api_orders_to_excel_df(orders, channel):
     """API raw_data → 채널별 엑셀 컬럼 형식 DataFrame.
 
@@ -696,7 +710,9 @@ def _api_orders_to_excel_df(orders, channel):
                 '상품명': po.get('productName', ''),
                 '옵션정보': po.get('productOption', ''),
                 '수량': int(po.get('quantity', 0)),
-                '수취인명': sa.get('name', ''),
+                '수취인명': _sanitize_receiver_name(
+                    sa.get('name', ''),
+                    raw.get('order', {}).get('ordererName', '')),
                 '수취인연락처1': sa.get('tel1', ''),
                 '수취인연락처2': sa.get('tel2', ''),
                 '기본배송지': sa.get('baseAddress', ''),
@@ -715,11 +731,11 @@ def _api_orders_to_excel_df(orders, channel):
             recv = raw.get('receiver', {})
             # api_orders는 라인별 1행 저장, raw_data에는 전체 orderItems 포함
             # → api_line_id(vendorItemId)와 매칭되는 아이템만 추출
+            # 주의: line_id 없거나 매칭 실패 시 반드시 1건만 (7배 뻥튀기 방지)
             line_id = str(o.get('api_line_id', ''))
-            matched_items = [it for it in items if str(it.get('vendorItemId', '')) == line_id] if line_id else items
-            # 매칭 실패 시 전체(하위호환), 첫 행만 배송비 부여
+            matched_items = [it for it in items if str(it.get('vendorItemId', '')) == line_id] if line_id else []
             is_first_line = (items and str(items[0].get('vendorItemId', '')) == line_id)
-            for item in (matched_items or items[:1]):
+            for item in (matched_items[:1] or items[:1]):
                 rows.append({
                     '주문번호': str(raw.get('orderId', '')),
                     '묶음배송번호': str(raw.get('shipmentBoxId', '')),
@@ -728,7 +744,9 @@ def _api_orders_to_excel_df(orders, channel):
                     '등록옵션명': item.get('sellerProductItemName', ''),
                     '노출상품명': item.get('vendorItemName', ''),
                     '구매수(수량)': int(item.get('shippingCount', 0)),
-                    '수취인이름': recv.get('name', ''),
+                    '수취인이름': _sanitize_receiver_name(
+                        recv.get('name', ''),
+                        raw.get('orderer', {}).get('name', '')),
                     '수취인전화번호': recv.get('safeNumber', recv.get('receiverNumber', '')),
                     '수취인 주소': f"{recv.get('addr1', '')} {recv.get('addr2', '')}".strip(),
                     '배송메세지': raw.get('parcelPrintMessage', ''),
@@ -751,8 +769,10 @@ def _api_orders_to_excel_df(orders, channel):
                 '주문상품명': item.get('product_name', ''),
                 '옵션정보': item.get('option_value', '') or o.get('option_name', ''),
                 '수량': int(item.get('quantity', item.get('qty', 1)) or 1),
-                '수령인': rcv.get('name', rcv.get('receiver_name',
-                         order.get('shipping_name', order.get('receiver_name', '')))),
+                '수령인': _sanitize_receiver_name(
+                    rcv.get('name', rcv.get('receiver_name',
+                             order.get('shipping_name', order.get('receiver_name', '')))),
+                    order.get('buyer_name', order.get('member_name', ''))),
                 '핸드폰': rcv.get('cellphone', rcv.get('receiver_cellphone',
                          order.get('shipping_phone', order.get('receiver_phone', '')))),
                 '수령지전화': rcv.get('phone', rcv.get('receiver_phone',
