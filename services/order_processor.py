@@ -591,16 +591,21 @@ class OrderProcessor:
                                 item_str = " ".join(
                                     [f"{s_nms.get(k, f'{k}라인')}({', '.join(v)})" for k, v in sorted(stg.items()) if v]
                                 ) + f" 총{gp_sorted['qty'].sum()}개"
-                            rep = gp.iloc[0]
+                            rep = gp_sorted.iloc[0]
                             inv.append([
-                                rep['name'], "", rep['addr'], rep['p1'], rep['p2'],
-                                "1", "3000", "", item_str, "", rep['msg']
+                                str(rep['name']), "", str(rep['addr']),
+                                str(rep['p1']), str(rep['p2']),
+                                "1", "3000", "", item_str, "", str(rep['msg'])
                             ])
                         inv_path = os.path.join(output_dir, f"{safe_nm}{nt}송장_{ts}.xlsx")
-                        pd.DataFrame(inv, columns=[
+                        inv_df = pd.DataFrame(inv, columns=[
                             "수하인명", "B1", "수하인주소", "연락처1", "연락처2",
                             "박스", "운임", "B2", "품목명", "B3", "배송메세지"
-                        ]).to_excel(inv_path, index=False)
+                        ])
+                        # 연락처가 float로 변환되는 것 방지
+                        for _pc in ("연락처1", "연락처2"):
+                            inv_df[_pc] = inv_df[_pc].astype(str).str.replace(r'\.0$', '', regex=True)
+                        inv_df.to_excel(inv_path, index=False)
                         result['files'].append(inv_path)
 
                 result['success'] = True
