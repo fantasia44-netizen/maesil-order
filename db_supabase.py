@@ -52,13 +52,18 @@ class SupabaseDB(DBBase):
             return False
 
     def _is_connection_error(self, exc):
-        """httpx 연결 오류 여부 판별."""
+        """httpx 연결/타임아웃 오류 여부 판별."""
         err_name = type(exc).__name__
         err_msg = str(exc).lower()
         return ('RemoteProtocolError' in err_name or
                 'ConnectError' in err_name or
+                'ConnectionTerminated' in err_name or
+                'TimeoutException' in err_name or
                 'server disconnected' in err_msg or
-                'connection reset' in err_msg)
+                'connection reset' in err_msg or
+                'statement timeout' in err_msg or
+                "'57014'" in err_msg or
+                'canceling statement' in err_msg)
 
     def _retry_on_disconnect(self, fn, *args, **kwargs):
         """연결 오류 시 재연결 후 1회 재시도하는 범용 래퍼."""
@@ -67,6 +72,7 @@ class SupabaseDB(DBBase):
         except Exception as e:
             if self._is_connection_error(e):
                 print(f"[DB] 연결 오류 감지, 재시도: {type(e).__name__}")
+                time.sleep(1)
                 self._reconnect()
                 return fn(*args, **kwargs)
             raise
@@ -4181,30 +4187,37 @@ class SupabaseDB(DBBase):
                             date_from=None, date_to=None,
                             partner_name=None, unmatched_only=False):
         """세금계산서 목록 조회."""
-        try:
-            q = self.client.table("tax_invoices") \
-                .select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("write_date", desc=True)
-            if direction:
-                q = q.eq("direction", direction)
-            if status:
-                q = q.eq("status", status)
-            if date_from:
-                q = q.gte("write_date", date_from)
-            if date_to:
-                q = q.lte("write_date", date_to)
-            if partner_name:
-                q = q.or_(
-                    f"supplier_corp_name.ilike.%{partner_name}%,"
-                    f"buyer_corp_name.ilike.%{partner_name}%"
-                )
-            if unmatched_only:
-                q = q.is_("matched_transaction_id", "null")
-                q = q.neq("status", "cancelled")  # 취소건 제외
-            res = q.execute()
-            return res.data or []
-        except Exception as e:
-            print(f"[DB] query_tax_invoices error: {e}")
-            return []
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                q = self.client.table("tax_invoices") \
+                    .select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("write_date", desc=True)
+                if direction:
+                    q = q.eq("direction", direction)
+                if status:
+                    q = q.eq("status", status)
+                if date_from:
+                    q = q.gte("write_date", date_from)
+                if date_to:
+                    q = q.lte("write_date", date_to)
+                if partner_name:
+                    q = q.or_(
+                        f"supplier_corp_name.ilike.%{partner_name}%,"
+                        f"buyer_corp_name.ilike.%{partner_name}%"
+                    )
+                if unmatched_only:
+                    q = q.is_("matched_transaction_id", "null")
+                    q = q.neq("status", "cancelled")  # 취소건 제외
+                res = q.execute()
+                return res.data or []
+            except Exception as e:
+                print(f"[DB] query_tax_invoices attempt {attempt+1}/{max_retries} error: {e}")
+                if self._is_connection_error(e) and attempt < max_retries - 1:
+                    time.sleep(1)
+                    self._reconnect()
+                elif attempt >= max_retries - 1:
+                    return []
+        return []
 
     def query_tax_invoice_by_id(self, invoice_id):
         """세금계산서 1건 조회."""
@@ -4897,6 +4910,7 @@ class SupabaseDB(DBBase):
                     print(f"[DB] query_api_orders page {offset//page_size} "
                           f"attempt {attempt+1}/{max_retries} error: {e}")
                     if self._is_connection_error(e) and attempt < max_retries - 1:
+                        time.sleep(1 + attempt)  # backoff: 1초, 2초
                         self._reconnect()
                     elif attempt >= max_retries - 1:
                         print(f"[DB] query_api_orders 페이지 {offset//page_size} "
@@ -4970,5 +4984,6 @@ class SupabaseDB(DBBase):
             except Exception as e:
                 print(f"[DB] query_api_settlements attempt {attempt+1}/3 error: {e}")
                 if self._is_connection_error(e) and attempt < 2:
+                    time.sleep(1 + attempt)
                     self._reconnect()
         return []
