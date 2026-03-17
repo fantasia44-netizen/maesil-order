@@ -8,4 +8,11 @@ from flask import g
 
 def get_db():
     """Return the current request's DB instance (set by before_request)."""
-    return g.db
+    db = g.get('db')
+    if db is None:
+        # before_request가 실행되지 않았거나 db_pool 초기화 실패 시 fallback
+        from flask import current_app
+        db = getattr(current_app, 'db', None)
+        if db is None:
+            raise RuntimeError('DB 연결을 사용할 수 없습니다. 잠시 후 다시 시도하세요.')
+    return db
