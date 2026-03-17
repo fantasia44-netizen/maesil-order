@@ -82,7 +82,7 @@ class Aggregator:
             if path.lower().endswith('.csv'):
                 try:
                     return pd.read_csv(path, encoding='utf-8-sig').fillna('')
-                except:
+                except Exception:
                     return pd.read_csv(path, encoding='cp949').fillna('')
             else:
                 return pd.read_excel(path, header=header).fillna('')
@@ -96,7 +96,7 @@ class Aggregator:
             if filename.lower().endswith('.csv'):
                 try:
                     return pd.read_csv(buf, encoding='utf-8-sig').fillna('')
-                except:
+                except Exception:
                     buf.seek(0)
                     return pd.read_csv(buf, encoding='cp949').fillna('')
             else:

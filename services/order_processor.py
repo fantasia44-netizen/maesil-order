@@ -63,7 +63,7 @@ class OrderProcessor:
             if idx < len(row):
                 return str(row.iloc[idx]).strip()
             return ""
-        except:
+        except Exception:
             return ""
 
     def _parse_money(self, row, col_idx):
@@ -156,12 +156,12 @@ class OrderProcessor:
                 if path.lower().endswith('.csv'):
                     try:
                         df = pd.read_csv(path, encoding='utf-8-sig', dtype=str)
-                    except:
+                    except Exception:
                         df = pd.read_csv(path, encoding='cp949', dtype=str)
                 else:
                     try:
                         df = pd.read_excel(path, header=header, engine='openpyxl', dtype=str)
-                    except:
+                    except Exception:
                         df = pd.read_excel(path, header=header, engine='xlrd', dtype=str)
             else:
                 # file-like object
@@ -169,13 +169,13 @@ class OrderProcessor:
                 if filename.lower().endswith('.csv'):
                     try:
                         df = pd.read_csv(buf, encoding='utf-8-sig', dtype=str)
-                    except:
+                    except Exception:
                         buf.seek(0)
                         df = pd.read_csv(buf, encoding='cp949', dtype=str)
                 else:
                     try:
                         df = pd.read_excel(buf, header=header, engine='openpyxl', dtype=str)
-                    except:
+                    except Exception:
                         buf.seek(0)
                         df = pd.read_excel(buf, header=header, engine='xlrd', dtype=str)
 
@@ -471,7 +471,7 @@ class OrderProcessor:
                             # 유사 키 탐색 (디버깅용)
                             similar = [o['Key'] for o in opt_list if c_k_debug[:6] in o['Key'] or o['Key'][:6] in c_k_debug][:3]
                             self.log(f"[UNMATCH] key='{k}' c_k='{c_k_debug}' | 유사: {similar if similar else '없음'} | opt_list: {len(opt_list)}건")
-                except:
+                except Exception:
                     continue
 
             # 매칭 성공한 옵션 last_matched_at 갱신
