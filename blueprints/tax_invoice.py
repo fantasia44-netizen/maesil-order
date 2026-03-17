@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 tax_invoice_bp = Blueprint('tax_invoice', __name__, url_prefix='/tax-invoice')
 
@@ -32,7 +33,7 @@ def _allowed(filename):
 @role_required('admin', 'ceo', 'manager', 'general')
 def index():
     """세금계산서 목록"""
-    db = current_app.db
+    db = get_db()
     direction = request.args.get('direction', '전체')
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -61,7 +62,7 @@ def index():
 @role_required('admin', 'ceo', 'manager', 'general')
 def detail(invoice_id):
     """세금계산서 상세"""
-    invoice = current_app.db.query_tax_invoice_by_id(invoice_id)
+    invoice = get_db().query_tax_invoice_by_id(invoice_id)
     if not invoice:
         flash('세금계산서를 찾을 수 없습니다.', 'danger')
         return redirect(url_for('tax_invoice.index'))
@@ -72,7 +73,7 @@ def detail(invoice_id):
 @role_required('admin', 'manager')
 def cancel(invoice_id):
     """세금계산서 취소"""
-    db = current_app.db
+    db = get_db()
     invoice = db.query_tax_invoice_by_id(invoice_id)
     if not invoice:
         flash('세금계산서를 찾을 수 없습니다.', 'danger')
@@ -92,7 +93,7 @@ def cancel(invoice_id):
 @role_required('admin')
 def delete_test_data():
     """테스트 데이터 일괄 삭제 (임시 + 취소 건)"""
-    db = current_app.db
+    db = get_db()
     try:
         invoices = db.query_tax_invoices()
         deleted = 0
@@ -119,7 +120,7 @@ def upload():
     """홈택스 세금계산서 엑셀 업로드 (매출 또는 매입)"""
     import pandas as pd
 
-    db = current_app.db
+    db = get_db()
     direction = request.form.get('direction', 'sales')  # sales / purchase
     file = request.files.get('file')
 
@@ -134,7 +135,7 @@ def upload():
 
     try:
         file.save(filepath)
-        backup_to_storage(current_app.db, filepath, 'upload', 'tax_invoice')
+        backup_to_storage(get_db(), filepath, 'upload', 'tax_invoice')
         # 홈택스 엑셀은 header가 5행(또는 그 근처)에 있음 → header=None으로 읽고 파서가 자동 탐지
         df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
 
@@ -188,7 +189,7 @@ def download():
     """세금계산서 목록 엑셀 다운로드"""
     import pandas as pd
 
-    db = current_app.db
+    db = get_db()
     direction = request.args.get('direction', '')
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -289,7 +290,7 @@ def download_template():
 @login_required
 def api_partners():
     """거래처 목록 JSON (자동완성용)"""
-    partners = current_app.db.query_partners()
+    partners = get_db().query_partners()
     return jsonify([{
         'id': p['id'],
         'name': p.get('partner_name', ''),

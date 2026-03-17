@@ -10,33 +10,17 @@ from config import SUPABASE_URL, SUPABASE_KEY
 from services.tz_utils import today_kst, days_ago_kst
 from services.option_matcher import _normalize as normalize_match_key
 
-# 옵션마스터 메모리 캐시 (TTL 기반)
-_option_cache = {
-    'data': None,         # 전체 옵션 목록
-    'data_list': None,    # OrderProcessor 호환 dict list
-    'ts': 0,              # 마지막 로드 시간
-    'ttl': 1800,          # 30분 캐시 (초) — 옵션마스터는 자주 안 바뀜
-}
-
-# 권한 메모리 캐시 (TTL 기반)
-_perm_cache = {
-    'data': None,         # {role: {page_key: bool}}
-    'ts': 0,
-    'ttl': 600,           # 10분 캐시 (초)
-}
-
-# 가격표 메모리 캐시 (TTL 기반)
-_price_cache = {
-    'data': None,         # {product_name: {SKU, 네이버판매가, 쿠팡판매가, 로켓판매가}}
-    'ts': 0,
-    'ttl': 1800,          # 30분 캐시 (초)
-}
-
-
 class SupabaseDB(DBBase):
     def __init__(self):
         self.client: Client = None
         self._db_cols = None
+        # 인스턴스별 캐시 (사업자간 격리 — 모듈 레벨 공유 방지)
+        self._option_cache = {
+            'data': None, 'data_list': None, 'ts': 0, 'ttl': 1800,
+        }
+        self._perm_cache = {'data': None, 'ts': 0, 'ttl': 600}
+        self._price_cache = {'data': None, 'ts': 0, 'ttl': 1800}
+        self._pending_cache = {'count': 0, 'ts': 0}
 
     def connect(self, url=None, key=None):
         try:
@@ -93,7 +77,7 @@ class SupabaseDB(DBBase):
             if sample.data:
                 return set(sample.data[0].keys())
             return None
-        except:
+        except Exception:
             return None
 
     def _filter_payload(self, payload_list):
@@ -334,7 +318,7 @@ class SupabaseDB(DBBase):
             if res.data:
                 return res.data[0].get('unit') or ''
             return None
-        except:
+        except Exception:
             return None
 
     def update_stock_ledger(self, row_id, update_data):
@@ -664,15 +648,15 @@ class SupabaseDB(DBBase):
         try:
             res = self.client.table(table_name).select("id", count="exact").limit(1).execute()
             return res.count if res.count is not None else len(res.data)
-        except:
+        except Exception:
             return -1
 
     def query_price_table(self, use_cache=True):
         """가격표(master_prices) 전체 조회 → aggregator.price_map 호환 dict 반환. (캐시 적용)"""
         import unicodedata
         now = time.time()
-        if use_cache and _price_cache['data'] is not None and (now - _price_cache['ts']) < _price_cache['ttl']:
-            return _price_cache['data']
+        if use_cache and self._price_cache['data'] is not None and (now - self._price_cache['ts']) < self._price_cache['ttl']:
+            return self._price_cache['data']
 
         def _n(t): return unicodedata.normalize('NFC', str(t).strip())
 
@@ -691,8 +675,8 @@ class SupabaseDB(DBBase):
                 '로켓판매가': float(r.get('로켓판매가', r.get('rocket_price', 0)) or 0),
             }
 
-        _price_cache['data'] = price_map
-        _price_cache['ts'] = now
+        self._price_cache['data'] = price_map
+        self._price_cache['ts'] = now
         return price_map
 
     # --- product_costs (품목별 단가: 매입/생산 구분) ---
@@ -1043,24 +1027,24 @@ class SupabaseDB(DBBase):
 
     def _invalidate_option_cache(self):
         """옵션마스터 캐시 무효화 (데이터 변경 시 호출)."""
-        _option_cache['data'] = None
-        _option_cache['data_list'] = None
-        _option_cache['ts'] = 0
+        self._option_cache['data'] = None
+        self._option_cache['data_list'] = None
+        self._option_cache['ts'] = 0
 
     def query_option_master(self, use_cache=True):
         """옵션마스터 전체 조회 (sort_order 정렬, 메모리 캐시 적용)."""
         now = time.time()
-        if use_cache and _option_cache['data'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
-            return _option_cache['data']
+        if use_cache and self._option_cache['data'] is not None and (now - self._option_cache['ts']) < self._option_cache['ttl']:
+            return self._option_cache['data']
 
         def builder(table):
             return self.client.table(table).select("*").or_("is_deleted.is.null,is_deleted.eq.false").order("sort_order").order("id")
         data = self._paginate_query("option_master", builder)
 
         # 캐시 갱신
-        _option_cache['data'] = data
-        _option_cache['data_list'] = None  # list 캐시도 다시 생성
-        _option_cache['ts'] = now
+        self._option_cache['data'] = data
+        self._option_cache['data_list'] = None  # list 캐시도 다시 생성
+        self._option_cache['ts'] = now
         return data
 
     def query_option_master_as_list(self, use_cache=True):
@@ -1071,8 +1055,8 @@ class SupabaseDB(DBBase):
         """
         # list 캐시가 유효하면 바로 반환
         now = time.time()
-        if use_cache and _option_cache['data_list'] is not None and (now - _option_cache['ts']) < _option_cache['ttl']:
-            return _option_cache['data_list']
+        if use_cache and self._option_cache['data_list'] is not None and (now - self._option_cache['ts']) < self._option_cache['ttl']:
+            return self._option_cache['data_list']
 
         all_rows = self.query_option_master(use_cache=use_cache)
         result = []
@@ -1085,7 +1069,7 @@ class SupabaseDB(DBBase):
                 '바코드': r.get('barcode', ''),
                 'Key': r.get('match_key', ''),
             })
-        _option_cache['data_list'] = result
+        self._option_cache['data_list'] = result
         return result
 
     def search_option_master(self, keyword):
@@ -1142,8 +1126,8 @@ class SupabaseDB(DBBase):
 
     def count_option_master(self):
         """옵션마스터 건수 (캐시 활용)."""
-        cached = _option_cache.get('data')
-        if cached is not None and (time.time() - _option_cache['ts']) < _option_cache['ttl']:
+        cached = self._option_cache.get('data')
+        if cached is not None and (time.time() - self._option_cache['ts']) < self._option_cache['ttl']:
             return len(cached)
         try:
             res = self.client.table("option_master").select("id", count="exact").or_("is_deleted.is.null,is_deleted.eq.false").limit(1).execute()
@@ -1287,8 +1271,6 @@ class SupabaseDB(DBBase):
         def builder(table):
             return self.client.table(table).select("*").order("created_at", desc=True)
         return self._paginate_query("app_users", builder)
-
-    _pending_cache = {'count': 0, 'ts': 0}
 
     def count_pending_users(self):
         """승인 대기 사용자 수 (60초 TTL 캐시)."""
@@ -1453,8 +1435,8 @@ class SupabaseDB(DBBase):
     def query_role_permissions(self, use_cache=True):
         """권한 전체 조회 → {role: {page_key: bool}}. TTL 캐시."""
         now = time.time()
-        if use_cache and _perm_cache['data'] and (now - _perm_cache['ts']) < _perm_cache['ttl']:
-            return _perm_cache['data']
+        if use_cache and self._perm_cache['data'] and (now - self._perm_cache['ts']) < self._perm_cache['ttl']:
+            return self._perm_cache['data']
         try:
             res = self.client.table("role_permissions").select("role,page_key,is_allowed").execute()
             perms = {}
@@ -1463,11 +1445,11 @@ class SupabaseDB(DBBase):
                 if role not in perms:
                     perms[role] = {}
                 perms[role][row['page_key']] = row['is_allowed']
-            _perm_cache['data'] = perms
-            _perm_cache['ts'] = time.time()
+            self._perm_cache['data'] = perms
+            self._perm_cache['ts'] = time.time()
             return perms
         except Exception:
-            return _perm_cache['data'] or {}
+            return self._perm_cache['data'] or {}
 
     def upsert_role_permissions(self, role, perms_dict):
         """한 역할의 권한 일괄 저장. perms_dict = {page_key: bool}."""
@@ -1512,8 +1494,8 @@ class SupabaseDB(DBBase):
 
     def _invalidate_perm_cache(self):
         """권한 캐시 즉시 무효화."""
-        _perm_cache['data'] = None
-        _perm_cache['ts'] = 0
+        self._perm_cache['data'] = None
+        self._perm_cache['ts'] = 0
 
     # ================================================================
     # 행사 관리 (promotions)
@@ -4080,6 +4062,28 @@ class SupabaseDB(DBBase):
     # 회계 ERP 메서드 (은행/세금계산서/매칭/정산)
     # ══════════════════════════════════════════════════════════
 
+    # ── codef_connections ──
+
+    def insert_codef_connection(self, payload):
+        """CODEF 연결 정보 저장 (upsert — connected_id 기준 중복 방지)."""
+        try:
+            self.client.table("codef_connections").upsert(
+                payload, on_conflict="connected_id"
+            ).execute()
+        except Exception as e:
+            print(f"[DB] insert_codef_connection error: {e}")
+            raise
+
+    def query_codef_connections(self):
+        """CODEF 연결 목록."""
+        try:
+            res = self.client.table("codef_connections") \
+                .select("*").order("created_at", desc=True).execute()
+            return res.data or []
+        except Exception as e:
+            print(f"[DB] query_codef_connections error: {e}")
+            return []
+
     # ── bank_accounts ──
 
     def query_bank_accounts(self):
@@ -4549,28 +4553,6 @@ class SupabaseDB(DBBase):
             q.execute()
         except Exception as e:
             print(f"[DB] delete_all_card_transactions error: {e}")
-
-    # ══════════════════════════════════════════
-    # CODEF 연결 정보
-    # ══════════════════════════════════════════
-
-    def query_codef_connections(self):
-        """CODEF 연결 정보 목록 조회."""
-        try:
-            res = self.client.table("codef_connections") \
-                .select("*").order("created_at", desc=True).execute()
-            return res.data or []
-        except Exception as e:
-            print(f"[DB] query_codef_connections error: {e}")
-            return []
-
-    def insert_codef_connection(self, payload):
-        """CODEF 연결 정보 등록."""
-        try:
-            self.client.table("codef_connections").insert(payload).execute()
-        except Exception as e:
-            print(f"[DB] insert_codef_connection error: {e}")
-            raise
 
     # ══════════════════════════════════════════
     # journal_entries / journal_lines (전표 시스템)

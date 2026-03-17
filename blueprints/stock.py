@@ -13,6 +13,7 @@ from flask_login import login_required
 
 from auth import role_required
 from services.storage_helper import backup_bytes_to_storage
+from db_utils import get_db
 
 stock_bp = Blueprint('stock', __name__, url_prefix='/stock')
 
@@ -28,7 +29,7 @@ def index():
     view_mode = request.args.get('view_mode', '기본')
     product_filter = request.args.get('product', '').strip()
 
-    db = current_app.db
+    db = get_db()
     locations, categories = [], []
     try:
         locations, categories = db.query_filter_options()
@@ -93,7 +94,7 @@ def pdf():
         flash('기준일을 입력하세요.', 'warning')
         return redirect(url_for('stock.index'))
 
-    db = current_app.db
+    db = get_db()
 
     try:
         from services.stock_service import query_stock_snapshot
@@ -145,7 +146,7 @@ def pdf():
             with open(tmp_path, 'rb') as f:
                 pdf_bytes = io.BytesIO(f.read())
             fname = f"재고현황_{date_str}.pdf"
-            backup_bytes_to_storage(current_app.db, pdf_bytes.getvalue(), fname, 'report', 'stock')
+            backup_bytes_to_storage(get_db(), pdf_bytes.getvalue(), fname, 'report', 'stock')
             return send_file(pdf_bytes, mimetype='application/pdf',
                              as_attachment=True, download_name=fname)
         finally:
@@ -177,7 +178,7 @@ def excel():
         flash('기준일을 입력하세요.', 'warning')
         return redirect(url_for('stock.index'))
 
-    db = current_app.db
+    db = get_db()
 
     try:
         from services.stock_service import query_stock_snapshot
@@ -242,7 +243,7 @@ def excel():
 
         buf.seek(0)
         fname = f"재고현황_{date_str}.xlsx"
-        backup_bytes_to_storage(current_app.db, buf.getvalue(), fname, 'output', 'stock')
+        backup_bytes_to_storage(get_db(), buf.getvalue(), fname, 'output', 'stock')
         return send_file(buf, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                          as_attachment=True, download_name=fname)
 

@@ -11,6 +11,7 @@ from wtforms import StringField, PasswordField, SelectField
 from wtforms.validators import DataRequired, Length, EqualTo, Regexp
 
 from models import User
+from db_utils import get_db
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -143,7 +144,7 @@ def role_required(*roles):
                 return f(*args, **kwargs)
             # DB 권한 체크: URL → page_key 매칭 (PAGE_REGISTRY 기반)
             try:
-                db = current_app.db
+                db = get_db()
                 perms = db.query_role_permissions()
                 role_perms = perms.get(user_role, {})
 
@@ -218,13 +219,13 @@ def _log_action(action, target=None, detail=None, user_id=None,
         'action': action,
         'target': target,
         'detail': detail,
-        'ip_address': request.remote_addr,
+        'ip_address': _get_client_ip(),
     }
     if old_value is not None:
         payload['old_value'] = old_value
     if new_value is not None:
         payload['new_value'] = new_value
-    current_app.db.insert_audit_log(payload)
+    get_db().insert_audit_log(payload)
 
 
 # ── Routes ──
@@ -247,7 +248,7 @@ def login():
                         detail=f'IP: {client_ip}')
             return render_template('login.html', form=form)
 
-        row = current_app.db.query_user_by_username(form.username.data)
+        row = get_db().query_user_by_username(form.username.data)
         user = User(row) if row else None
 
         # 계정 잠금 확인
@@ -275,7 +276,7 @@ def login():
             session['_last_active'] = time.time()
 
             # DB 업데이트 + 감사로그는 백그라운드로 (응답 속도 개선)
-            _db = current_app.db
+            _db = get_db()
             _uid, _uname = user.id, user.username
             def _post_login():
                 try:
@@ -316,7 +317,7 @@ def login():
                         datetime.now(timezone.utc) + timedelta(minutes=lockout)
                     ).isoformat()
                     flash(f'로그인 {max_attempts}회 실패. {lockout}분간 잠금됩니다.', 'danger')
-                current_app.db.update_user(user.id, update_data)
+                get_db().update_user(user.id, update_data)
                 _log_action('login_failed', target=form.username.data,
                             user_id=user.id, detail=f'IP: {client_ip}')
             else:
@@ -335,7 +336,7 @@ def register():
 
     form = RegisterForm()
     if form.validate_on_submit():
-        existing = current_app.db.query_user_by_username(form.username.data)
+        existing = get_db().query_user_by_username(form.username.data)
         if existing:
             flash('이미 사용 중인 아이디입니다.', 'danger')
             return render_template('register.html', form=form)
@@ -344,7 +345,7 @@ def register():
         temp_user = User()
         temp_user.set_password(form.password.data)
 
-        current_app.db.insert_user({
+        get_db().insert_user({
             'username': form.username.data,
             'name': form.name.data,
             'password_hash': temp_user.password_hash,
@@ -354,7 +355,7 @@ def register():
         })
 
         # 새로 생성된 사용자 조회하여 audit log 에 user_id 기록
-        created = current_app.db.query_user_by_username(form.username.data)
+        created = get_db().query_user_by_username(form.username.data)
         created_id = created['id'] if created else None
 
         _log_action('register', target=form.username.data, user_id=created_id)
@@ -383,7 +384,7 @@ def change_password():
             return render_template('change_password.html', form=form)
 
         current_user.set_password(form.new_password.data)
-        current_app.db.update_user(current_user.id, {
+        get_db().update_user(current_user.id, {
             'password_hash': current_user.password_hash,
             'password_changed_at': current_user.password_changed_at,
         })

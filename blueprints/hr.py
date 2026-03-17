@@ -14,6 +14,7 @@ from flask_login import login_required, current_user
 from datetime import date, timedelta
 
 from auth import role_required, _log_action
+from db_utils import get_db
 
 hr_bp = Blueprint('hr', __name__, url_prefix='/hr')
 
@@ -55,7 +56,7 @@ def employees():
 @role_required('admin', 'general')
 def api_employees():
     """직원 목록 JSON API"""
-    db = current_app.db
+    db = get_db()
     status = request.args.get('status', '')
     try:
         rows = db.query_employees(status=status or None)
@@ -73,7 +74,7 @@ def api_employees():
 @role_required('admin', 'general')
 def api_create_employee():
     """직원 등록"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -122,7 +123,7 @@ def api_create_employee():
 @role_required('admin', 'general')
 def api_update_employee(emp_id):
     """직원 수정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -171,7 +172,7 @@ def api_update_employee(emp_id):
 @role_required('admin', 'general')
 def api_retire_employee(emp_id):
     """직원 퇴사 처리 (삭제하지 않고 상태만 변경)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     retire_date = (data.get('retire_date') or '').strip()
     memo = (data.get('memo') or '').strip()
@@ -205,7 +206,7 @@ def payroll():
 @role_required('admin', 'general')
 def api_payroll():
     """급여 목록 JSON API"""
-    db = current_app.db
+    db = get_db()
     pay_month = request.args.get('pay_month', '')
     try:
         rows = db.query_payroll(pay_month=pay_month or None)
@@ -260,7 +261,7 @@ def api_payroll():
 @role_required('admin', 'general')
 def api_update_payroll(payroll_id):
     """급여 1건 수정 (수당/메모 수정)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -292,7 +293,7 @@ def api_update_payroll(payroll_id):
 @role_required('admin', 'general')
 def api_generate_payroll():
     """월 급여 자동 생성 (한국 급여체계 반영)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     pay_month = (data.get('pay_month') or '').strip()
     use_v2 = data.get('use_v2', True)  # 기본적으로 v2 사용
@@ -328,7 +329,7 @@ def api_generate_payroll():
 @role_required('admin', 'general')
 def api_recalculate_payroll(payroll_id):
     """급여 1건 재계산"""
-    db = current_app.db
+    db = get_db()
     try:
         result = db.recalculate_payroll(payroll_id)
         if result:
@@ -345,7 +346,7 @@ def api_recalculate_payroll(payroll_id):
 @role_required('admin', 'general')
 def api_sync_expenses():
     """급여 합계를 expenses에 인건비로 자동 반영"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     pay_month = (data.get('pay_month') or '').strip()
 
@@ -367,7 +368,7 @@ def api_sync_expenses():
 @role_required('admin', 'general')
 def api_generate_bulk_payroll():
     """여러 월 급여 일괄 생성 (입사일~현재 기간)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     from_month = (data.get('from_month') or '').strip()
     to_month = (data.get('to_month') or '').strip()
@@ -393,7 +394,7 @@ def api_generate_bulk_payroll():
 @role_required('admin', 'general')
 def api_salary_components(emp_id):
     """직원의 급여 항목 목록 조회"""
-    db = current_app.db
+    db = get_db()
     try:
         components = db.query_salary_components(emp_id, active_only=True)
         return jsonify({'success': True, 'components': components})
@@ -405,7 +406,7 @@ def api_salary_components(emp_id):
 @role_required('admin', 'general')
 def api_set_salary_components(emp_id):
     """직원의 급여 항목 일괄 설정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -431,7 +432,7 @@ def api_set_salary_components(emp_id):
 @role_required('admin', 'general')
 def api_upsert_salary_component():
     """급여 항목 1건 추가/수정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -482,7 +483,7 @@ def api_upsert_salary_component():
 @role_required('admin', 'general')
 def api_delete_salary_component(comp_id):
     """급여 항목 1건 비활성화 (삭제)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 employee_id 조회 (자동 재계산용)
         emp_id = None
@@ -516,7 +517,7 @@ def api_delete_salary_component(comp_id):
 @role_required('admin', 'general')
 def api_insurance_rates():
     """4대보험 요율 조회"""
-    db = current_app.db
+    db = get_db()
     year = request.args.get('year', '')
 
     try:
@@ -534,7 +535,7 @@ def api_insurance_rates():
 @role_required('admin', 'general')
 def api_update_insurance_rates():
     """4대보험 요율 일괄 업데이트"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -558,7 +559,7 @@ def api_update_insurance_rates():
 @role_required('admin', 'general')
 def api_employee_insurance_overrides(employee_id):
     """직원 개인별 보험요율 오버라이드 조회"""
-    db = current_app.db
+    db = get_db()
     try:
         overrides = db.query_employee_insurance_overrides(employee_id)
         return jsonify({'success': True, 'overrides': overrides})
@@ -570,7 +571,7 @@ def api_employee_insurance_overrides(employee_id):
 @role_required('admin', 'general')
 def api_set_employee_insurance_override(employee_id):
     """직원 개인별 보험요율 오버라이드 설정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -602,7 +603,7 @@ def api_set_employee_insurance_override(employee_id):
 @role_required('admin', 'general')
 def api_delete_employee_insurance_override(employee_id):
     """직원 개인별 보험요율 오버라이드 삭제 (기본값 복원)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     insurance_type = data.get('insurance_type', '') if data else ''
 
@@ -623,7 +624,7 @@ def api_delete_employee_insurance_override(employee_id):
 @role_required('admin', 'general')
 def api_nontaxable_limits():
     """비과세 한도 조회"""
-    db = current_app.db
+    db = get_db()
     year = request.args.get('year', '')
 
     try:
@@ -641,7 +642,7 @@ def api_nontaxable_limits():
 @role_required('admin', 'general')
 def api_payroll_preview():
     """급여 미리보기 (저장 없이 계산 결과만 반환)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     employee_id = data.get('employee_id')
 
@@ -698,7 +699,7 @@ def _enrich_payroll_record(db, record):
 @role_required('admin', 'general')
 def api_payslip_pdf(payroll_id):
     """개별 급여명세서 PDF 다운로드."""
-    db = current_app.db
+    db = get_db()
     try:
         from reports.payroll_report import generate_individual_payslip
 
@@ -725,7 +726,7 @@ def api_payslip_pdf(payroll_id):
 @role_required('admin', 'general')
 def api_bulk_payslip_pdf():
     """전체 급여명세서 PDF (직원별 페이지)."""
-    db = current_app.db
+    db = get_db()
     pay_month = request.args.get('pay_month', '')
     if not pay_month:
         return jsonify({'error': '대상 월을 지정해주세요.'}), 400
@@ -766,7 +767,7 @@ def api_bulk_payslip_pdf():
 @role_required('admin', 'general')
 def api_payroll_summary_pdf():
     """급여 총괄표 PDF (보고용)."""
-    db = current_app.db
+    db = get_db()
     pay_month = request.args.get('pay_month', '')
     if not pay_month:
         return jsonify({'error': '대상 월을 지정해주세요.'}), 400
@@ -807,7 +808,7 @@ def api_payroll_summary_pdf():
 @role_required('admin', 'general')
 def api_severance_calc(emp_id):
     """퇴직금 계산 (저장 없이 결과만 반환)"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     retire_date_str = (data.get('retire_date') or '').strip()
 
@@ -860,7 +861,7 @@ def leave():
 @role_required('admin', 'general')
 def api_leave():
     """연차 현황 JSON API (직원별 연차 + 법정일수)"""
-    db = current_app.db
+    db = get_db()
     year = request.args.get('year', '')
 
     try:
@@ -903,7 +904,7 @@ def api_leave():
 @role_required('admin', 'general')
 def api_grant_leave():
     """연차 부여일수 설정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -936,7 +937,7 @@ def api_grant_leave():
 @role_required('admin', 'general')
 def api_create_leave():
     """연차 사용 등록"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -975,7 +976,7 @@ def api_create_leave():
 @role_required('admin', 'general')
 def api_leave_records():
     """연차 사용 기록 조회"""
-    db = current_app.db
+    db = get_db()
     employee_id = request.args.get('employee_id', '')
     year = request.args.get('year', '')
 
@@ -1000,7 +1001,7 @@ def api_leave_records():
 @role_required('admin', 'general')
 def api_leave_calendar():
     """월별 연차 달력 데이터"""
-    db = current_app.db
+    db = get_db()
     year = request.args.get('year', '')
     month = request.args.get('month', '')
 

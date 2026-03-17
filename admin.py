@@ -12,6 +12,7 @@ from wtforms.validators import DataRequired, Length
 
 from models import User, PAGE_REGISTRY
 from auth import role_required, _log_action
+from db_utils import get_db
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -99,7 +100,7 @@ class UserEditForm(FlaskForm):
 
 def _get_user_or_404(user_id):
     """Fetch a user via Supabase; abort 404 if not found. Returns User object."""
-    row = current_app.db.query_user_by_id(user_id)
+    row = get_db().query_user_by_id(user_id)
     if row is None:
         abort(404)
     return User(row)
@@ -133,12 +134,12 @@ def _parse_datetime(value):
 @admin_bp.route('/users')
 @role_required('admin')
 def user_list():
-    raw_users = current_app.db.query_all_users()
+    raw_users = get_db().query_all_users()
     # Wrap dicts in User objects for attribute access in templates
     users = [User(row) for row in raw_users]
     # Sort by created_at descending (newest first)
     users.sort(key=lambda u: u.created_at or '', reverse=True)
-    pending_count = current_app.db.count_pending_users()
+    pending_count = get_db().count_pending_users()
     return render_template('admin/user_list.html', users=users, pending_count=pending_count)
 
 
@@ -163,7 +164,7 @@ def user_edit(user_id):
             'is_active_user': form.is_active_user.data,
             'is_approved': form.is_approved.data,
         }
-        current_app.db.update_user(user_id, new_data)
+        get_db().update_user(user_id, new_data)
 
         detail = f'역할: {old_role} → {form.role.data}' if old_role != form.role.data else None
         _log_action('user_update', target=user.username, detail=detail)
@@ -177,7 +178,7 @@ def user_edit(user_id):
 @role_required('admin')
 def user_approve(user_id):
     user = _get_user_or_404(user_id)
-    current_app.db.update_user(user_id, {'is_approved': True})
+    get_db().update_user(user_id, {'is_approved': True})
     _log_action('user_approve', target=user.username)
     flash(f'{user.name} 승인 완료.', 'success')
     return redirect(url_for('admin.user_list'))
@@ -192,7 +193,7 @@ def user_toggle_active(user_id):
         return redirect(url_for('admin.user_list'))
 
     new_status = not user.is_active_user
-    current_app.db.update_user(user_id, {'is_active_user': new_status})
+    get_db().update_user(user_id, {'is_active_user': new_status})
     status = '활성화' if new_status else '비활성화'
     _log_action('user_toggle', target=user.username, detail=status)
     flash(f'{user.name} 계정이 {status} 되었습니다.', 'success')
@@ -205,7 +206,7 @@ def user_reset_password(user_id):
     user = _get_user_or_404(user_id)
     temp_password = 'change1234!'
     user.set_password(temp_password)
-    current_app.db.update_user(user_id, {
+    get_db().update_user(user_id, {
         'password_hash': user.password_hash,
         'password_changed_at': user.password_changed_at,
         'failed_login_count': 0,
@@ -220,7 +221,7 @@ def user_reset_password(user_id):
 @role_required('admin')
 def user_unlock(user_id):
     user = _get_user_or_404(user_id)
-    current_app.db.update_user(user_id, {
+    get_db().update_user(user_id, {
         'failed_login_count': 0,
         'locked_until': None,
     })
@@ -239,7 +240,7 @@ def audit_logs():
     date_from = request.args.get('date_from', '').strip()
     date_to = request.args.get('date_to', '').strip()
 
-    items, total = current_app.db.query_audit_logs(
+    items, total = get_db().query_audit_logs(
         page, per_page,
         action_filter=action_filter or None,
         user_filter=user_filter or None,
@@ -301,7 +302,7 @@ _REVERTABLE_ACTIONS = {
 @role_required('admin')
 def revert_audit_log(log_id):
     """감사 로그 기반 롤백 — old_value를 복원"""
-    db = current_app.db
+    db = get_db()
 
     log_entry = db.query_audit_log_by_id(log_id)
     if not log_entry:
@@ -642,7 +643,7 @@ def revert_audit_log(log_id):
 def permissions():
     """권한 설정 매트릭스 페이지."""
     from config import Config
-    db = current_app.db
+    db = get_db()
 
     # DB에서 현재 권한 조회
     perms = db.query_role_permissions(use_cache=False)
@@ -663,7 +664,7 @@ def permissions():
 def permissions_save():
     """권한 저장 (AJAX). 역할별 {page_key: bool} 일괄 upsert."""
     from config import Config
-    db = current_app.db
+    db = get_db()
 
     try:
         data = request.get_json(force=True)
@@ -698,7 +699,7 @@ def permissions_save():
 def permissions_reset():
     """권한 기본값으로 초기화 (AJAX)."""
     from config import Config
-    db = current_app.db
+    db = get_db()
 
     try:
         # 기존 데이터 삭제 후 seed
@@ -740,7 +741,7 @@ def permissions_reset():
 def anonymize_shipping():
     """만료된 배송 개인정보 익명화 실행"""
     try:
-        count = current_app.db.anonymize_expired_shipping()
+        count = get_db().anonymize_expired_shipping()
         _log_action('anonymize_shipping', detail=f'{count}건 익명화 처리')
         return jsonify({'success': True, 'count': count, 'message': f'{count}건 익명화 완료'})
     except Exception as e:

@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 from auth import role_required
 from services.storage_helper import backup_bytes_to_storage
 from models import INV_TYPE_LABELS, LEDGER_CATEGORY_MAP
+from db_utils import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ ledger_bp = Blueprint('ledger', __name__, url_prefix='/ledger')
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def index():
     """수불장 조회"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -165,7 +166,7 @@ def index():
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def export():
     """수불장 엑셀 다운로드"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -252,7 +253,7 @@ def pdf():
         flash('종료일을 입력하세요.', 'warning')
         return redirect(url_for('ledger.index'))
 
-    db = current_app.db
+    db = get_db()
 
     # ── 수불장 PDF 출력 로그 ──
     user_name = getattr(current_user, 'name', '?')

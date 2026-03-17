@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 outbound_bp = Blueprint('outbound', __name__, url_prefix='/outbound')
 
@@ -33,7 +34,7 @@ def _allowed(filename):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """거래처주문처리 폼 + 거래 이력 조회"""
-    db = current_app.db
+    db = get_db()
     locations = []
     partners = []
     my_businesses = []
@@ -91,7 +92,7 @@ def api_products():
 
     try:
         from services.excel_io import build_stock_snapshot
-        all_data = current_app.db.query_stock_by_location(location)
+        all_data = get_db().query_stock_by_location(location)
         snapshot = build_stock_snapshot(all_data)
         products = []
         for name, info in snapshot.items():
@@ -164,7 +165,7 @@ def single():
 
     try:
         from services.outbound_service import process_single_outbound
-        db = current_app.db
+        db = get_db()
 
         # ── DB 중복 체크: 같은 날짜+거래처+품목+수량 이미 존재 여부 ──
         try:
@@ -407,7 +408,7 @@ def invoice():
         flash('출고 결과가 없습니다.', 'danger')
         return redirect(url_for('outbound.index'))
 
-    db = current_app.db
+    db = get_db()
 
     try:
         # 본사 정보
@@ -468,7 +469,7 @@ def invoice():
 
         generate_invoice_pdf(pdf_path, my_biz, partner, trades,
                              trade_date=trade_date)
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -490,7 +491,7 @@ def shipping_label():
         flash('출고 결과가 없습니다.', 'danger')
         return redirect(url_for('outbound.index'))
 
-    db = current_app.db
+    db = get_db()
 
     try:
         # 거래처 정보 조회
@@ -545,7 +546,7 @@ def shipping_label():
         fname = f"운송장_{partner_name}_{trade_date}.xlsx"
         xlsx_path = os.path.join(output_dir, fname)
         df.to_excel(xlsx_path, index=False)
-        backup_to_storage(current_app.db, xlsx_path, 'output', 'shipping')
+        backup_to_storage(get_db(), xlsx_path, 'output', 'shipping')
 
         return send_file(
             xlsx_path,
@@ -584,13 +585,13 @@ def batch():
         fname = secure_filename(file.filename)
         filepath = os.path.join(upload_dir, fname)
         file.save(filepath)
-        backup_to_storage(current_app.db, filepath, 'upload', 'outbound')
+        backup_to_storage(get_db(), filepath, 'upload', 'outbound')
 
         try:
             from services.outbound_service import process_outbound
             df = pd.read_excel(filepath).fillna("")
             result = process_outbound(
-                current_app.db, df, date_str,
+                get_db(), df, date_str,
                 filename=fname, mode=mode,
             )
             total_count += result.get('total_count', 0)
@@ -621,7 +622,7 @@ def batch():
 @role_required('admin')
 def delete_trade(trade_id):
     """거래 삭제 (manual_trades + daily_revenue + stock_ledger 연동 삭제)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 거래 정보 조회
         trade = db.query_manual_trade_by_id(trade_id)
@@ -675,7 +676,7 @@ def delete_trade(trade_id):
 @role_required('admin', 'manager', 'sales')
 def update_trade(trade_id):
     """거래 수정 (manual_trades + daily_revenue 연동 수정)"""
-    db = current_app.db
+    db = get_db()
     try:
         trade = db.query_manual_trade_by_id(trade_id)
         if not trade:
@@ -804,7 +805,7 @@ def update_trade(trade_id):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_trade(trade_id):
     """거래명세서 PDF 생성 (단일 거래 기준)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         trades = db.query_manual_trades()
@@ -833,7 +834,7 @@ def invoice_trade(trade_id):
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, [trade],
                              trade_date=trade.get('trade_date', ''))
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -850,7 +851,7 @@ def invoice_trade(trade_id):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_selected():
     """선택한 거래 항목들을 합산한 거래명세서 PDF 생성"""
-    db = current_app.db
+    db = get_db()
     selected_ids = request.form.getlist('selected_trades')
 
     if not selected_ids:
@@ -892,7 +893,7 @@ def invoice_selected():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, selected_trades,
                              trade_date=t_date)
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -909,7 +910,7 @@ def invoice_selected():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_batch_trade():
     """거래명세서 PDF — 같은 거래처+날짜 묶어서 생성"""
-    db = current_app.db
+    db = get_db()
     p_name = request.args.get('partner_name', '')
     t_date = request.args.get('trade_date', '')
 
@@ -945,7 +946,7 @@ def invoice_batch_trade():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, trade_list,
                              trade_date=t_date)
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -967,7 +968,7 @@ def reprocess_outbound():
     if not date_from or not date_to:
         return jsonify({'error': 'date_from, date_to 필수'}), 400
 
-    db = current_app.db
+    db = get_db()
     try:
         from services.order_to_stock_service import process_orders_to_stock
         result = process_orders_to_stock(

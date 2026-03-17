@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, current_app, flash, redir
 from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+from db_utils import get_db
 
 accounting_bp = Blueprint('accounting', __name__, url_prefix='/accounting')
 
@@ -11,7 +12,7 @@ accounting_bp = Blueprint('accounting', __name__, url_prefix='/accounting')
 @role_required('admin', 'ceo', 'manager', 'general')
 def dashboard():
     """회계 대시보드"""
-    db = current_app.db
+    db = get_db()
     from services.bank_service import get_transaction_summary
     from services.matching_service import get_receivables, get_matching_summary, get_payables_summary
     from services.settlement_service import get_settlement_summary
@@ -61,7 +62,7 @@ def dashboard():
 @role_required('admin', 'manager', 'general')
 def matching():
     """매출-입금 매칭"""
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('date_from', days_ago_kst(30))
     date_to = request.args.get('date_to', today_kst())
 
@@ -91,9 +92,9 @@ def auto_match():
     date_to = request.form.get('date_to', today_kst())
 
     try:
-        result = auto_match_invoices(current_app.db, date_from, date_to)
+        result = auto_match_invoices(get_db(), date_from, date_to)
         for c in result['candidates']:
-            confirm_match(current_app.db, c['invoice_id'], c['transaction_id'],
+            confirm_match(get_db(), c['invoice_id'], c['transaction_id'],
                           matched_by=current_user.username)
         _log_action('auto_match',
                     detail=f'{result["matched_count"]}건 매칭')
@@ -118,7 +119,7 @@ def manual_match_action():
         return redirect(url_for('accounting.matching'))
 
     try:
-        manual_match(current_app.db, invoice_id, transaction_id,
+        manual_match(get_db(), invoice_id, transaction_id,
                      matched_by=current_user.username)
         _log_action('manual_match',
                     detail=f'세금계산서 {invoice_id} ↔ 거래 {transaction_id}')
@@ -135,7 +136,7 @@ def unmatch_action(match_id):
     """매칭 해제"""
     from services.matching_service import unmatch
     try:
-        unmatch(current_app.db, match_id)
+        unmatch(get_db(), match_id)
         _log_action('unmatch',
                     detail=f'매칭 {match_id} 해제')
         flash('매칭이 해제되었습니다.', 'success')
@@ -149,7 +150,7 @@ def unmatch_action(match_id):
 def receivables():
     """미수금 관리"""
     from services.matching_service import get_receivables
-    items = get_receivables(current_app.db)
+    items = get_receivables(get_db())
     total = sum(r['total_amount'] for r in items)
     return render_template('accounting/receivables.html',
                            receivables=items, total=total)
@@ -163,7 +164,7 @@ def payables():
     date_from = request.args.get('date_from', days_ago_kst(90))
     date_to = request.args.get('date_to', today_kst())
 
-    db = current_app.db
+    db = get_db()
     items = get_payables(db, date_from=date_from, date_to=date_to)
     total_unpaid = sum(p['unpaid_amount'] for p in items)
     total_paid = sum(p['paid_amount'] for p in items)
@@ -205,9 +206,9 @@ def auto_match_payables():
     date_to = request.form.get('date_to', today_kst())
 
     try:
-        result = _auto_match(current_app.db, date_from, date_to)
+        result = _auto_match(get_db(), date_from, date_to)
         for c in result['candidates']:
-            confirm_payable_match(current_app.db, c['invoice_id'], c['transaction_id'],
+            confirm_payable_match(get_db(), c['invoice_id'], c['transaction_id'],
                                   matched_by=current_user.username)
         _log_action('auto_match_payables',
                     detail=f'{result["matched_count"]}건 지급 매칭')
@@ -232,7 +233,7 @@ def manual_match_payable():
         return redirect(url_for('accounting.payables'))
 
     try:
-        confirm_payable_match(current_app.db, invoice_id, transaction_id,
+        confirm_payable_match(get_db(), invoice_id, transaction_id,
                               matched_by=current_user.username)
         _log_action('manual_match_payable',
                     detail=f'매입 세금계산서 {invoice_id} ↔ 출금 {transaction_id}')
@@ -249,7 +250,7 @@ def unmatch_payable(match_id):
     """미지급금 매칭 해제"""
     from services.matching_service import unmatch
     try:
-        unmatch(current_app.db, match_id)
+        unmatch(get_db(), match_id)
         _log_action('unmatch_payable', detail=f'매칭 {match_id} 해제')
         flash('매칭이 해제되었습니다.', 'success')
     except Exception as e:
@@ -266,7 +267,7 @@ def settlements():
     date_to = request.args.get('date_to', today_kst())
     selected_channel = request.args.get('channel', '')
 
-    db = current_app.db
+    db = get_db()
     settlement_list = db.query_platform_settlements(
         channel=selected_channel or None,
         date_from=date_from, date_to=date_to,
@@ -291,7 +292,7 @@ def sync_settlements():
     date_to = request.form.get('date_to', today_kst())
 
     try:
-        results = sync_all_channels(current_app.db, date_from, date_to)
+        results = sync_all_channels(get_db(), date_from, date_to)
         total = sum(r.get('created_count', 0) for r in results if 'error' not in r)
         errors = [r for r in results if 'error' in r]
 
@@ -319,9 +320,9 @@ def auto_match_settlements_action():
     date_to = request.form.get('date_to', today_kst())
 
     try:
-        result = auto_match_settlements(current_app.db, date_from, date_to)
+        result = auto_match_settlements(get_db(), date_from, date_to)
         for c in result['candidates']:
-            confirm_settlement_match(current_app.db, c['settlement_id'], c['transaction_id'],
+            confirm_settlement_match(get_db(), c['settlement_id'], c['transaction_id'],
                                      matched_by=current_user.username)
         _log_action('auto_match_settlements',
                     detail=f'{result["matched_count"]}건 정산 매칭')
@@ -337,7 +338,7 @@ def auto_match_settlements_action():
 @role_required('admin', 'ceo', 'manager', 'general')
 def api_dashboard_data():
     """대시보드 데이터 JSON (차트 갱신용)"""
-    db = current_app.db
+    db = get_db()
     from services.bank_service import get_transaction_summary
     from services.matching_service import get_receivables
 
@@ -368,7 +369,7 @@ def reports():
     month = request.args.get('month', today_kst()[:7])
 
     try:
-        summary = generate_monthly_summary(current_app.db, month)
+        summary = generate_monthly_summary(get_db(), month)
     except Exception as e:
         flash(f'리포트 생성 오류: {e}', 'danger')
         summary = None
@@ -385,7 +386,7 @@ def api_monthly_summary():
 
     month = request.args.get('month', today_kst()[:7])
     try:
-        summary = generate_monthly_summary(current_app.db, month)
+        summary = generate_monthly_summary(get_db(), month)
         return jsonify(summary)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -404,7 +405,7 @@ def api_export_tax_invoices():
         return jsonify({'error': 'direction은 sales 또는 purchase'}), 400
 
     try:
-        output = export_tax_invoices_excel(current_app.db, month, direction)
+        output = export_tax_invoices_excel(get_db(), month, direction)
         direction_label = '매출' if direction == 'sales' else '매입'
         filename = f'{month}_{direction_label}_세금계산서.xlsx'
 
@@ -430,7 +431,7 @@ def api_export_bank_summary():
     month = request.args.get('month', today_kst()[:7])
 
     try:
-        output = export_bank_summary_excel(current_app.db, month)
+        output = export_bank_summary_excel(get_db(), month)
         filename = f'{month}_은행거래내역.xlsx'
 
         _log_action('export_report',
@@ -454,7 +455,7 @@ def api_export_bank_summary():
 @role_required('admin', 'ceo', 'manager')
 def reconciliation():
     """숫자 대조표 — 전표/매출채권/매입채무/예금 정합성 검증"""
-    db = current_app.db
+    db = get_db()
     from services.journal_service import get_trial_balance
     from services.matching_service import get_receivables, get_payables
     from services.bank_service import get_transaction_summary

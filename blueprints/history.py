@@ -12,6 +12,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
 from models import INV_TYPE_LABELS
+from db_utils import get_db
 
 history_bp = Blueprint('history', __name__, url_prefix='/history')
 
@@ -20,7 +21,7 @@ history_bp = Blueprint('history', __name__, url_prefix='/history')
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def index():
     """이력 검색 폼 + 결과 표시"""
-    db = current_app.db
+    db = get_db()
 
     # 필터 파라미터
     date_from = request.args.get('date_from', '')
@@ -73,7 +74,7 @@ def index():
 @role_required('admin', 'manager', 'logistics', 'production', 'general')
 def edit(row_id):
     """개별 이력 수정 (원본 블라인드 + 새 레코드 INSERT, 양방향 링크)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         update_data = {}
@@ -110,7 +111,7 @@ def edit(row_id):
 @role_required('admin')
 def delete(row_id):
     """개별 이력 블라인드 처리 — 관리자 전용 (원본 DB 보존)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         old_record = db.query_stock_ledger_by_id(row_id)
@@ -131,7 +132,7 @@ def excel():
     import pandas as pd
     from openpyxl.utils import get_column_letter
 
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')

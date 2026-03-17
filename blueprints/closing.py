@@ -11,6 +11,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required
+from db_utils import get_db
 
 closing_bp = Blueprint('closing', __name__, url_prefix='/closing')
 
@@ -23,7 +24,7 @@ closing_bp = Blueprint('closing', __name__, url_prefix='/closing')
 @login_required
 def index():
     """마감 현황 페이지"""
-    db = current_app.db
+    db = get_db()
 
     # 기본: 최근 14일
     from datetime import timedelta
@@ -72,7 +73,7 @@ def index():
 @login_required
 def api_close():
     """마감 실행"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     closing_date = data.get('date')
     closing_type = data.get('type')  # 'revenue' or 'stock'
@@ -109,7 +110,7 @@ def api_close():
 @login_required
 def api_reopen():
     """마감 해제"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     closing_date = data.get('date')
     closing_type = data.get('type')
@@ -144,7 +145,7 @@ def api_reopen():
 @login_required
 def api_status():
     """특정 날짜의 마감 상태 조회"""
-    db = current_app.db
+    db = get_db()
     closing_date = request.args.get('date', today_kst())
 
     revenue_status = db.get_closing_status(closing_date, 'revenue')

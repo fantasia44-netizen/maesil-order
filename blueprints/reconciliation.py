@@ -5,6 +5,7 @@ UI 없음 — API 전용.
 """
 from flask import Blueprint, request, current_app, jsonify
 from auth import role_required
+from db_utils import get_db
 
 reconciliation_bp = Blueprint('reconciliation', __name__,
                               url_prefix='/api/reconciliation')
@@ -21,7 +22,7 @@ def api_order_outbound():
 
     try:
         from services.reconciliation_service import validate_order_outbound
-        result = validate_order_outbound(current_app.db, date_from, date_to)
+        result = validate_order_outbound(get_db(), date_from, date_to)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': f'주문-출고 대조 오류: {e}'}), 500
@@ -38,7 +39,7 @@ def api_outbound_revenue():
 
     try:
         from services.reconciliation_service import validate_outbound_revenue
-        result = validate_outbound_revenue(current_app.db, date_from, date_to)
+        result = validate_outbound_revenue(get_db(), date_from, date_to)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': f'출고-매출 대조 오류: {e}'}), 500
@@ -54,7 +55,7 @@ def api_revenue_summary():
 
     try:
         from services.reconciliation_service import validate_revenue_summary
-        result = validate_revenue_summary(current_app.db, date_str)
+        result = validate_revenue_summary(get_db(), date_str)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': f'매출 요약 오류: {e}'}), 500
@@ -70,7 +71,7 @@ def api_stock_integrity():
 
     try:
         from services.reconciliation_service import validate_stock_integrity
-        result = validate_stock_integrity(current_app.db, date_str)
+        result = validate_stock_integrity(get_db(), date_str)
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': f'재고 정합성 검증 오류: {e}'}), 500

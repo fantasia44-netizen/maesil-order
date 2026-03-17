@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 transfer_bp = Blueprint('transfer', __name__, url_prefix='/transfer')
 
@@ -30,7 +31,7 @@ def _allowed(filename):
 @role_required('admin', 'manager', 'logistics', 'general')
 def index():
     """창고 이동 폼 (수동 + 엑셀)"""
-    db = current_app.db
+    db = get_db()
     locations = []
     try:
         locations, _ = db.query_filter_options()
@@ -48,7 +49,7 @@ def api_products():
         return jsonify([])
     try:
         from services.excel_io import build_stock_snapshot
-        all_data = current_app.db.query_stock_by_location(location)
+        all_data = get_db().query_stock_by_location(location)
         snapshot = build_stock_snapshot(all_data)
         products = []
         for name, info in snapshot.items():
@@ -88,7 +89,7 @@ def manual():
     try:
         from services.transfer_service import process_manual_transfer
         result = process_manual_transfer(
-            current_app.db, product_name, qty,
+            get_db(), product_name, qty,
             from_location, to_location, date_str,
             lot_number=lot_number, grade=grade,
             created_by=current_user.username,
@@ -150,7 +151,7 @@ def batch():
 
         for i, item in enumerate(items):
             result = process_manual_transfer(
-                current_app.db,
+                get_db(),
                 str(item['product_name']).strip(),
                 float(item['qty']),
                 str(item['from_location']).strip(),

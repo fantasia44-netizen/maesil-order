@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage, backup_bytes_to_storage
 from models import REVENUE_CATEGORIES
+from db_utils import get_db
 
 revenue_bp = Blueprint('revenue', __name__, url_prefix='/revenue')
 
@@ -34,7 +35,7 @@ def _allowed(filename):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """매출 조회 (order_transactions 기반)"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -84,7 +85,7 @@ def import_revenue():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'revenue')
+    backup_to_storage(get_db(), filepath, 'upload', 'revenue')
 
     try:
         from services.excel_io import parse_revenue_payload
@@ -95,7 +96,7 @@ def import_revenue():
             flash('엑셀에서 유효한 매출 데이터가 없습니다.', 'warning')
             return redirect(url_for('revenue.index'))
 
-        db = current_app.db
+        db = get_db()
 
         # 수정입력: 해당일 기존 매출 삭제 후 재입력
         if mode == '수정입력':
@@ -119,7 +120,7 @@ def import_revenue():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def export():
     """매출 데이터 엑셀 다운로드"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -180,11 +181,11 @@ def delete_revenue(revenue_id):
         # 삭제 전 데이터 보존 (되돌리기용)
         old_record = None
         try:
-            res = current_app.db.client.table("daily_revenue").select("*").eq("id", revenue_id).execute()
+            res = get_db().client.table("daily_revenue").select("*").eq("id", revenue_id).execute()
             old_record = res.data[0] if res.data else None
         except Exception:
             pass
-        current_app.db.delete_revenue_by_id(revenue_id)
+        get_db().delete_revenue_by_id(revenue_id)
         current_app.logger.info(
             f"[매출삭제] id={revenue_id} | "
             f"{old_record.get('revenue_date', '')} | {old_record.get('product_name', '')} | "
@@ -219,7 +220,7 @@ def stats():
         try:
             from services.revenue_service import get_revenue_stats
             stats_data = get_revenue_stats(
-                current_app.db,
+                get_db(),
                 date_from=date_from or None,
                 date_to=date_to or None,
                 category=category if category != '전체' else None,

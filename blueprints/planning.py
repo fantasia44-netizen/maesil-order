@@ -7,6 +7,7 @@ from flask import (
 )
 from auth import role_required, _log_action
 from services.tz_utils import today_kst
+from db_utils import get_db
 
 planning_bp = Blueprint('planning', __name__, url_prefix='/planning')
 
@@ -38,7 +39,7 @@ def api_sales_analysis():
         month = request.args.get('month', type=int)
 
         result = get_monthly_sales_analysis(
-            current_app.db, year=year, month=month,
+            get_db(), year=year, month=month,
         )
         return jsonify(result)
     except Exception as e:
@@ -67,7 +68,7 @@ def api_calculate():
             warning_days = max(1, min(int(warning_days), 180))
 
         result = calculate_production_plan(
-            current_app.db,
+            get_db(),
             sales_window=window,
             critical_days=critical_days,
             warning_days=warning_days,
@@ -91,7 +92,7 @@ def api_history():
     """생산계획 이력"""
     try:
         from services.planning_service import get_plan_history
-        return jsonify(get_plan_history(current_app.db, limit=30))
+        return jsonify(get_plan_history(get_db(), limit=30))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -104,7 +105,7 @@ def api_plan_by_date(plan_date):
     """특정 날짜 생산계획 상세"""
     try:
         from services.planning_service import get_plan_by_date
-        items = get_plan_by_date(current_app.db, plan_date)
+        items = get_plan_by_date(get_db(), plan_date)
         return jsonify(items)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -125,7 +126,7 @@ def api_update_config():
             return jsonify({'error': '품목명을 입력하세요.'}), 400
 
         ok = update_product_planning_config(
-            current_app.db,
+            get_db(),
             product_name=product_name,
             safety_stock=data.get('safety_stock'),
             lead_time_days=data.get('lead_time_days'),
@@ -154,7 +155,7 @@ def api_update_sales_category():
         if not product_name:
             return jsonify({'error': '품목명 필수'}), 400
 
-        current_app.db.client.table('product_costs').update({
+        get_db().client.table('product_costs').update({
             'sales_category': category,
         }).eq('product_name', product_name).execute()
 
@@ -175,7 +176,7 @@ def api_category_download():
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     try:
-        raw_cost_map = current_app.db.query_product_costs()
+        raw_cost_map = get_db().query_product_costs()
 
         # ── 공백 정규화: 동일 품목 중복 병합 (공백 있는 버전 우선) ──
         import re, unicodedata
@@ -213,9 +214,9 @@ def api_category_download():
         from services.tz_utils import today_kst
         from datetime import datetime
         today = datetime.strptime(today_kst(), '%Y-%m-%d')
-        cur_sales = _fetch_month_sales(current_app.db, today.year, today.month)
+        cur_sales = _fetch_month_sales(get_db(), today.year, today.month)
         py, pm = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
-        prev_sales = _fetch_month_sales(current_app.db, py, pm)
+        prev_sales = _fetch_month_sales(get_db(), py, pm)
 
         # 판매 품목 중 product_costs에 없는 것 추가 (공백 정규화 대응)
         all_sales_names = set(cur_sales.keys()) | set(prev_sales.keys())
@@ -334,7 +335,7 @@ def api_category_upload():
             s = unicodedata.normalize('NFC', str(s))
             return re.sub(r'\s+', '', s)
 
-        all_costs = current_app.db.query_product_costs()
+        all_costs = get_db().query_product_costs()
         norm_to_names = {}
         for db_name in all_costs.keys():
             nk = _norm_key(db_name)
@@ -384,7 +385,7 @@ def api_category_upload():
                 db_names = norm_to_names.get(norm, [name])
                 row_updated = False
                 for db_name in db_names:
-                    resp = current_app.db.client.table('product_costs').update(
+                    resp = get_db().client.table('product_costs').update(
                         update_data
                     ).eq('product_name', db_name).execute()
                     if resp.data:
@@ -396,7 +397,7 @@ def api_category_upload():
                     try:
                         insert_data = {'product_name': name}
                         insert_data.update(update_data)
-                        current_app.db.client.table('product_costs').insert(
+                        get_db().client.table('product_costs').insert(
                             insert_data
                         ).execute()
                         updated += 1
@@ -428,7 +429,7 @@ def api_category_upload():
 def api_targets():
     """생산대상 품목 + 설정 조회"""
     try:
-        cost_map = current_app.db.query_product_costs()
+        cost_map = get_db().query_product_costs()
         targets = []
         for name, info in cost_map.items():
             cost_type = info.get('cost_type', '')

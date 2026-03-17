@@ -12,6 +12,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
+from db_utils import get_db
 
 finance_bp = Blueprint('finance', __name__, url_prefix='/finance')
 
@@ -27,7 +28,7 @@ def expenses():
 @role_required('admin', 'general')
 def api_expenses():
     """비용 목록 JSON API (월별 또는 기간별/카테고리 필터)"""
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
     category = request.args.get('category', '')
     date_from = request.args.get('date_from', '')
@@ -85,7 +86,7 @@ def api_expenses():
 @role_required('admin', 'general')
 def api_create_expense():
     """비용 1건 등록"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -135,7 +136,7 @@ def api_create_expense():
 @role_required('admin', 'general')
 def api_update_expense(expense_id):
     """비용 1건 수정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -183,7 +184,7 @@ def api_update_expense(expense_id):
 @role_required('admin', 'general')
 def api_delete_expense(expense_id):
     """비용 1건 블라인드 처리 (admin, general)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 데이터 조회
         rows = db.query_expenses()
@@ -201,7 +202,7 @@ def api_delete_expense(expense_id):
 @role_required('admin', 'general')
 def api_generate_recurring():
     """반복 비용 자동 생성"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json() or {}
     target_month = (data.get('target_month') or '').strip()
 
@@ -237,7 +238,7 @@ def api_pnl():
     from services.pnl_service import calculate_monthly_pnl
     from services.tz_utils import today_kst
 
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
 
     if not month:
@@ -259,7 +260,7 @@ def api_pnl_trend():
     """
     from services.pnl_service import calculate_pnl_trend
 
-    db = current_app.db
+    db = get_db()
     months = request.args.get('months', 6, type=int)
     months = max(2, min(months, 12))  # 2~12 범위
 
@@ -279,7 +280,7 @@ def api_pnl_by_channel():
     from services.pnl_service import calculate_channel_pnl
     from services.tz_utils import today_kst
 
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
 
     if not month:
@@ -313,7 +314,7 @@ def api_ceo_summary():
     from services.financial_report_service import get_ceo_financial_summary
     from services.tz_utils import today_kst
 
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
 
     if not month:
@@ -336,7 +337,7 @@ def api_tax_report_download():
     from services.financial_report_service import generate_tax_report
     from services.tz_utils import today_kst
 
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
 
     if not month:

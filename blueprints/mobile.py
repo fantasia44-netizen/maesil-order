@@ -9,6 +9,7 @@ from flask_login import login_required, current_user
 
 from models import INV_TYPE_LABELS, REVENUE_CATEGORIES
 from auth import role_required
+from db_utils import get_db
 
 mobile_bp = Blueprint('mobile', __name__, url_prefix='/m')
 
@@ -29,7 +30,7 @@ def stock():
     date_str = request.args.get('date', '')
     location = request.args.get('location', '전체')
 
-    db = current_app.db
+    db = get_db()
     locations = []
     try:
         locations, _ = db.query_filter_options()
@@ -66,7 +67,7 @@ def revenue():
     date_to = request.args.get('date_to', '')
     category = request.args.get('category', '전체')
 
-    db = current_app.db
+    db = get_db()
     revenues = []
     total_revenue = 0
 
@@ -91,7 +92,7 @@ def revenue():
 @login_required
 def partners():
     """모바일 거래처목록"""
-    db = current_app.db
+    db = get_db()
     q = request.args.get('q', '').strip()
 
     partners_list = []
@@ -120,7 +121,7 @@ def history():
     record_type = request.args.get('type', '')
     product_name = request.args.get('product_name', '')
 
-    db = current_app.db
+    db = get_db()
     locations = []
     try:
         locations, _ = db.query_filter_options()
@@ -165,9 +166,9 @@ def history():
 @role_required('admin', 'ceo')
 def ceo_dashboard():
     """CEO 모바일 대시보드 — 매출 그래프 + KPI"""
-    from db_supabase import today_kst, days_ago_kst
+    from services.tz_utils import today_kst, days_ago_kst
 
-    db = current_app.db
+    db = get_db()
     today = today_kst()
 
     # 오늘 매출 KPI

@@ -11,6 +11,7 @@ from flask import (
 from flask_login import login_required
 
 from auth import role_required
+from db_utils import get_db
 
 shipment_bp = Blueprint('shipment', __name__, url_prefix='/shipment')
 
@@ -19,7 +20,7 @@ shipment_bp = Blueprint('shipment', __name__, url_prefix='/shipment')
 @role_required('admin', 'ceo', 'manager', 'sales', 'logistics', 'general')
 def index():
     """출고 내역 조회 (SALES_OUT 기반)"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -92,7 +93,7 @@ def export():
     """출고 데이터 엑셀 다운로드"""
     import pandas as pd
 
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
     location = request.args.get('location', '전체')
@@ -161,7 +162,7 @@ def stats():
 
     locations = []
     try:
-        locs, _ = current_app.db.query_filter_options()
+        locs, _ = get_db().query_filter_options()
         locations = locs
     except Exception:
         pass
@@ -171,7 +172,7 @@ def stats():
         try:
             from services.shipment_stats_service import get_shipment_stats
             stats_data = get_shipment_stats(
-                current_app.db,
+                get_db(),
                 date_from=date_from or None,
                 date_to=date_to or None,
                 location=location if location != '전체' else None,

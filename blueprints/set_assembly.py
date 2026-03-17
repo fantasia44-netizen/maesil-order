@@ -16,6 +16,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
 from models import INV_TYPE_LABELS
+from db_utils import get_db
 
 set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly')
 
@@ -24,7 +25,7 @@ set_assembly_bp = Blueprint('set_assembly', __name__, url_prefix='/set-assembly'
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def index():
     """세트작업 폼 + 이력 조회"""
-    db = current_app.db
+    db = get_db()
 
     # 위치 목록
     locations = []
@@ -82,7 +83,7 @@ def api_products():
         return jsonify([])
     try:
         from services.excel_io import build_stock_snapshot
-        all_data = current_app.db.query_stock_by_location(location)
+        all_data = get_db().query_stock_by_location(location)
         snapshot = build_stock_snapshot(all_data)
         products = []
         for name, info in snapshot.items():
@@ -138,7 +139,7 @@ def process():
     try:
         from services.set_assembly_service import process_set_assembly
         result = process_set_assembly(
-            current_app.db, date_str, set_name, channel, location, qty,
+            get_db(), date_str, set_name, channel, location, qty,
             sub_materials=sub_materials,
             storage_method_override=storage_method_override or None,
             food_type=food_type or None,
@@ -171,7 +172,7 @@ def process():
 @role_required('admin')
 def delete():
     """세트작업 이력 블라인드 처리 (해당일 SET_OUT + SET_IN 전부 블라인드)"""
-    db = current_app.db
+    db = get_db()
     date_str = request.form.get('delete_date', '').strip()
 
     if not date_str:
@@ -205,7 +206,7 @@ def delete():
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def export():
     """세트작업 이력 엑셀 다운로드"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')

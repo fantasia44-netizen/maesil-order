@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, current_app, flash, redir
 from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+from db_utils import get_db
 
 bank_bp = Blueprint('bank', __name__, url_prefix='/bank')
 
@@ -11,7 +12,7 @@ bank_bp = Blueprint('bank', __name__, url_prefix='/bank')
 @role_required('admin', 'ceo', 'manager', 'general')
 def index():
     """은행 계좌 목록 + 연결 관리"""
-    db = current_app.db
+    db = get_db()
     accounts = db.query_bank_accounts()
     connections = db.query_codef_connections()
     from services.codef_service import BANK_CODES, CARD_CODES
@@ -69,7 +70,7 @@ def connect():
         )
 
         # DB에 연결 정보 저장
-        current_app.db.insert_codef_connection({
+        get_db().insert_codef_connection({
             'connected_id': connected_id,
             'organization': org_code,
             'login_type': login_type,
@@ -84,7 +85,7 @@ def connect():
             fail_list = []
             for card in cards:
                 try:
-                    current_app.db.insert_bank_account({
+                    get_db().insert_bank_account({
                         'connected_id': connected_id,
                         'bank_code': org_code,
                         'bank_name': org_name,
@@ -115,7 +116,7 @@ def connect():
             for acc in accounts:
                 try:
                     cat = acc.get('_category', '')
-                    current_app.db.insert_bank_account({
+                    get_db().insert_bank_account({
                         'connected_id': connected_id,
                         'bank_code': org_code,
                         'bank_name': org_name,
@@ -143,7 +144,7 @@ def connect():
 @role_required('admin', 'ceo', 'manager', 'general')
 def transactions():
     """거래내역 조회"""
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('date_from', days_ago_kst(30))
     date_to = request.args.get('date_to', today_kst())
     account_id = request.args.get('account_id', '')
@@ -175,7 +176,7 @@ def sync_account(account_id):
     """계좌 거래내역 동기화"""
     try:
         from services.bank_service import sync_bank_transactions
-        result = sync_bank_transactions(current_app.db, current_app.codef, account_id)
+        result = sync_bank_transactions(get_db(), current_app.codef, account_id)
         _log_action('sync_bank',
                     detail=f'계좌 {account_id}: 신규 {result["new_count"]}건')
         flash(f'동기화 완료: 신규 {result["new_count"]}건', 'success')
@@ -191,12 +192,12 @@ def sync_all():
     try:
         # 은행 계좌 동기화
         from services.bank_service import sync_all_accounts
-        bank_results = sync_all_accounts(current_app.db, current_app.codef)
+        bank_results = sync_all_accounts(get_db(), current_app.codef)
         bank_new = sum(r.get('new_count', 0) for r in bank_results)
 
         # 카드 동기화
         from services.card_service import sync_all_card_accounts
-        card_results = sync_all_card_accounts(current_app.db, current_app.codef)
+        card_results = sync_all_card_accounts(get_db(), current_app.codef)
         card_new = sum(r.get('new_count', 0) for r in card_results)
 
         _log_action('sync_all',
@@ -216,7 +217,7 @@ def update_category(tx_id):
     data = request.get_json()
     category = data.get('category', '')
     try:
-        current_app.db.update_bank_transaction(tx_id, {'category': category})
+        get_db().update_bank_transaction(tx_id, {'category': category})
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -229,7 +230,7 @@ def api_summary():
     date_from = request.args.get('date_from', days_ago_kst(30))
     date_to = request.args.get('date_to', today_kst())
     from services.bank_service import get_transaction_summary
-    summary = get_transaction_summary(current_app.db, date_from=date_from, date_to=date_to)
+    summary = get_transaction_summary(get_db(), date_from=date_from, date_to=date_to)
     return jsonify(summary)
 
 
@@ -238,7 +239,7 @@ def api_summary():
 def reset_transactions():
     """거래내역 전체 삭제 후 재동기화"""
     try:
-        db = current_app.db
+        db = get_db()
         # last_synced_date 초기화
         accounts = db.query_bank_accounts()
         for acc in accounts:
@@ -259,7 +260,7 @@ def reset_transactions():
 @role_required('admin', 'ceo', 'manager', 'general')
 def card_transactions():
     """카드 이용내역 조회"""
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('date_from', days_ago_kst(30))
     date_to = request.args.get('date_to', today_kst())
     account_id = request.args.get('account_id', '')
@@ -291,7 +292,7 @@ def sync_card(account_id):
     """카드 이용내역 동기화"""
     try:
         from services.card_service import sync_card_transactions
-        result = sync_card_transactions(current_app.db, current_app.codef, account_id)
+        result = sync_card_transactions(get_db(), current_app.codef, account_id)
         _log_action('sync_card',
                     detail=f'카드 {account_id}: 신규 {result["new_count"]}건')
         flash(f'카드 동기화 완료: 신규 {result["new_count"]}건', 'success')
@@ -306,7 +307,7 @@ def sync_card_all():
     """전체 카드 일괄 동기화"""
     try:
         from services.card_service import sync_all_card_accounts
-        results = sync_all_card_accounts(current_app.db, current_app.codef)
+        results = sync_all_card_accounts(get_db(), current_app.codef)
         total_new = sum(r.get('new_count', 0) for r in results)
         _log_action('sync_card_all',
                     detail=f'{len(results)}개 카드, 신규 {total_new}건')
@@ -323,7 +324,7 @@ def update_card_category(tx_id):
     data = request.get_json()
     category = data.get('category', '')
     try:
-        current_app.db.update_card_transaction(tx_id, {'category': category})
+        get_db().update_card_transaction(tx_id, {'category': category})
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -334,7 +335,7 @@ def update_card_category(tx_id):
 def delete_account(account_id):
     """계좌 삭제"""
     try:
-        current_app.db.delete_bank_account(account_id)
+        get_db().delete_bank_account(account_id)
         _log_action('delete_bank_account',
                     detail=f'계좌 {account_id} 삭제')
         flash('계좌가 삭제되었습니다.', 'success')
@@ -357,7 +358,7 @@ def add_account():
         return redirect(url_for('bank.index'))
 
     try:
-        current_app.db.insert_bank_account({
+        get_db().insert_bank_account({
             'bank_code': bank_code,
             'bank_name': bank_name,
             'account_number': account_number,
@@ -378,7 +379,7 @@ def add_account():
 @role_required('admin', 'manager', 'general')
 def upload():
     """은행 거래내역 엑셀 업로드"""
-    db = current_app.db
+    db = get_db()
 
     if request.method == 'GET':
         accounts = db.query_bank_accounts()

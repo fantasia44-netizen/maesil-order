@@ -31,6 +31,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
@@ -72,7 +73,7 @@ def api_summary():
     if not date_from:
         return jsonify({'error': '날짜를 지정하세요'}), 400
 
-    db = current_app.db
+    db = get_db()
     try:
         # 출고 현황 (SALES_OUT + ETC_OUT + ADJUST)
         outbound = db.query_stock_ledger(
@@ -164,7 +165,7 @@ def api_channel_orders():
     if not date_from:
         return jsonify({'error': '날짜를 지정하세요'}), 400
 
-    db = current_app.db
+    db = get_db()
     try:
         from collections import defaultdict
 
@@ -527,7 +528,7 @@ def generate_report():
 
     date_label = date_from if date_from == date_to else f"{date_from}~{date_to}"
 
-    db = current_app.db
+    db = get_db()
     output_dir = current_app.config['OUTPUT_FOLDER']
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1220,7 +1221,7 @@ def generate_report():
         downloads = []
         for fpath in generated_files:
             fname = os.path.basename(fpath)
-            backup_to_storage(current_app.db, fpath, 'output', 'aggregation')
+            backup_to_storage(get_db(), fpath, 'output', 'aggregation')
             downloads.append({
                 'name': fname,
                 'url': url_for('aggregation.download', filename=fname),
@@ -1256,7 +1257,7 @@ def download(filename):
         flash('파일을 찾을 수 없습니다.', 'danger')
         return redirect(url_for('aggregation.index'))
 
-    backup_to_storage(current_app.db, filepath, 'output', 'aggregation')
+    backup_to_storage(get_db(), filepath, 'output', 'aggregation')
     return send_file(
         filepath,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

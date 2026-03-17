@@ -19,6 +19,7 @@ from wtforms import StringField, PasswordField
 from wtforms.validators import DataRequired, Length, EqualTo, Regexp
 
 from models import User
+from db_utils import get_db
 
 packing_bp = Blueprint('packing', __name__, url_prefix='/packing')
 
@@ -105,7 +106,7 @@ def packing_login():
             flash(f'너무 많은 로그인 시도. {minutes}분 후 다시 시도하세요.', 'danger')
             return render_template('packing/login.html', form=form)
 
-        row = current_app.db.query_user_by_username(form.username.data)
+        row = get_db().query_user_by_username(form.username.data)
         user = User(row) if row else None
 
         # 계정 잠금 확인
@@ -128,7 +129,7 @@ def packing_login():
                 return render_template('packing/login.html', form=form)
 
             # 로그인 성공
-            current_app.db.update_user(user.id, {
+            get_db().update_user(user.id, {
                 'failed_login_count': 0,
                 'locked_until': None,
                 'last_login': datetime.now(timezone.utc).isoformat(),
@@ -155,7 +156,7 @@ def packing_login():
                         datetime.now(timezone.utc) + timedelta(minutes=lockout)
                     ).isoformat()
                     flash(f'로그인 {max_attempts}회 실패. {lockout}분간 잠금됩니다.', 'danger')
-                current_app.db.update_user(user.id, update_data)
+                get_db().update_user(user.id, update_data)
             flash('아이디 또는 비밀번호가 올바르지 않습니다.', 'danger')
 
     return render_template('packing/login.html', form=form)
@@ -171,7 +172,7 @@ def packing_register():
 
     form = PackingRegisterForm()
     if form.validate_on_submit():
-        existing = current_app.db.query_user_by_username(form.username.data)
+        existing = get_db().query_user_by_username(form.username.data)
         if existing:
             flash('이미 사용 중인 아이디입니다.', 'danger')
             return render_template('packing/register.html', form=form)
@@ -179,7 +180,7 @@ def packing_register():
         temp_user = User()
         temp_user.set_password(form.password.data)
 
-        current_app.db.insert_user({
+        get_db().insert_user({
             'username': form.username.data,
             'name': form.name.data,
             'company_name': form.company_name.data,
@@ -189,7 +190,7 @@ def packing_register():
             'is_active_user': True,
         })
 
-        created = current_app.db.query_user_by_username(form.username.data)
+        created = get_db().query_user_by_username(form.username.data)
         created_id = created['id'] if created else None
         _packing_log_action('packing_register', target=form.username.data,
                             user_id=created_id,
@@ -235,7 +236,7 @@ def change_password():
             return render_template('packing/change_password.html', form=form)
 
         current_user.set_password(form.new_password.data)
-        current_app.db.update_user(current_user.id, {
+        get_db().update_user(current_user.id, {
             'password_hash': current_user.password_hash,
             'password_changed_at': current_user.password_changed_at,
         })
@@ -264,7 +265,7 @@ def api_lookup_barcode():
     if not barcode:
         return jsonify({'ok': False, 'error': '바코드를 입력해주세요.'})
 
-    db = current_app.db
+    db = get_db()
 
     # invoice_no_clean (하이픈 제거) 컬럼으로 1회 exact match 검색
     barcode_clean = barcode.replace('-', '')
@@ -371,7 +372,7 @@ def api_start_job():
     if not barcode:
         return jsonify({'ok': False, 'error': '바코드 없음'})
 
-    db = current_app.db
+    db = get_db()
     job = {
         'user_id': current_user.id,
         'username': current_user.username,
@@ -418,7 +419,7 @@ def api_complete_job():
     if not job_id or not video_file:
         return jsonify({'ok': False, 'error': '필수 데이터 누락'})
 
-    db = current_app.db
+    db = get_db()
     job = db.get_packing_job(int(job_id))
     if not job:
         return jsonify({'ok': False, 'error': '작업을 찾을 수 없습니다.'})
@@ -542,7 +543,7 @@ def api_complete_job_no_video():
     if not job_id:
         return jsonify({'ok': False, 'error': 'job_id 누락'})
 
-    db = current_app.db
+    db = get_db()
     job = db.get_packing_job(int(job_id))
     if not job:
         return jsonify({'ok': False, 'error': '작업을 찾을 수 없습니다.'})
@@ -592,7 +593,7 @@ def api_cancel_job():
     if not job_id:
         return jsonify({'ok': False, 'error': 'job_id 누락'})
 
-    db = current_app.db
+    db = get_db()
     db.update_packing_job(int(job_id), {'status': 'cancelled'})
     return jsonify({'ok': True})
 
@@ -614,7 +615,7 @@ def api_history():
     page = request.args.get('page', 1, type=int)
     per_page = 20
 
-    db = current_app.db
+    db = get_db()
     # packing=본인, admin/manager=전체
     user_id = None if current_user.role in _INTERNAL_ROLES else current_user.id
 
@@ -639,7 +640,7 @@ def api_history():
 @packing_required
 def api_video_url(job_id):
     """영상 서명 URL 반환."""
-    db = current_app.db
+    db = get_db()
     job = db.get_packing_job(job_id)
     if not job:
         return jsonify({'ok': False, 'error': '작업 없음'})
@@ -674,7 +675,7 @@ def api_courier_pending():
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
 
-    db = current_app.db
+    db = get_db()
     try:
         # order_shipping에서 shipping_status='대기', invoice_no 없는 건 조회
         q = db.client.table("order_shipping").select(
@@ -790,7 +791,7 @@ def api_courier_upload_excel():
             return jsonify({'ok': False, 'error': '유효한 데이터가 없습니다.'})
 
         # 채널 미지정 시 order_shipping에서 자동 검색
-        db = current_app.db
+        db = get_db()
         for u in updates:
             if not u['channel']:
                 ship = db.search_order_shipping(u['order_no'], field='order_no')
@@ -838,7 +839,7 @@ def api_courier_register():
     if not order_ids:
         return jsonify({'ok': False, 'error': '등록할 주문을 선택해주세요.'})
 
-    db = current_app.db
+    db = get_db()
     cj = _get_cj_client()
 
     # 발송인 정보 (사업장 기본)

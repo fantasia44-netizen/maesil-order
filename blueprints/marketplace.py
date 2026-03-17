@@ -9,10 +9,11 @@ import logging
 import uuid
 from collections import defaultdict
 from flask import (Blueprint, render_template, request, current_app,
-                   jsonify, flash, redirect, url_for)
+                   jsonify, flash, redirect, url_for, g)
 from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+from db_utils import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ marketplace_bp = Blueprint('marketplace', __name__, url_prefix='/marketplace')
 @role_required('admin', 'general')
 def index():
     """API 연동 설정 대시보드."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
 
     channels = mgr.get_all_channels()
 
@@ -76,8 +77,8 @@ def index():
 @role_required('admin')
 def save_config(channel):
     """채널 API 설정 저장."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
 
     payload = {
         'channel': channel,
@@ -132,8 +133,8 @@ def save_config(channel):
 @role_required('admin')
 def test_connection(channel):
     """API 연결 테스트."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
     client = mgr.get_client(channel)
 
     if not client:
@@ -153,7 +154,7 @@ def test_connection(channel):
 @role_required('admin')
 def oauth_authorize(channel):
     """OAuth2 인증 시작 (Cafe24 등)."""
-    mgr = current_app.marketplace
+    mgr = g.marketplace
     client = mgr.get_client(channel)
     if not client:
         flash(f'{channel} 클라이언트 없음', 'danger')
@@ -168,8 +169,8 @@ def oauth_authorize(channel):
 @role_required('admin')
 def oauth_callback(channel):
     """OAuth2 콜백 — 인가 코드를 토큰으로 교환."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
     client = mgr.get_client(channel)
 
     code = request.args.get('code', '')
@@ -201,8 +202,8 @@ def oauth_callback(channel):
 def sync():
     """수동 동기화 실행."""
     try:
-        db = current_app.db
-        mgr = current_app.marketplace
+        db = get_db()
+        mgr = g.marketplace
 
         channel = request.form.get('channel', '')
         sync_type = request.form.get('sync_type', 'orders')
@@ -408,8 +409,8 @@ def cj_tracking_upload():
 def push_invoices_route():
     """마켓플레이스에 송장번호 일괄 전송 (발송처리)."""
     try:
-        db = current_app.db
-        mgr = current_app.marketplace
+        db = get_db()
+        mgr = g.marketplace
         channel = request.form.get('channel', '')
 
         if not channel:
@@ -434,8 +435,8 @@ def push_invoices_route():
 @role_required('admin', 'general')
 def api_pending_invoices():
     """채널별 송장 push 대기건 카운트."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
     counts = {}
     for channel in mgr.get_active_channels():
         pending = db.query_pending_invoice_push(channel=channel)
@@ -448,7 +449,7 @@ def api_pending_invoices():
 @role_required('admin', 'general')
 def api_pending_invoices_list():
     """채널별 송장 push 대기건 상세 목록."""
-    db = current_app.db
+    db = get_db()
     channel = request.args.get('channel', '')
     if not channel:
         return jsonify({'error': '채널 필수'}), 400
@@ -476,8 +477,8 @@ def api_pending_invoices_list():
 def push_invoices_selective():
     """선택적 송장 push (테스트용, 최대 10건)."""
     import json
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
     channel = request.form.get('channel', '')
     order_nos_raw = request.form.get('order_nos', '[]')
 
@@ -509,8 +510,8 @@ def push_invoices_selective():
 @role_required('admin')
 def diag(channel):
     """API 진단 — 실제 API 응답 확인."""
-    db = current_app.db
-    mgr = current_app.marketplace
+    db = get_db()
+    mgr = g.marketplace
     client = mgr.get_client(channel)
 
     if not client:
@@ -548,7 +549,7 @@ def diag(channel):
 @role_required('admin', 'general')
 def sync_log():
     """동기화 이력."""
-    db = current_app.db
+    db = get_db()
     channel = request.args.get('channel', '')
     logs = db.query_api_sync_logs(channel=channel or None, limit=100)
     for log in logs:
@@ -584,7 +585,7 @@ def validation():
 @role_required('admin', 'general')
 def run_validation():
     """교차검증 실행 (AJAX)."""
-    db = current_app.db
+    db = get_db()
     channel = request.form.get('channel', '')
     date_from = request.form.get('date_from', days_ago_kst(7))
     date_to = request.form.get('date_to', today_kst())
@@ -621,7 +622,7 @@ def run_validation():
 def test_collect():
     """API 주문수집 테스트 — fetch_orders()만 호출, DB 저장 안 함."""
     try:
-        mgr = current_app.marketplace
+        mgr = g.marketplace
         channel = request.form.get('channel', '')
         date_from = request.form.get('date_from', days_ago_kst(7))
         date_to = request.form.get('date_to', today_kst())
@@ -639,7 +640,7 @@ def test_collect():
                 channel_status[ch] = '인증 미완료 (토큰 갱신 필요)'
                 # 토큰 갱신 시도
                 try:
-                    db = current_app.db
+                    db = get_db()
                     client.refresh_token(db)
                     if not client.is_ready:
                         continue
@@ -698,7 +699,7 @@ def test_collect_download():
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill
 
-        mgr = current_app.marketplace
+        mgr = g.marketplace
         channel = request.form.get('channel', '')
         date_from = request.form.get('date_from', days_ago_kst(7))
         date_to = request.form.get('date_to', today_kst())
@@ -944,8 +945,8 @@ def test_collect_invoice():
     import os, tempfile, zipfile
 
     try:
-        mgr = current_app.marketplace
-        db = current_app.db
+        mgr = g.marketplace
+        db = get_db()
         channel = request.form.get('channel', '')
         date_from = request.form.get('date_from', days_ago_kst(7))
         date_to = request.form.get('date_to', today_kst())
@@ -1096,8 +1097,8 @@ def test_collect_invoice_preview():
     미리보기는 전체 매칭/미매칭 수를 정확히 보여줍니다.
     """
     try:
-        mgr = current_app.marketplace
-        db = current_app.db
+        mgr = g.marketplace
+        db = get_db()
         channel = request.form.get('channel', '')
         date_from = request.form.get('date_from', days_ago_kst(7))
         date_to = request.form.get('date_to', today_kst())
@@ -1248,7 +1249,7 @@ def upload_rocket_settlement():
 
     과세/면세 구분하여 작성일자 기준으로 일별 집계.
     """
-    db = current_app.db
+    db = get_db()
 
     f = request.files.get('file')
     if not f or not f.filename:
@@ -1350,7 +1351,7 @@ def save_ad_cost():
     """채널별 광고비 수동 기입 → api_settlements 저장.
     input_mode: 'daily' (일별, date 필요) / 'monthly' (월별, month 필요)
     """
-    db = current_app.db
+    db = get_db()
 
     channel = request.form.get('channel', '').strip()
     input_mode = request.form.get('input_mode', 'daily').strip()
@@ -1425,7 +1426,7 @@ def upload_ad_cost():
     엑셀 형식: 날짜 | 채널 | 광고비 | (메모)
     """
     import openpyxl
-    db = current_app.db
+    db = get_db()
 
     f = request.files.get('file')
     if not f or not f.filename:
@@ -1531,7 +1532,7 @@ def upload_ad_cost():
 @role_required('admin', 'general')
 def save_deductions():
     """스마트스토어 월별 차감항목 저장 (쿠폰차감, 바우처적립)."""
-    db = current_app.db
+    db = get_db()
     month = request.form.get('month', '').strip()  # YYYY-MM
     coupon = request.form.get('coupon_deduct', '0').strip().replace(',', '')
     voucher = request.form.get('voucher_deduct', '0').strip().replace(',', '')
@@ -1594,7 +1595,7 @@ def upload_settlement():
     월별 집계 채널(쿠팡Wing, 11번가, 오아시스)은 복수 파일을 먼저 합산 후 upsert.
     """
     import io
-    db = current_app.db
+    db = get_db()
     channel = request.form.get('channel', '').strip()
     files = request.files.getlist('file')
 
@@ -1713,7 +1714,7 @@ def upload_settlement():
 @role_required('admin', 'general')
 def settlement_history():
     """정산서 업로드 이력 조회 (최근 50건, 업로드일 내림차순)."""
-    db = current_app.db
+    db = get_db()
     try:
         res = db.client.table('api_settlements').select('*') \
             .order('synced_at', desc=True).limit(50).execute()
@@ -1748,7 +1749,7 @@ def settlement_history():
 @role_required('admin')
 def settlement_delete():
     """정산서 데이터 삭제. settlement_id 또는 channel+settlement_id 기준."""
-    db = current_app.db
+    db = get_db()
     data = request.get_json(silent=True) or {}
     settlement_id = data.get('settlement_id', '').strip()
     channel = data.get('channel', '').strip()
@@ -2338,7 +2339,7 @@ def sales_data():
     import calendar
     from datetime import date
 
-    db = current_app.db
+    db = get_db()
     month = request.args.get('month', '')
     if not month:
         t = date.today()

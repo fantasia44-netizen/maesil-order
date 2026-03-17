@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 base_data_bp = Blueprint('base_data', __name__, url_prefix='/base-data')
 
@@ -30,7 +31,7 @@ def _allowed(filename):
 @role_required('admin', 'manager')
 def index():
     """기초 데이터 관리 폼"""
-    db = current_app.db
+    db = get_db()
     stats = {}
     try:
         # 현재 데이터 건수 요약
@@ -55,7 +56,7 @@ def reset_base():
         return redirect(url_for('base_data.index'))
 
     file = request.files.get('file')
-    db = current_app.db
+    db = get_db()
 
     try:
         # 전체 재고 삭제
@@ -70,7 +71,7 @@ def reset_base():
             filename = secure_filename(file.filename)
             filepath = os.path.join(upload_dir, filename)
             file.save(filepath)
-            backup_to_storage(current_app.db, filepath, 'upload', 'base_data')
+            backup_to_storage(get_db(), filepath, 'upload', 'base_data')
 
             try:
                 from services.excel_io import parse_base_data_payload, flexible_column_rename
@@ -106,7 +107,7 @@ def reset_revenue():
         flash('확인 문구를 정확히 입력하세요. (RESET)', 'danger')
         return redirect(url_for('base_data.index'))
 
-    db = current_app.db
+    db = get_db()
     date_from = request.form.get('date_from', '').strip()
     date_to = request.form.get('date_to', '').strip()
 

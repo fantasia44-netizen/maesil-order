@@ -15,6 +15,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required
 from models import INV_TYPE_LABELS, ETC_OUT_REASONS
+from db_utils import get_db
 
 etc_outbound_bp = Blueprint('etc_outbound', __name__, url_prefix='/etc-outbound')
 
@@ -23,7 +24,7 @@ etc_outbound_bp = Blueprint('etc_outbound', __name__, url_prefix='/etc-outbound'
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def index():
     """기타출고 폼 + 이력 조회"""
-    db = current_app.db
+    db = get_db()
 
     # 위치 목록
     locations = []
@@ -67,7 +68,7 @@ def api_products():
         return jsonify([])
     try:
         from services.excel_io import build_stock_snapshot
-        all_data = current_app.db.query_stock_by_location(location)
+        all_data = get_db().query_stock_by_location(location)
         snapshot = build_stock_snapshot(all_data)
         products = []
         for name, info in snapshot.items():
@@ -124,7 +125,7 @@ def process():
 
     try:
         from services.etc_outbound_service import process_etc_outbound
-        result = process_etc_outbound(current_app.db, date_str, location, items)
+        result = process_etc_outbound(get_db(), date_str, location, items)
 
         if result.get('warnings'):
             for w in result['warnings']:
@@ -155,7 +156,7 @@ def process():
 @role_required('admin', 'manager', 'sales', 'logistics', 'production', 'general')
 def export():
     """기타출고 이력 엑셀 다운로드"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')

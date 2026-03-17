@@ -9,6 +9,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required
+from db_utils import get_db
 
 yield_bp = Blueprint('yield_mgmt', __name__, url_prefix='/yield')
 
@@ -19,7 +20,7 @@ def index():
     """수율 관리 메인 페이지"""
     locations = []
     try:
-        locations, _ = current_app.db.query_filter_options()
+        locations, _ = get_db().query_filter_options()
     except Exception:
         pass
     return render_template('yield/index.html', locations=locations)
@@ -39,7 +40,7 @@ def api_summary():
     try:
         from services.yield_service import calculate_yield_summary
         result = calculate_yield_summary(
-            current_app.db, date_from, date_to,
+            get_db(), date_from, date_to,
             location=location or None)
         return jsonify({'success': True, **result})
     except Exception as e:
@@ -63,7 +64,7 @@ def api_daily():
     try:
         from services.yield_service import calculate_daily_yield
         result = calculate_daily_yield(
-            current_app.db, date_from, date_to,
+            get_db(), date_from, date_to,
             product_name=product or None,
             location=location or None,
             period=period)

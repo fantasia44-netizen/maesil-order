@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -78,7 +79,7 @@ def _import_option_file_to_db(filepath):
             })
 
         if payload:
-            current_app.db.insert_option_master_batch(payload)
+            get_db().insert_option_master_batch(payload)
         return len(payload)
     except Exception:
         return 0
@@ -93,7 +94,7 @@ def index():
 
     # 옵션마스터 DB 건수 표시
     try:
-        option_count = current_app.db.count_option_master()
+        option_count = get_db().count_option_master()
     except Exception:
         option_count = 0
 
@@ -141,7 +142,7 @@ def process():
     order_saved = f"order_{unique_id}.{order_ext}"
     order_path = os.path.join(upload_dir, order_saved)
     order_file.save(order_path)
-    backup_to_storage(current_app.db, order_path, 'upload', 'orders')
+    backup_to_storage(get_db(), order_path, 'upload', 'orders')
 
     # 옵션 파일 (선택사항: 업로드 시 DB에 추가 등록)
     option_path = None
@@ -150,7 +151,7 @@ def process():
         opt_ext = option_file.filename.rsplit('.', 1)[1].lower() if '.' in option_file.filename else 'xlsx'
         option_path = os.path.join(upload_dir, f"option_{unique_id}.{opt_ext}")
         option_file.save(option_path)
-        backup_to_storage(current_app.db, option_path, 'upload', 'orders')
+        backup_to_storage(get_db(), option_path, 'upload', 'orders')
         imported = _import_option_file_to_db(option_path)
         if imported > 0:
             flash(f'옵션리스트 {imported}건 DB에 추가 등록됨', 'info')
@@ -160,7 +161,7 @@ def process():
     if invoice_file and invoice_file.filename and _allowed(invoice_file.filename):
         invoice_path = os.path.join(upload_dir, secure_filename(invoice_file.filename))
         invoice_file.save(invoice_path)
-        backup_to_storage(current_app.db, invoice_path, 'upload', 'orders')
+        backup_to_storage(get_db(), invoice_path, 'upload', 'orders')
 
     # ── 채널 자동감지: 파일 컬럼으로 실제 채널 판별 (빠르게 헤더만) ──
     try:
@@ -215,7 +216,7 @@ def process():
         should_save = target_type == '송장'
         result = processor.run(mode, order_path, option_path,
                                invoice_path, target_type, output_dir,
-                               db=current_app.db, option_source=option_source,
+                               db=get_db(), option_source=option_source,
                                save_to_db=should_save,
                                uploaded_by=current_user.username if current_user.is_authenticated else '',
                                collection_date=collection_date)
@@ -233,7 +234,7 @@ def process():
             }
 
             try:
-                option_count = current_app.db.count_option_master()
+                option_count = get_db().count_option_master()
             except Exception:
                 option_count = 0
 
@@ -274,7 +275,7 @@ def process():
         _cleanup_file(option_path)
 
         try:
-            option_count = current_app.db.count_option_master()
+            option_count = get_db().count_option_master()
         except Exception:
             option_count = 0
 
@@ -309,7 +310,7 @@ def api_option_search():
     if not keyword or len(keyword) < 2:
         return jsonify([])
     try:
-        results = current_app.db.search_option_master(keyword)
+        results = get_db().search_option_master(keyword)
         return jsonify([{
             'id': r['id'],
             'original_name': r.get('original_name', ''),
@@ -340,7 +341,7 @@ def api_option_register():
         return jsonify({'error': '원문명과 품목명은 필수입니다.'}), 400
 
     try:
-        current_app.db.insert_option_master({
+        get_db().insert_option_master({
             'original_name': original_name,
             'product_name': product_name,
             'line_code': line_code,
@@ -376,14 +377,14 @@ def api_reprocess():
         output_dir = current_app.config['OUTPUT_FOLDER']
 
         # 옵션 등록 직후 재처리 — 캐시 완전 우회하여 DB에서 직접 로드
-        fresh_opts = current_app.db.query_option_master_as_list(use_cache=False)
+        fresh_opts = get_db().query_option_master_as_list(use_cache=False)
         print(f"[REPROCESS] 옵션마스터 DB 직접 로드: {len(fresh_opts)}건 (캐시 우회)")
 
         processor = OrderProcessor()
         result = processor.run(
             reprocess['mode'], order_path, None,
             reprocess.get('invoice_path'), reprocess['target_type'], output_dir,
-            db=current_app.db, option_source='db',
+            db=get_db(), option_source='db',
             save_to_db=True,
             uploaded_by=current_user.username if current_user.is_authenticated else '',
             collection_date=reprocess.get('collection_date'),
@@ -492,7 +493,7 @@ def api_orders():
     elif outbound_filter in ('no_invoice', 'invoice_only'):
         db_outbound = 'not_done'  # 미출고만 조회 후 invoice 유무로 필터
 
-    orders = current_app.db.query_order_transactions_extended(
+    orders = get_db().query_order_transactions_extended(
         date_from=date_from, date_to=date_to,
         channel=channel, status=status,
         outbound=db_outbound,
@@ -517,7 +518,7 @@ def api_orders():
 @role_required('admin', 'manager', 'sales')
 def api_order_detail(order_id):
     """주문 상세 조회 (배송정보 + 변경이력)"""
-    db = current_app.db
+    db = get_db()
     txn = db.query_order_transaction_by_id(order_id)
     if not txn:
         return jsonify({'error': '주문을 찾을 수 없습니다'}), 404
@@ -550,7 +551,7 @@ def api_order_detail(order_id):
 def api_product_list():
     """stock_ledger의 고유 품목명 목록 반환 (품목 정정용)"""
     try:
-        db = current_app.db
+        db = get_db()
         raw = db.client.table("stock_ledger") \
             .select("product_name") \
             .eq("status", "active") \
@@ -578,7 +579,7 @@ def api_order_edit(order_id):
         return jsonify({'error': '변경 사유를 입력하세요'}), 400
 
     # 품목/수량 변경 시 재고/매출 역분개 → 재처리
-    order = current_app.db.query_order_transaction_by_id(order_id)
+    order = get_db().query_order_transaction_by_id(order_id)
     new_qty = payload.get('qty')
     new_product = payload.get('product_name')
     need_reprocess = (
@@ -595,21 +596,21 @@ def api_order_edit(order_id):
             reverse_order_stock, process_single_order_realtime
         )
         # 1. 기존 출고 역분개
-        reversal = reverse_order_stock(current_app.db, order_id)
+        reversal = reverse_order_stock(get_db(), order_id)
 
         # 2. 필드 변경 (RPC)
-        result = current_app.db.cancel_or_edit_order(
+        result = get_db().cancel_or_edit_order(
             order_id=order_id, change_type='수정',
             payload=payload, reason=reason,
             user=current_user.username if current_user.is_authenticated else ''
         )
 
         # 3. 새 수량으로 재처리
-        reprocess = process_single_order_realtime(current_app.db, order_id)
+        reprocess = process_single_order_realtime(get_db(), order_id)
         result['reversal'] = reversal
         result['reprocess'] = reprocess
     else:
-        result = current_app.db.cancel_or_edit_order(
+        result = get_db().cancel_or_edit_order(
             order_id=order_id, change_type='수정',
             payload=payload, reason=reason,
             user=current_user.username if current_user.is_authenticated else ''
@@ -639,10 +640,10 @@ def api_order_cancel(order_id):
         return jsonify({'error': '취소/환불 사유를 입력하세요'}), 400
 
     # 취소 전 주문 데이터 확보
-    order = current_app.db.query_order_transaction_by_id(order_id)
+    order = get_db().query_order_transaction_by_id(order_id)
 
     # RPC로 상태 변경
-    result = current_app.db.cancel_or_edit_order(
+    result = get_db().cancel_or_edit_order(
         order_id=order_id,
         change_type=change_type,
         payload={},
@@ -654,7 +655,7 @@ def api_order_cancel(order_id):
     if result.get('success') and order and order.get('is_outbound_done'):
         try:
             from services.order_to_stock_service import reverse_order_stock
-            reversal = reverse_order_stock(current_app.db, order_id)
+            reversal = reverse_order_stock(get_db(), order_id)
             result['reversal'] = reversal
         except Exception as e:
             result['reversal_error'] = str(e)
@@ -697,7 +698,7 @@ def api_orders_bulk_cancel():
 
     for oid in order_ids:
         try:
-            order = current_app.db.query_order_transaction_by_id(int(oid))
+            order = get_db().query_order_transaction_by_id(int(oid))
             if not order:
                 results.append({'order_id': oid, 'ok': False, 'error': '주문 없음'})
                 fail_count += 1
@@ -708,7 +709,7 @@ def api_orders_bulk_cancel():
                 fail_count += 1
                 continue
 
-            result = current_app.db.cancel_or_edit_order(
+            result = get_db().cancel_or_edit_order(
                 order_id=int(oid), change_type=change_type,
                 payload={}, reason=reason, user=username
             )
@@ -716,7 +717,7 @@ def api_orders_bulk_cancel():
             if result.get('success') and order.get('is_outbound_done'):
                 try:
                     from services.order_to_stock_service import reverse_order_stock
-                    reversal = reverse_order_stock(current_app.db, int(oid))
+                    reversal = reverse_order_stock(get_db(), int(oid))
                     total_stock_reversed += reversal.get('stock_reversed', 0)
                     total_revenue_reversed += reversal.get('revenue_reversed', 0)
                     result['reversal'] = reversal
@@ -769,7 +770,7 @@ def api_shipping_search():
     if not keyword or len(keyword) < 2:
         return jsonify({'error': '검색어를 2글자 이상 입력하세요'}), 400
 
-    results = current_app.db.search_order_shipping(keyword, field=field)
+    results = get_db().search_order_shipping(keyword, field=field)
     return jsonify({'results': results})
 
 
@@ -790,7 +791,7 @@ def api_update_invoice():
         courier = data.get('courier')
         if not all([channel, order_no, invoice_no]):
             return jsonify({'error': '필수 항목 누락'}), 400
-        ok = current_app.db.update_order_shipping_invoice(
+        ok = get_db().update_order_shipping_invoice(
             channel, order_no, invoice_no, courier,
             shipping_status='발송'
         )
@@ -800,7 +801,7 @@ def api_update_invoice():
         return jsonify({'success': ok, 'updated': 1 if ok else 0})
     else:
         # 일괄 업데이트
-        count = current_app.db.bulk_update_shipping_invoices(updates)
+        count = get_db().bulk_update_shipping_invoices(updates)
         if count > 0:
             _log_action('bulk_update_invoice',
                          detail=f'송장 일괄 업데이트 {count}건')
@@ -824,7 +825,7 @@ def api_reprocess_revenue():
 @role_required('admin', 'manager', 'sales')
 def api_import_runs():
     """업로드 이력 목록"""
-    runs = current_app.db.query_import_runs(limit=50)
+    runs = get_db().query_import_runs(limit=50)
     return jsonify({'runs': runs})
 
 
@@ -832,7 +833,7 @@ def api_import_runs():
 @role_required('admin', 'manager', 'sales')
 def api_import_run_detail(run_id):
     """업로드 상세 결과"""
-    run = current_app.db.query_import_run_by_id(run_id)
+    run = get_db().query_import_run_by_id(run_id)
     if not run:
         return jsonify({'error': '업로드 이력을 찾을 수 없습니다'}), 404
     return jsonify(run)
@@ -853,7 +854,7 @@ def import_runs_page():
 @role_required('admin', 'manager')
 def api_import_run_impact(run_id):
     """import_run 취소 영향 범위 미리보기"""
-    result = current_app.db.get_import_run_impact(run_id)
+    result = get_db().get_import_run_impact(run_id)
     if result.get('error'):
         return jsonify({'error': result['error']}), 404
     return jsonify(result)
@@ -863,7 +864,7 @@ def api_import_run_impact(run_id):
 @role_required('admin', 'manager')
 def api_cancel_import_run(run_id):
     """import_run 일괄취소 (롤백)"""
-    db = current_app.db
+    db = get_db()
     cancelled_by = current_user.name or current_user.username
 
     # 영향 범위 먼저 확인
@@ -918,7 +919,7 @@ def n_delivery():
     # BOM 세트옵션만 로드 (전체 품목 X)
     products = []
     try:
-        bom_list = current_app.db.query_bom_master_all()
+        bom_list = get_db().query_bom_master_all()
         if bom_list:
             seen = set()
             for b in bom_list:
@@ -953,7 +954,7 @@ def api_process_outbound():
     try:
         from services.order_to_stock_service import process_orders_to_stock
         result = process_orders_to_stock(
-            current_app.db,
+            get_db(),
             date_from=date_from,
             date_to=date_to,
             channel=channel,
@@ -975,7 +976,7 @@ def api_outbound_status():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     try:
-        summary = current_app.db.query_outbound_summary(
+        summary = get_db().query_outbound_summary(
             date_from=date_from, date_to=date_to)
         return jsonify(summary)
     except Exception as e:
@@ -997,7 +998,7 @@ def api_n_delivery():
     if not order_date:
         return jsonify({'error': '매출일자를 입력하세요'}), 400
 
-    db = current_app.db
+    db = get_db()
     username = current_user.username if current_user.is_authenticated else ''
 
     # import_runs 생성 (반환: tuple (id, error_msg))
@@ -1129,7 +1130,7 @@ def api_n_delivery_list():
     if not date_from or not date_to:
         return jsonify({'error': '날짜 범위를 지정하세요'}), 400
 
-    db = current_app.db
+    db = get_db()
     try:
         res = db.client.table('order_transactions').select(
             'id,order_date,order_no,product_name,qty,unit_price,total_amount,status,channel,is_outbound_done'
@@ -1154,7 +1155,7 @@ def api_n_delivery_update(tx_id):
     if not data:
         return jsonify({'error': '요청 데이터 없음'}), 400
 
-    db = current_app.db
+    db = get_db()
     username = current_user.username if current_user.is_authenticated else ''
 
     try:
@@ -1275,7 +1276,7 @@ def api_n_delivery_reprocess():
 
     is_outbound_done=false인 NDEL 주문을 찾아서 출고 처리.
     """
-    db = current_app.db
+    db = get_db()
     try:
         # NDEL% 주문 중 미처리 건 조회
         res = db.client.table('order_transactions').select(
@@ -1327,7 +1328,7 @@ def rocket_manual():
     products = []
     locations = []
     try:
-        price_map = current_app.db.query_price_table()
+        price_map = get_db().query_price_table()
         for name, prices in price_map.items():
             rp = prices.get('로켓판매가', 0)
             if rp and rp > 0:
@@ -1336,7 +1337,7 @@ def rocket_manual():
     except Exception:
         pass
     try:
-        locations, _ = current_app.db.query_filter_options()
+        locations, _ = get_db().query_filter_options()
     except Exception:
         locations = ['넥스원', '해서']
     return render_template('orders/rocket_manual.html',
@@ -1359,7 +1360,7 @@ def api_rocket_manual():
     if not revenue_date:
         return jsonify({'error': '매출일자를 입력하세요'}), 400
 
-    db = current_app.db
+    db = get_db()
     username = current_user.username if current_user.is_authenticated else ''
     price_map = db.query_price_table()
 
@@ -1438,7 +1439,7 @@ def api_rocket_manual_list():
         return jsonify({'error': '날짜 범위를 지정하세요'}), 400
 
     try:
-        res = current_app.db.client.table('daily_revenue').select(
+        res = get_db().client.table('daily_revenue').select(
             'id,revenue_date,product_name,qty,unit_price,revenue'
         ).eq('category', '로켓') \
          .gte('revenue_date', date_from) \
@@ -1459,7 +1460,7 @@ def api_rocket_manual_update(rev_id):
     if not data:
         return jsonify({'error': '요청 데이터 없음'}), 400
 
-    db = current_app.db
+    db = get_db()
     username = current_user.username if current_user.is_authenticated else ''
 
     try:
@@ -1541,7 +1542,7 @@ def integrity_check():
             summary: str
         }
     """
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
 

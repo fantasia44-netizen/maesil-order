@@ -20,6 +20,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+from db_utils import get_db
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -72,7 +73,7 @@ def _log_validation_failure(action, message, details=None):
         from flask import current_app, has_app_context
         if not has_app_context():
             return
-        db = current_app.db
+        db = get_db()
         db.insert_audit_log({
             'action': f'validation_fail:{action}',
             'detail': message[:500],

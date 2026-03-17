@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 master_bp = Blueprint('master', __name__, url_prefix='/master')
 
@@ -35,7 +36,7 @@ def _allowed(filename):
 @role_required('admin')
 def index():
     """마스터 데이터 현황"""
-    db = current_app.db
+    db = get_db()
     counts = {}
     for key, table_name in MASTER_TABLES.items():
         try:
@@ -73,7 +74,7 @@ def sync_price():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'master')
+    backup_to_storage(get_db(), filepath, 'upload', 'master')
 
     try:
         xls = pd.ExcelFile(filepath)
@@ -120,7 +121,7 @@ def sync_price():
         for row in df.to_dict('records'):
             payload.append({k: _clean(v) for k, v in row.items()})
 
-        current_app.db.sync_master_table('master_prices', payload)
+        get_db().sync_master_table('master_prices', payload)
         _log_action('sync_master', target='master_prices',
                      detail=f'{len(payload)}건 동기화')
         flash(f'가격표 동기화 완료: {len(payload)}건', 'success')
@@ -154,7 +155,7 @@ def sync_option():
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'master')
+    backup_to_storage(get_db(), filepath, 'upload', 'master')
 
     try:
         df = pd.read_excel(filepath, header=None, dtype=str).fillna('')
@@ -196,7 +197,7 @@ def sync_option():
                 'barcode': bc,
             })
 
-        current_app.db.sync_option_master(payload)
+        get_db().sync_option_master(payload)
         _log_action('sync_option_master', detail=f'{len(payload)}건 동기화')
         flash(f'옵션마스터 동기화 완료: {len(payload)}건', 'success')
     except Exception as e:
@@ -220,7 +221,7 @@ def _sync_master(key, table_name, label):
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_dir, filename)
     file.save(filepath)
-    backup_to_storage(current_app.db, filepath, 'upload', 'master')
+    backup_to_storage(get_db(), filepath, 'upload', 'master')
 
     try:
         df = pd.read_excel(filepath)
@@ -234,7 +235,7 @@ def _sync_master(key, table_name, label):
         df.columns = [str(c).strip() for c in df.columns]
         payload = df.to_dict('records')
 
-        current_app.db.sync_master_table(table_name, payload)
+        get_db().sync_master_table(table_name, payload)
         _log_action('sync_master', target=table_name,
                      detail=f'{len(payload)}건 동기화')
         flash(f'{label} 동기화 완료: {len(payload)}건', 'success')
@@ -252,7 +253,7 @@ def _sync_master(key, table_name, label):
 def fix_spaces():
     """품목명 공백 정리 (stock_ledger + daily_revenue)"""
     try:
-        fixed_count, dupe_groups = current_app.db.fix_product_name_spaces()
+        fixed_count, dupe_groups = get_db().fix_product_name_spaces()
         _log_action('fix_product_spaces', detail=f'{fixed_count}건 정리')
 
         if dupe_groups:
@@ -272,7 +273,7 @@ def stale_options():
     """미사용 옵션 조회 (30일 이상 매칭 안 된 옵션)"""
     days = int(request.args.get('days', 30))
     try:
-        stale = current_app.db.query_stale_options(days)
+        stale = get_db().query_stale_options(days)
     except Exception as e:
         flash(f'미사용 옵션 조회 오류: {e}', 'danger')
         stale = []
@@ -281,9 +282,9 @@ def stale_options():
     for key, tbl in MASTER_TABLES.items():
         try:
             if key == 'option':
-                counts[key] = current_app.db.count_option_master()
+                counts[key] = get_db().count_option_master()
             else:
-                counts[key] = current_app.db.count_master_table(tbl)
+                counts[key] = get_db().count_master_table(tbl)
         except Exception:
             counts[key] = -1
 
@@ -299,7 +300,7 @@ def cleanup_options():
     """미사용 옵션 일괄 삭제"""
     days = int(request.form.get('days', 30))
     try:
-        deleted = current_app.db.delete_stale_options(days)
+        deleted = get_db().delete_stale_options(days)
         _log_action('cleanup_stale_options', detail=f'{days}일 미사용 {deleted}건 삭제')
         flash(f'{days}일 이상 미사용 옵션 {deleted}건 삭제 완료', 'success')
     except Exception as e:
@@ -323,9 +324,9 @@ def search():
 
     try:
         if table_key == 'option':
-            raw = current_app.db.query_option_master()
+            raw = get_db().query_option_master()
         else:
-            raw = current_app.db.query_master_table(table_name)
+            raw = get_db().query_master_table(table_name)
 
         if search_term:
             term_lower = search_term.replace(' ', '').lower()
@@ -342,9 +343,9 @@ def search():
     for key, tbl in MASTER_TABLES.items():
         try:
             if key == 'option':
-                counts[key] = current_app.db.count_option_master()
+                counts[key] = get_db().count_option_master()
             else:
-                counts[key] = current_app.db.count_master_table(tbl)
+                counts[key] = get_db().count_master_table(tbl)
         except Exception:
             counts[key] = -1
 
@@ -373,7 +374,7 @@ def api_options():
     page = max(int(request.args.get('page', 1)), 1)
     per_page = min(int(request.args.get('per_page', 50)), 200)
 
-    db = current_app.db
+    db = get_db()
     if keyword:
         all_data = db.search_option_master(keyword)
     else:
@@ -419,7 +420,7 @@ def api_option_create():
     }
 
     try:
-        current_app.db.insert_option_master(payload)
+        get_db().insert_option_master(payload)
         _log_action('insert_option_master', target=original_name,
                      detail=f'{original_name} → {product_name}')
         return jsonify({'success': True})
@@ -448,7 +449,7 @@ def api_option_update(option_id):
         return jsonify({'error': '수정할 필드가 없습니다.'}), 400
 
     try:
-        current_app.db.update_option_master(option_id, update_data)
+        get_db().update_option_master(option_id, update_data)
         _log_action('update_option_master', target=str(option_id),
                      detail=str(update_data))
         return jsonify({'success': True})
@@ -461,7 +462,7 @@ def api_option_update(option_id):
 def api_option_delete(option_id):
     """옵션마스터 삭제 API"""
     try:
-        current_app.db.delete_option_master(option_id)
+        get_db().delete_option_master(option_id)
         _log_action('delete_option_master', target=str(option_id))
         return jsonify({'success': True})
     except Exception as e:
@@ -481,7 +482,7 @@ def api_products():
     page = max(int(request.args.get('page', 1)), 1)
     per_page = min(int(request.args.get('per_page', 50)), 200)
 
-    db = current_app.db
+    db = get_db()
     cost_map = db.query_product_costs()  # {product_name: {...}}
 
     # dict → list
@@ -529,7 +530,7 @@ def api_product_update(product_name):
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
 
-    db = current_app.db
+    db = get_db()
     cost_map = db.query_product_costs()
     existing = cost_map.get(product_name) or cost_map.get(product_name.replace(' ', ''))
     if not existing:

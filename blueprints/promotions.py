@@ -9,6 +9,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
 from models import REVENUE_CATEGORIES
+from db_utils import get_db
 
 promotions_bp = Blueprint('promotions', __name__, url_prefix='/promotions')
 
@@ -31,7 +32,7 @@ def index():
 @role_required('admin', 'manager', 'sales', 'general')
 def api_promotions_list():
     """행사 목록 조회."""
-    db = current_app.db
+    db = get_db()
     product = request.args.get('product', '').strip()
     category = request.args.get('category', '').strip()
     date_from = request.args.get('date_from', '').strip()
@@ -52,7 +53,7 @@ def api_promotions_list():
 @role_required('admin', 'manager', 'sales')
 def api_promotions_create():
     """행사 등록."""
-    db = current_app.db
+    db = get_db()
     data = request.get_json(force=True)
 
     required = ['product_name', 'category', 'start_date', 'end_date', 'promo_price']
@@ -91,7 +92,7 @@ def api_promotions_create():
 @role_required('admin', 'manager', 'sales')
 def api_promotions_update(promo_id):
     """행사 수정."""
-    db = current_app.db
+    db = get_db()
     data = request.get_json(force=True)
 
     updates = {}
@@ -119,7 +120,7 @@ def api_promotions_update(promo_id):
 @role_required('admin', 'manager', 'sales')
 def api_promotions_delete(promo_id):
     """행사 삭제."""
-    db = current_app.db
+    db = get_db()
     try:
         db.delete_promotion(promo_id)
         _log_action('delete_promotion', target=str(promo_id))
@@ -136,7 +137,7 @@ def api_promotions_delete(promo_id):
 @role_required('admin', 'manager', 'sales', 'general')
 def api_coupons_list():
     """쿠폰 목록 조회."""
-    db = current_app.db
+    db = get_db()
     product = request.args.get('product', '').strip()
     category = request.args.get('category', '').strip()
     date_from = request.args.get('date_from', '').strip()
@@ -157,7 +158,7 @@ def api_coupons_list():
 @role_required('admin', 'manager', 'sales')
 def api_coupons_create():
     """쿠폰 등록."""
-    db = current_app.db
+    db = get_db()
     data = request.get_json(force=True)
 
     required = ['product_name', 'category', 'start_date', 'end_date',
@@ -202,7 +203,7 @@ def api_coupons_create():
 @role_required('admin', 'manager', 'sales')
 def api_coupons_update(coupon_id):
     """쿠폰 수정."""
-    db = current_app.db
+    db = get_db()
     data = request.get_json(force=True)
 
     updates = {}
@@ -233,7 +234,7 @@ def api_coupons_update(coupon_id):
 @role_required('admin', 'manager', 'sales')
 def api_coupons_delete(coupon_id):
     """쿠폰 삭제."""
-    db = current_app.db
+    db = get_db()
     try:
         db.delete_coupon(coupon_id)
         _log_action('delete_coupon', target=str(coupon_id))

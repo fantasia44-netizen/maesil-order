@@ -5,6 +5,7 @@ blueprints/integrity.py — 데이터 무결성 검사 API + 관리 화면.
 from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_login import current_user
 from auth import role_required, _log_action
+from db_utils import get_db
 
 integrity_bp = Blueprint('integrity', __name__, url_prefix='/integrity')
 
@@ -27,7 +28,7 @@ def api_run_check():
         date_from = data.get('date_from', '')
         date_to = data.get('date_to', '')
 
-        monitor = IntegrityMonitor(current_app.db)
+        monitor = IntegrityMonitor(get_db())
         report = monitor.run_all_checks(
             date_from=date_from or None,
             date_to=date_to or None,
@@ -49,7 +50,7 @@ def api_reports():
     """최근 정합성 보고서 목록."""
     try:
         from core.integrity_monitor import IntegrityMonitor
-        monitor = IntegrityMonitor(current_app.db)
+        monitor = IntegrityMonitor(get_db())
         reports = monitor.get_recent_reports(limit=20)
         return jsonify(reports)
     except Exception as e:
@@ -62,7 +63,7 @@ def api_quick_check():
     """빠른 음수 재고 + 이동 불일치 확인 (대시보드용)."""
     try:
         from core.integrity_monitor import IntegrityMonitor
-        monitor = IntegrityMonitor(current_app.db)
+        monitor = IntegrityMonitor(get_db())
         monitor.check_negative_stock()
         monitor.check_transfer_balance()
 

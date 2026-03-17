@@ -18,6 +18,7 @@ from werkzeug.utils import secure_filename
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage, backup_bytes_to_storage
+from db_utils import get_db
 
 production_bp = Blueprint('production', __name__, url_prefix='/production')
 
@@ -34,7 +35,7 @@ def _allowed(filename):
 @role_required('admin', 'manager', 'logistics', 'production')
 def index():
     """생산 관리 페이지"""
-    db = current_app.db
+    db = get_db()
     locations = []
     try:
         locations, _ = db.query_filter_options()
@@ -50,7 +51,7 @@ def index():
 def api_products():
     """전체 고유 품목명 목록 JSON (생산품 자동완성)"""
     try:
-        products = current_app.db.query_unique_product_names()
+        products = get_db().query_unique_product_names()
         return jsonify(products)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -65,7 +66,7 @@ def api_stock():
         return jsonify([])
     try:
         from services.excel_io import build_stock_snapshot
-        all_data = current_app.db.query_stock_by_location(location)
+        all_data = get_db().query_stock_by_location(location)
         snapshot = build_stock_snapshot(all_data)
         products = []
         for name, info in snapshot.items():
@@ -92,7 +93,7 @@ def api_history():
     if not date_from or not date_to:
         return jsonify([])
     try:
-        data = current_app.db.query_stock_ledger(
+        data = get_db().query_stock_ledger(
             date_from=date_from, date_to=date_to,
             type_list=['PRODUCTION', 'PROD_OUT'])
         rows = []
@@ -123,8 +124,8 @@ def api_history():
 def api_delete(record_id):
     """개별 생산 이력 블라인드 처리 (admin 전용)"""
     try:
-        old_record = current_app.db.query_stock_ledger_by_id(record_id)
-        current_app.db.blind_stock_ledger(record_id, blinded_by=current_user.username)
+        old_record = get_db().query_stock_ledger_by_id(record_id)
+        get_db().blind_stock_ledger(record_id, blinded_by=current_user.username)
         _log_action('blind_production', target=str(record_id),
                      old_value=old_record)
         return jsonify({'success': True})
@@ -160,7 +161,7 @@ def api_update(record_id):
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
     try:
-        result = current_app.db.replace_stock_ledger(
+        result = get_db().replace_stock_ledger(
             record_id, update_data, replaced_by_user=current_user.username)
         _log_action('replace_production', target=str(record_id),
                      old_value=result.get('old_record'), new_value=update_data)
@@ -215,7 +216,7 @@ def batch():
     try:
         from services.production_service import process_production_batch
         result = process_production_batch(
-            current_app.db, date_str, location, items,
+            get_db(), date_str, location, items,
             created_by=current_user.username)
         _log_action('batch_production',
                      detail=f'{date_str} {location} 생산 — '
@@ -259,7 +260,7 @@ def log_pdf():
         flash('생산일자를 입력하세요.', 'warning')
         return redirect(url_for('production.index'))
 
-    db = current_app.db
+    db = get_db()
 
     try:
         from services.stock_service import query_all_stock_data

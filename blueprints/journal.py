@@ -3,6 +3,7 @@ from flask import Blueprint, render_template, request, current_app, flash, redir
 from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
+from db_utils import get_db
 
 journal_bp = Blueprint('journal', __name__, url_prefix='/journal')
 
@@ -19,7 +20,7 @@ def index():
     status = request.args.get('status', '')
 
     entries = get_journals(
-        current_app.db,
+        get_db(),
         date_from=date_from,
         date_to=date_to,
         journal_type=journal_type or None,
@@ -40,7 +41,7 @@ def detail(entry_id):
     """전표 상세."""
     from services.journal_service import get_journal_detail
 
-    result = get_journal_detail(current_app.db, entry_id)
+    result = get_journal_detail(get_db(), entry_id)
     if not result:
         flash('전표를 찾을 수 없습니다.', 'warning')
         return redirect(url_for('journal.index'))
@@ -91,7 +92,7 @@ def manual_entry():
 
     try:
         entry_id = create_journal(
-            current_app.db,
+            get_db(),
             journal_date=journal_date,
             journal_type='manual',
             lines=lines,
@@ -116,7 +117,7 @@ def reverse(entry_id):
     from services.journal_service import reverse_journal
 
     try:
-        rev_id = reverse_journal(current_app.db, entry_id,
+        rev_id = reverse_journal(get_db(), entry_id,
                                   reversed_by=current_user.username)
         _log_action('reverse_journal',
                     detail=f'전표 {entry_id} 역분개 → {rev_id}')
@@ -139,7 +140,7 @@ def trial_balance():
     date_from = request.args.get('date_from', today_kst()[:7] + '-01')
     date_to = request.args.get('date_to', today_kst())
 
-    accounts = get_trial_balance(current_app.db, date_from=date_from, date_to=date_to)
+    accounts = get_trial_balance(get_db(), date_from=date_from, date_to=date_to)
 
     total_debit = sum(a['total_debit'] for a in accounts)
     total_credit = sum(a['total_credit'] for a in accounts)

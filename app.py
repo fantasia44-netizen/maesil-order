@@ -8,6 +8,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config, DevelopmentConfig
 from models import User
+from db_utils import get_db
 
 
 def create_app(config_class=None):
@@ -58,9 +59,12 @@ def create_app(config_class=None):
     from services.popbill_service import PopbillService
     app.popbill = PopbillService(app.config)
 
-    # ── Marketplace API 싱글톤 ──
+    # ── Marketplace API (사업자별) ──
     from services.marketplace import MarketplaceManager
-    app.marketplace = MarketplaceManager(app.db)
+    app.marketplace_pool = {}
+    for biz_id, db_inst in app.db_pool.items():
+        app.marketplace_pool[biz_id] = MarketplaceManager(db_inst)
+    app.marketplace = app.marketplace_pool.get(DEFAULT_BUSINESS)
 
     # ── 네이버 검색광고 API 클라이언트 ──
     app.naver_ad = None
@@ -96,7 +100,13 @@ def create_app(config_class=None):
 
     @login_manager.user_loader
     def load_user(user_id):
-        row = app.db.query_user_by_id(int(user_id))
+        # user_loader는 before_request보다 먼저 실행될 수 있으므로
+        # db_pool에서 직접 조회 (app.db 스레드 경합 방지)
+        biz = session.get('current_biz', DEFAULT_BUSINESS)
+        db = app.db_pool.get(biz) or app.db_pool.get(DEFAULT_BUSINESS)
+        if not db:
+            return None
+        row = db.query_user_by_id(int(user_id))
         return User(row) if row else None
 
     @login_manager.unauthorized_handler
@@ -145,12 +155,12 @@ def create_app(config_class=None):
 
             session['_last_active'] = now
 
-    # ── 사업자 DB 스위칭 (세션 기반) ──
+    # ── 사업자 DB 스위칭 (세션 기반, 스레드 안전) ──
     @app.before_request
     def switch_db_by_session():
         biz = session.get('current_biz', DEFAULT_BUSINESS)
-        if biz in app.db_pool:
-            app.db = app.db_pool[biz]
+        g.db = app.db_pool.get(biz) or app.db_pool.get(DEFAULT_BUSINESS)
+        g.marketplace = app.marketplace_pool.get(biz) or app.marketplace_pool.get(DEFAULT_BUSINESS)
 
     # ── 보안: 응답 헤더 추가 ──
     @app.after_request
@@ -269,10 +279,10 @@ def create_app(config_class=None):
             from models import MENU_GROUPS
             raw_groups = cached['groups']
             ordered = OrderedDict()
-            for g in MENU_GROUPS:
-                if g in raw_groups:
-                    ordered[g] = raw_groups[g]
-            pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
+            for grp in MENU_GROUPS:
+                if grp in raw_groups:
+                    ordered[grp] = raw_groups[grp]
+            pending_users = get_db().count_pending_users() if current_user.is_admin() else 0
             return dict(sidebar_menus=cached['menus'],
                         sidebar_groups=ordered,
                         sidebar_top_menu=cached['top'],
@@ -286,7 +296,7 @@ def create_app(config_class=None):
         r = current_user.role
 
         # DB 권한 조회 (TTL 캐시)
-        perms = app.db.query_role_permissions()
+        perms = get_db().query_role_permissions()
         role_perms = perms.get(r, {})
 
         # 사업자별 제외 페이지
@@ -294,7 +304,7 @@ def create_app(config_class=None):
 
         flat_menus = []
         top_menu = None
-        groups = OrderedDict((g, []) for g in MENU_GROUPS)
+        groups = OrderedDict((grp, []) for grp in MENU_GROUPS)
 
         for page_key, name, icon, url, defaults, group in PAGE_REGISTRY:
             if page_key in exclude_pages:
@@ -319,7 +329,7 @@ def create_app(config_class=None):
             'ts': now,
         }
 
-        pending_users = app.db.count_pending_users() if current_user.is_admin() else 0
+        pending_users = get_db().count_pending_users() if current_user.is_admin() else 0
 
         return dict(sidebar_menus=flat_menus, sidebar_groups=groups,
                     sidebar_top_menu=top_menu, pending_users=pending_users,

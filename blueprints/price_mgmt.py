@@ -9,6 +9,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
+from db_utils import get_db
 
 price_mgmt_bp = Blueprint('price_mgmt', __name__, url_prefix='/price')
 
@@ -24,7 +25,7 @@ def index():
 @role_required('admin', 'manager', 'sales', 'general')
 def api_data():
     """가격표 전체 데이터 API"""
-    db = current_app.db
+    db = get_db()
     try:
         # master_prices raw 데이터
         raw = db.query_master_table('master_prices')
@@ -69,7 +70,7 @@ def api_data():
 @role_required('admin', 'manager', 'sales')
 def api_save():
     """가격 1건 수정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -113,7 +114,7 @@ def api_save():
 @role_required('admin', 'manager', 'sales')
 def api_save_batch():
     """가격 일괄 수정"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data or not data.get('items'):
         return jsonify({'error': '데이터가 없습니다.'}), 400

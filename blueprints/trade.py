@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
+from db_utils import get_db
 
 trade_bp = Blueprint('trade', __name__, url_prefix='/trade')
 
@@ -27,7 +28,7 @@ trade_bp = Blueprint('trade', __name__, url_prefix='/trade')
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
     """거래처 목록 + 본사 사업장 관리"""
-    db = current_app.db
+    db = get_db()
     partners = []
 
     try:
@@ -69,7 +70,7 @@ def add_business():
     }
 
     try:
-        current_app.db.upsert_my_business(payload)
+        get_db().upsert_my_business(payload)
         _log_action('add_business', target=biz_name)
         flash(f'사업장 "{biz_name}" 등록 완료', 'success')
     except Exception as e:
@@ -83,7 +84,7 @@ def add_business():
 def set_default_business(biz_id):
     """기본 사업장 지정"""
     try:
-        current_app.db.set_default_business(biz_id)
+        get_db().set_default_business(biz_id)
         flash('기본 사업장이 변경되었습니다.', 'success')
     except Exception as e:
         flash(f'기본 사업장 변경 중 오류: {e}', 'danger')
@@ -98,11 +99,11 @@ def delete_business(biz_id):
     try:
         old_record = None
         try:
-            res = current_app.db.client.table("my_business").select("*").eq("id", biz_id).execute()
+            res = get_db().client.table("my_business").select("*").eq("id", biz_id).execute()
             old_record = res.data[0] if res.data else None
         except Exception:
             pass
-        current_app.db.delete_my_business(biz_id)
+        get_db().delete_my_business(biz_id)
         _log_action('delete_business', target=str(biz_id), old_value=old_record)
         flash('사업장 삭제 완료', 'success')
     except Exception as e:
@@ -135,7 +136,7 @@ def add_partner():
     }
 
     try:
-        current_app.db.insert_partner(payload)
+        get_db().insert_partner(payload)
         _log_action('add_partner', target=partner_name)
         flash(f'거래처 "{partner_name}" 등록 완료', 'success')
     except Exception as e:
@@ -205,7 +206,7 @@ def upload_partners():
             if rec.get('partner_name'):
                 payload_list.append(rec)
 
-        current_app.db.insert_partners_batch(payload_list)
+        get_db().insert_partners_batch(payload_list)
         _log_action('upload_partners', target=f'{len(payload_list)}건 일괄등록')
         flash(f'거래처 {len(payload_list)}건 일괄 등록 완료!', 'success')
 
@@ -242,11 +243,11 @@ def delete_partner(partner_id):
     try:
         old_record = None
         try:
-            res = current_app.db.client.table("business_partners").select("*").eq("id", partner_id).execute()
+            res = get_db().client.table("business_partners").select("*").eq("id", partner_id).execute()
             old_record = res.data[0] if res.data else None
         except Exception:
             pass
-        current_app.db.delete_partner(partner_id)
+        get_db().delete_partner(partner_id)
         _log_action('delete_partner', target=str(partner_id), old_value=old_record)
         flash('거래처 삭제 완료', 'success')
     except Exception as e:
@@ -277,10 +278,10 @@ def api_update_partner(partner_id):
 
     try:
         # 수정 전 원본 조회 (되돌리기용)
-        old_list = current_app.db.client.table("business_partners") \
+        old_list = get_db().client.table("business_partners") \
             .select("*").eq("id", partner_id).limit(1).execute()
         old_record = old_list.data[0] if old_list.data else None
-        current_app.db.update_partner(partner_id, payload)
+        get_db().update_partner(partner_id, payload)
         _log_action('update_partner', target=str(partner_id),
                      old_value=old_record, new_value=payload)
         return jsonify({'success': True})
@@ -293,7 +294,7 @@ def api_update_partner(partner_id):
 def api_partners():
     """거래처 목록 JSON"""
     try:
-        partners = current_app.db.query_partners()
+        partners = get_db().query_partners()
         return jsonify({'success': True, 'partners': partners})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -305,7 +306,7 @@ def api_partners():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def trades():
     """거래 목록"""
-    db = current_app.db
+    db = get_db()
 
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
@@ -341,7 +342,7 @@ def add_trade():
     partner_name = ''
     if partner_id:
         try:
-            partners = current_app.db.query_partners()
+            partners = get_db().query_partners()
             partner = next(
                 (p for p in partners if str(p.get('id')) == partner_id), None
             )
@@ -387,7 +388,7 @@ def add_trade():
         'registered_by': current_user.username,
     }
 
-    db = current_app.db
+    db = get_db()
     try:
         # ── 판매 거래: 재고차감(SALES_OUT) + 매출(daily_revenue) 연동 ──
         if trade_type == '판매' and location and qty > 0:
@@ -432,7 +433,7 @@ def add_trade():
 @role_required('admin')
 def delete_trade(trade_id):
     """거래 삭제 (manual_trades + daily_revenue + stock_ledger 연동 삭제)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 거래 정보 조회
         trade = db.query_manual_trade_by_id(trade_id)
@@ -488,7 +489,7 @@ def api_products():
     try:
         from services.stock_service import query_stock_snapshot
         today = today_kst()
-        snapshot = query_stock_snapshot(current_app.db, today)
+        snapshot = query_stock_snapshot(get_db(), today)
         # 품목별 합산 (여러 창고 동일 품목 합산)
         agg = {}
         for row in snapshot:
@@ -510,7 +511,7 @@ def api_products():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice(trade_id):
     """거래명세서 PDF 생성/다운로드 (단일 거래 기준)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         trades_data = db.query_manual_trades()
@@ -536,7 +537,7 @@ def invoice(trade_id):
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, [trade],
                              trade_date=trade.get('trade_date', ''))
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -553,7 +554,7 @@ def invoice(trade_id):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def invoice_batch():
     """거래명세서 PDF — 같은 거래처+날짜 묶어서 생성"""
-    db = current_app.db
+    db = get_db()
     p_name = request.args.get('partner_name', '')
     t_date = request.args.get('trade_date', '')
 
@@ -586,7 +587,7 @@ def invoice_batch():
 
         generate_invoice_pdf(pdf_path, my_biz, partner or {}, trade_list,
                              trade_date=t_date)
-        backup_to_storage(current_app.db, pdf_path, 'report', 'invoice')
+        backup_to_storage(get_db(), pdf_path, 'report', 'invoice')
 
         return send_file(
             pdf_path,
@@ -605,7 +606,7 @@ def invoice_batch():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def purchase_order():
     """발주서 작성 + 이력 조회 페이지"""
-    db = current_app.db
+    db = get_db()
     partners = []
     my_biz_list = []
     po_list = []
@@ -656,7 +657,7 @@ def purchase_order():
 def generate_purchase_order():
     """발주서 PDF 생성/다운로드"""
     import json
-    db = current_app.db
+    db = get_db()
 
     try:
         # 발주처 (본사 사업장)
@@ -716,7 +717,7 @@ def generate_purchase_order():
             invoice_manager=invoice_manager,
             manager_contact=manager_contact,
         )
-        backup_to_storage(current_app.db, pdf_path, 'report', 'purchase_order')
+        backup_to_storage(get_db(), pdf_path, 'report', 'purchase_order')
 
         # DB에 발주서 이력 저장
         try:
@@ -758,7 +759,7 @@ def generate_purchase_order():
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def update_purchase_order(po_id):
     """발주서 수정 (품목/정보 수정 후 DB 반영)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         old_po = db.query_purchase_order_by_id(po_id)
@@ -820,7 +821,7 @@ def update_purchase_order(po_id):
 def api_purchase_order(po_id):
     """발주서 상세 JSON (수정 모달용)"""
     try:
-        po = current_app.db.query_purchase_order_by_id(po_id)
+        po = get_db().query_purchase_order_by_id(po_id)
         if not po:
             return jsonify({'error': '발주서를 찾을 수 없습니다.'}), 404
         # items 파싱
@@ -836,8 +837,8 @@ def api_purchase_order(po_id):
 def delete_purchase_order(po_id):
     """발주서 이력 삭제 (admin 전용)"""
     try:
-        old_record = current_app.db.query_purchase_order_by_id(po_id)
-        current_app.db.delete_purchase_order(po_id)
+        old_record = get_db().query_purchase_order_by_id(po_id)
+        get_db().delete_purchase_order(po_id)
         _log_action('delete_purchase_order', target=str(po_id), old_value=old_record)
         flash('발주서 이력이 삭제되었습니다.', 'success')
     except Exception as e:
@@ -849,7 +850,7 @@ def delete_purchase_order(po_id):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def redownload_purchase_order(po_id):
     """발주서 PDF 재다운로드 (저장된 이력으로 PDF 재생성)"""
-    db = current_app.db
+    db = get_db()
 
     try:
         po = db.query_purchase_order_by_id(po_id)

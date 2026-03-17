@@ -10,6 +10,7 @@ from flask import (
 from flask_login import login_required, current_user
 
 from auth import role_required, _log_action
+from db_utils import get_db
 
 bom_cost_bp = Blueprint('bom_cost', __name__, url_prefix='/bom-cost')
 
@@ -25,7 +26,7 @@ def index():
 @role_required('admin', 'manager')
 def api_data():
     """BOM 원가 분석 전체 데이터 API"""
-    db = current_app.db
+    db = get_db()
 
     try:
         from services.bom_cost_service import calculate_bom_costs
@@ -79,7 +80,7 @@ def api_data():
 @role_required('admin', 'manager')
 def api_save_cost():
     """단가 1건 저장"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -173,7 +174,7 @@ def api_save_cost():
 @role_required('admin', 'manager')
 def api_save_cost_batch():
     """단가 일괄 저장"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data or not data.get('items'):
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -219,7 +220,7 @@ def api_save_cost_batch():
 @role_required('admin')
 def api_delete_cost(product_name):
     """단가 1건 삭제 — 관리자만 (삭제 전 데이터 보존)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 데이터 조회 (롤백용)
         cost_map_raw = db.query_product_costs()
@@ -253,7 +254,7 @@ def api_delete_cost(product_name):
 @role_required('admin', 'manager')
 def api_channels():
     """채널비용 목록 JSON"""
-    db = current_app.db
+    db = get_db()
     try:
         costs = db.query_channel_costs()
         result = []
@@ -275,7 +276,7 @@ def api_channels():
 @role_required('admin', 'manager')
 def api_save_channel():
     """채널비용 저장"""
-    db = current_app.db
+    db = get_db()
     data = request.get_json()
     if not data:
         return jsonify({'error': '데이터가 없습니다.'}), 400
@@ -304,7 +305,7 @@ def api_save_channel():
 @role_required('admin')
 def api_delete_channel(channel):
     """채널비용 삭제 — 관리자만 (삭제 전 데이터 보존)"""
-    db = current_app.db
+    db = get_db()
     try:
         # 삭제 전 데이터 조회
         ch_costs = db.query_channel_costs()
@@ -335,7 +336,7 @@ def api_actual_cost():
     """기간별 실제 생산 원가 분석 API.
     GET /bom-cost/api/actual-cost?from=2026-03-01&to=2026-03-07&location=본사
     """
-    db = current_app.db
+    db = get_db()
     date_from = request.args.get('from', '')
     date_to = request.args.get('to', '')
     location = request.args.get('location', '') or None
@@ -360,7 +361,7 @@ def api_cost_history():
     GET /bom-cost/api/cost-history?product_name=당근
     product_name 없으면 최신 전체 이력 반환.
     """
-    db = current_app.db
+    db = get_db()
     product_name = request.args.get('product_name', '') or None
 
     try:
