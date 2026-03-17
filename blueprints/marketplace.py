@@ -330,7 +330,7 @@ def cj_tracking_upload():
             return jsonify({'ok': False, 'error': '유효한 송장 데이터가 없습니다.'})
 
         # api_orders에서 수취인 정보 추출 → CJ 파일과 매칭
-        db = current_app.db
+        db = get_db()
         from datetime import date, timedelta
         today = date.today().strftime('%Y-%m-%d')
         week_ago = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
