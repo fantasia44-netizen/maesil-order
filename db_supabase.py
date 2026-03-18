@@ -3,7 +3,6 @@ db_supabase.py — Supabase 구현 (CRUD/조회). 보고서용 조회는 raw row
 + 사용자 인증/관리 CRUD (app_users, audit_logs)
 """
 import time
-import pandas as pd
 from supabase import create_client, Client
 from db_base import DBBase
 from config import SUPABASE_URL, SUPABASE_KEY

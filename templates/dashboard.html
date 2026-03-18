@@ -6,16 +6,18 @@
 {% set show_dashboard = current_user.role in ('admin', 'manager', 'sales', 'general') %}
 {% if show_dashboard %}
 <!-- ============================================================ -->
-<!-- KPI + 차트 + 테이블 (관리자/총괄/영업/총무) -->
+<!-- KPI + 차트 + 테이블 (관리자/총괄/영업/총무) — AJAX lazy load -->
 <!-- ============================================================ -->
 
-<!-- KPI 카드 -->
-<div class="row g-3 mb-4">
+<!-- KPI 카드 (스켈레톤) -->
+<div class="row g-3 mb-4" id="kpi-section">
     <div class="col-6 col-lg-3">
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body text-center">
                 <i class="bi bi-cart-check text-primary" style="font-size:1.8rem;"></i>
-                <div class="fs-3 fw-bold mt-2">{{ data.kpi.today_orders|default(0) }}</div>
+                <div class="fs-3 fw-bold mt-2 kpi-val" id="kpi-orders">
+                    <span class="placeholder-glow"><span class="placeholder col-4"></span></span>
+                </div>
                 <small class="text-muted">오늘 주문</small>
             </div>
         </div>
@@ -24,11 +26,11 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body text-center">
                 <i class="bi bi-cash-stack text-success" style="font-size:1.8rem;"></i>
-                <div class="fs-3 fw-bold mt-2">{{ "{:,.0f}".format(data.kpi.today_revenue|default(0)) }}</div>
+                <div class="fs-3 fw-bold mt-2 kpi-val" id="kpi-revenue">
+                    <span class="placeholder-glow"><span class="placeholder col-6"></span></span>
+                </div>
                 <small class="text-muted">오늘 총매출 (원)</small>
-                {% if data.kpi.today_settlement|default(0) > 0 %}
-                <div class="small text-success mt-1">순매출 {{ "{:,.0f}".format(data.kpi.today_settlement) }}원</div>
-                {% endif %}
+                <div class="small text-success mt-1" id="kpi-settlement"></div>
             </div>
         </div>
     </div>
@@ -36,7 +38,9 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body text-center">
                 <i class="bi bi-hourglass-split text-warning" style="font-size:1.8rem;"></i>
-                <div class="fs-3 fw-bold mt-2">{{ data.kpi.pending_outbound|default(0) }}</div>
+                <div class="fs-3 fw-bold mt-2 kpi-val" id="kpi-pending">
+                    <span class="placeholder-glow"><span class="placeholder col-3"></span></span>
+                </div>
                 <small class="text-muted">미처리 출고</small>
             </div>
         </div>
@@ -45,7 +49,9 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-body text-center">
                 <i class="bi bi-box-seam text-info" style="font-size:1.8rem;"></i>
-                <div class="fs-3 fw-bold mt-2">{{ data.kpi.stock_products|default(0) }}</div>
+                <div class="fs-3 fw-bold mt-2 kpi-val" id="kpi-stock">
+                    <span class="placeholder-glow"><span class="placeholder col-3"></span></span>
+                </div>
                 <small class="text-muted">재고 품목</small>
             </div>
         </div>
@@ -53,17 +59,16 @@
 </div>
 
 <!-- 이번 달 매출 배너 -->
-<div class="alert alert-light border mb-4 d-flex justify-content-between align-items-center">
+<div class="alert alert-light border mb-4 d-flex justify-content-between align-items-center" id="month-banner">
     <span>
         <i class="bi bi-calendar3"></i>
-        <strong>{{ data.month|default(3) }}월 매출</strong>
-        <span class="text-muted small">({{ data.month_start|default('') }} ~ {{ data.date|default('') }})</span>
+        <strong id="month-label">매출</strong>
         <strong>:</strong>
-        <span class="text-primary fw-bold fs-5">{{ "{:,.0f}".format(data.kpi.month_revenue|default(0)) }}원</span>
+        <span class="text-primary fw-bold fs-5" id="month-revenue">
+            <span class="placeholder-glow"><span class="placeholder col-4"></span></span>
+        </span>
     </span>
-    <span class="text-muted small">
-        출고 완료: {{ data.kpi.done_outbound|default(0) }}건
-    </span>
+    <span class="text-muted small" id="month-outbound"></span>
 </div>
 
 <!-- 차트 영역 -->
@@ -79,8 +84,11 @@
                     <button class="btn btn-outline-secondary" data-days="90">90일</button>
                 </div>
             </div>
-            <div class="card-body" style="height:300px;">
-                <canvas id="revenueChart"></canvas>
+            <div class="card-body d-flex align-items-center justify-content-center" style="height:300px;">
+                <canvas id="revenueChart" style="display:none;"></canvas>
+                <div class="text-muted" id="revenueLoading">
+                    <div class="spinner-border spinner-border-sm me-1"></div> 매출 데이터 로딩...
+                </div>
             </div>
         </div>
     </div>
@@ -90,8 +98,11 @@
             <div class="card-header bg-white">
                 <i class="bi bi-pie-chart"></i> 채널별 주문 (이번 달)
             </div>
-            <div class="card-body" style="height:300px;">
-                <canvas id="channelChart"></canvas>
+            <div class="card-body d-flex align-items-center justify-content-center" style="height:300px;">
+                <canvas id="channelChart" style="display:none;"></canvas>
+                <div class="text-muted" id="channelLoading">
+                    <div class="spinner-border spinner-border-sm me-1"></div> 로딩...
+                </div>
             </div>
         </div>
     </div>
@@ -110,16 +121,10 @@
                     <thead class="table-light">
                         <tr><th>창고</th><th class="text-end">품목수</th><th class="text-end">총수량</th></tr>
                     </thead>
-                    <tbody>
-                        {% for w in data.warehouse_stock|default([]) %}
-                        <tr>
-                            <td>{{ w.location }}</td>
-                            <td class="text-end">{{ w.product_count }}종</td>
-                            <td class="text-end">{{ "{:,.0f}".format(w.total_qty) }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="3" class="text-muted text-center py-3">재고 데이터 없음</td></tr>
-                        {% endfor %}
+                    <tbody id="stock-table">
+                        <tr><td colspan="3" class="text-center py-3 text-muted">
+                            <div class="spinner-border spinner-border-sm me-1"></div> 로딩...
+                        </td></tr>
                     </tbody>
                 </table>
             </div>
@@ -137,16 +142,10 @@
                     <thead class="table-light">
                         <tr><th>#</th><th>상품명</th><th class="text-end">매출</th></tr>
                     </thead>
-                    <tbody>
-                        {% for p in data.top_products|default([]) %}
-                        <tr>
-                            <td class="text-muted">{{ loop.index }}</td>
-                            <td class="text-truncate" style="max-width:180px;" title="{{ p.product_name }}">{{ p.product_name }}</td>
-                            <td class="text-end">{{ "{:,.0f}".format(p.revenue) }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="3" class="text-muted text-center py-3">매출 데이터 없음</td></tr>
-                        {% endfor %}
+                    <tbody id="top-products-table">
+                        <tr><td colspan="3" class="text-center py-3 text-muted">
+                            <div class="spinner-border spinner-border-sm me-1"></div> 로딩...
+                        </td></tr>
                     </tbody>
                 </table>
             </div>
@@ -160,18 +159,10 @@
                 <i class="bi bi-clock-history"></i> 최근 활동
             </div>
             <div class="card-body p-0" style="max-height:320px; overflow-y:auto;">
-                <div class="list-group list-group-flush">
-                    {% for a in data.recent_activity|default([]) %}
-                    <div class="list-group-item py-2 px-3" style="font-size:0.85rem;">
-                        <span class="badge {{ 'bg-primary' if a.type == 'order' else 'bg-secondary' }} me-1">
-                            {{ '주문' if a.type == 'order' else '재고' }}
-                        </span>
-                        <span class="text-truncate d-inline-block" style="max-width:200px;" title="{{ a.desc }}">{{ a.desc }}</span>
-                        <br><small class="text-muted">{{ a.date[:10] if a.date else '' }}</small>
+                <div class="list-group list-group-flush" id="activity-list">
+                    <div class="list-group-item text-center py-3 text-muted">
+                        <div class="spinner-border spinner-border-sm me-1"></div> 로딩...
                     </div>
-                    {% else %}
-                    <div class="list-group-item text-muted text-center py-3">활동 없음</div>
-                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -232,88 +223,151 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 (function() {
-    // ── 매출 추이 차트 ──
-    const revCtx = document.getElementById('revenueChart').getContext('2d');
-    const revData = {{ data.revenue_trend|default([])|tojson }};
+    const fmt = (v) => (v || 0).toLocaleString('ko-KR');
+    let revenueChart = null;
 
-    const labels = revData.map(d => d.date ? d.date.slice(5) : '');
-    const totals = revData.map(d => d.total || 0);
+    // ── 대시보드 데이터 AJAX 로드 ──
+    fetch('/api/dashboard')
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { console.error('Dashboard API:', data.error); return; }
+            renderKPI(data.kpi || {});
+            renderMonthBanner(data);
+            renderRevenueChart(data.revenue_trend || []);
+            renderChannelChart(data.channel_breakdown || []);
+            renderStockTable(data.warehouse_stock || []);
+            renderTopProducts(data.top_products || []);
+            renderActivity(data.recent_activity || []);
+        })
+        .catch(e => {
+            console.error('Dashboard load error:', e);
+            document.querySelectorAll('.kpi-val').forEach(el => el.textContent = '-');
+        });
 
-    const revenueChart = new Chart(revCtx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: '총 매출',
-                data: totals,
-                borderColor: '#3498db',
-                backgroundColor: 'rgba(52,152,219,0.1)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(v) {
-                            return v >= 10000 ? (v/10000).toFixed(0) + '만' : v.toLocaleString();
-                        }
-                    }
-                },
-                x: { ticks: { maxTicksLimit: 10 } }
-            }
+    function renderKPI(kpi) {
+        document.getElementById('kpi-orders').textContent = fmt(kpi.today_orders);
+        document.getElementById('kpi-revenue').textContent = fmt(kpi.today_revenue);
+        document.getElementById('kpi-pending').textContent = fmt(kpi.pending_outbound);
+        document.getElementById('kpi-stock').textContent = fmt(kpi.stock_products);
+        if (kpi.today_settlement > 0) {
+            document.getElementById('kpi-settlement').textContent =
+                '순매출 ' + fmt(kpi.today_settlement) + '원';
         }
-    });
+    }
+
+    function renderMonthBanner(data) {
+        document.getElementById('month-label').textContent =
+            (data.month || '') + '월 매출 (' + (data.month_start || '') + ' ~ ' + (data.date || '') + ')';
+        document.getElementById('month-revenue').textContent = fmt(data.kpi?.month_revenue) + '원';
+        document.getElementById('month-outbound').textContent =
+            '출고 완료: ' + fmt(data.kpi?.done_outbound) + '건';
+    }
+
+    function renderRevenueChart(revData) {
+        document.getElementById('revenueLoading').style.display = 'none';
+        const canvas = document.getElementById('revenueChart');
+        canvas.style.display = '';
+        const labels = revData.map(d => d.date ? d.date.slice(5) : '');
+        const totals = revData.map(d => d.total || 0);
+        revenueChart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '총 매출', data: totals,
+                    borderColor: '#3498db', backgroundColor: 'rgba(52,152,219,0.1)',
+                    fill: true, tension: 0.3, pointRadius: 2,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { callback: v => v >= 10000 ? (v/10000).toFixed(0) + '만' : v.toLocaleString() }
+                    },
+                    x: { ticks: { maxTicksLimit: 10 } }
+                }
+            }
+        });
+    }
+
+    function renderChannelChart(chData) {
+        document.getElementById('channelLoading').style.display = 'none';
+        const canvas = document.getElementById('channelChart');
+        canvas.style.display = '';
+        const colors = ['#3498db','#e74c3c','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22'];
+        new Chart(canvas.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: chData.map(c => c.channel),
+                datasets: [{ data: chData.map(c => c.count), backgroundColor: colors.slice(0, chData.length) }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
+            }
+        });
+    }
+
+    function renderStockTable(stocks) {
+        const tbody = document.getElementById('stock-table');
+        if (!stocks.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">재고 데이터 없음</td></tr>';
+            return;
+        }
+        tbody.innerHTML = stocks.map(w =>
+            '<tr><td>' + w.location + '</td>' +
+            '<td class="text-end">' + w.product_count + '종</td>' +
+            '<td class="text-end">' + fmt(w.total_qty) + '</td></tr>'
+        ).join('');
+    }
+
+    function renderTopProducts(products) {
+        const tbody = document.getElementById('top-products-table');
+        if (!products.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">매출 데이터 없음</td></tr>';
+            return;
+        }
+        tbody.innerHTML = products.map((p, i) =>
+            '<tr><td class="text-muted">' + (i+1) + '</td>' +
+            '<td class="text-truncate" style="max-width:180px;" title="' + (p.product_name||'') + '">' + (p.product_name||'') + '</td>' +
+            '<td class="text-end">' + fmt(p.revenue) + '</td></tr>'
+        ).join('');
+    }
+
+    function renderActivity(activities) {
+        const list = document.getElementById('activity-list');
+        if (!activities.length) {
+            list.innerHTML = '<div class="list-group-item text-muted text-center py-3">활동 없음</div>';
+            return;
+        }
+        list.innerHTML = activities.map(a =>
+            '<div class="list-group-item py-2 px-3" style="font-size:0.85rem;">' +
+            '<span class="badge ' + (a.type==='order' ? 'bg-primary' : 'bg-secondary') + ' me-1">' +
+            (a.type==='order' ? '주문' : '재고') + '</span>' +
+            '<span class="text-truncate d-inline-block" style="max-width:200px;" title="' + (a.desc||'') + '">' + (a.desc||'') + '</span>' +
+            '<br><small class="text-muted">' + ((a.date||'').slice(0,10)) + '</small></div>'
+        ).join('');
+    }
 
     // ── 기간 버튼 이벤트 ──
     document.getElementById('revBtnGroup').addEventListener('click', function(e) {
         const btn = e.target.closest('[data-days]');
-        if (!btn) return;
+        if (!btn || !revenueChart) return;
         const days = parseInt(btn.dataset.days);
-
         fetch('/api/dashboard/revenue-chart?days=' + days)
             .then(r => r.json())
             .then(data => {
                 revenueChart.data.labels = data.map(d => d.date ? d.date.slice(5) : '');
                 revenueChart.data.datasets[0].data = data.map(d => d.total || 0);
                 revenueChart.update();
-                // 버튼 active 토글
                 document.querySelectorAll('#revBtnGroup .btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
-                // 라벨 업데이트
                 document.getElementById('revDaysLabel').textContent = days;
             })
             .catch(e => console.error('Revenue chart error:', e));
-    });
-
-    // ── 채널 분포 파이차트 ──
-    const chCtx = document.getElementById('channelChart').getContext('2d');
-    const chData = {{ data.channel_breakdown|default([])|tojson }};
-
-    const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22'];
-
-    new Chart(chCtx, {
-        type: 'doughnut',
-        data: {
-            labels: chData.map(c => c.channel),
-            datasets: [{
-                data: chData.map(c => c.count),
-                backgroundColor: colors.slice(0, chData.length),
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom', labels: { font: { size: 11 } } }
-            }
-        }
     });
 })();
 </script>

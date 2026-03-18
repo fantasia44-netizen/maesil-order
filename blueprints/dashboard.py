@@ -1,6 +1,7 @@
 """
 dashboard.py — 대시보드 Blueprint.
 KPI, 매출 차트, 채널 분포, 재고 현황, 최근 활동 표시.
+AJAX lazy load: 페이지 골격 즉시 표시, 데이터는 /api/dashboard 로 비동기 로드.
 """
 from flask import Blueprint, render_template, jsonify, request, current_app
 from flask_login import login_required, current_user
@@ -17,33 +18,26 @@ dashboard_bp = Blueprint('main', __name__)
 @dashboard_bp.route('/')
 @login_required
 def dashboard():
-    """대시보드 메인 페이지."""
-    try:
-        data = get_dashboard_data(get_db())
-    except Exception as e:
-        print(f"[Dashboard] data load error: {e}")
-        data = {"kpi": {}, "revenue_trend": [], "channel_breakdown": [],
-                "warehouse_stock": [], "top_products": [], "recent_activity": []}
-
-    # 승인 대기 사용자 (관리자용)
+    """대시보드 메인 페이지 — 데이터 없이 즉시 렌더링."""
+    # 승인 대기 (캐시된 count 사용)
     pending_users = 0
     if current_user.is_admin():
         try:
-            users = get_db().query_all_users()
-            pending_users = sum(1 for u in users if not u.get('is_approved'))
+            pending_users = get_db().count_pending_users()
         except Exception:
             pass
 
-    return render_template('dashboard.html', data=data, pending_users=pending_users)
+    return render_template('dashboard.html', pending_users=pending_users)
 
 
 @dashboard_bp.route('/api/dashboard')
 @login_required
 def api_dashboard():
-    """AJAX 새로고침용 JSON API."""
+    """AJAX 대시보드 데이터 (캐시 5분)."""
     try:
         date = request.args.get('date')
-        data = get_dashboard_data(get_db(), date=date)
+        force = request.args.get('refresh') == '1'
+        data = get_dashboard_data(get_db(), date=date, force_refresh=force)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
