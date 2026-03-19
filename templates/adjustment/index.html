@@ -659,11 +659,14 @@
         fd.append('file', fileInput.files[0]);
         fd.append('survey_date', surveyDate);
         fd.append('location', document.getElementById('surveyLocation').value);
+        fd.append('csrf_token', csrf_token);
 
         const btn = document.getElementById('btnSurveyPreview');
         btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 분석중...';
         try {
-            const res = await fetch('{{ url_for("adjustment.survey_preview") }}', { method: 'POST', body: fd });
+            const res = await fetch('{{ url_for("adjustment.survey_preview") }}', {
+                method: 'POST', body: fd, headers: {'X-CSRFToken': csrf_token}
+            });
             const json = await res.json();
             if (!json.ok) { alert(json.error); return; }
             surveyPreviewData = json.preview;
