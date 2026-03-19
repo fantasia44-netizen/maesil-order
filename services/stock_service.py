@@ -183,13 +183,23 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
         df['unit'] = '개'
     df['unit'] = df['unit'].fillna('개')
 
-    # 보관방법 빈값 통합: 같은 품목/위치/카테고리/단위에 보관방법이 있으면 채워넣기
-    base_cols = ['product_name', 'location', 'category', 'unit']
-    sm_map = df[df['storage_method'] != ''].groupby(base_cols)['storage_method'].first().to_dict()
+    # ── 카테고리 빈값 통합: 같은 품목/위치에 카테고리가 있으면 채워넣기 ──
+    cat_base = ['product_name', 'location']
+    cat_map = df[df['category'] != ''].groupby(cat_base)['category'].first().to_dict()
+    if cat_map:
+        mask_cat = df['category'] == ''
+        if mask_cat.any():
+            df.loc[mask_cat, 'category'] = df.loc[mask_cat, cat_base].apply(
+                lambda row: cat_map.get(tuple(row), ''), axis=1
+            )
+
+    # ── 보관방법 빈값 통합: 같은 품목/위치에 보관방법이 있으면 채워넣기 ──
+    sm_base = ['product_name', 'location']
+    sm_map = df[df['storage_method'] != ''].groupby(sm_base)['storage_method'].first().to_dict()
     if sm_map:
         mask = df['storage_method'] == ''
         if mask.any():
-            df.loc[mask, 'storage_method'] = df.loc[mask, base_cols].apply(
+            df.loc[mask, 'storage_method'] = df.loc[mask, sm_base].apply(
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
@@ -452,13 +462,23 @@ def query_ledger_data(db, date_from, date_to, location=None, category=None,
     elif split_lot_number:
         group_keys = ['product_name', 'location', 'category', 'unit', 'storage_method', 'lot_number']
 
-    # 보관방법 빈값 통합: 같은 품목/위치/카테고리/단위에 보관방법이 있으면 채워넣기
-    base_cols = ['product_name', 'location', 'category', 'unit']
-    sm_map = df[df['storage_method'] != ''].groupby(base_cols)['storage_method'].first().to_dict()
+    # ── 카테고리 빈값 통합: 같은 품목/위치에 카테고리가 있으면 채워넣기 ──
+    cat_base = ['product_name', 'location']
+    cat_map = df[df['category'] != ''].groupby(cat_base)['category'].first().to_dict()
+    if cat_map:
+        mask_cat = df['category'] == ''
+        if mask_cat.any():
+            df.loc[mask_cat, 'category'] = df.loc[mask_cat, cat_base].apply(
+                lambda row: cat_map.get(tuple(row), ''), axis=1
+            )
+
+    # ── 보관방법 빈값 통합: 같은 품목/위치에 보관방법이 있으면 채워넣기 ──
+    sm_base = ['product_name', 'location']
+    sm_map = df[df['storage_method'] != ''].groupby(sm_base)['storage_method'].first().to_dict()
     if sm_map:
         mask = df['storage_method'] == ''
         if mask.any():
-            df.loc[mask, 'storage_method'] = df.loc[mask, base_cols].apply(
+            df.loc[mask, 'storage_method'] = df.loc[mask, sm_base].apply(
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
