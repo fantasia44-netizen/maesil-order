@@ -3,6 +3,16 @@
 {% block page_title %}재고 조정{% endblock %}
 
 {% block content %}
+<!-- 탭 -->
+<ul class="nav nav-tabs mb-3" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-manual">개별 조정</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-survey">엑셀 실사 일괄조정</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-batch-history">배치 이력 / 되돌리기</a></li>
+</ul>
+
+<div class="tab-content">
+<!-- ═══ 개별 조정 탭 ═══ -->
+<div class="tab-pane fade show active" id="tab-manual">
 <div class="row g-4">
     <!-- 조정 입력 -->
     <div class="col-lg-7">
@@ -165,6 +175,127 @@
         </div>
     </div>
 </div>
+
+</div><!-- /tab-manual -->
+
+<!-- ═══ 엑셀 실사 일괄조정 탭 ═══ -->
+<div class="tab-pane fade" id="tab-survey">
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-file-earmark-spreadsheet"></i> 엑셀 업로드</div>
+            <div class="card-body">
+                <a href="{{ url_for('adjustment.survey_sample_excel') }}" class="btn btn-outline-primary btn-sm w-100 mb-2">
+                    <i class="bi bi-download"></i> 실사 양식 다운로드
+                </a>
+                <hr class="my-2">
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">실사 기준일 <span class="text-danger">*</span></label>
+                    <input type="date" id="surveyDate" class="form-control form-control-sm" required>
+                    <div class="form-text" style="font-size:0.75rem;">이 날짜 시점의 시스템 재고와 비교합니다.</div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">기본 창고위치 (선택)</label>
+                    <select id="surveyLocation" class="form-select form-select-sm">
+                        <option value="">엑셀에 위치 포함</option>
+                        {% for loc in locations|default([]) %}
+                        <option value="{{ loc }}">{{ loc }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">엑셀 파일</label>
+                    <input type="file" id="surveyFile" class="form-control form-control-sm" accept=".xlsx,.xls">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">조정 사유</label>
+                    <input type="text" id="surveyMemo" class="form-control form-control-sm" value="재고실사 일괄조정">
+                </div>
+                <button id="btnSurveyPreview" class="btn btn-primary btn-sm w-100" onclick="surveyPreview()">
+                    <i class="bi bi-search"></i> 미리보기
+                </button>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-header"><i class="bi bi-info-circle"></i> 사용방법</div>
+            <div class="card-body small text-muted">
+                <ol class="mb-2 ps-3">
+                    <li>양식 다운로드 후 품목명과 실사수량 입력</li>
+                    <li><b>실사 기준일</b> 선택 (예: 3/6 재고조사일)</li>
+                    <li>미리보기로 차이 확인</li>
+                    <li>일괄 적용 (배치ID로 이력 관리)</li>
+                    <li>문제 시 배치 되돌리기 가능</li>
+                </ol>
+                <div class="alert alert-light py-1 px-2 mb-0" style="font-size:0.78rem;">
+                    <b>기준일 역산:</b><br>
+                    기준일 재고 = 현재재고 - (기준일 이후 입출고)<br>
+                    차이 = 실사수량 - 기준일재고<br>
+                    <span class="text-primary">이후 입출고는 그대로 유지</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div id="surveyPreviewArea" style="display:none;">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-table"></i> 미리보기 결과</span>
+                    <div>
+                        <span id="surveySummary" class="me-2 small"></span>
+                        <button id="btnSurveyApply" class="btn btn-success btn-sm" onclick="surveyApply()">
+                            <i class="bi bi-check-lg"></i> 일괄 적용
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="surveyErrors" class="alert alert-warning py-1 px-2 m-2 small" style="display:none;"></div>
+                    <div style="max-height:500px; overflow-y:auto;">
+                        <table class="table table-sm table-bordered table-hover mb-0">
+                            <thead class="table-light" style="position:sticky;top:0;">
+                                <tr>
+                                    <th style="width:25px;"><input type="checkbox" id="surveyCheckAll" checked onchange="surveyToggleAll(this)"></th>
+                                    <th>품목명</th>
+                                    <th>위치</th>
+                                    <th class="text-end">현재재고</th>
+                                    <th class="text-end" id="thSurveyDateStock">기준일재고</th>
+                                    <th class="text-end">이후변동</th>
+                                    <th class="text-end">실사수량</th>
+                                    <th class="text-end">차이(적용)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="surveyPreviewBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="surveyResultArea" style="display:none;">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-check-circle"></i> 적용 결과</div>
+                <div class="card-body" id="surveyResultContent"></div>
+            </div>
+        </div>
+        <div id="surveyEmptyGuide" class="text-center text-muted py-5">
+            <i class="bi bi-file-earmark-spreadsheet" style="font-size:3rem;"></i>
+            <p class="mt-2">엑셀 파일을 업로드하고 미리보기를 눌러주세요.</p>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- ═══ 배치 이력 / 되돌리기 탭 ═══ -->
+<div class="tab-pane fade" id="tab-batch-history">
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history"></i> 일괄조정 배치 이력</span>
+        <button class="btn btn-outline-secondary btn-sm" onclick="loadSurveyBatchHistory()"><i class="bi bi-arrow-clockwise"></i> 새로고침</button>
+    </div>
+    <div class="card-body" id="batchHistoryBody">
+        <p class="text-center text-muted py-3">탭 선택 시 자동 로딩됩니다.</p>
+    </div>
+</div>
+</div>
+</div><!-- /tab-content -->
 
 {% if current_user.role == 'admin' %}
 <!-- 수정 모달 -->
@@ -496,6 +627,172 @@
     }
     function escapeHtml(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
     renderTable();
+
+    // ═══ 엑셀 실사 일괄조정 ═══
+    let surveyPreviewData = [];
+
+    window.surveyPreview = async function() {
+        const fileInput = document.getElementById('surveyFile');
+        const surveyDate = document.getElementById('surveyDate').value;
+        if (!fileInput.files.length) { alert('엑셀 파일을 선택해주세요.'); return; }
+        if (!surveyDate) { alert('실사 기준일을 선택해주세요.'); return; }
+
+        const fd = new FormData();
+        fd.append('file', fileInput.files[0]);
+        fd.append('survey_date', surveyDate);
+        fd.append('location', document.getElementById('surveyLocation').value);
+
+        const btn = document.getElementById('btnSurveyPreview');
+        btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 분석중...';
+        try {
+            const res = await fetch('{{ url_for("adjustment.survey_preview") }}', { method: 'POST', body: fd });
+            const json = await res.json();
+            if (!json.ok) { alert(json.error); return; }
+            surveyPreviewData = json.preview;
+            renderSurveyPreview(json);
+        } catch(e) { alert('오류: ' + e.message); }
+        finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-search"></i> 미리보기'; }
+    };
+
+    function renderSurveyPreview(json) {
+        document.getElementById('surveyEmptyGuide').style.display = 'none';
+        document.getElementById('surveyResultArea').style.display = 'none';
+        document.getElementById('surveyPreviewArea').style.display = 'block';
+
+        const sd = document.getElementById('surveyDate').value;
+        document.getElementById('thSurveyDateStock').textContent = sd ? sd + ' 재고' : '현재재고';
+
+        const errDiv = document.getElementById('surveyErrors');
+        if (json.errors && json.errors.length) {
+            errDiv.style.display = 'block';
+            errDiv.innerHTML = '<b>경고:</b><br>' + json.errors.join('<br>');
+        } else { errDiv.style.display = 'none'; }
+
+        document.getElementById('surveySummary').innerHTML =
+            `총 <b>${json.total_items}</b>건 | <span class="text-success">증가 ${json.increase_count}</span> | <span class="text-danger">감소 ${json.decrease_count}</span> | <span class="text-muted">변동없음 ${json.no_change_count}</span>`;
+
+        const tbody = document.getElementById('surveyPreviewBody');
+        tbody.innerHTML = '';
+        json.preview.forEach((item, idx) => {
+            const cls = item.delta > 0 ? 'text-success' : item.delta < 0 ? 'text-danger' : 'text-muted';
+            const sign = item.delta > 0 ? '+' : '';
+            const afterSign = item.after_movements > 0 ? '+' : '';
+            tbody.innerHTML += `
+                <tr class="${item.delta === 0 ? 'opacity-50' : ''}">
+                    <td><input type="checkbox" class="survey-check" data-idx="${idx}" ${item.delta !== 0 ? 'checked' : ''}></td>
+                    <td class="small">${escapeHtml(item.product_name)}</td>
+                    <td class="small">${escapeHtml(item.location)}</td>
+                    <td class="text-end small">${Number(item.current_qty).toLocaleString()}</td>
+                    <td class="text-end small fw-semibold">${Number(item.system_qty_at_date).toLocaleString()}</td>
+                    <td class="text-end small text-muted">${afterSign}${Number(item.after_movements).toLocaleString()}</td>
+                    <td class="text-end small">${Number(item.actual_qty).toLocaleString()}</td>
+                    <td class="text-end small fw-bold ${cls}">${sign}${Number(item.delta).toLocaleString()}</td>
+                </tr>`;
+        });
+    }
+
+    window.surveyToggleAll = function(el) {
+        document.querySelectorAll('.survey-check').forEach(cb => cb.checked = el.checked);
+    };
+
+    window.surveyApply = async function() {
+        const checks = document.querySelectorAll('.survey-check:checked');
+        const indices = [...checks].map(cb => parseInt(cb.dataset.idx));
+        const items = indices.map(i => surveyPreviewData[i]).filter(it => it.delta !== 0);
+        if (!items.length) { alert('적용할 항목이 없습니다.'); return; }
+        if (!confirm(`${items.length}건의 재고조정을 적용하시겠습니까?\n\n배치ID로 관리되며 되돌리기가 가능합니다.`)) return;
+
+        const btn = document.getElementById('btnSurveyApply');
+        btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 적용중...';
+        try {
+            const res = await fetch('{{ url_for("adjustment.survey_apply") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf_token},
+                body: JSON.stringify({
+                    items: items,
+                    memo: document.getElementById('surveyMemo').value,
+                    survey_date: document.getElementById('surveyDate').value,
+                }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+                document.getElementById('surveyPreviewArea').style.display = 'none';
+                document.getElementById('surveyResultArea').style.display = 'block';
+                document.getElementById('surveyResultContent').innerHTML = `
+                    <div class="alert alert-success py-2">
+                        <b>배치 ID:</b> <code>${json.batch_id}</code><br>
+                        성공: <b class="text-success">${json.success}</b>건 |
+                        건너뜀: <b class="text-muted">${json.skipped}</b>건 |
+                        증가: ${json.increase_count || 0}건, 감소: ${json.decrease_count || 0}건
+                    </div>`;
+            } else { alert('적용 실패: ' + json.error); }
+        } catch(e) { alert('오류: ' + e.message); }
+        finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i> 일괄 적용'; }
+    };
+
+    // ═══ 배치 이력 ═══
+    window.loadSurveyBatchHistory = async function() {
+        const div = document.getElementById('batchHistoryBody');
+        div.innerHTML = '<p class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 로딩중...</p>';
+        try {
+            const res = await fetch('{{ url_for("adjustment.survey_batch_history") }}');
+            const json = await res.json();
+            if (!json.ok || !json.batches.length) {
+                div.innerHTML = '<p class="text-center text-muted py-3">일괄조정 이력이 없습니다.</p>';
+                return;
+            }
+            let html = '';
+            for (const b of json.batches) {
+                const isRollback = b.batch_id.startsWith('ROLLBACK-');
+                html += `
+                <div class="border rounded p-3 mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div>
+                            <code class="fw-bold">${escapeHtml(b.batch_id)}</code>
+                            <span class="text-muted ms-2 small">${escapeHtml(b.created_at)}</span>
+                        </div>
+                        <div>
+                            <span class="badge bg-primary">${b.items.length}건</span>
+                            <span class="badge bg-success">+${b.total_increase}</span>
+                            <span class="badge bg-danger">${b.total_decrease}</span>
+                            ${!isRollback ? `<button class="btn btn-outline-warning btn-sm ms-2" onclick="rollbackSurveyBatch('${escapeHtml(b.batch_id)}')"><i class="bi bi-arrow-counterclockwise"></i> 되돌리기</button>` : '<span class="badge bg-secondary ms-2">되돌림</span>'}
+                        </div>
+                    </div>
+                    <details>
+                        <summary class="small" style="cursor:pointer;">상세 내역 보기</summary>
+                        <table class="table table-sm table-bordered mt-1 mb-0">
+                            <thead><tr><th>품목명</th><th>위치</th><th class="text-end">수량</th></tr></thead>
+                            <tbody>${b.items.map(it => `<tr>
+                                <td class="small">${escapeHtml(it.product_name)}</td>
+                                <td class="small">${escapeHtml(it.location)}</td>
+                                <td class="text-end small fw-bold ${it.qty>0?'text-success':'text-danger'}">${it.qty>0?'+':''}${it.qty}</td>
+                            </tr>`).join('')}</tbody>
+                        </table>
+                    </details>
+                </div>`;
+            }
+            div.innerHTML = html;
+        } catch(e) { div.innerHTML = `<p class="text-center text-danger py-3">로딩 실패: ${e.message}</p>`; }
+    };
+
+    window.rollbackSurveyBatch = async function(batchId) {
+        if (!confirm(`배치 "${batchId}"의 모든 조정을 되돌리시겠습니까?\n역방향 조정이 새로 기록됩니다.`)) return;
+        try {
+            const res = await fetch('{{ url_for("adjustment.survey_rollback") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf_token},
+                body: JSON.stringify({ batch_id: batchId }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+                alert(`되돌리기 완료: ${json.rollback_success}건`);
+                loadSurveyBatchHistory();
+            } else { alert('되돌리기 실패: ' + json.error); }
+        } catch(e) { alert('오류: ' + e.message); }
+    };
+
+    // 배치이력 탭 진입 시 자동 로드
+    document.querySelector('a[href="#tab-batch-history"]').addEventListener('shown.bs.tab', loadSurveyBatchHistory);
 })();
 </script>
 {% endblock %}

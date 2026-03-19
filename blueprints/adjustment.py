@@ -1,13 +1,16 @@
 """
 adjustment.py — 재고 조정 Blueprint.
 양수/음수 수량으로 재고 증감 조정, 사유(memo) 필수.
+엑셀 실사 일괄조정 (기준일 역산) + 배치 되돌리기 포함.
 """
+import uuid
+import time
 from datetime import datetime
 from services.tz_utils import today_kst
 
 from flask import (
     Blueprint, render_template, request, current_app,
-    jsonify,
+    jsonify, send_file,
 )
 from flask_login import login_required, current_user
 
@@ -137,6 +140,327 @@ def api_update(record_id):
         return jsonify({'success': True, 'new_id': result.get('new_id')})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ═══ 엑셀 실사 일괄조정 ═══
+
+@adjustment_bp.route('/survey/sample-excel')
+@role_required('admin', 'manager', 'production', 'logistics')
+def survey_sample_excel():
+    """재고실사 샘플 엑셀 다운로드."""
+    import io
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({'error': 'openpyxl 미설치'}), 500
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '재고실사'
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    header_font = Font(color='FFFFFF', bold=True, size=10)
+
+    headers = ['품목명(필수)', '창고위치(필수)', '실사수량(필수)', '단위', '보관방법', '카테고리', '사유']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    ws.append(['건해삼채200g', '냉동실', 85, '개', '냉동', '해산물', ''])
+    ws.append(['유기농사과즙', '냉장실', 120, '개', '냉장', '음료', ''])
+
+    for i, w in enumerate([20, 14, 14, 8, 10, 12, 16], 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, download_name='재고실사_양식.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@adjustment_bp.route('/survey/preview', methods=['POST'])
+@role_required('admin', 'manager', 'production', 'logistics')
+def survey_preview():
+    """엑셀 업로드 → 기준일 시점 시스템재고 역산 → 미리보기 JSON."""
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return jsonify({'ok': False, 'error': 'openpyxl 미설치'}), 500
+
+    f = request.files.get('file')
+    if not f or not f.filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'ok': False, 'error': '엑셀 파일(.xlsx)을 선택해주세요.'})
+
+    survey_date = request.form.get('survey_date', '').strip()
+    location_filter = request.form.get('location', '').strip()
+
+    db = get_db()
+    from services.excel_io import build_stock_snapshot, normalize_location
+
+    wb = load_workbook(f, read_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    preview = []
+    errors = []
+
+    for i, row in enumerate(rows, 2):
+        if not row or not row[0]:
+            continue
+        product_name = str(row[0] or '').strip()
+        location = str(row[1] or '').strip() if len(row) > 1 else location_filter
+        if not location:
+            errors.append(f'행 {i}: 창고위치가 비어있습니다.')
+            continue
+        location = normalize_location(location)
+
+        try:
+            actual_qty = float(row[2]) if len(row) > 2 and row[2] is not None else None
+        except (ValueError, TypeError):
+            errors.append(f'행 {i}: 실사수량이 숫자가 아닙니다.')
+            continue
+        if actual_qty is None:
+            errors.append(f'행 {i}: 실사수량이 비어있습니다.')
+            continue
+
+        unit = str(row[3] or '').strip() if len(row) > 3 else ''
+        storage_method = str(row[4] or '').strip() if len(row) > 4 else ''
+        category = str(row[5] or '').strip() if len(row) > 5 else ''
+        memo = str(row[6] or '').strip() if len(row) > 6 else ''
+
+        # 현재 시스템 재고 조회
+        try:
+            stock_data = db.query_stock_by_location(location)
+            snapshot = build_stock_snapshot(stock_data)
+        except Exception:
+            snapshot = {}
+
+        # 품목명 매칭 (정확 매칭 → 공백제거 매칭)
+        current_qty = 0
+        matched_info = {}
+        normalized_name = product_name.replace(' ', '')
+        for sname, sinfo in snapshot.items():
+            if sname == product_name or sname.replace(' ', '') == normalized_name:
+                current_qty = sinfo.get('total', 0)
+                matched_info = sinfo
+                if not unit:
+                    unit = sinfo.get('unit', '개')
+                if not category:
+                    category = sinfo.get('category', '')
+                if not storage_method:
+                    storage_method = sinfo.get('storage_method', '')
+                break
+
+        # 기준일 역산: 기준일 이후 해당 품목의 movement 합계
+        after_movements = 0
+        if survey_date:
+            try:
+                survey_next = survey_date + 'T23:59:59'
+                all_mvs = db.query_stock_ledger(
+                    date_from=survey_next,
+                    date_to='2099-12-31',
+                    location=location,
+                )
+                for mv in all_mvs:
+                    mv_name = mv.get('product_name', '')
+                    if mv_name == product_name or mv_name.replace(' ', '') == normalized_name:
+                        after_movements += float(mv.get('qty', 0))
+            except Exception:
+                pass
+
+        system_qty_at_date = current_qty - after_movements if survey_date else current_qty
+        delta = actual_qty - system_qty_at_date
+
+        preview.append({
+            'row': i,
+            'product_name': product_name,
+            'location': location,
+            'unit': unit or '개',
+            'storage_method': storage_method,
+            'category': category,
+            'memo': memo,
+            'current_qty': current_qty,
+            'system_qty_at_date': system_qty_at_date,
+            'after_movements': after_movements,
+            'actual_qty': actual_qty,
+            'delta': delta,
+            'survey_date': survey_date or None,
+        })
+
+    return jsonify({
+        'ok': True,
+        'preview': preview,
+        'errors': errors,
+        'total_items': len(preview),
+        'increase_count': sum(1 for p in preview if p['delta'] > 0),
+        'decrease_count': sum(1 for p in preview if p['delta'] < 0),
+        'no_change_count': sum(1 for p in preview if p['delta'] == 0),
+    })
+
+
+@adjustment_bp.route('/survey/apply', methods=['POST'])
+@role_required('admin', 'manager', 'production', 'logistics')
+def survey_apply():
+    """미리보기 확인 후 일괄 적용."""
+    data = request.get_json(silent=True)
+    if not data or 'items' not in data:
+        return jsonify({'ok': False, 'error': '적용할 데이터가 없습니다.'})
+
+    items = data['items']
+    memo_prefix = data.get('memo', '재고실사 일괄조정')
+    survey_date = data.get('survey_date', today_kst())
+    batch_id = f"SURVEY-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6].upper()}"
+
+    db = get_db()
+    from services.adjustment_service import process_adjustment_batch
+
+    # 각 항목에 배치ID와 상세 사유 부여
+    batch_items = []
+    for item in items:
+        delta = item.get('delta', 0)
+        if delta == 0:
+            continue
+        batch_items.append({
+            'product_name': item['product_name'],
+            'location': item['location'],
+            'qty': delta,
+            'memo': f"[{batch_id}] {memo_prefix} (실사:{item.get('actual_qty')} 시스템:{item.get('system_qty_at_date')} 차이:{delta:+g})",
+            'unit': item.get('unit', '개'),
+            'storage_method': item.get('storage_method', ''),
+            'category': item.get('category', ''),
+        })
+
+    if not batch_items:
+        return jsonify({'ok': True, 'batch_id': batch_id, 'success': 0, 'fail': 0, 'skipped': len(items)})
+
+    try:
+        result = process_adjustment_batch(
+            db, survey_date, batch_items,
+            created_by=current_user.username)
+        _log_action('survey_adjustment',
+                     detail=f'재고실사 일괄조정 {batch_id}: {result.get("count", 0)}건',
+                     new_value={'batch_id': batch_id, 'survey_date': survey_date,
+                                'count': result.get('count', 0)})
+        return jsonify({
+            'ok': True,
+            'batch_id': batch_id,
+            'success': result.get('count', 0),
+            'fail': 0,
+            'skipped': len(items) - len(batch_items),
+            'increase_count': result.get('increase_count', 0),
+            'decrease_count': result.get('decrease_count', 0),
+        })
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'일괄 조정 오류: {e}'}), 500
+
+
+@adjustment_bp.route('/survey/batch-history')
+@role_required('admin', 'manager', 'production', 'logistics')
+def survey_batch_history():
+    """배치 실사 조정 이력 조회."""
+    db = get_db()
+    # 최근 60일 조정 이력에서 SURVEY- 배치만 추출
+    from services.tz_utils import today_kst
+    from datetime import timedelta
+    end = today_kst()
+    start = (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
+
+    movements = db.query_stock_ledger(date_from=start, date_to=end, type_list=['ADJUST'])
+    batches = {}
+    for m in movements:
+        memo = m.get('memo', '')
+        if not memo.startswith('[SURVEY-') and not memo.startswith('[ROLLBACK-SURVEY-'):
+            continue
+        bid = memo.split(']')[0][1:]  # [SURVEY-xxx] → SURVEY-xxx
+        if bid not in batches:
+            batches[bid] = {
+                'batch_id': bid,
+                'created_at': m.get('transaction_date', ''),
+                'items': [],
+                'total_increase': 0,
+                'total_decrease': 0,
+            }
+        qty = float(m.get('qty', 0))
+        batches[bid]['items'].append({
+            'id': m.get('id'),
+            'product_name': m.get('product_name', ''),
+            'location': m.get('location', ''),
+            'qty': qty,
+            'memo': memo,
+        })
+        if qty > 0:
+            batches[bid]['total_increase'] += qty
+        else:
+            batches[bid]['total_decrease'] += qty
+
+    batch_list = sorted(batches.values(), key=lambda b: b['batch_id'], reverse=True)
+    return jsonify({'ok': True, 'batches': batch_list[:20]})
+
+
+@adjustment_bp.route('/survey/rollback', methods=['POST'])
+@role_required('admin', 'manager')
+def survey_rollback():
+    """배치 되돌리기: 동일 배치의 모든 조정을 역방향 적용."""
+    data = request.get_json(silent=True)
+    batch_id = data.get('batch_id') if data else None
+    if not batch_id:
+        return jsonify({'ok': False, 'error': '배치 ID가 필요합니다.'})
+
+    db = get_db()
+    from services.tz_utils import today_kst
+    from datetime import timedelta
+    end = today_kst()
+    start = (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
+
+    movements = db.query_stock_ledger(date_from=start, date_to=end, type_list=['ADJUST'])
+    batch_items = [m for m in movements if m.get('memo', '').startswith(f'[{batch_id}]')]
+    if not batch_items:
+        return jsonify({'ok': False, 'error': f'배치 "{batch_id}" 이력을 찾을 수 없습니다.'})
+
+    # 이미 되돌린 배치인지 확인
+    rollback_check = [m for m in movements if m.get('memo', '').startswith(f'[ROLLBACK-{batch_id}]')]
+    if rollback_check:
+        return jsonify({'ok': False, 'error': '이미 되돌린 배치입니다.'})
+
+    rollback_items = []
+    for item in batch_items:
+        qty = float(item.get('qty', 0))
+        if qty == 0:
+            continue
+        rollback_items.append({
+            'product_name': item['product_name'],
+            'location': item.get('location', ''),
+            'qty': -qty,
+            'memo': f"[ROLLBACK-{batch_id}] 되돌리기 ({-qty:+g})",
+            'unit': item.get('unit', '개'),
+            'storage_method': item.get('storage_method', ''),
+            'category': item.get('category', ''),
+        })
+
+    if not rollback_items:
+        return jsonify({'ok': False, 'error': '되돌릴 항목이 없습니다.'})
+
+    try:
+        from services.adjustment_service import process_adjustment_batch
+        result = process_adjustment_batch(
+            db, today_kst(), rollback_items,
+            created_by=current_user.username)
+        _log_action('survey_rollback',
+                     detail=f'재고실사 되돌리기 {batch_id}: {result.get("count", 0)}건',
+                     new_value={'batch_id': batch_id, 'count': result.get('count', 0)})
+        return jsonify({
+            'ok': True,
+            'batch_id': batch_id,
+            'rollback_success': result.get('count', 0),
+            'rollback_fail': 0,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @adjustment_bp.route('/batch', methods=['POST'])
