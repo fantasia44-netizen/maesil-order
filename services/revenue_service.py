@@ -4,7 +4,7 @@ Tkinter 의존 제거. db 파라미터(SupabaseDB 인스턴스)를 받고 결과
 """
 import logging
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     from excel_io import parse_revenue_payload
@@ -110,21 +110,30 @@ def get_revenue_stats(db, date_from=None, date_to=None, category=None):
         category: 매출유형 필터 or None
 
     Returns:
-        dict: summary, daily_totals, monthly_totals, category_breakdown, top_products
+        dict: summary, daily_totals, monthly_totals, weekly_totals,
+              category_breakdown, channel_breakdown,
+              daily_channel_totals, weekly_channel_totals,
+              monthly_channel_totals, weekly_comparison, top_products
     """
     raw = db.query_revenue(
         date_from=date_from,
         date_to=date_to,
         category=category if category and category != '전체' else None,
     )
+    daily_ch = _calc_daily_channel_totals(raw)
+    weekly_ch = _calc_weekly_channel_totals(raw)
     return {
         'summary': _calc_summary(raw),
         'daily_totals': _calc_daily_totals(raw),
         'monthly_totals': _calc_monthly_totals(raw),
+        'weekly_totals': _calc_weekly_totals(raw),
         'category_breakdown': _calc_category_breakdown(raw),
         'channel_breakdown': _calc_channel_breakdown(raw),
-        'daily_channel_totals': _calc_daily_channel_totals(raw),
+        'daily_channel_totals': daily_ch,
+        'weekly_channel_totals': weekly_ch,
         'monthly_channel_totals': _calc_monthly_channel_totals(raw),
+        'weekly_comparison': _calc_weekly_comparison(raw),
+        'source_comparison': _calc_source_comparison(raw),
         'top_products': _calc_top_products(raw, limit=15),
     }
 
@@ -253,6 +262,181 @@ def _calc_daily_channel_totals(raw):
         'totals': ch_totals,
         'grand_total': sum(ch_totals.values()),
     }
+
+
+def _calc_weekly_totals(raw):
+    """주간별 매출합계 리스트 반환 (ISO week 기준, 월요일 시작)."""
+    by_week = {}
+    for r in raw:
+        d = r.get('revenue_date', '')
+        if d:
+            try:
+                dt = datetime.strptime(d, '%Y-%m-%d')
+                iso = dt.isocalendar()
+                week_key = f"{iso[0]}-W{iso[1]:02d}"
+                # 주 시작일(월요일) 계산
+                week_start = dt - timedelta(days=dt.weekday())
+                by_week.setdefault(week_key, {'total': 0, 'start': week_start.strftime('%Y-%m-%d')})
+                by_week[week_key]['total'] += r.get('revenue', 0)
+            except ValueError:
+                continue
+    return [{'week': k, 'start': v['start'], 'total': v['total']}
+            for k, v in sorted(by_week.items())]
+
+
+def _calc_weekly_channel_totals(raw):
+    """주간별 x 채널별 매출 테이블 데이터.
+
+    Returns:
+        dict: channels, rows (week, start, channels, total), totals, grand_total
+    """
+    by_week_ch = {}
+    ch_totals = {}
+
+    for r in raw:
+        d = r.get('revenue_date', '')
+        ch = _resolve_channel(r)
+        rev = r.get('revenue', 0)
+        if not d:
+            continue
+        try:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+            iso = dt.isocalendar()
+            week_key = f"{iso[0]}-W{iso[1]:02d}"
+            week_start = (dt - timedelta(days=dt.weekday())).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        if week_key not in by_week_ch:
+            by_week_ch[week_key] = {'channels': {}, 'start': week_start}
+        by_week_ch[week_key]['channels'][ch] = by_week_ch[week_key]['channels'].get(ch, 0) + rev
+        ch_totals[ch] = ch_totals.get(ch, 0) + rev
+
+    channels = [k for k, v in sorted(ch_totals.items(), key=lambda x: -x[1])]
+    rows = []
+    for wk in sorted(by_week_ch.keys()):
+        info = by_week_ch[wk]
+        rows.append({
+            'week': wk,
+            'start': info['start'],
+            'channels': info['channels'],
+            'total': sum(info['channels'].values()),
+        })
+
+    return {
+        'channels': channels,
+        'rows': rows,
+        'totals': ch_totals,
+        'grand_total': sum(ch_totals.values()),
+    }
+
+
+def _calc_weekly_comparison(raw):
+    """이번주 vs 지난달 동주차 비교.
+
+    Returns:
+        dict: {
+            'this_week': {label, start, end, channels: {ch: amt}, total},
+            'last_month_week': {label, start, end, channels: {ch: amt}, total},
+            'channels': [채널 목록],
+            'comparison': [{channel, this_week, last_month, diff, diff_pct}, ...]
+        }
+    """
+    today = datetime.now()
+    # 이번주 범위 (월~일)
+    this_monday = today - timedelta(days=today.weekday())
+    this_sunday = this_monday + timedelta(days=6)
+    # 지난달 동일 주차 (4주 전)
+    last_monday = this_monday - timedelta(weeks=4)
+    last_sunday = last_monday + timedelta(days=6)
+
+    tw_data = {}  # 이번주 채널별
+    lm_data = {}  # 지난달 동주차 채널별
+
+    for r in raw:
+        d = r.get('revenue_date', '')
+        if not d:
+            continue
+        try:
+            dt = datetime.strptime(d, '%Y-%m-%d')
+        except ValueError:
+            continue
+        ch = _resolve_channel(r)
+        rev = r.get('revenue', 0)
+
+        if this_monday.date() <= dt.date() <= this_sunday.date():
+            tw_data[ch] = tw_data.get(ch, 0) + rev
+        elif last_monday.date() <= dt.date() <= last_sunday.date():
+            lm_data[ch] = lm_data.get(ch, 0) + rev
+
+    all_channels = sorted(set(list(tw_data.keys()) + list(lm_data.keys())),
+                          key=lambda c: -(tw_data.get(c, 0) + lm_data.get(c, 0)))
+
+    comparison = []
+    for ch in all_channels:
+        tw = tw_data.get(ch, 0)
+        lm = lm_data.get(ch, 0)
+        diff = tw - lm
+        diff_pct = (diff / lm * 100) if lm > 0 else (100.0 if tw > 0 else 0.0)
+        comparison.append({
+            'channel': ch,
+            'this_week': tw,
+            'last_month': lm,
+            'diff': diff,
+            'diff_pct': round(diff_pct, 1),
+        })
+
+    tw_total = sum(tw_data.values())
+    lm_total = sum(lm_data.values())
+
+    return {
+        'this_week': {
+            'label': f"{this_monday.strftime('%m/%d')}~{this_sunday.strftime('%m/%d')}",
+            'start': this_monday.strftime('%Y-%m-%d'),
+            'end': this_sunday.strftime('%Y-%m-%d'),
+            'channels': tw_data,
+            'total': tw_total,
+        },
+        'last_month_week': {
+            'label': f"{last_monday.strftime('%m/%d')}~{last_sunday.strftime('%m/%d')}",
+            'start': last_monday.strftime('%Y-%m-%d'),
+            'end': last_sunday.strftime('%Y-%m-%d'),
+            'channels': lm_data,
+            'total': lm_total,
+        },
+        'channels': all_channels,
+        'comparison': comparison,
+        'total_diff': tw_total - lm_total,
+        'total_diff_pct': round((tw_total - lm_total) / lm_total * 100, 1) if lm_total > 0 else 0.0,
+    }
+
+
+def _calc_source_comparison(raw):
+    """채널별 데이터 소스(주문/정산) 비교 요약.
+
+    Returns:
+        list of dict: channel, order_revenue, settle_revenue, diff, diff_pct
+    """
+    by_ch = {}  # {channel: {주문: amt, 정산: amt}}
+    for r in raw:
+        ch = _resolve_channel(r)
+        source = r.get('source', '주문')
+        rev = r.get('revenue', 0)
+        if ch not in by_ch:
+            by_ch[ch] = {'주문': 0, '정산': 0}
+        by_ch[ch][source] = by_ch[ch].get(source, 0) + rev
+
+    result = []
+    for ch, src in sorted(by_ch.items(), key=lambda x: -(x[1]['주문'] + x[1]['정산'])):
+        order_rev = src.get('주문', 0)
+        settle_rev = src.get('정산', 0)
+        # 주문만 있거나 정산만 있는 채널은 비교 불필요하므로 둘 다 있는 것만 표시
+        result.append({
+            'channel': ch,
+            'order_revenue': order_rev,
+            'settle_revenue': settle_rev,
+            'has_both': order_rev > 0 and settle_rev > 0,
+        })
+    return result
 
 
 def _calc_monthly_channel_totals(raw):

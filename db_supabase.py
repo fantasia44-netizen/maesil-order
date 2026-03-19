@@ -447,6 +447,7 @@ class SupabaseDB(DBBase):
                         "channel": ch,
                         "qty": 0, "revenue": 0, "settlement": 0,
                         "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                        "source": "주문",
                     }
                 agg[key]["qty"] += (r.get("qty") or 0)
                 agg[key]["revenue"] += (r.get("total_amount") or 0)
@@ -514,6 +515,7 @@ class SupabaseDB(DBBase):
                         "channel": ch,
                         "qty": 0, "revenue": 0, "settlement": 0,
                         "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                        "source": "정산",
                     }
                 agg[key]["qty"] += (r.get("qty") or 0)
                 agg[key]["revenue"] += (r.get("revenue") or 0)
@@ -547,6 +549,7 @@ class SupabaseDB(DBBase):
                         "channel": ch,
                         "qty": 0, "revenue": 0, "settlement": 0,
                         "commission": 0, "discount_amount": 0, "shipping_fee": 0,
+                        "source": "정산",
                     }
                 agg[key]["qty"] += (r.get("qty") or 0)
                 agg[key]["revenue"] += (r.get("revenue") or 0)
@@ -2288,13 +2291,15 @@ class SupabaseDB(DBBase):
             return []
 
     def query_stock_summary_by_location(self, exclude_products=None):
-        """창고별 재고 품목 수 요약 (양수 재고만)."""
+        """창고별 재고 품목 수 요약 (양수 재고만). 최근 180일만 조회."""
         try:
             today = today_kst()
+            date_from = days_ago_kst(180)
 
             def builder(table):
                 return self.client.table(table) \
                     .select("product_name,location,qty") \
+                    .gte("transaction_date", date_from) \
                     .lte("transaction_date", today) \
                     .order("id")
 

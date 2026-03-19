@@ -80,15 +80,21 @@
     </div>
 </div>
 
-<!-- 그래프 영역: 일별 추이 + 채널별 비중 -->
+<!-- ══════════════════════════════════════════════ -->
+<!-- 채널별 매출 트렌드 (라인차트) + 채널 비중 (도넛) -->
+<!-- ══════════════════════════════════════════════ -->
 <div class="row g-4 mb-4">
     <div class="col-lg-8">
         <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-graph-up"></i> 일별 매출 추이
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-graph-up"></i> 채널별 매출 추이</span>
+                <div class="btn-group btn-group-sm" role="group" id="trendViewToggle">
+                    <button type="button" class="btn btn-outline-primary active" data-view="daily">일별</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="weekly">주간</button>
+                </div>
             </div>
             <div class="card-body">
-                <canvas id="dailyChart"></canvas>
+                <canvas id="channelTrendChart"></canvas>
             </div>
         </div>
     </div>
@@ -104,20 +110,104 @@
     </div>
 </div>
 
+<!-- 총합 일별 매출 추이 (기존 단일 라인) -->
+<div class="row g-4 mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-graph-up-arrow"></i> 전체 매출 추이</span>
+                <div class="btn-group btn-group-sm" role="group" id="totalViewToggle">
+                    <button type="button" class="btn btn-outline-secondary active" data-view="daily">일별</button>
+                    <button type="button" class="btn btn-outline-secondary" data-view="weekly">주간</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="dailyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ══════════════════════════════════════════════ -->
-<!-- 일일매출 테이블 (채널별 구분) -->
+<!-- 주간매출 비교: 이번주 vs 지난달 동주차 -->
 <!-- ══════════════════════════════════════════════ -->
-{% if stats.daily_channel_totals and stats.daily_channel_totals.rows %}
+{% if stats.weekly_comparison and stats.weekly_comparison.comparison %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-arrow-left-right"></i> 주간매출 비교
+        <small class="text-muted ms-2">
+            이번주 ({{ stats.weekly_comparison.this_week.label }}) vs 4주전 ({{ stats.weekly_comparison.last_month_week.label }})
+        </small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th style="min-width:100px">채널</th>
+                        <th class="text-end" style="min-width:110px">4주전 ({{ stats.weekly_comparison.last_month_week.label }})</th>
+                        <th class="text-end" style="min-width:110px">이번주 ({{ stats.weekly_comparison.this_week.label }})</th>
+                        <th class="text-end" style="min-width:100px">증감액</th>
+                        <th class="text-end" style="min-width:80px">증감률</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in stats.weekly_comparison.comparison %}
+                    <tr>
+                        <td class="fw-semibold">{{ c.channel }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(c.last_month) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(c.this_week) }}</td>
+                        <td class="text-end {% if c.diff > 0 %}text-success{% elif c.diff < 0 %}text-danger{% endif %}">
+                            {% if c.diff > 0 %}<i class="bi bi-arrow-up-short"></i>{% elif c.diff < 0 %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                            {{ '{:,.0f}'.format(c.diff|abs) }}
+                        </td>
+                        <td class="text-end fw-bold {% if c.diff_pct > 0 %}text-success{% elif c.diff_pct < 0 %}text-danger{% endif %}">
+                            {% if c.diff_pct > 0 %}+{% endif %}{{ '{:.1f}'.format(c.diff_pct) }}%
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot class="table-warning">
+                    <tr class="fw-bold">
+                        <td>합계</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.weekly_comparison.last_month_week.total) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(stats.weekly_comparison.this_week.total) }}</td>
+                        <td class="text-end {% if stats.weekly_comparison.total_diff > 0 %}text-success{% elif stats.weekly_comparison.total_diff < 0 %}text-danger{% endif %}">
+                            {% if stats.weekly_comparison.total_diff > 0 %}<i class="bi bi-arrow-up-short"></i>{% elif stats.weekly_comparison.total_diff < 0 %}<i class="bi bi-arrow-down-short"></i>{% endif %}
+                            {{ '{:,.0f}'.format(stats.weekly_comparison.total_diff|abs) }}
+                        </td>
+                        <td class="text-end {% if stats.weekly_comparison.total_diff_pct > 0 %}text-success{% elif stats.weekly_comparison.total_diff_pct < 0 %}text-danger{% endif %}">
+                            {% if stats.weekly_comparison.total_diff_pct > 0 %}+{% endif %}{{ '{:.1f}'.format(stats.weekly_comparison.total_diff_pct) }}%
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- 일일/주간 매출 테이블 (채널별 구분) — 탭 전환 -->
+<!-- ══════════════════════════════════════════════ -->
 <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-calendar-day"></i> 일일매출 (채널별)</span>
-        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#dailyTableCollapse">
-            <i class="bi bi-chevron-expand"></i> 접기/펼치기
-        </button>
+        <span><i class="bi bi-calendar-day"></i> 매출 상세 (채널별)</span>
+        <div>
+            <div class="btn-group btn-group-sm me-2" role="group" id="tableViewToggle">
+                <button type="button" class="btn btn-outline-primary active" data-view="daily">일별</button>
+                <button type="button" class="btn btn-outline-primary" data-view="weekly">주간</button>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#detailTableCollapse">
+                <i class="bi bi-chevron-expand"></i>
+            </button>
+        </div>
     </div>
-    <div class="collapse show" id="dailyTableCollapse">
-        <div class="card-body p-0">
-            <div class="table-responsive">
+    <div class="collapse show" id="detailTableCollapse">
+        <!-- 일별 테이블 -->
+        {% if stats.daily_channel_totals and stats.daily_channel_totals.rows %}
+        <div class="card-body p-0" id="dailyTableView">
+            <div class="table-responsive" style="max-height:500px; overflow-y:auto">
                 <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
                     <thead class="table-light">
                         <tr>
@@ -154,9 +244,51 @@
                 </table>
             </div>
         </div>
+        {% endif %}
+
+        <!-- 주간 테이블 -->
+        {% if stats.weekly_channel_totals and stats.weekly_channel_totals.rows %}
+        <div class="card-body p-0 d-none" id="weeklyTableView">
+            <div class="table-responsive" style="max-height:500px; overflow-y:auto">
+                <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="sticky-top bg-light" style="min-width:120px">주차 (시작일)</th>
+                            {% for ch in stats.weekly_channel_totals.channels %}
+                            <th class="text-end sticky-top bg-light" style="min-width:90px">{{ ch }}</th>
+                            {% endfor %}
+                            <th class="text-end sticky-top bg-light fw-bold" style="min-width:100px">합계</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in stats.weekly_channel_totals.rows %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.week }} <small class="text-muted">({{ row.start }})</small></td>
+                            {% for ch in stats.weekly_channel_totals.channels %}
+                            <td class="text-end">
+                                {% set val = row.channels.get(ch, 0) %}
+                                {% if val > 0 %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="text-muted">-</span>{% endif %}
+                            </td>
+                            {% endfor %}
+                            <td class="text-end fw-bold">{{ '{:,.0f}'.format(row.total) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-warning">
+                        <tr class="fw-bold">
+                            <td>합계</td>
+                            {% for ch in stats.weekly_channel_totals.channels %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.weekly_channel_totals.totals.get(ch, 0)) }}</td>
+                            {% endfor %}
+                            <td class="text-end">{{ '{:,.0f}'.format(stats.weekly_channel_totals.grand_total) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
-{% endif %}
 
 <!-- ══════════════════════════════════════════════ -->
 <!-- 월별매출 (채널별 스택 바차트 + 테이블) -->
@@ -216,7 +348,7 @@
 </div>
 {% endif %}
 
-<!-- 카테고리별 비중 (기존) -->
+<!-- 카테고리별 비중 -->
 {% if stats.category_breakdown and stats.category_breakdown|length > 1 %}
 <div class="card mb-4">
     <div class="card-header">
@@ -233,6 +365,43 @@
         </div>
     </div>
 </div>
+{% endif %}
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- 데이터 소스 비교 (주문집계 vs 정산) -->
+<!-- ══════════════════════════════════════════════ -->
+{% if stats.source_comparison %}
+{% set has_both = stats.source_comparison|selectattr('has_both')|list %}
+{% if has_both %}
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-arrow-repeat"></i> 주문집계 vs 정산 대조
+        <small class="text-muted ms-2">(두 소스 모두 있는 채널만 표시)</small>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0" style="font-size:0.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th>채널</th>
+                        <th class="text-end">주문집계 매출</th>
+                        <th class="text-end">정산 매출</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in has_both %}
+                    <tr>
+                        <td class="fw-semibold">{{ s.channel }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(s.order_revenue) }}</td>
+                        <td class="text-end">{{ '{:,.0f}'.format(s.settle_revenue) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- 상위 품목 랭킹 -->
@@ -297,96 +466,158 @@
     const statsData = {{ stats_json|safe }};
     if (!statsData) return;
 
-    // 숫자 포맷 헬퍼
+    // ── 공통 유틸 ──
     function formatKRW(val) {
         return new Intl.NumberFormat('ko-KR').format(Math.round(val)) + '원';
     }
-
-    // 채널별 고정 색상
-    const CH_COLORS = {
-        '스마트스토어': '#03C75A',
-        '쿠팡':         '#E53238',
-        '11번가':       '#FF5722',
-        '옥션/G마켓':   '#FF9800',
-        '오아시스':     '#4CAF50',
-        '자사몰':       '#2196F3',
-        '카카오':       '#FEE500',
-        'N배송_수동':   '#9C27B0',
-    };
-    const FALLBACK_COLORS = [
-        '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
-        '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'
-    ];
-    function getColor(ch, idx) {
-        return CH_COLORS[ch] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length];
+    function compactKRW(val) {
+        return new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val);
     }
 
-    // ── 1) 일별 매출 추이 (Line) ──
-    const dailyCtx = document.getElementById('dailyChart');
-    if (dailyCtx && statsData.daily_totals && statsData.daily_totals.length > 0) {
-        new Chart(dailyCtx, {
+    const CH_COLORS = {
+        '스마트스토어': '#03C75A', '쿠팡': '#E53238', '11번가': '#FF5722',
+        '옥션/G마켓': '#FF9800', '오아시스': '#4CAF50', '자사몰': '#2196F3',
+        '카카오': '#FEE500', 'N배송_수동': '#9C27B0', 'N배송': '#9C27B0',
+        '거래처매출': '#795548', '로켓': '#FF4081', '해미애찬': '#00BCD4',
+    };
+    const FALLBACK = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac'];
+    function getColor(ch, i) { return CH_COLORS[ch] || FALLBACK[i % FALLBACK.length]; }
+
+    // ── 1) 채널별 매출 트렌드 (멀티라인) ──
+    const trendCtx = document.getElementById('channelTrendChart');
+    let trendChart = null;
+
+    function buildChannelTrendData(mode) {
+        if (mode === 'weekly') {
+            const wct = statsData.weekly_channel_totals;
+            if (!wct || !wct.rows || !wct.rows.length) return null;
+            return {
+                labels: wct.rows.map(r => r.week),
+                channels: wct.channels,
+                rows: wct.rows,
+            };
+        } else {
+            const dct = statsData.daily_channel_totals;
+            if (!dct || !dct.rows || !dct.rows.length) return null;
+            return {
+                labels: dct.rows.map(r => r.date),
+                channels: dct.channels,
+                rows: dct.rows,
+            };
+        }
+    }
+
+    function renderChannelTrend(mode) {
+        const src = buildChannelTrendData(mode);
+        if (!src || !trendCtx) return;
+        const hidePoints = src.labels.length > 30;
+        const datasets = src.channels.map((ch, i) => ({
+            label: ch,
+            data: src.rows.map(r => r.channels[ch] || 0),
+            borderColor: getColor(ch, i),
+            backgroundColor: getColor(ch, i) + '20',
+            borderWidth: 2,
+            tension: 0.3,
+            pointRadius: hidePoints ? 0 : 3,
+            pointHoverRadius: 5,
+            fill: false,
+        }));
+        if (trendChart) trendChart.destroy();
+        trendChart = new Chart(trendCtx, {
             type: 'line',
-            data: {
-                labels: statsData.daily_totals.map(d => d.date),
-                datasets: [{
-                    label: '일별 매출',
-                    data: statsData.daily_totals.map(d => d.total),
-                    borderColor: '#4e79a7',
-                    backgroundColor: 'rgba(78, 121, 167, 0.1)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: statsData.daily_totals.length > 60 ? 0 : 3,
-                    pointHoverRadius: 5,
-                }]
-            },
+            data: { labels: src.labels, datasets },
             options: {
-                responsive: true,
-                maintainAspectRatio: true,
+                responsive: true, maintainAspectRatio: true,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => formatKRW(ctx.parsed.y)
-                        }
-                    }
+                    legend: { position: 'bottom', labels: { font: { size: 11 } } },
+                    tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + formatKRW(ctx.parsed.y) } }
                 },
                 scales: {
                     x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
-                    y: {
-                        ticks: {
-                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
-                        }
-                    }
+                    y: { ticks: { callback: compactKRW } }
                 }
             }
         });
     }
 
-    // ── 2) 채널별 매출 비중 (Doughnut) ──
+    renderChannelTrend('daily');
+    document.getElementById('trendViewToggle')?.addEventListener('click', function(e) {
+        const btn = e.target.closest('button[data-view]');
+        if (!btn) return;
+        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderChannelTrend(btn.dataset.view);
+    });
+
+    // ── 2) 전체 매출 추이 (단일 라인 — 일별/주간 전환) ──
+    const dailyCtx = document.getElementById('dailyChart');
+    let totalChart = null;
+
+    function renderTotalTrend(mode) {
+        if (!dailyCtx) return;
+        let labels, data;
+        if (mode === 'weekly' && statsData.weekly_totals && statsData.weekly_totals.length > 0) {
+            labels = statsData.weekly_totals.map(d => d.week);
+            data = statsData.weekly_totals.map(d => d.total);
+        } else if (statsData.daily_totals && statsData.daily_totals.length > 0) {
+            labels = statsData.daily_totals.map(d => d.date);
+            data = statsData.daily_totals.map(d => d.total);
+        } else { return; }
+
+        if (totalChart) totalChart.destroy();
+        totalChart = new Chart(dailyCtx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: mode === 'weekly' ? '주간 매출' : '일별 매출',
+                    data,
+                    borderColor: '#4e79a7',
+                    backgroundColor: 'rgba(78,121,167,0.1)',
+                    fill: true, tension: 0.3,
+                    pointRadius: labels.length > 60 ? 0 : 3,
+                    pointHoverRadius: 5,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => formatKRW(ctx.parsed.y) } }
+                },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 15, maxRotation: 45 } },
+                    y: { ticks: { callback: compactKRW } }
+                }
+            }
+        });
+    }
+
+    renderTotalTrend('daily');
+    document.getElementById('totalViewToggle')?.addEventListener('click', function(e) {
+        const btn = e.target.closest('button[data-view]');
+        if (!btn) return;
+        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderTotalTrend(btn.dataset.view);
+    });
+
+    // ── 3) 채널별 매출 비중 (Doughnut) ──
     const chCtx = document.getElementById('channelChart');
     if (chCtx && statsData.channel_breakdown && statsData.channel_breakdown.length > 0) {
         const chLabels = statsData.channel_breakdown.map(c => c.channel);
         const chData = statsData.channel_breakdown.map(c => c.total);
-        const chColors = chLabels.map((ch, i) => getColor(ch, i));
-
         new Chart(chCtx, {
             type: 'doughnut',
             data: {
                 labels: chLabels,
-                datasets: [{
-                    data: chData,
-                    backgroundColor: chColors,
-                    borderWidth: 2,
-                }]
+                datasets: [{ data: chData, backgroundColor: chLabels.map((ch, i) => getColor(ch, i)), borderWidth: 2 }]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: true,
+                responsive: true, maintainAspectRatio: true,
                 plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { font: { size: 11 } }
-                    },
+                    legend: { position: 'bottom', labels: { font: { size: 11 } } },
                     tooltip: {
                         callbacks: {
                             label: ctx => {
@@ -401,47 +632,49 @@
         });
     }
 
-    // ── 3) 월별 매출 스택 바차트 (채널별) ──
+    // ── 4) 월별 스택 바차트 ──
     const monthCtx = document.getElementById('monthlyChart');
     if (monthCtx && statsData.monthly_channel_totals && statsData.monthly_channel_totals.rows.length > 0) {
         const mct = statsData.monthly_channel_totals;
-        const months = mct.rows.map(r => r.month);
-        const datasets = mct.channels.map((ch, i) => ({
-            label: ch,
-            data: mct.rows.map(r => r.channels[ch] || 0),
-            backgroundColor: getColor(ch, i),
-            borderRadius: 2,
-        }));
-
         new Chart(monthCtx, {
             type: 'bar',
-            data: { labels: months, datasets: datasets },
+            data: {
+                labels: mct.rows.map(r => r.month),
+                datasets: mct.channels.map((ch, i) => ({
+                    label: ch, data: mct.rows.map(r => r.channels[ch] || 0),
+                    backgroundColor: getColor(ch, i), borderRadius: 2,
+                }))
+            },
             options: {
-                responsive: true,
-                maintainAspectRatio: true,
+                responsive: true, maintainAspectRatio: true,
                 plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { font: { size: 11 } }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: ctx => ctx.dataset.label + ': ' + formatKRW(ctx.parsed.y)
-                        }
-                    }
+                    legend: { position: 'bottom', labels: { font: { size: 11 } } },
+                    tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': ' + formatKRW(ctx.parsed.y) } }
                 },
                 scales: {
                     x: { stacked: true },
-                    y: {
-                        stacked: true,
-                        ticks: {
-                            callback: val => new Intl.NumberFormat('ko-KR', {notation: 'compact'}).format(val)
-                        }
-                    }
+                    y: { stacked: true, ticks: { callback: compactKRW } }
                 }
             }
         });
     }
+
+    // ── 5) 테이블 일별/주간 전환 ──
+    document.getElementById('tableViewToggle')?.addEventListener('click', function(e) {
+        const btn = e.target.closest('button[data-view]');
+        if (!btn) return;
+        this.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const dailyView = document.getElementById('dailyTableView');
+        const weeklyView = document.getElementById('weeklyTableView');
+        if (btn.dataset.view === 'weekly') {
+            dailyView?.classList.add('d-none');
+            weeklyView?.classList.remove('d-none');
+        } else {
+            dailyView?.classList.remove('d-none');
+            weeklyView?.classList.add('d-none');
+        }
+    });
 })();
 </script>
 {% endif %}

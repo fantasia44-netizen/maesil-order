@@ -6,7 +6,7 @@ import os
 import io
 import json
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 from services.tz_utils import today_kst
 
 import pandas as pd
@@ -37,8 +37,11 @@ def index():
     """매출 조회 (order_transactions 기반)"""
     db = get_db()
 
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
+    # 기본 3개월 범위
+    _today = today_kst()
+    _default_from = (datetime.strptime(_today, '%Y-%m-%d') - timedelta(days=90)).strftime('%Y-%m-%d')
+    date_from = request.args.get('date_from', '') or _default_from
+    date_to = request.args.get('date_to', '') or _today
     category = request.args.get('category', '전체')
 
     data = []
@@ -211,8 +214,10 @@ def delete_revenue(revenue_id):
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def stats():
     """매출 통계 + 그래프"""
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
+    _today = today_kst()
+    _default_from = (datetime.strptime(_today, '%Y-%m-%d') - timedelta(days=90)).strftime('%Y-%m-%d')
+    date_from = request.args.get('date_from', '') or _default_from
+    date_to = request.args.get('date_to', '') or _today
     category = request.args.get('category', '전체')
 
     stats_data = None
