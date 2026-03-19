@@ -209,6 +209,18 @@ def survey_export_stock():
     except Exception as e:
         return jsonify({'error': f'재고 조회 실패: {e}'}), 500
 
+    # product_costs에서 category/storage_method 기본값 보강
+    try:
+        pc_map = db.query_product_costs()
+        for pname, info in snapshot.items():
+            pc = pc_map.get(pname) or pc_map.get(pname.replace(' ', '')) or {}
+            if not info.get('storage_method') and pc.get('storage_method'):
+                info['storage_method'] = pc['storage_method']
+            if not info.get('category') and pc.get('category'):
+                info['category'] = pc['category']
+    except Exception:
+        pass
+
     # 기준일 역산
     after_movements = {}
     if survey_date:
