@@ -340,6 +340,37 @@ def survey_preview():
     header_row = list(ws.iter_rows(min_row=1, max_row=1, values_only=True))[0] if ws.max_row else []
     is_export_format = len(header_row) >= 4 and header_row[2] and '시스템' in str(header_row[2])
 
+    # ── 성능 최적화: 재고/이력을 루프 밖에서 1번만 조회 (캐시) ──
+    _snapshot_cache = {}  # {location: snapshot}
+    _after_mv_cache = {}  # {location: {product_name: 변동합계}}
+
+    def _get_snapshot(loc):
+        if loc not in _snapshot_cache:
+            try:
+                _snapshot_cache[loc] = build_stock_snapshot(db.query_stock_by_location(loc))
+            except Exception:
+                _snapshot_cache[loc] = {}
+        return _snapshot_cache[loc]
+
+    def _get_after_movements(loc):
+        if loc not in _after_mv_cache:
+            _after_mv_cache[loc] = {}
+            if survey_date:
+                try:
+                    survey_next = survey_date + 'T23:59:59'
+                    all_mvs = db.query_stock_ledger(
+                        date_from=survey_next, date_to='2099-12-31', location=loc)
+                    for mv in all_mvs:
+                        name = mv.get('product_name', '')
+                        _after_mv_cache[loc][name] = _after_mv_cache[loc].get(name, 0) + float(mv.get('qty', 0))
+                        # 공백 제거 버전도 등록
+                        norm = name.replace(' ', '')
+                        if norm != name:
+                            _after_mv_cache[loc][norm] = _after_mv_cache[loc].get(norm, 0) + float(mv.get('qty', 0))
+                except Exception:
+                    pass
+        return _after_mv_cache[loc]
+
     for i, row in enumerate(rows, 2):
         if not row or not row[0]:
             continue
@@ -351,20 +382,18 @@ def survey_preview():
         location = normalize_location(location)
 
         if is_export_format:
-            # 내보내기 양식: 품목명/위치/시스템재고/실사수량(입력)/단위/보관/카테고리/사유
             try:
                 actual_qty = float(row[3]) if len(row) > 3 and row[3] is not None else None
             except (ValueError, TypeError):
                 errors.append(f'행 {i}: 실사수량이 숫자가 아닙니다.')
                 continue
             if actual_qty is None:
-                continue  # 실사수량 비입력 → 건너뜀
+                continue
             unit = str(row[4] or '').strip() if len(row) > 4 else ''
             storage_method = str(row[5] or '').strip() if len(row) > 5 else ''
             category = str(row[6] or '').strip() if len(row) > 6 else ''
             memo = str(row[7] or '').strip() if len(row) > 7 else ''
         else:
-            # 수동 양식: 품목명/위치/실사수량/단위/보관/카테고리/사유
             try:
                 actual_qty = float(row[2]) if len(row) > 2 and row[2] is not None else None
             except (ValueError, TypeError):
@@ -378,21 +407,15 @@ def survey_preview():
             category = str(row[5] or '').strip() if len(row) > 5 else ''
             memo = str(row[6] or '').strip() if len(row) > 6 else ''
 
-        # 현재 시스템 재고 조회
-        try:
-            stock_data = db.query_stock_by_location(location)
-            snapshot = build_stock_snapshot(stock_data)
-        except Exception:
-            snapshot = {}
+        # 캐시된 스냅샷에서 조회 (DB 호출 없음)
+        snapshot = _get_snapshot(location)
 
-        # 품목명 매칭 (정확 매칭 → 공백제거 매칭)
+        # 품목명 매칭
         current_qty = 0
-        matched_info = {}
         normalized_name = product_name.replace(' ', '')
         for sname, sinfo in snapshot.items():
             if sname == product_name or sname.replace(' ', '') == normalized_name:
                 current_qty = sinfo.get('total', 0)
-                matched_info = sinfo
                 if not unit:
                     unit = sinfo.get('unit', '개')
                 if not category:
@@ -401,22 +424,9 @@ def survey_preview():
                     storage_method = sinfo.get('storage_method', '')
                 break
 
-        # 기준일 역산: 기준일 이후 해당 품목의 movement 합계
-        after_movements = 0
-        if survey_date:
-            try:
-                survey_next = survey_date + 'T23:59:59'
-                all_mvs = db.query_stock_ledger(
-                    date_from=survey_next,
-                    date_to='2099-12-31',
-                    location=location,
-                )
-                for mv in all_mvs:
-                    mv_name = mv.get('product_name', '')
-                    if mv_name == product_name or mv_name.replace(' ', '') == normalized_name:
-                        after_movements += float(mv.get('qty', 0))
-            except Exception:
-                pass
+        # 캐시된 이후 변동에서 조회 (DB 호출 없음)
+        after_mv_map = _get_after_movements(location)
+        after_movements = after_mv_map.get(product_name, 0) or after_mv_map.get(normalized_name, 0)
 
         system_qty_at_date = current_qty - after_movements if survey_date else current_qty
         delta = actual_qty - system_qty_at_date
