@@ -181,6 +181,123 @@ def survey_sample_excel():
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+@adjustment_bp.route('/survey/export-stock')
+@role_required('admin', 'manager', 'production', 'logistics')
+def survey_export_stock():
+    """기준일 시점 재고를 엑셀로 내보내기 (실사수량 컬럼 비워둠)."""
+    import io
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    except ImportError:
+        return jsonify({'error': 'openpyxl 미설치'}), 500
+
+    location = request.args.get('location', '').strip()
+    survey_date = request.args.get('survey_date', '').strip()
+
+    if not location:
+        return jsonify({'error': '창고위치를 선택해주세요.'}), 400
+
+    db = get_db()
+    from services.excel_io import build_stock_snapshot, normalize_location
+    location = normalize_location(location)
+
+    # 현재 재고 조회
+    try:
+        stock_data = db.query_stock_by_location(location)
+        snapshot = build_stock_snapshot(stock_data)
+    except Exception as e:
+        return jsonify({'error': f'재고 조회 실패: {e}'}), 500
+
+    # 기준일 역산
+    after_movements = {}
+    if survey_date:
+        try:
+            survey_next = survey_date + 'T23:59:59'
+            all_mvs = db.query_stock_ledger(
+                date_from=survey_next, date_to='2099-12-31',
+                location=location)
+            for mv in all_mvs:
+                name = mv.get('product_name', '')
+                after_movements[name] = after_movements.get(name, 0) + float(mv.get('qty', 0))
+        except Exception:
+            pass
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '재고실사'
+
+    # 스타일
+    header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+    header_font = Font(color='FFFFFF', bold=True, size=10)
+    input_fill = PatternFill(start_color='FFFFCC', end_color='FFFFCC', fill_type='solid')
+    thin_border = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin'))
+
+    headers = ['품목명(필수)', '창고위치(필수)', '시스템재고', '실사수량(입력)', '단위', '보관방법', '카테고리', '사유']
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+        cell.border = thin_border
+
+    # 데이터
+    row_num = 2
+    for product_name in sorted(snapshot.keys()):
+        info = snapshot[product_name]
+        current_qty = info.get('total', 0)
+        if current_qty <= 0:
+            continue
+
+        after_mv = after_movements.get(product_name, 0)
+        # 공백 제거 매칭도 시도
+        if after_mv == 0:
+            norm_name = product_name.replace(' ', '')
+            for k, v in after_movements.items():
+                if k.replace(' ', '') == norm_name:
+                    after_mv = v
+                    break
+
+        system_qty = current_qty - after_mv if survey_date else current_qty
+
+        ws.cell(row=row_num, column=1, value=product_name).border = thin_border
+        ws.cell(row=row_num, column=2, value=location).border = thin_border
+        c3 = ws.cell(row=row_num, column=3, value=system_qty)
+        c3.border = thin_border
+        c3.alignment = Alignment(horizontal='right')
+        # 실사수량 — 노란색 입력 칸
+        c4 = ws.cell(row=row_num, column=4, value=None)
+        c4.fill = input_fill
+        c4.border = thin_border
+        c4.alignment = Alignment(horizontal='right')
+        ws.cell(row=row_num, column=5, value=info.get('unit', '개')).border = thin_border
+        ws.cell(row=row_num, column=6, value=info.get('storage_method', '')).border = thin_border
+        ws.cell(row=row_num, column=7, value=info.get('category', '')).border = thin_border
+        ws.cell(row=row_num, column=8, value='').border = thin_border
+        row_num += 1
+
+    # 컬럼 너비
+    widths = [22, 12, 12, 14, 8, 10, 12, 16]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+
+    # 메타 정보 시트
+    ws2 = wb.create_sheet('_메타(수정금지)')
+    ws2.append(['기준일', survey_date or '현재'])
+    ws2.append(['창고위치', location])
+    ws2.append(['내보내기일시', datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+    ws2.append(['품목수', row_num - 2])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"재고실사_{location}_{survey_date or 'current'}.xlsx"
+    return send_file(buf, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @adjustment_bp.route('/survey/preview', methods=['POST'])
 @role_required('admin', 'manager', 'production', 'logistics')
 def survey_preview():
@@ -207,6 +324,10 @@ def survey_preview():
     preview = []
     errors = []
 
+    # 헤더 감지: 내보내기 엑셀(8컬럼: 품목명/위치/시스템재고/실사수량/...) vs 수동양식(7컬럼)
+    header_row = list(ws.iter_rows(min_row=1, max_row=1, values_only=True))[0] if ws.max_row else []
+    is_export_format = len(header_row) >= 4 and header_row[2] and '시스템' in str(header_row[2])
+
     for i, row in enumerate(rows, 2):
         if not row or not row[0]:
             continue
@@ -217,19 +338,33 @@ def survey_preview():
             continue
         location = normalize_location(location)
 
-        try:
-            actual_qty = float(row[2]) if len(row) > 2 and row[2] is not None else None
-        except (ValueError, TypeError):
-            errors.append(f'행 {i}: 실사수량이 숫자가 아닙니다.')
-            continue
-        if actual_qty is None:
-            errors.append(f'행 {i}: 실사수량이 비어있습니다.')
-            continue
-
-        unit = str(row[3] or '').strip() if len(row) > 3 else ''
-        storage_method = str(row[4] or '').strip() if len(row) > 4 else ''
-        category = str(row[5] or '').strip() if len(row) > 5 else ''
-        memo = str(row[6] or '').strip() if len(row) > 6 else ''
+        if is_export_format:
+            # 내보내기 양식: 품목명/위치/시스템재고/실사수량(입력)/단위/보관/카테고리/사유
+            try:
+                actual_qty = float(row[3]) if len(row) > 3 and row[3] is not None else None
+            except (ValueError, TypeError):
+                errors.append(f'행 {i}: 실사수량이 숫자가 아닙니다.')
+                continue
+            if actual_qty is None:
+                continue  # 실사수량 비입력 → 건너뜀
+            unit = str(row[4] or '').strip() if len(row) > 4 else ''
+            storage_method = str(row[5] or '').strip() if len(row) > 5 else ''
+            category = str(row[6] or '').strip() if len(row) > 6 else ''
+            memo = str(row[7] or '').strip() if len(row) > 7 else ''
+        else:
+            # 수동 양식: 품목명/위치/실사수량/단위/보관/카테고리/사유
+            try:
+                actual_qty = float(row[2]) if len(row) > 2 and row[2] is not None else None
+            except (ValueError, TypeError):
+                errors.append(f'행 {i}: 실사수량이 숫자가 아닙니다.')
+                continue
+            if actual_qty is None:
+                errors.append(f'행 {i}: 실사수량이 비어있습니다.')
+                continue
+            unit = str(row[3] or '').strip() if len(row) > 3 else ''
+            storage_method = str(row[4] or '').strip() if len(row) > 4 else ''
+            category = str(row[5] or '').strip() if len(row) > 5 else ''
+            memo = str(row[6] or '').strip() if len(row) > 6 else ''
 
         # 현재 시스템 재고 조회
         try:

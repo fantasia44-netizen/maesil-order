@@ -185,26 +185,32 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-file-earmark-spreadsheet"></i> 엑셀 업로드</div>
             <div class="card-body">
-                <a href="{{ url_for('adjustment.survey_sample_excel') }}" class="btn btn-outline-primary btn-sm w-100 mb-2">
-                    <i class="bi bi-download"></i> 실사 양식 다운로드
-                </a>
-                <hr class="my-2">
                 <div class="mb-2">
                     <label class="form-label small fw-semibold">실사 기준일 <span class="text-danger">*</span></label>
                     <input type="date" id="surveyDate" class="form-control form-control-sm" required>
                     <div class="form-text" style="font-size:0.75rem;">이 날짜 시점의 시스템 재고와 비교합니다.</div>
                 </div>
                 <div class="mb-2">
-                    <label class="form-label small">기본 창고위치 (선택)</label>
+                    <label class="form-label small fw-semibold">창고위치 <span class="text-danger">*</span></label>
                     <select id="surveyLocation" class="form-select form-select-sm">
-                        <option value="">엑셀에 위치 포함</option>
+                        <option value="">선택</option>
                         {% for loc in locations|default([]) %}
                         <option value="{{ loc }}">{{ loc }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                <hr class="my-2">
+                <div class="d-grid gap-1 mb-2">
+                    <button class="btn btn-outline-success btn-sm" onclick="downloadStockExcel()">
+                        <i class="bi bi-download"></i> 1단계: 현재 재고 엑셀 다운로드
+                    </button>
+                    <a href="{{ url_for('adjustment.survey_sample_excel') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-file-earmark"></i> (빈 양식 다운로드)
+                    </a>
+                </div>
+                <hr class="my-2">
                 <div class="mb-2">
-                    <label class="form-label small">엑셀 파일</label>
+                    <label class="form-label small fw-semibold"><i class="bi bi-upload"></i> 2단계: 실사수량 입력 후 업로드</label>
                     <input type="file" id="surveyFile" class="form-control form-control-sm" accept=".xlsx,.xls">
                 </div>
                 <div class="mb-2">
@@ -220,11 +226,12 @@
             <div class="card-header"><i class="bi bi-info-circle"></i> 사용방법</div>
             <div class="card-body small text-muted">
                 <ol class="mb-2 ps-3">
-                    <li>양식 다운로드 후 품목명과 실사수량 입력</li>
-                    <li><b>실사 기준일</b> 선택 (예: 3/6 재고조사일)</li>
-                    <li>미리보기로 차이 확인</li>
+                    <li><b>기준일 + 창고</b> 선택</li>
+                    <li><b>현재 재고 엑셀 다운로드</b> (노란칸 = 입력란)</li>
+                    <li>노란칸에 <b>실사수량</b> 입력 (빈칸 = 건너뜀)</li>
+                    <li>업로드 → 미리보기로 차이 확인</li>
                     <li>일괄 적용 (배치ID로 이력 관리)</li>
-                    <li>문제 시 배치 되돌리기 가능</li>
+                    <li>문제 시 <b>되돌리기</b> 가능</li>
                 </ol>
                 <div class="alert alert-light py-1 px-2 mb-0" style="font-size:0.78rem;">
                     <b>기준일 역산:</b><br>
@@ -630,6 +637,15 @@
 
     // ═══ 엑셀 실사 일괄조정 ═══
     let surveyPreviewData = [];
+
+    window.downloadStockExcel = function() {
+        const surveyDate = document.getElementById('surveyDate').value;
+        const location = document.getElementById('surveyLocation').value;
+        if (!location) { alert('창고위치를 선택해주세요.'); return; }
+        if (!surveyDate) { alert('실사 기준일을 선택해주세요.'); return; }
+        const url = `{{ url_for('adjustment.survey_export_stock') }}?location=${encodeURIComponent(location)}&survey_date=${surveyDate}`;
+        window.location.href = url;
+    };
 
     window.surveyPreview = async function() {
         const fileInput = document.getElementById('surveyFile');
