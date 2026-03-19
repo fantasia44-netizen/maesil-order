@@ -45,9 +45,22 @@ def index():
 @inbound_bp.route('/api/products')
 @role_required('admin', 'manager', 'logistics', 'production')
 def api_products():
-    """전체 고유 품목명 목록 JSON (자동완성용)"""
+    """전체 고유 품목명 목록 JSON (자동완성용) — product_costs 기본값 포함"""
     try:
-        products = get_db().query_unique_product_names()
+        db = get_db()
+        products = db.query_unique_product_names()
+        # product_costs에서 category/storage_method 기본값 매핑
+        try:
+            cost_map = db.query_product_costs()
+            for p in products:
+                name = p.get('name', '')
+                info = cost_map.get(name) or cost_map.get(name.replace(' ', '')) or {}
+                p['category'] = info.get('category', '')
+                p['storage_method'] = info.get('storage_method', '')
+                if not p.get('food_type'):
+                    p['food_type'] = info.get('food_type', '')
+        except Exception:
+            pass
         return jsonify(products)
     except Exception as e:
         return jsonify({'error': str(e)}), 500

@@ -335,6 +335,11 @@
             item.addEventListener('mousedown', function(e) {
                 e.preventDefault();
                 productInput.value = p.name;
+                // product_costs 기본값 자동채움 (빈 필드만)
+                const catInput = document.getElementById('categoryInput');
+                const storInput = document.getElementById('storageInput');
+                if (p.category && catInput && !catInput.value.trim()) catInput.value = p.category;
+                if (p.storage_method && storInput && !storInput.value.trim()) storInput.value = p.storage_method;
                 acList.style.display = 'none';
                 qtyInput.focus();
             });
