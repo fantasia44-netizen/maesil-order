@@ -203,22 +203,48 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
 
+    # ── product_costs 마스터에서 category/storage_method/food_type fallback ──
+    pc_map = None
+    try:
+        pc_map = db.query_product_costs()
+    except Exception:
+        pass
+
+    if pc_map:
+        # product_costs → {품목명: {category, storage_method, food_type}} 맵 구축
+        pc_cat = {}
+        pc_sm = {}
+        for pn, info in pc_map.items():
+            cat_val = (info.get('category') or '').strip()
+            sm_val = (info.get('storage_method') or '').strip()
+            for name in (pn, pn.replace(' ', '')):
+                if cat_val and name not in pc_cat:
+                    pc_cat[name] = cat_val
+                if sm_val and name not in pc_sm:
+                    pc_sm[name] = sm_val
+
+        # category fallback (stock_ledger 내부 상속 후 여전히 빈값인 것만)
+        mask_cat2 = df['category'] == ''
+        if mask_cat2.any() and pc_cat:
+            df.loc[mask_cat2, 'category'] = df.loc[mask_cat2, 'product_name'].map(pc_cat).fillna('')
+
+        # storage_method fallback
+        mask_sm2 = df['storage_method'] == ''
+        if mask_sm2.any() and pc_sm:
+            df.loc[mask_sm2, 'storage_method'] = df.loc[mask_sm2, 'product_name'].map(pc_sm).fillna('')
+
     # food_type 빈값 통합: stock_ledger 내부 + product_costs fallback (공백 정규화)
     ft_map = df[df['food_type'] != ''].groupby('product_name')['food_type'].first().to_dict()
     # product_costs에서 food_type 가져와서 fallback (공백 있는/없는 이름 모두 매핑)
-    try:
-        pc_map = db.query_product_costs()
+    if pc_map:
         for pn, info in pc_map.items():
             ft_val = (info.get('food_type') or '').strip()
             if ft_val:
                 if pn not in ft_map:
                     ft_map[pn] = ft_val
-                # 공백 제거 버전도 등록 (stock_ledger는 공백 없는 이름 사용)
                 norm = pn.replace(' ', '')
                 if norm != pn and norm not in ft_map:
                     ft_map[norm] = ft_val
-    except Exception:
-        pass
     if ft_map:
         mask_ft = df['food_type'] == ''
         if mask_ft.any():
@@ -481,6 +507,29 @@ def query_ledger_data(db, date_from, date_to, location=None, category=None,
             df.loc[mask, 'storage_method'] = df.loc[mask, sm_base].apply(
                 lambda row: sm_map.get(tuple(row), ''), axis=1
             )
+
+    # ── product_costs 마스터에서 category/storage_method fallback ──
+    try:
+        pc_map = db.query_product_costs()
+        if pc_map:
+            pc_cat = {}
+            pc_sm = {}
+            for pn, info in pc_map.items():
+                cat_val = (info.get('category') or '').strip()
+                sm_val = (info.get('storage_method') or '').strip()
+                for name in (pn, pn.replace(' ', '')):
+                    if cat_val and name not in pc_cat:
+                        pc_cat[name] = cat_val
+                    if sm_val and name not in pc_sm:
+                        pc_sm[name] = sm_val
+            mask_cat2 = df['category'] == ''
+            if mask_cat2.any() and pc_cat:
+                df.loc[mask_cat2, 'category'] = df.loc[mask_cat2, 'product_name'].map(pc_cat).fillna('')
+            mask_sm2 = df['storage_method'] == ''
+            if mask_sm2.any() and pc_sm:
+                df.loc[mask_sm2, 'storage_method'] = df.loc[mask_sm2, 'product_name'].map(pc_sm).fillna('')
+    except Exception:
+        pass
 
     if date_from:
         df_before = df[df['transaction_date'] < date_from]
