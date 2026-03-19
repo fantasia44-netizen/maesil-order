@@ -702,7 +702,8 @@ class SupabaseDB(DBBase):
                             weight=0, weight_unit='g', cost_type='매입',
                             material_type='원료',
                             purchase_unit='', standard_unit='',
-                            conversion_ratio=1, food_type=''):
+                            conversion_ratio=1, food_type='',
+                            category='', storage_method=''):
         """품목 단가 1건 등록/수정 (upsert).
         cost_type: '매입' = 원재료 매입단가, '생산' = 완제품 생산단가
         material_type: '원료', '부재료', '반제품', '완제품', '포장재'
@@ -710,6 +711,8 @@ class SupabaseDB(DBBase):
         standard_unit: 사용단위 (g, 개, kg 등)
         conversion_ratio: 1 매입단위 = X 사용단위
         food_type: '농산물', '수산물', '축산물', '' (미지정)
+        category: '완제품', '반제품', '원료' 등 (재고 분류)
+        storage_method: '냉동', '냉장', '실온', '' (미지정)
         """
         from datetime import datetime, timezone
         product_name = str(product_name).replace(' ', '').strip()
@@ -726,6 +729,8 @@ class SupabaseDB(DBBase):
             'standard_unit': standard_unit or '',
             'conversion_ratio': float(conversion_ratio or 1),
             'food_type': food_type or '',
+            'category': category or '',
+            'storage_method': storage_method or '',
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         self.client.table("product_costs").upsert(
@@ -755,6 +760,8 @@ class SupabaseDB(DBBase):
                 'standard_unit': item.get('standard_unit', '') or '',
                 'conversion_ratio': float(item.get('conversion_ratio', 1) or 1),
                 'food_type': item.get('food_type', '') or '',
+                'category': item.get('category', '') or '',
+                'storage_method': item.get('storage_method', '') or '',
                 'updated_at': now,
             })
         if not payload:

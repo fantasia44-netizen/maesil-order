@@ -508,6 +508,10 @@ def api_products():
         all_data = [r for r in all_data if not r.get('unit')]
     elif filter_mode == 'missing_weight':
         all_data = [r for r in all_data if not r.get('weight') or float(r.get('weight', 0)) == 0]
+    elif filter_mode == 'missing_category':
+        all_data = [r for r in all_data if not r.get('category')]
+    elif filter_mode == 'missing_storage_method':
+        all_data = [r for r in all_data if not r.get('storage_method')]
 
     total = len(all_data)
     start = (page - 1) * per_page
@@ -539,7 +543,8 @@ def api_product_update(product_name):
     # 수정 가능 필드
     allowed = {'cost_price', 'unit', 'memo', 'weight', 'weight_unit',
                'cost_type', 'material_type', 'food_type',
-               'purchase_unit', 'standard_unit', 'conversion_ratio'}
+               'purchase_unit', 'standard_unit', 'conversion_ratio',
+               'category', 'storage_method'}
     updates = {k: v for k, v in data.items() if k in allowed}
 
     if not updates:
@@ -560,6 +565,8 @@ def api_product_update(product_name):
             'purchase_unit': updates.get('purchase_unit', existing.get('purchase_unit', '')),
             'standard_unit': updates.get('standard_unit', existing.get('standard_unit', '')),
             'conversion_ratio': updates.get('conversion_ratio', existing.get('conversion_ratio', 1)),
+            'category': updates.get('category', existing.get('category', '')),
+            'storage_method': updates.get('storage_method', existing.get('storage_method', '')),
         }
 
         db.upsert_product_cost(**merged)

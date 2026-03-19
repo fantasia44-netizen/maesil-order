@@ -231,6 +231,12 @@ CREATE INDEX IF NOT EXISTS idx_coupons_dates ON coupons(start_date, end_date);
 ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
 -- food_type: '농산물', '수산물', '축산물', '' (미지정)
 
+-- 16b) product_costs 확장: 종류(category) + 보관방법(storage_method) 컬럼 추가
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS category TEXT DEFAULT '';
+ALTER TABLE product_costs ADD COLUMN IF NOT EXISTS storage_method TEXT DEFAULT '';
+-- category: '완제품', '반제품', '원료', '부자재', '포장재' 등
+-- storage_method: '냉동', '냉장', '실온', '' (미지정)
+
 -- 17) stock_ledger 확장: 식품유형 (food_type) 컬럼 추가
 ALTER TABLE stock_ledger ADD COLUMN IF NOT EXISTS food_type TEXT DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_stock_ledger_food_type ON stock_ledger(food_type);

@@ -277,6 +277,8 @@
                 <select id="prodFilterMode" class="form-select">
                     <option value="">전체</option>
                     <option value="missing_food_type">식품유형 미기입</option>
+                    <option value="missing_category">종류(재고) 미기입</option>
+                    <option value="missing_storage_method">보관방법 미기입</option>
                     <option value="missing_unit">단위 미기입</option>
                     <option value="missing_weight">중량 미기입</option>
                 </select>
@@ -299,6 +301,8 @@
                         <th style="width:70px">유형</th>
                         <th style="width:70px">종류</th>
                         <th style="width:80px">식품유형</th>
+                        <th style="width:70px">재고분류</th>
+                        <th style="width:70px">보관</th>
                         <th class="text-end" style="width:80px">단가</th>
                         <th style="width:50px">단위</th>
                         <th class="text-end" style="width:60px">중량</th>
@@ -307,7 +311,7 @@
                     </tr>
                 </thead>
                 <tbody id="prodTableBody">
-                    <tr><td colspan="9" class="text-center text-muted py-4">로딩 중...</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted py-4">로딩 중...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -364,6 +368,21 @@
                         <option value="수산물">수산물</option>
                         <option value="축산물">축산물</option>
                     </select>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">재고분류 (category)</label>
+                        <input type="text" id="prodEditCategory" class="form-control" placeholder="예: 완제품, 원료, 해산물">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">보관방법</label>
+                        <select id="prodEditStorageMethod" class="form-select">
+                            <option value="">선택</option>
+                            <option value="냉동">냉동</option>
+                            <option value="냉장">냉장</option>
+                            <option value="실온">실온</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="row mb-3">
                     <div class="col-4">
@@ -737,7 +756,7 @@ document.addEventListener('DOMContentLoaded', function(){
     function renderProdTable(rows) {
         const tbody = document.getElementById('prodTableBody');
         if (!rows || !rows.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" class="text-center text-muted py-4">데이터가 없습니다.</td></tr>';
             return;
         }
         window._prodRows = {};
@@ -752,6 +771,8 @@ document.addEventListener('DOMContentLoaded', function(){
                 '<td><span class="badge ' + (r.cost_type === '생산' ? 'bg-info' : 'bg-secondary') + ' small">' + escapeHtml(r.cost_type || '매입') + '</span></td>' +
                 '<td>' + escapeHtml(r.material_type || '원료') + '</td>' +
                 '<td>' + foodTypeBadge(r.food_type) + '</td>' +
+                '<td>' + escapeHtml(r.category || '-') + '</td>' +
+                '<td>' + escapeHtml(r.storage_method || '-') + '</td>' +
                 '<td class="text-end">' + price + '</td>' +
                 '<td>' + escapeHtml(r.unit || '-') + '</td>' +
                 '<td class="text-end">' + wt + '</td>' +
@@ -782,6 +803,8 @@ document.addEventListener('DOMContentLoaded', function(){
         document.getElementById('prodEditCostType').value = r.cost_type || '매입';
         document.getElementById('prodEditMaterialType').value = r.material_type || '원료';
         document.getElementById('prodEditFoodType').value = r.food_type || '';
+        document.getElementById('prodEditCategory').value = r.category || '';
+        document.getElementById('prodEditStorageMethod').value = r.storage_method || '';
         document.getElementById('prodEditCostPrice').value = r.cost_price || 0;
         document.getElementById('prodEditUnit').value = r.unit || '';
         document.getElementById('prodEditMemo').value = r.memo || '';
@@ -799,6 +822,8 @@ document.addEventListener('DOMContentLoaded', function(){
             cost_type: document.getElementById('prodEditCostType').value,
             material_type: document.getElementById('prodEditMaterialType').value,
             food_type: document.getElementById('prodEditFoodType').value,
+            category: document.getElementById('prodEditCategory').value.trim(),
+            storage_method: document.getElementById('prodEditStorageMethod').value,
             cost_price: parseFloat(document.getElementById('prodEditCostPrice').value) || 0,
             unit: document.getElementById('prodEditUnit').value.trim(),
             memo: document.getElementById('prodEditMemo').value.trim(),
