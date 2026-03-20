@@ -291,6 +291,32 @@
         });
     })();
     </script>
+    <script>
+    // 글로벌 fetch 래퍼: 세션 만료 시 HTML 응답 → JSON 파싱 에러 방지
+    (function() {
+        const _fetch = window.fetch;
+        window.fetch = function(url, opts) {
+            return _fetch.apply(this, arguments).then(function(resp) {
+                // 401 Unauthorized → 로그인 페이지 리다이렉트
+                if (resp.status === 401) {
+                    alert('세션이 만료되었습니다. 다시 로그인합니다.');
+                    location.href = '/login';
+                    return Promise.reject(new Error('세션 만료'));
+                }
+                // HTML 응답인데 .json() 호출 시 에러 방지: Content-Type 체크
+                const ct = resp.headers.get('content-type') || '';
+                if (ct.includes('text/html')) {
+                    // .json() 호출을 가로채서 명확한 에러 메시지 반환
+                    const origJson = resp.json.bind(resp);
+                    resp.json = function() {
+                        return Promise.reject(new Error('서버가 HTML 응답을 반환했습니다. 페이지를 새로고침하세요.'));
+                    };
+                }
+                return resp;
+            });
+        };
+    })();
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

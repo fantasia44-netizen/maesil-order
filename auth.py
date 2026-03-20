@@ -29,6 +29,9 @@ def _is_api_request():
     # /batch, /excel 등 POST JSON 요청도 감지
     if request.method == 'POST' and request.is_json:
         return True
+    # fetch()에서 X-CSRFToken 헤더를 보내는 경우 → AJAX 요청
+    if request.headers.get('X-CSRFToken'):
+        return True
     return False
 
 # ── IP 기반 로그인 시도 제한 (메모리 기반) ──

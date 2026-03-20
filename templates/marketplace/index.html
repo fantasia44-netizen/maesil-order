@@ -250,9 +250,9 @@ function testConnection(channel) {
 
     fetch(`/marketplace/test/${encodeURIComponent(channel)}`, {
         method: 'POST',
-        headers: {'X-CSRFToken': CSRF},
+        headers: {'X-CSRFToken': CSRF, 'Accept': 'application/json'},
     })
-    .then(r => r.json())
+    .then(r => { if (!r.ok && r.status === 401) { location.reload(); throw new Error('세션 만료'); } return r.json(); })
     .then(data => {
         if (data.success) {
             alert(`${channel}: ${data.message}`);
@@ -291,11 +291,11 @@ function runSync() {
 
     fetch('/marketplace/sync', {
         method: 'POST',
-        headers: {'X-CSRFToken': CSRF},
+        headers: {'X-CSRFToken': CSRF, 'Accept': 'application/json'},
         body: fd,
         signal: ctrl.signal,
     })
-    .then(r => r.json())
+    .then(r => { if (!r.ok && r.status === 401) { location.reload(); throw new Error('세션 만료'); } return r.json(); })
     .then(data => {
         const div = document.getElementById('syncResult');
         div.style.display = 'block';
