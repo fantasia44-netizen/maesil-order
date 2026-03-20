@@ -3051,6 +3051,7 @@ class SupabaseDB(DBBase):
 
     def _storage_upload(self, bucket_key, path, file_bytes, content_type=None):
         """범용 Storage 업로드. bucket_key: 'output'|'upload'|'report'"""
+        from urllib.parse import quote
         bucket = self.STORAGE_BUCKETS.get(bucket_key, bucket_key)
         if content_type is None:
             ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
@@ -3060,16 +3061,18 @@ class SupabaseDB(DBBase):
                 'csv': 'text/csv',
                 'pdf': 'application/pdf',
             }.get(ext, 'application/octet-stream')
+        # Supabase Storage 키: 한글 등 비ASCII 문자를 URL-encode (슬래시/점/하이픈/언더스코어 유지)
+        safe_path = '/'.join(quote(seg, safe='._-') for seg in path.split('/'))
         try:
             self.client.storage.from_(bucket).upload(
-                path, file_bytes, file_options={"content-type": content_type}
+                safe_path, file_bytes, file_options={"content-type": content_type}
             )
             return True
         except Exception as e:
             if '409' in str(e) or 'Duplicate' in str(e) or 'already exists' in str(e):
                 try:
                     self.client.storage.from_(bucket).update(
-                        path, file_bytes, file_options={"content-type": content_type}
+                        safe_path, file_bytes, file_options={"content-type": content_type}
                     )
                     return True
                 except Exception as e2:
@@ -3080,9 +3083,11 @@ class SupabaseDB(DBBase):
 
     def _storage_signed_url(self, bucket_key, path, expires_in=3600):
         """범용 서명 URL 생성."""
+        from urllib.parse import quote
         bucket = self.STORAGE_BUCKETS.get(bucket_key, bucket_key)
+        safe_path = '/'.join(quote(seg, safe='._-') for seg in path.split('/'))
         try:
-            res = self.client.storage.from_(bucket).create_signed_url(path, expires_in)
+            res = self.client.storage.from_(bucket).create_signed_url(safe_path, expires_in)
             if isinstance(res, dict):
                 return res.get('signedURL', '') or res.get('signedUrl', '')
             return ''
