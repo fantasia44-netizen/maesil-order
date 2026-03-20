@@ -281,7 +281,7 @@ def sync_ad_costs(db, ad_client, date_from, date_to, triggered_by='system'):
         return {'fetched': 0, 'saved': 0, 'error': '광고 API 클라이언트 미준비'}
 
     log = db.insert_api_sync_log({
-        'channel': '스마트스토어',
+        'channel': '스마트스토어_배마마',
         'sync_type': 'ad_costs',
         'status': 'running',
         'date_from': date_from,
@@ -319,13 +319,13 @@ def sync_ad_costs(db, ad_client, date_from, date_to, triggered_by='system'):
                 'clicks': r['clicks'],
             })
 
-        # api_settlements에 저장 (channel=스마트스토어, settlement_id=ad_cost_날짜)
+        # api_settlements에 저장 (channel=스마트스토어_배마마, settlement_id=ad_cost_날짜)
         settlements = []
         total_cost = 0
         for dt, v in sorted(daily.items()):
             total_cost += v['cost']
             settlements.append({
-                'channel': '스마트스토어',
+                'channel': '스마트스토어_배마마',
                 'settlement_date': dt,
                 'settlement_id': f'ad_cost_{dt}',
                 'gross_sales': 0,

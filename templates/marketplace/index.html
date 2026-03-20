@@ -38,7 +38,7 @@
             <div class="card channel-card {{ 'active' if is_active else 'inactive' }}">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <div>
-                        {% if ch.channel in ('스마트스토어', '해미애찬') %}
+                        {% if ch.channel.startswith('스마트스토어') %}
                             <i class="bi bi-shop channel-icon text-success"></i>
                         {% elif ch.channel == '쿠팡' %}
                             <i class="bi bi-cart4 channel-icon text-primary"></i>
@@ -78,7 +78,7 @@
                             <input type="text" name="mall_id" class="form-control form-control-sm"
                                    value="{{ cfg.get('mall_id', '') }}" placeholder="Cafe24 몰 ID">
                         </div>
-                        {% elif ch.channel == '스마트스토어' %}
+                        {% elif ch.channel.startswith('스마트스토어') %}
                         {% set ec = cfg.get('extra_config', {}) or {} %}
                         <hr class="my-2">
                         <div class="text-muted mb-1" style="font-size:0.75rem;"><i class="bi bi-megaphone"></i> 네이버 검색광고 API</div>

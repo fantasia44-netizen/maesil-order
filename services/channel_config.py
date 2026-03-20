@@ -73,12 +73,16 @@ def is_simple_invoice(channel):
 
 
 def get_column_template(channel):
-    """채널에 대응하는 CHANNEL_COLUMN_MAP 키 반환.
-    채널 자체가 MAP에 있으면 그대로, 없으면 플랫폼 템플릿으로 폴백."""
+    """채널의 플랫폼 템플릿 키 반환.
+    항상 플랫폼 템플릿을 우선 반환 (채널 고유 설정은 오버라이드용)."""
+    platform = get_platform(channel)
+    tmpl = _PLATFORM_TEMPLATE.get(platform)
+    if tmpl and tmpl in CHANNEL_COLUMN_MAP:
+        return tmpl
+    # 플랫폼 템플릿 없으면 채널 자체가 MAP에 있는지 확인
     if channel in CHANNEL_COLUMN_MAP:
         return channel
-    platform = get_platform(channel)
-    return _PLATFORM_TEMPLATE.get(platform, channel)
+    return channel
 
 
 # ============================================================
@@ -347,13 +351,14 @@ def detect_channel(df):
 
 
 def get_channel_config(channel):
-    """채널 설정 반환 (메타 키 포함). 플랫폼 템플릿 폴백 지원."""
-    conf = CHANNEL_COLUMN_MAP.get(channel)
-    if conf:
-        return conf
-    # 플랫폼 템플릿 폴백
+    """채널 설정 반환 (메타 키 포함). 플랫폼 템플릿 + 채널 오버라이드 병합."""
     tmpl_key = get_column_template(channel)
-    return CHANNEL_COLUMN_MAP.get(tmpl_key, {})
+    tmpl_conf = CHANNEL_COLUMN_MAP.get(tmpl_key, {})
+    ch_own = CHANNEL_COLUMN_MAP.get(channel, {})
+    if ch_own is tmpl_conf:
+        return tmpl_conf
+    # 템플릿 위에 채널 고유 설정 오버라이드
+    return {**tmpl_conf, **ch_own}
 
 
 def get_header_row(channel):

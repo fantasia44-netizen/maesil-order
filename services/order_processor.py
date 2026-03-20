@@ -725,7 +725,7 @@ class OrderProcessor:
                                ss_bulk)
                     result['files'].append(ss_path)
                     result['success'] = True
-                    self.log("리얼패킹 & 스마트스토어 일괄배송입력 생성 완료!")
+                    self.log(f"리얼패킹 & {mode} 일괄배송입력 생성 완료!")
 
                     # ── 일괄배송입력 결과 DB 보관 ──
                     if db:
@@ -843,7 +843,7 @@ class OrderProcessor:
                                ss_ext)
                     result['files'].append(ss_ext_path)
                     result['success'] = True
-                    self.log(f"스마트스토어 외부송장 일괄배송 생성 완료! {len(ss_ext)}건")
+                    self.log(f"{mode} 외부송장 일괄배송 생성 완료! {len(ss_ext)}건")
 
                     # ── 외부일괄 결과 DB 보관 ──
                     if db:
