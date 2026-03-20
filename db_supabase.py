@@ -2535,6 +2535,52 @@ class SupabaseDB(DBBase):
             import traceback; traceback.print_exc()
             return {"error": str(e)}
 
+    def rollback_import_run_full(self, run_id, cancelled_by):
+        """import_run 전체 롤백: 재고(stock_ledger) 복원 + 주문 취소 + run 상태 변경.
+
+        API 주문수집 실패 시 원상복구용. 순서:
+        1) 해당 run의 출고완료 주문 → stock_ledger SALES_OUT 삭제 + is_outbound_done 리셋
+        2) cancel_import_run으로 미출고 주문 취소
+        """
+        from datetime import datetime, timezone
+        try:
+            # 1) 해당 run의 출고 완료 주문 조회
+            res = self.client.table("order_transactions") \
+                .select("id,order_no,channel,product_name,qty,outbound_date,is_outbound_done") \
+                .eq("import_run_id", run_id) \
+                .eq("status", "정상") \
+                .eq("is_outbound_done", True).execute()
+            outbound_orders = res.data or []
+
+            stock_restored = 0
+            for order in outbound_orders:
+                oid = order["id"]
+                # stock_ledger에서 event_uid에 order_id가 포함된 SALES_OUT 삭제
+                try:
+                    sl_res = self.client.table("stock_ledger") \
+                        .select("id") \
+                        .eq("type", "SALES_OUT") \
+                        .like("event_uid", f"%{oid}%").execute()
+                    sl_ids = [r["id"] for r in (sl_res.data or [])]
+                    for sl_id in sl_ids:
+                        self.client.table("stock_ledger").delete().eq("id", sl_id).execute()
+                        stock_restored += 1
+                except Exception:
+                    pass
+
+                # is_outbound_done 리셋
+                self.reset_order_outbound(oid)
+
+            # 2) 나머지 미출고 주문 취소 + run 상태 변경
+            cancel_result = self.cancel_import_run(run_id, cancelled_by)
+            cancel_result['stock_ledger_deleted'] = stock_restored
+            cancel_result['outbound_reset'] = len(outbound_orders)
+            return cancel_result
+        except Exception as e:
+            print(f"[DB] rollback_import_run_full error: {e}")
+            import traceback; traceback.print_exc()
+            return {"error": str(e)}
+
     def reset_order_outbound(self, order_id):
         """주문 출고 상태 초기화 (취소/환불 시)."""
         try:

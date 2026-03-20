@@ -376,6 +376,7 @@ def create_app(config_class=None):
     from blueprints.tax_invoice import tax_invoice_bp
     from blueprints.journal import journal_bp
     from blueprints.marketplace import marketplace_bp
+    from blueprints.orders_api import orders_api_bp
 
     for bp in [auth_bp, admin_bp, dashboard_bp, stock_bp, production_bp,
                inbound_bp, adjustment_bp,
@@ -386,7 +387,7 @@ def create_app(config_class=None):
                closing_bp, shipment_bp, integrity_bp, planning_bp,
                packing_bp, reconciliation_bp, finance_bp, hr_bp,
                accounting_bp, bank_bp, tax_invoice_bp, journal_bp,
-               marketplace_bp]:
+               marketplace_bp, orders_api_bp]:
         app.register_blueprint(bp)
 
     # ── Cafe24 OAuth 콜백 리다이렉트 ──
