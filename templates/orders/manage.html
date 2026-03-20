@@ -451,6 +451,7 @@
 
 {% block extra_js %}
 <script>
+const CSRF = '{{ csrf_token() }}';
 let currentPage = 1;
 const perPage = 50;
 
@@ -753,7 +754,7 @@ function submitCancel() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token() }}'
+            'X-CSRFToken': CSRF
         },
         body: JSON.stringify({ type, reason })
     })
@@ -876,7 +877,7 @@ function submitBulkCancel() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token() }}'
+            'X-CSRFToken': CSRF
         },
         body: JSON.stringify({ order_ids: orderIds, type, reason })
     })
@@ -945,7 +946,7 @@ function submitQtyEdit() {
 
     fetch(`{{ url_for('orders.api_orders') }}/${orderId}/edit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
         body: JSON.stringify({ payload: { qty: newQty }, reason })
     })
     .then(parseJsonSafe)
@@ -1028,7 +1029,7 @@ function submitProductEdit() {
 
     fetch(`{{ url_for('orders.api_orders') }}/${orderId}/edit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
         body: JSON.stringify({ payload, reason })
     })
     .then(parseJsonSafe)
@@ -1082,7 +1083,7 @@ function submitInvoice() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': '{{ csrf_token() }}'
+            'X-CSRFToken': CSRF
         },
         body: JSON.stringify({ channel, order_no: orderNo, invoice_no: invoiceNo, courier })
     })
