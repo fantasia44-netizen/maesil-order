@@ -3,21 +3,22 @@ marketplace/ — 마켓플레이스 API 연동 패키지.
 
 MarketplaceManager: 채널별 API 클라이언트 싱글톤 관리.
 app.py에서 app.marketplace = MarketplaceManager(app.db) 형태로 초기화.
+플랫폼 기반: DB의 channel → get_platform() → 클라이언트 클래스 자동 매핑.
 """
 import logging
 
 from .naver_client import NaverCommerceClient
 from .coupang_client import CoupangWingClient
 from .cafe24_client import Cafe24Client
+from services.channel_config import get_platform
 
 logger = logging.getLogger(__name__)
 
-# 채널 → 클라이언트 클래스 매핑
-_CLIENT_MAP = {
-    '스마트스토어': NaverCommerceClient,
-    '해미애찬': NaverCommerceClient,
-    '쿠팡': CoupangWingClient,
-    '자사몰': Cafe24Client,
+# 플랫폼 → 클라이언트 클래스 매핑 (채널명 하드코딩 제거)
+_PLATFORM_CLIENT_MAP = {
+    'naver':    NaverCommerceClient,
+    'coupang':  CoupangWingClient,
+    'cafe24':   Cafe24Client,
 }
 
 
@@ -30,7 +31,7 @@ class MarketplaceManager:
             self._load_configs(db)
 
     def _load_configs(self, db):
-        """DB에서 API 설정 로드 → 클라이언트 인스턴스 생성."""
+        """DB에서 API 설정 로드 → 플랫폼 기반 클라이언트 인스턴스 생성."""
         try:
             configs = db.query_marketplace_api_configs()
         except Exception as e:
@@ -39,19 +40,12 @@ class MarketplaceManager:
 
         for cfg in configs:
             channel = cfg.get('channel', '')
-            cls = _CLIENT_MAP.get(channel)
+            platform = get_platform(channel)
+            cls = _PLATFORM_CLIENT_MAP.get(platform)
             if cls:
                 self.clients[channel] = cls(cfg)
                 logger.info(f'[Marketplace] {channel} 클라이언트 로드 '
-                            f'(active={cfg.get("is_active", False)})')
-
-        # 미등록 채널 빈 config로 초기화
-        for channel, cls in _CLIENT_MAP.items():
-            if channel not in self.clients:
-                self.clients[channel] = cls({
-                    'channel': channel,
-                    'is_active': False,
-                })
+                            f'(platform={platform}, active={cfg.get("is_active", False)})')
 
     def get_client(self, channel):
         """채널명으로 클라이언트 반환."""

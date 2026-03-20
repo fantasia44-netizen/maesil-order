@@ -7,6 +7,7 @@ api_settlements (API) ↔ platform_settlements (계산) 비교.
 """
 import logging
 
+from services.channel_config import is_naver
 from services.option_matcher import check_option_registration, prepare_opt_list
 
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ def validate_orders(db, channel, date_from, date_to):
         if fee.get('delivery_type') == 'ARRIVAL_GUARANTEE':
             n_delivery_count += 1
             # 매칭 키 수집 (엑셀 쪽 비교에서도 제외하기 위해)
-            if channel in ('스마트스토어', '해미애찬'):
+            if is_naver(channel):
                 nk = str(o.get('api_line_id', ''))
             else:
                 nk = str(o.get('api_order_id', ''))
@@ -116,7 +117,7 @@ def validate_orders(db, channel, date_from, date_to):
     # 쿠팡/자사몰: api_order_id(주문번호)로 매칭 — 주문 내 여러 상품 합산
     api_by_key = {}
     for o in api_orders:
-        if channel in ('스마트스토어', '해미애찬'):
+        if is_naver(channel):
             key = str(o.get('api_line_id', ''))
         else:
             key = str(o.get('api_order_id', ''))

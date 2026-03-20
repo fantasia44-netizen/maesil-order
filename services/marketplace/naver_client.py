@@ -24,7 +24,7 @@ except ImportError:
 class NaverCommerceClient(MarketplaceBaseClient):
     """네이버 스마트스토어 커머스 API."""
 
-    CHANNEL_NAME = '스마트스토어'
+    CHANNEL_NAME = '스마트스토어'  # 폴백용; 실제 채널명은 self.config['channel'] 우선
     BASE_URL = 'https://api.commerce.naver.com'
 
     @property

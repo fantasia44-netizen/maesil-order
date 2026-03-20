@@ -142,8 +142,18 @@ def api_collect():
                     ch_result['import_run_id'] = run_id
 
             elif result.get('unmatched'):
-                ch_result['error'] = f"미매칭 {len(result['unmatched'])}건"
-                ch_result['unmatched'] = result['unmatched'][:30]
+                # 미매칭 발생 → 해당 채널 import_run 자동 롤백
+                if import_run_ids:
+                    last_run = import_run_ids[-1]
+                    try:
+                        rb = db.rollback_import_run_full(last_run, current_user.username)
+                        ch_result['rollback'] = rb
+                        import_run_ids.pop()
+                        ch_result['rolled_back'] = True
+                    except Exception as rb_err:
+                        ch_result['rollback_error'] = str(rb_err)
+                ch_result['error'] = f"미매칭 {len(result['unmatched'])}건 — 자동 롤백됨"
+                ch_result['unmatched'] = result['unmatched'][:50]
             else:
                 ch_result['error'] = result.get('error', '처리 실패')
 

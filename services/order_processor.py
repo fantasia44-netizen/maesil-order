@@ -6,6 +6,7 @@ import msoffcrypto
 from services.channel_config import (
     build_column_map, detect_channel, validate_required_columns,
     get_field_label, is_encrypted, get_password, get_header_row, is_csv,
+    is_naver, has_n_delivery, is_simple_invoice, get_revenue_category,
     MONEY_FIELDS, SIMPLE_INVOICE_CHANNELS,
 )
 from services.tz_utils import today_kst
@@ -322,7 +323,7 @@ class OrderProcessor:
             res = []
             df = None
 
-            if mode in ("스마트스토어", "해미애찬"):
+            if is_encrypted(mode):
                 df = self.load_smart_store_memory(order_file)
                 if df is None or df.empty:
                     result['error'] = f"[{mode}] 파일 읽기 실패"
@@ -374,8 +375,8 @@ class OrderProcessor:
             if m.get('st') is not None:
                 target = target[~target.iloc[:, m['st']].astype(str).str.contains('취소|반품', na=False)].copy()
 
-            # N배송 필터링 (스마트스토어)
-            if mode == "스마트스토어":
+            # N배송 필터링 (네이버 채널)
+            if has_n_delivery(mode):
                 n_ship_idx = col_map.get('n_ship')
                 if n_ship_idx is not None:
                     n_ship_col = target.iloc[:, n_ship_idx].astype(str)
@@ -567,7 +568,7 @@ class OrderProcessor:
                 rosen = res_df[res_df['code'] != 5]
                 ext = res_df[res_df['code'] == 5]
                 s_nms = {0: "단없음", 1: "1단", 2: "2단", 3: "3단", 4: "기타", 5: "외부"}
-                _is_simple = mode in SIMPLE_INVOICE_CHANNELS
+                _is_simple = is_simple_invoice(mode)
                 for d, nt in [(rosen, ""), (ext, "_외부")]:
                     if not d.empty:
                         inv = []
@@ -649,7 +650,7 @@ class OrderProcessor:
                                 '택배발송 : 택배,등기,소포', 'CJ대한통운', inv_no,
                                 r['name'], r['p1'], r['display_nm'], r['qty'], r['barcode']
                             ])
-                            if mode == "스마트스토어":
+                            if is_naver(mode):
                                 ss_bulk.append([
                                     r['order_no'], '택배발송 : 택배,등기,소포',
                                     'CJ대한통운', inv_no, r['name'], r['p1']
@@ -717,8 +718,8 @@ class OrderProcessor:
                     except Exception:
                         pass
 
-                if mode == "스마트스토어" and ss_bulk:
-                    ss_path = os.path.join(output_dir, f"스마트스토어_일괄배송입력_{ts}.xls")
+                if is_naver(mode) and ss_bulk:
+                    ss_path = os.path.join(output_dir, f"{mode}_일괄배송입력_{ts}.xls")
                     _write_xls(ss_path,
                                ["상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"],
                                ss_bulk)
@@ -794,7 +795,7 @@ class OrderProcessor:
                     return result
                 self.log(f"📦 외부송장 일괄배송 대상: {len(ext_df)}건")
 
-                if mode == "스마트스토어":
+                if is_naver(mode):
                     if not invoice_file:
                         result['error'] = "3번 외부 송장결과를 선택하세요."
                         return result
@@ -836,7 +837,7 @@ class OrderProcessor:
                             inv_cnt = db.bulk_update_shipping_invoices(inv_updates)
                             self.log(f"📦 DB 송장번호 반영 (외부): {inv_cnt}/{len(inv_updates)}건")
                             result['invoice_updated'] = inv_cnt
-                    ss_ext_path = os.path.join(output_dir, f"스마트스토어_외부_일괄배송_{ts}.xls")
+                    ss_ext_path = os.path.join(output_dir, f"{mode}_외부_일괄배송_{ts}.xls")
                     _write_xls(ss_ext_path,
                                ["상품주문번호", "배송방법", "택배사", "송장번호", "수취인", "전화번호"],
                                ss_ext)
@@ -962,7 +963,7 @@ class OrderProcessor:
                             pass
 
                 else:
-                    result['error'] = f"[{mode}] 외부송장 일괄배송은 스마트스토어/쿠팡만 지원됩니다."
+                    result['error'] = f"[{mode}] 외부송장 일괄배송은 네이버/쿠팡만 지원됩니다."
                     return result
 
         except Exception as e:

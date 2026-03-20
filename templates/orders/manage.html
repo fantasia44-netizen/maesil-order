@@ -1266,9 +1266,15 @@ function apiCollectAndSave() {
                 </div>`;
             } else if (r.unmatched) {
                 hasError = true;
+                const rbBadge = r.rolled_back
+                    ? '<span class="badge bg-info ms-2">자동 롤백 완료 (재고 복원)</span>'
+                    : '';
+                const unmatchedList = r.unmatched.slice(0, 20).map(u => `<li>${u}</li>`).join('');
                 html += `<div class="alert alert-warning py-2 mb-2">
-                    <strong>${ch}</strong>: ${r.error}
-                    <div class="small mt-1">${r.unmatched.slice(0, 10).join(', ')}</div>
+                    <strong>${ch}</strong>: ${r.error} ${rbBadge}
+                    <div class="mt-2"><strong>미매칭 항목 (옵션마스터 등록 필요):</strong></div>
+                    <ul class="small mb-1" style="max-height:150px;overflow-y:auto">${unmatchedList}</ul>
+                    <div class="small text-muted">옵션마스터에 위 항목을 등록한 후 다시 수집하세요.</div>
                 </div>`;
             } else {
                 hasError = true;

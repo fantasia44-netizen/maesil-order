@@ -7,6 +7,8 @@ OrderProcessor가 인식하는 엑셀 컬럼명으로 변환하여
 """
 import pandas as pd
 
+from services.channel_config import is_naver
+
 
 def sanitize_receiver_name(name, fallback_name=''):
     """수취인명 검증 — CJ 택배 거부 방지.
@@ -33,7 +35,7 @@ def api_orders_to_excel_df(orders, channel):
     for o in orders:
         raw = o.get('raw_data', {})
 
-        if channel in ('스마트스토어', '해미애찬'):
+        if is_naver(channel):
             po = raw.get('productOrder', {})
             if po.get('deliveryAttributeType') == 'ARRIVAL_GUARANTEE':
                 continue

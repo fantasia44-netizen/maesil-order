@@ -14,6 +14,7 @@ from flask_login import login_required, current_user
 from auth import role_required, _log_action
 from services.tz_utils import today_kst, days_ago_kst
 from db_utils import get_db
+from services.channel_config import is_naver, get_platform, get_revenue_category, resolve_channel
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def save_config(channel):
         payload['vendor_id'] = request.form.get('vendor_id', '').strip()
     elif channel == '자사몰':
         payload['mall_id'] = request.form.get('mall_id', '').strip()
-    elif channel == '스마트스토어':
+    elif is_naver(channel):
         # 네이버 검색광고 API 키 (extra_config에 저장)
         ad_cid = request.form.get('ad_customer_id', '').strip()
         ad_key = request.form.get('ad_api_key', '').strip()
@@ -118,7 +119,7 @@ def save_config(channel):
     mgr._load_configs(db)
 
     # 네이버 광고 클라이언트 재로드
-    if channel == '스마트스토어' and extra.get('ad_customer_id'):
+    if is_naver(channel) and extra.get('ad_customer_id'):
         try:
             from services.marketplace.naver_ad_client import NaverAdClient
             current_app.naver_ad = NaverAdClient(extra)
@@ -235,13 +236,13 @@ def sync():
             )
 
         # 네이버 검색광고 비용 동기화
-        if channel == '스마트스토어' and sync_type in ('settlements', 'all'):
+        if is_naver(channel) and sync_type in ('settlements', 'all'):
             ad_client = getattr(current_app, 'naver_ad', None)
             # 앱 시작 시 초기화 안 됐으면 DB에서 다시 로드 시도
             if not ad_client or not ad_client.is_ready:
                 try:
                     from services.marketplace.naver_ad_client import NaverAdClient
-                    cfgs = db.query_marketplace_api_configs(channel='스마트스토어')
+                    cfgs = db.query_marketplace_api_configs(channel=channel)
                     if cfgs:
                         ec = (cfgs[0].get('extra_config') or {})
                         if ec.get('ad_customer_id'):
@@ -345,7 +346,7 @@ def cj_tracking_upload():
             order_no = row.get('api_line_id') or row.get('api_order_id', '')
             name = phone = ''
 
-            if ch in ('스마트스토어', '해미애찬'):
+            if is_naver(ch):
                 po = raw.get('productOrder', {})
                 sa = po.get('shippingAddress', {})
                 name = sa.get('name', '')
@@ -781,7 +782,7 @@ def _extract_customer(channel, order):
     raw = order.get('raw_data', {})
     info = {'name': '', 'addr': '', 'addr2': '', 'phone': '', 'phone2': '', 'memo': ''}
 
-    if channel in ('스마트스토어', '해미애찬'):
+    if is_naver(channel):
         po = raw.get('productOrder', {})
         sa = po.get('shippingAddress', {})
         info['name'] = sa.get('name', '')
@@ -1038,8 +1039,8 @@ def test_collect_invoice_preview():
                 filtered = [o for o in orders
                             if not any(ex in str(o.get('order_status', '')).upper()
                                        for ex in ('취소', '환불', 'CANCEL', 'REFUND'))]
-                # N배송 필터링 (스마트스토어/해미애찬)
-                if ch in ('스마트스토어', '해미애찬'):
+                # N배송 필터링 (네이버 채널)
+                if is_naver(ch):
                     filtered = [o for o in filtered
                                 if (o.get('fee_detail') or {}).get('delivery_type') != 'ARRIVAL_GUARANTEE']
                 excluded = len(orders) - len(filtered)
@@ -1367,7 +1368,7 @@ def upload_ad_cost():
             if '쿠팡' in ch_lower:
                 channel = '쿠팡'
             elif '네이버' in ch_lower or '스마트스토어' in ch_lower or 'naver' in ch_lower.lower():
-                channel = '스마트스토어'
+                channel = '스마트스토어_배마마'
             elif '자사몰' in ch_lower or 'cafe24' in ch_lower.lower():
                 channel = '자사몰'
             else:
@@ -1442,7 +1443,7 @@ def save_deductions():
     settlements = []
     if coupon_int:
         settlements.append({
-            'channel': '스마트스토어',
+            'channel': '스마트스토어_배마마',
             'settlement_date': f'{month}-01',
             'settlement_id': f'deduct_coupon_{month}',
             'gross_sales': 0, 'total_commission': 0,
@@ -1455,7 +1456,7 @@ def save_deductions():
         })
     if voucher_int:
         settlements.append({
-            'channel': '스마트스토어',
+            'channel': '스마트스토어_배마마',
             'settlement_date': f'{month}-01',
             'settlement_id': f'deduct_voucher_{month}',
             'gross_sales': 0, 'total_commission': 0,
@@ -1568,7 +1569,7 @@ def upload_settlement():
             try:
                 file_bytes = f.read()
 
-                if channel in ('스마트스토어', '해미애찬'):
+                if is_naver(channel):
                     result = _parse_naver_settlement(file_bytes, channel)
                 elif channel == '자사몰':
                     result = _parse_toss_settlement(file_bytes)
@@ -2280,7 +2281,7 @@ def sales_data():
         fee = o.get('fee_detail') or {}
 
         # 네이버: delivery_type으로 N배송/일반 구분 (통합 후 합산)
-        if ch in ('스마트스토어', '해미애찬'):
+        if is_naver(ch):
             d_type = fee.get('delivery_type', '')
             if d_type == 'ARRIVAL_GUARANTEE':
                 key = f'{ch}_N배송'
@@ -2449,14 +2450,14 @@ def sales_data():
 
     # ── 채널별 월간 합계 ──
     channel_order = [
-        '스마트스토어', '해미애찬',
+        '스마트스토어_배마마', '스마트스토어_해미애찬',
         '쿠팡', '쿠팡로켓',
         '11번가', '자사몰', '오아시스',
         '옥션', '지마켓',
     ]
     channel_labels = {
-        '스마트스토어': '스마트스토어(배마마)',
-        '해미애찬': '스마트스토어(해미애찬)',
+        '스마트스토어_배마마': '스마트스토어(배마마)',
+        '스마트스토어_해미애찬': '스마트스토어(해미애찬)',
         '쿠팡': '쿠팡(Wing)',
         '쿠팡로켓': '쿠팡(로켓)',
         '11번가': '11번가',
@@ -2467,7 +2468,7 @@ def sales_data():
     }
 
     # ── API 기반 네이버 N배송+일반 → 스토어별 통합 ──
-    for store in ('스마트스토어', '해미애찬'):
+    for store in [ch for ch in channel_order if is_naver(ch)]:
         if f'{store}_N배송' in ch_daily or f'{store}_일반' in ch_daily:
             merged = defaultdict(lambda: {'sales': 0, 'commission': 0, 'settlement': 0,
                                           'shipping': 0, 'orders_count': 0})
@@ -2504,15 +2505,15 @@ def sales_data():
         coupang_rocket_ad = 0
 
     # 네이버 광고비: 배마마 + 해미애찬 매출 비율로 배분
-    naver_ad_total = (sum(ad_daily.get('스마트스토어', {}).values())
-                      + sum(ad_daily.get('해미애찬', {}).values()))
-    naver_bm_sales = ch_sales_totals.get('스마트스토어', 0)
-    naver_hm_sales = ch_sales_totals.get('해미애찬', 0)
+    naver_ad_total = (sum(ad_daily.get('스마트스토어_배마마', {}).values())
+                      + sum(ad_daily.get('스마트스토어_해미애찬', {}).values()))
+    naver_bm_sales = ch_sales_totals.get('스마트스토어_배마마', 0)
+    naver_hm_sales = ch_sales_totals.get('스마트스토어_해미애찬', 0)
     # 정산서 매출이 있으면 그 값 사용
-    if settle_data.get('스마트스토어'):
-        naver_bm_sales = settle_data['스마트스토어']['sales']
-    if settle_data.get('해미애찬'):
-        naver_hm_sales = settle_data['해미애찬']['sales']
+    if settle_data.get('스마트스토어_배마마'):
+        naver_bm_sales = settle_data['스마트스토어_배마마']['sales']
+    if settle_data.get('스마트스토어_해미애찬'):
+        naver_hm_sales = settle_data['스마트스토어_해미애찬']['sales']
     naver_total_sales = naver_bm_sales + naver_hm_sales
 
     if naver_total_sales > 0 and naver_ad_total > 0:
@@ -2524,8 +2525,8 @@ def sales_data():
 
     # 채널별 광고비 배분
     ad_cost_map = {
-        '스마트스토어': naver_bm_ad,
-        '해미애찬': naver_hm_ad,
+        '스마트스토어_배마마': naver_bm_ad,
+        '스마트스토어_해미애찬': naver_hm_ad,
         '쿠팡': coupang_wing_ad,
         '쿠팡로켓': coupang_rocket_ad,
         '11번가': 0,
@@ -2542,8 +2543,8 @@ def sales_data():
         deduct_bm = total_deduct
         deduct_hm = 0
     deduct_map = {
-        '스마트스토어': deduct_bm,
-        '해미애찬': deduct_hm,
+        '스마트스토어_배마마': deduct_bm,
+        '스마트스토어_해미애찬': deduct_hm,
         '쿠팡': 0, '쿠팡로켓': 0, '11번가': 0, '자사몰': 0, '오아시스': 0,
     }
 

@@ -6,6 +6,8 @@ marketplace_sync_service.py — 마켓플레이스 API 동기화 오케스트레
 import logging
 from datetime import datetime, timezone
 
+from services.channel_config import get_platform
+
 logger = logging.getLogger(__name__)
 
 
@@ -483,11 +485,10 @@ def push_invoices(db, marketplace_mgr, channel, triggered_by='system',
         courier_codes = Config.COURIER_CODES.get(courier_name, {})
 
         # 채널별 택배사 코드 결정
-        channel_key_map = {
-            '스마트스토어': 'naver', '해미애찬': 'naver',
-            '쿠팡': 'coupang', '자사몰': 'cafe24',
-        }
-        code_key = channel_key_map.get(channel, 'naver')
+        code_key = get_platform(channel)
+        # 플랫폼 키 → 택배사 코드 키 매핑
+        if code_key not in courier_codes:
+            code_key = 'naver'  # 폴백
         courier_code = courier_codes.get(code_key, 'CJGLS')
 
         # register_invoice 입력 데이터 구성

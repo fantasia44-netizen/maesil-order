@@ -18,6 +18,7 @@ from werkzeug.utils import secure_filename
 from auth import role_required, _log_action
 from services.storage_helper import backup_to_storage
 from db_utils import get_db
+from services.channel_config import is_naver, resolve_channel
 
 orders_bp = Blueprint('orders', __name__, url_prefix='/orders')
 
@@ -107,7 +108,7 @@ def index():
 @role_required('admin', 'manager', 'sales')
 def process():
     """주문서 업로드 → 처리 (옵션은 DB에서 로드, 파일은 선택사항)"""
-    platform = request.form.get('platform', '스마트스토어')
+    platform = request.form.get('platform', '스마트스토어_배마마')
     action = request.form.get('action', 'invoice')
     collection_date = request.form.get('collection_date', '').strip() or None
 
@@ -202,8 +203,8 @@ def process():
                 detected = detect_channel(_det_df)
 
             if detected and detected != mode:
-                # 해미애찬은 스마트스토어와 동일 포맷이므로 자동감지 시 교정하지 않음
-                if mode == '해미애찬' and detected == '스마트스토어':
+                # 네이버 채널 간에는 동일 포맷이므로 자동감지 시 교정하지 않음
+                if is_naver(mode) and is_naver(detected):
                     pass  # 사용자 선택 유지
                 else:
                     flash(f'⚠️ 선택: [{mode}] → 파일 감지: [{detected}] — [{detected}]로 자동 교정합니다.', 'warning')
