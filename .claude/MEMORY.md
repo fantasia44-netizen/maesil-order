@@ -202,6 +202,18 @@
 - **migrations**: 20개 SQL (001~020)
 - **보안 리뷰**: `docs/security_review_20260318.md`
 
+## 보안 개선 (2026-03-22) — 실행 + 테스트 완료
+- **AutoTool**: db_supabase.py 42개 update/delete 함수에 biz_id 필터 추가
+  - `_with_biz()` 헬퍼 (하위호환: biz_id=None이면 기존 동작)
+  - 하드삭제→소프트삭제 전환 (rollback_import_run_full)
+  - 시뮬레이션 39/39 PASS + DB 연결 조회 OK (option_master 2,622건)
+- **PackFlow**: 테넌트 격리 + eval() 완전 제거
+  - warehouse_repo 3함수 → base class _update/_query 사용
+  - billing_engine eval() → AST 화이트리스트 파서 (9개 공격 차단, 8/8 PASS)
+  - 재고 이중커밋: RPC fn_commit_stock 멱등성 이미 보장 확인
+- 보고서: `doc/security_fix_20260322.md`
+- **미착수**: API Key+HMAC 인증, Supabase RLS
+
 ## 설계 문서
 - `doc/축산물_MES_설계서.md` — 축산물 이력번호 API + MES 구현 계획
 - `3pl/doc/Phase3_과금엔진_설계서.md` — 과금 엔진 v2.0 (조건별 공식)
