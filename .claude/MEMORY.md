@@ -173,15 +173,41 @@
 - `dict.items`는 Jinja2에서 dict의 `.items()` 메서드로 해석됨 → `dict['items']`로 접근
 - Python 같은 클래스 내 동일 이름 메서드 → 나중 정의가 덮어씀 (중복 주의)
 
-## 3PL — PackFlow SaaS (2026-03-15 신규)
+## autotool 최신 변경 (2026-03-21)
+- **API 주문수집 연동**: `blueprints/orders_api.py` — API 주문수집 + DB저장 + 재고차감 + 롤백
+- **채널 레지스트리 범용화**: `services/channel_config.py` — 하드코딩 전면 제거, 플랫폼 기반 확장 + API 미매칭 자동 롤백
+- **API 주문 변환기**: `services/api_order_converter.py` — API 주문 포맷 통합 변환
+- **대시보드 개선**: `services/dashboard_service.py`, `templates/dashboard.html` 리팩토링
+- **매출 통계 강화**: `services/revenue_service.py`, `templates/revenue/stats.html`
+- **재고 서비스 확장**: `services/stock_service.py` — 재고 차감/롤백 개선
+- **축산물 MES 설계서**: `doc/축산물_MES_설계서.md` — API 실존 검증 + 구현 가능성 분석
+- **Supabase Storage**: 한글 파일명 InvalidKey 400 에러 수정
+- **세션 만료 방어**: fetch JSON 파싱 에러 방지 (SyntaxError 대응)
+
+## 3PL — PackFlow SaaS (2026-03-21 최신)
 - **경로**: autotool_accounting 레포 `3pl/` 폴더
 - **별도 Flask 앱** (Supabase, Multi-tenant operator_id 기반)
-- **구조**: blueprints(api/client/operator/packing), repositories(10개), services(7개)
-- **과금/정산**: 7개 카테고리(입고/출고/보관/택배/부자재/반품/부가서비스), 21개 프리셋
-- **출고관리**: 일반출고, 반품출고, 창고이동 (shipment_type)
-- **migrations**: 7개 SQL (001~007)
-- **버그점검 완료**: 반품출고 재고 미반영 수정 (log_movement + adjust_stock)
-- **상세**: `3pl/docs/architecture_review_20260315.md`
+- **구조**: blueprints(api/client/operator/packing), repositories(10개+), services(15개+)
+- **과금 엔진 v2.0**: 조건별 공식 기반 과금 + 템플릿 시스템 (`services/billing_engine.py`)
+- **듀얼모드 풀필먼트**: 일반모드 + 속도모드 피킹/패킹 (`services/fulfillment_mode_service.py`)
+- **SaaS 멀티테넌트**: 회사코드 로그인 + 직원 가입 (`templates/join.html`, `auth.py`)
+- **KPI 대시보드**: 모드별 처리량 + 작업자 성과 (`services/kpi_service.py`)
+- **재고실사**: 엑셀 일괄조정 — 기준일 역산 + 배치이력 + 되돌리기
+- **현장 화면**: 5모드(대시보드/입고/출고/재고실사/이동) 분할 (`templates/packing/field_*.html`)
+- **PDF 서비스**: `services/pdf_service.py`
+- **재무 서비스**: `services/finance_service.py`, `repositories/finance_repo.py`
+- **감사로그**: `repositories/audit_repo.py`, `templates/operator/audit_log.html`
+- **동시성 RPC**: `migrations/016_concurrency_rpc_functions.sql`
+- **API 키 인증**: `migrations/017_api_keys.sql`
+- **migrations**: 20개 SQL (001~020)
+- **보안 리뷰**: `docs/security_review_20260318.md`
+
+## 설계 문서
+- `doc/축산물_MES_설계서.md` — 축산물 이력번호 API + MES 구현 계획
+- `3pl/doc/Phase3_과금엔진_설계서.md` — 과금 엔진 v2.0 (조건별 공식)
+- `3pl/doc/Phase4_현장화면분할_설계서.md` — 현장 5모드 분할 UI/UX
+- `3pl/docs/security_review_20260318.md` — 보안 리뷰 (P0: bcrypt/API인증/RLS)
+- `3pl/docs/packflow_architecture.md` — PackFlow 전체 아키텍처
 
 ## 상세 문서
 - [프로젝트 구조 상세](project_structure.md)

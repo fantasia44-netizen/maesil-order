@@ -150,7 +150,10 @@ def api_collect():
                         ch_result['rollback'] = rb
                         import_run_ids.pop()
                         ch_result['rolled_back'] = True
+                        logger.info('[APICollect] 미매칭 롤백 성공: ch=%s, run_id=%s', ch, last_run)
                     except Exception as rb_err:
+                        logger.error('[APICollect] 미매칭 롤백 실패: ch=%s, run_id=%s, error=%s',
+                                     ch, last_run, rb_err, exc_info=True)
                         ch_result['rollback_error'] = str(rb_err)
                 ch_result['error'] = f"미매칭 {len(result['unmatched'])}건 — 자동 롤백됨"
                 ch_result['unmatched'] = result['unmatched'][:50]
@@ -161,15 +164,21 @@ def api_collect():
             logger.error(f'[APICollect] {ch} 오류: {e}', exc_info=True)
             ch_result['error'] = str(e)
 
-            # 실패 시 이 채널에서 생성된 import_run 롤백
-            if import_run_ids:
-                last_run = import_run_ids[-1]
+            # 실패 시 이 채널 + 이전 성공 채널 모두 롤백 (원자성 보장)
+            rollback_targets = list(import_run_ids)  # 복사
+            rollback_results = []
+            for rid in reversed(rollback_targets):
                 try:
-                    rb = db.rollback_import_run_full(last_run, current_user.username)
-                    ch_result['rollback'] = rb
-                    import_run_ids.pop()
+                    rb = db.rollback_import_run_full(rid, current_user.username)
+                    rollback_results.append({'run_id': rid, 'result': rb})
+                    import_run_ids.remove(rid)
+                    logger.info('[APICollect] 롤백 성공: run_id=%s', rid)
                 except Exception as rb_err:
-                    ch_result['rollback_error'] = str(rb_err)
+                    logger.error('[APICollect] 롤백 실패: run_id=%s, error=%s',
+                                 rid, rb_err, exc_info=True)
+                    rollback_results.append({'run_id': rid, 'error': str(rb_err)})
+            ch_result['rollback'] = rollback_results
+            ch_result['rolled_back_all'] = True
 
         results[ch] = ch_result
 
