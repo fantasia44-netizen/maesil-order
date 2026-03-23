@@ -125,7 +125,7 @@ PAGE_REGISTRY = [
     ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin'],                                                          '관리'),
     ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager'],                                                '관리'),
     ('marketplace_api','API 연동',      'bi-cloud-arrow-down',   '/marketplace',         ['admin'],                                                              '관리'),
-    ('marketplace_ship','송장관리',     'bi-truck',              '/marketplace/shipping', ['admin','general'],                                                     '관리'),
+    ('marketplace_ship','송장관리',     'bi-truck',              '/shipping',            ['admin','general'],                                                     '관리'),
     ('marketplace_val','교차검증',      'bi-check2-circle',      '/marketplace/validation', ['admin','manager','sales'],                                          '관리'),
     ('marketplace_sales','온라인 플랫폼 정산', 'bi-graph-up',    '/marketplace/sales',   ['admin','general'],                                                     '총무/경리'),
 ]

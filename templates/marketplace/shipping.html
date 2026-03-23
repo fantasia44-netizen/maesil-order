@@ -205,7 +205,7 @@
                             <p class="text-muted" style="font-size:0.8rem;">마켓 관리자에서 수동 업로드할 엑셀</p>
                             <div class="d-flex gap-2 flex-wrap">
                                 {% for ch in active_channels %}
-                                <a href="/marketplace/api/download-invoice-file/{{ ch }}"
+                                <a href="/shipping/api/download-invoice-file/{{ ch }}"
                                    class="btn btn-outline-secondary btn-sm" target="_blank">
                                     <i class="bi bi-file-earmark-arrow-down"></i> {{ channel_labels.get(ch, ch) }}
                                 </a>
@@ -282,7 +282,7 @@ function showResult(id, html, type='success') {
 
 // ── 배송상태 요약 로드 ──
 function loadStatusSummary() {
-    fetch('/marketplace/api/delivery-status-summary', {headers:{'Accept':'application/json'}})
+    fetch('/shipping/api/delivery-status-summary', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(data => {
         const div = document.getElementById('statusSummary');
@@ -311,7 +311,7 @@ function loadStatusSummary() {
 
 // ── 대기 현황 로드 ──
 function loadPendingInvoices() {
-    fetch('/marketplace/api/pending-invoices', {headers:{'Accept':'application/json'}})
+    fetch('/shipping/api/pending-invoices', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(data => {
         const div = document.getElementById('pendingInvoices');
@@ -373,7 +373,7 @@ function generateShipping() {
 
 // ── STEP 2a: CJ API 자동생성 ──
 function loadNoInvoiceCount() {
-    fetch('/marketplace/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
+    fetch('/shipping/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(data => {
         const badge = document.getElementById('noInvoiceCount');
@@ -399,7 +399,7 @@ function cjGenerateInvoices() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> CJ 송장 생성 중...';
     log('CJ 송장 자동생성 시작...', 'info');
 
-    fetch('/marketplace/api/cj-generate-invoices', {
+    fetch('/shipping/api/cj-generate-invoices', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
@@ -440,7 +440,7 @@ function cjCheckBooking() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 확인 중...';
     log('CJ 접수 확인 중...', 'info');
 
-    fetch('/marketplace/api/cj-check-booking', {
+    fetch('/shipping/api/cj-check-booking', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
     })
@@ -470,7 +470,7 @@ function uploadCJ() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 매칭 중...';
     log('CJ 송장파일 업로드 시작...', 'info');
 
-    fetch('/marketplace/api/cj-tracking-upload', {
+    fetch('/shipping/api/cj-tracking-upload', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
@@ -510,7 +510,7 @@ function pushInvoices() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송 중...';
     log(`${ch} 송장 전송 시작...`, 'info');
 
-    fetch('/marketplace/push-invoices', {
+    fetch('/shipping/push-invoices', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,
@@ -550,7 +550,7 @@ function syncShippingStatus() {
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 동기화 중...';
     log('배송상태 동기화 시작...', 'info');
 
-    fetch('/marketplace/api/sync-shipping-status', {
+    fetch('/shipping/api/sync-shipping-status', {
         method: 'POST',
         headers: {'X-CSRFToken': CSRF},
         body: fd,

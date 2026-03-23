@@ -1372,7 +1372,7 @@ function apiRollback(runId, channel) {
 // ③ CJ 송장 등록
 // ================================================================
 function loadCjStatus() {
-    fetch('/marketplace/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
+    fetch('/shipping/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(d => {
         const b = document.getElementById('cjNoInvoiceBadge');
@@ -1380,7 +1380,7 @@ function loadCjStatus() {
         b.className = d.total > 0 ? 'badge bg-danger ms-1' : 'badge bg-success ms-1';
     }).catch(() => {});
 
-    fetch('/marketplace/api/pending-invoices', {headers:{'Accept':'application/json'}})
+    fetch('/shipping/api/pending-invoices', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(d => {
         const b = document.getElementById('pushPendingBadge');
@@ -1410,7 +1410,7 @@ function cjAutoGenerate() {
     fd.append('channel', ch === 'all' ? '' : ch);
     fd.append('limit', '100');
 
-    fetch('/marketplace/api/cj-generate-invoices', {
+    fetch('/shipping/api/cj-generate-invoices', {
         method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
     })
     .then(r => r.json())
@@ -1443,7 +1443,7 @@ function cjUploadExcel() {
     fd.append('csrf_token', CSRF);
     fd.append('file', fileInput.files[0]);
 
-    fetch('/marketplace/api/cj-tracking-upload', {
+    fetch('/shipping/api/cj-tracking-upload', {
         method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
     })
     .then(r => r.json())
@@ -1476,7 +1476,7 @@ function pushToMarket() {
     fd.append('csrf_token', CSRF);
     fd.append('channel', ch);
 
-    fetch('/marketplace/push-invoices', {
+    fetch('/shipping/push-invoices', {
         method: 'POST', headers: {'X-CSRFToken': CSRF}, body: fd
     })
     .then(r => r.json())
@@ -1500,7 +1500,7 @@ function pushToMarket() {
 
 function downloadMarketFile() {
     const ch = document.getElementById('pushChannel').value;
-    window.open(`/marketplace/api/download-invoice-file/${encodeURIComponent(ch)}`, '_blank');
+    window.open(`/shipping/api/download-invoice-file/${encodeURIComponent(ch)}`, '_blank');
 }
 
 // API연동 탭 열릴 때 상태 로드
