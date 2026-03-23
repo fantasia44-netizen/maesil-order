@@ -78,13 +78,17 @@ def index():
 @role_required('admin', 'general')
 def shipping():
     """송장관리 페이지 — 일괄배송 파일생성, CJ 업로드, 마켓 송장등록, 배송추적."""
+    from config import Config
+
     db = get_db()
     mgr = g.marketplace
 
     active_channels = mgr.get_active_channels()
+    channel_labels = getattr(Config, 'CHANNEL_LABELS', {})
 
     return render_template('marketplace/shipping.html',
                            active_channels=active_channels,
+                           channel_labels=channel_labels,
                            today=today_kst())
 
 
