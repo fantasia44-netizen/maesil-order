@@ -2,7 +2,20 @@
 st11_client.py — 11번가 셀러 API 클라이언트 (스켈레톤).
 
 API 문서: https://openapi.11st.co.kr
-인증: API Key (셀러 오픈API 신청 후 발급)
+참고: https://skopenapi.readme.io/reference
+인증: API Key → Header 'openapikey: {key}'
+프로토콜: XML over HTTP (JSON 미지원 가능성)
+
+API 키 발급:
+  1. 11번가 셀러오피스 로그인 (https://soffice.11st.co.kr)
+  2. 하단 "Open API" 클릭 → https://openapi.11st.co.kr/openapi/OpenApiFrontMain.tmall
+  3. 담당업무: "개발", 사용용도: "주문 통합관리" → 즉시 발급
+  ※ IP 화이트리스트 등록 필요할 수 있음
+
+주요 API:
+  - 주문조회: OrderService.getOrderList (startDate, endDate, orderStatus)
+  - 송장등록: OrderService.setDeliveryInfo (ordNo, dlvCmpCd=01(CJ), invoiceNo)
+  - 주문상태: 결제완료(202), 배송준비중(301), 배송중(302), 배송완료(303)
 """
 import logging
 from .base_client import MarketplaceBaseClient

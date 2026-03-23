@@ -1,9 +1,23 @@
 """
-esm_client.py — 옥션/G마켓 ESM 2.0 API 클라이언트 (스켈레톤).
+esm_client.py — 옥션/G마켓 ESM Trading API 클라이언트 (스켈레톤).
 
-API 문서: https://openapi.gmarket.co.kr (ESM 2.0)
-인증: OAuth2 (client_id + client_secret → access_token)
-옥션과 G마켓 통합 API (ESM = eBay Seller Manager)
+API 포털: https://etapi.ebaykorea.com/ (또는 https://etapi.gmarket.com)
+문의: etapihelp@gmail.com
+Base URL: https://sa2.esmplus.com
+인증: JWT (HS256) — ESM+ Master ID + site/seller ID → Bearer 토큰
+
+API 키 발급:
+  1. G마켓/옥션 셀러 회원가입
+  2. ESM Plus 로그인 → Master ID 생성
+  3. ESM Trading API 포털에서 키 발급
+  ※ 주소/출하지/배송유형 최초 1회 설정 필요
+
+주요 API:
+  - 주문확인: POST /shipping/v1/Order/OrderCheck/{OrderNo}
+  - 발송처리: POST /shipping/v1/Delivery/ShippingInfo
+  - 상품조회: POST /item/v1/goods/search
+  ※ 주문조회 제한: 5초에 1회 (셀러ID 기준, 2025.04.23~)
+  ※ site_id: G9=G마켓, IAC=옥션
 """
 import logging
 from .base_client import MarketplaceBaseClient

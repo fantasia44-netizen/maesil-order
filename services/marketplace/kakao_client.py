@@ -1,8 +1,22 @@
 """
-kakao_client.py — 카카오 톡스토어 API 클라이언트 (스켈레톤).
+kakao_client.py — 카카오 톡스토어(카카오쇼핑) API 클라이언트 (스켈레톤).
 
-API 문서: https://developers.kakao.com/docs/latest/ko/talk-store/common
-인증: REST API Key + Admin Key (카카오 비즈니스 등록)
+API 문서: https://shopping-developers.kakao.com
+인증: Kakao OAuth (연동대행사 계정 + 판매자 계정 = 2개 필요)
+
+API 연동 신청:
+  1. https://shopping-developers.kakao.com 에서 연동 검토 요청서 제출
+  2. 심사 후 개별 메일 회신 (선별 심사 — 모든 판매자에 제공하지 않음)
+  3. 카카오쇼핑 API 연동 계약 체결
+  4. Kakao Developers 앱 등록 → 연동
+  ※ 판매자센터 > 판매채널 정보 > API 인증키 확인
+
+주요 API:
+  - 주문조회: GET /v2/shopping/orders/paidAt (v1은 2025.09.30 종료)
+    ※ 최대 1일(24시간) 범위, 100건/요청
+  - 송장등록: POST /v1/shopping/orders/deliveries/invoices (최대 100건, 비동기)
+  - 택배사코드: GET /v1/shopping/deliveries/companies
+  - 주문상태: ShippingWaiting, ShippingProgress, ShippingComplete
 """
 import logging
 from .base_client import MarketplaceBaseClient
