@@ -387,11 +387,23 @@ async function handleBarcodeScan(barcode) {
         // ── IDLE: 송장 바코드 → 조회 + 즉시 녹화 시작 ──
         await lookupAndStartRecording(barcode);
     } else if (state === State.RECORDING) {
-        // ── RECORDING: 제품 바코드 or 새 송장 ──
+        // ── RECORDING: 제품 바코드 or 새 송장 or 같은 송장(종료) ──
+
+        // 같은 송장번호 다시 스캔 → 현재 작업 종료 (다음 작업 없음)
+        const cleanBC = barcode.replace(/-/g, '');
+        const currentClean = (currentBarcode || '').replace(/-/g, '');
+        if (cleanBC === currentClean) {
+            playBeep(800, 200);
+            showToast('같은 송장 스캔 → 작업 종료', 'info');
+            speak('작업 종료');
+            pendingNextBarcode = null;
+            await stopRecording();
+            return;
+        }
+
         const matched = tryMatchProductBarcode(barcode);
         if (!matched) {
-            // 송장번호 패턴인지 판별 (CJ: 10-12자리 숫자 또는 하이픈 포함)
-            const cleanBC = barcode.replace(/-/g, '');
+            // 송장번호 패턴인지 판별 (CJ: 10-13자리 숫자)
             const looksLikeInvoice = /^\d{10,13}$/.test(cleanBC) && !productItems.some(p => p.barcode === barcode);
             // 제품 바코드가 하나라도 등록돼 있으면 → 미매칭 = 제품 바코드 오류
             const hasAnyProductBarcode = productItems.some(p => p.barcode);
