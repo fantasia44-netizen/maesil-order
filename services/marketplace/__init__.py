@@ -10,15 +10,22 @@ import logging
 from .naver_client import NaverCommerceClient
 from .coupang_client import CoupangWingClient
 from .cafe24_client import Cafe24Client
+from .st11_client import St11Client
+from .esm_client import EsmClient
+from .kakao_client import KakaoClient
 from services.channel_config import get_platform
 
 logger = logging.getLogger(__name__)
 
 # 플랫폼 → 클라이언트 클래스 매핑 (채널명 하드코딩 제거)
+# API 키 등록하면 자동으로 활성화됨
 _PLATFORM_CLIENT_MAP = {
     'naver':    NaverCommerceClient,
     'coupang':  CoupangWingClient,
     'cafe24':   Cafe24Client,
+    '11st':     St11Client,
+    'auction':  EsmClient,       # 옥션/G마켓 통합 (ESM)
+    'kakao':    KakaoClient,
 }
 
 
