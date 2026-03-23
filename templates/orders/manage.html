@@ -212,19 +212,21 @@
 
         <hr class="my-3">
 
-        <!-- ③ CJ 송장 등록 -->
-        <h6 class="small fw-bold mb-2"><i class="bi bi-truck"></i> ③ CJ 송장 등록하기
-            <span id="cjNoInvoiceBadge" class="badge bg-secondary ms-1">-</span>
-        </h6>
-        <div class="d-flex gap-2 mb-2 flex-wrap">
+        <!-- ③ CJ 택배 연동 -->
+        <h6 class="small fw-bold mb-2"><i class="bi bi-truck"></i> ③ CJ 택배 송장</h6>
+        <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <span class="badge bg-info text-dark">방법 A (자동)</span>
             <button class="btn btn-sm btn-warning" onclick="cjAutoGenerate()" id="btnCjAuto">
-                <i class="bi bi-lightning"></i> CJ API 자동생성
+                <i class="bi bi-lightning"></i> CJ API 예약접수 + 운송장 발번
             </button>
-            <span class="text-muted small align-self-center">또는</span>
+        </div>
+        <div class="d-flex gap-2 mb-2 flex-wrap align-items-center">
+            <span class="badge bg-secondary">방법 B (수동)</span>
+            <span class="text-muted small">② 엑셀 CJ에 전달 → CJ 결과파일 받기 →</span>
             <div class="d-flex gap-1 align-items-center">
                 <input type="file" id="cjFile" class="form-control form-control-sm" accept=".xlsx,.xls" style="width:200px;">
                 <button class="btn btn-sm btn-outline-warning" onclick="cjUploadExcel()" id="btnCjUpload">
-                    <i class="bi bi-upload"></i> CJ 엑셀 매칭
+                    <i class="bi bi-upload"></i> CJ 운송장 매칭
                 </button>
             </div>
         </div>
@@ -1372,14 +1374,6 @@ function apiRollback(runId, channel) {
 // ③ CJ 송장 등록
 // ================================================================
 function loadCjStatus() {
-    fetch('/shipping/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
-    .then(r => r.json())
-    .then(d => {
-        const b = document.getElementById('cjNoInvoiceBadge');
-        b.textContent = `미배정 ${d.total||0}건`;
-        b.className = d.total > 0 ? 'badge bg-danger ms-1' : 'badge bg-success ms-1';
-    }).catch(() => {});
-
     fetch('/shipping/api/pending-invoices', {headers:{'Accept':'application/json'}})
     .then(r => r.json())
     .then(d => {
