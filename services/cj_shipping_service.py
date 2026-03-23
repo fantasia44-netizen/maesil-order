@@ -67,23 +67,47 @@ def _get_cj_client(cust_id_key='A'):
     return client
 
 
-def _get_cust_key_for_order(order: dict) -> str:
-    """주문의 line_code를 보고 CJ 고객번호 키 결정.
+def _split_order_by_cust_key(order: dict) -> list:
+    """주문을 line_code 기반으로 A/B로 분리.
 
-    line_code 4+ (외부송장) → 'A' (넥스원프레시)
-    line_code 0~3 (1단/2단/3단/큐브) → 'B' (넥스원프레시아이스)
+    - line_code 5 (외부) → 'A' (넥스원프레시)
+    - line_code 0~4     → 'B' (넥스원프레시아이스)
+    - 혼합 주문이면 A, B 두 건으로 분리 (각각 송장 생성)
+
+    Returns:
+        [{'cust_key': 'A'|'B', 'order': {...}, 'products': [...]}]
     """
     products = order.get('products', [])
     if not products:
-        return 'B'  # 기본: 넥스원 출고
+        return [{'cust_key': 'B', 'order': order, 'products': products}]
 
-    # 주문 내 모든 상품의 line_code 확인
-    line_codes = [p.get('line_code', 0) for p in products]
+    products_a = []  # 외부 (line_code >= 5)
+    products_b = []  # 넥스원 (line_code 0~4)
 
-    # 하나라도 외부(4+)면 A, 아니면 B
-    has_external = any(lc is not None and int(lc) >= EXTERNAL_LINE_CODE for lc in line_codes if lc)
+    for p in products:
+        lc = p.get('line_code')
+        try:
+            lc_int = int(lc) if lc is not None else 0
+        except (ValueError, TypeError):
+            lc_int = 0
 
-    return 'A' if has_external else 'B'
+        if lc_int >= EXTERNAL_LINE_CODE:
+            products_a.append(p)
+        else:
+            products_b.append(p)
+
+    result = []
+    if products_b:
+        order_b = {**order, 'products': products_b}
+        result.append({'cust_key': 'B', 'order': order_b, 'products': products_b})
+    if products_a:
+        order_a = {**order, 'products': products_a}
+        result.append({'cust_key': 'A', 'order': order_a, 'products': products_a})
+
+    if not result:
+        result.append({'cust_key': 'B', 'order': order, 'products': products})
+
+    return result
 
 
 def query_orders_without_invoice(db, channel=None, date_from=None, date_to=None, limit=500):
@@ -170,91 +194,93 @@ def generate_cj_invoices(db, orders: list, sender: dict = None):
     db_updates = []
 
     for order in orders:
-        try:
-            # 0) 주문 line_code로 CJ 고객번호 분기 (A: 외부 / B: 넥스원)
-            cust_key = _get_cust_key_for_order(order)
-            client = _get_cj_client(cust_key)
+        # 주문을 A/B로 분리 (혼합 주문이면 2건 생성)
+        splits = _split_order_by_cust_key(order)
 
-            # 1) 운송장 채번
-            invoice_no = client.generate_invoice_no()
+        for split in splits:
+            cust_key = split['cust_key']
+            split_products = split['products']
 
-            # 2) 주소 파싱 (주소 + 상세주소 분리)
-            addr_parts = _split_address(order.get('address', ''))
+            try:
+                client = _get_cj_client(cust_key)
 
-            # 우편번호 없으면 CJ 주소정제 API로 보완
-            if not addr_parts['zipcode']:
-                try:
-                    refine = client.refine_address(order.get('address', ''))
-                    if refine.get('ok'):
-                        # 주소정제에서 우편번호는 안 주지만, 최소한 빈값 방지
-                        addr_parts['zipcode'] = '00000'
-                except Exception:
-                    addr_parts['zipcode'] = '00000'
+                # 1) 운송장 채번
+                invoice_no = client.generate_invoice_no()
 
-            # 3) 상품 목록
-            items = [{'product_name': p['product_name'], 'qty': p['qty']}
-                     for p in order.get('products', [])]
-            if not items:
-                items = [{'product_name': '이유식', 'qty': 1}]
+                # 2) 주소 파싱
+                addr_parts = _split_address(order.get('address', ''))
+                if not addr_parts['zipcode']:
+                    try:
+                        client.refine_address(order.get('address', ''))
+                    except Exception:
+                        pass
+                    addr_parts['zipcode'] = addr_parts['zipcode'] or '00000'
 
-            # 합포장 상품명 (배송메모에 포함)
-            product_summary = ', '.join(
-                f"{p['product_name']}x{p['qty']}" for p in items[:5]
-            )
+                # 3) 상품 목록 (분리된 것만)
+                items = [{'product_name': p['product_name'], 'qty': p['qty']}
+                         for p in split_products]
+                if not items:
+                    items = [{'product_name': '이유식', 'qty': 1}]
 
-            # 4) 예약접수
-            result = client.register_shipment(
-                sender=sender,
-                receiver={
-                    'name': order.get('name', ''),
-                    'phone': order.get('phone', ''),
-                    'zipcode': addr_parts['zipcode'],
-                    'address': addr_parts['address'],
-                    'detail_address': addr_parts['detail_address'],
-                },
-                items=items,
-                invoice_no=invoice_no,
-                order_no=order['order_no'],
-                memo=order.get('memo', '') or product_summary,
-            )
+                product_summary = ', '.join(
+                    f"{p['product_name']}x{p['qty']}" for p in items[:5]
+                )
 
-            if result.get('ok'):
-                success += 1
-                db_updates.append({
-                    'channel': order['channel'],
-                    'order_no': order['order_no'],
-                    'invoice_no': invoice_no,
-                    'courier': 'CJ대한통운',
-                })
-                results.append({
-                    'order_no': order['order_no'],
-                    'name': order.get('name', ''),
-                    'invoice_no': invoice_no,
-                    'cj_account': cust_key,  # A: 프레시(외부) / B: 아이스(넥스원)
-                    'ok': True,
-                })
-            else:
+                # 4) 예약접수
+                suffix = f'_{cust_key}' if len(splits) > 1 else ''
+                result = client.register_shipment(
+                    sender=sender,
+                    receiver={
+                        'name': order.get('name', ''),
+                        'phone': order.get('phone', ''),
+                        'zipcode': addr_parts['zipcode'],
+                        'address': addr_parts['address'],
+                        'detail_address': addr_parts['detail_address'],
+                    },
+                    items=items,
+                    invoice_no=invoice_no,
+                    order_no=f"{order['order_no']}{suffix}",
+                    memo=order.get('memo', '') or product_summary,
+                )
+
+                acct_label = 'A(프레시/외부)' if cust_key == 'A' else 'B(아이스/넥스원)'
+
+                if result.get('ok'):
+                    success += 1
+                    db_updates.append({
+                        'channel': order['channel'],
+                        'order_no': order['order_no'],
+                        'invoice_no': invoice_no,
+                        'courier': 'CJ대한통운',
+                    })
+                    results.append({
+                        'order_no': order['order_no'],
+                        'name': order.get('name', ''),
+                        'invoice_no': invoice_no,
+                        'cj_account': acct_label,
+                        'ok': True,
+                    })
+                else:
+                    failed += 1
+                    results.append({
+                        'order_no': order['order_no'],
+                        'name': order.get('name', ''),
+                        'invoice_no': invoice_no,
+                        'cj_account': acct_label,
+                        'ok': False,
+                        'error': result.get('error', ''),
+                    })
+
+                time.sleep(0.3)
+
+            except Exception as e:
                 failed += 1
                 results.append({
                     'order_no': order['order_no'],
-                    'name': order.get('name', ''),
-                    'invoice_no': invoice_no,
-                    'cj_account': cust_key,
                     'ok': False,
-                    'error': result.get('error', ''),
+                    'error': str(e),
                 })
-
-            # CJ rate limit 대비
-            time.sleep(0.3)
-
-        except Exception as e:
-            failed += 1
-            results.append({
-                'order_no': order['order_no'],
-                'ok': False,
-                'error': str(e),
-            })
-            logger.error(f'[CJShipping] {order["order_no"]} 처리 오류: {e}')
+                logger.error(f'[CJShipping] {order["order_no"]} 처리 오류: {e}')
 
     # 5) DB 일괄 업데이트 (성공 건)
     if db_updates:
