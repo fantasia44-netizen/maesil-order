@@ -210,6 +210,12 @@ class CJCourierClient:
         s_tel = self._split_phone(sender.get('phone', ''))
         r_tel = self._split_phone(receiver.get('phone', ''))
 
+        # NOT NULL 필드 빈값 방어
+        for tel in [s_tel, r_tel]:
+            for i in range(3):
+                if not tel[i]:
+                    tel[i] = '0000' if i > 0 else '010'
+
         today = datetime.now().strftime('%Y%m%d')
         cust_use_no = order_no or f'ORD_{today}_{random.randint(10000,99999)}'
         mpck_key = f'{today}_{self.cust_id}_{cust_use_no}'

@@ -132,6 +132,16 @@ def generate_cj_invoices(db, orders: list, sender: dict = None):
             # 2) 주소 파싱 (주소 + 상세주소 분리)
             addr_parts = _split_address(order.get('address', ''))
 
+            # 우편번호 없으면 CJ 주소정제 API로 보완
+            if not addr_parts['zipcode']:
+                try:
+                    refine = client.refine_address(order.get('address', ''))
+                    if refine.get('ok'):
+                        # 주소정제에서 우편번호는 안 주지만, 최소한 빈값 방지
+                        addr_parts['zipcode'] = '00000'
+                except Exception:
+                    addr_parts['zipcode'] = '00000'
+
             # 3) 상품 목록
             items = [{'product_name': p['product_name'], 'qty': p['qty']}
                      for p in order.get('products', [])]
