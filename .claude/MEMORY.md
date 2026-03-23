@@ -214,8 +214,27 @@
 - 보고서: `doc/security_fix_20260322.md`
 - **미착수**: API Key+HMAC 인증, Supabase RLS
 
+## 송장관리 시스템 (2026-03-23) — 14커밋, 9신규파일
+- **송장관리 페이지**: `/shipping/` (독립 블루프린트 `blueprints/shipping.py`)
+- **주문관리 > API연동 탭**: ①주문수집 → ②미리보기 → ③CJ예약접수 → ④마켓push
+- **CJ택배 API V3.9.3**: 토큰/채번/예약접수/추적/취소/주소정제 전체 구현
+  - 고객번호 A: 30494329 (넥스원프레시/외부, lc=5)
+  - 고객번호 B: B133030971 (넥스원프레시아이스, lc=0~4)
+  - 개발서버 테스트 완료, 운영 승인 대기 (`doc/CJ_API_운영승인요청서.docx`)
+  - `.env`: CJ_CUST_ID, CJ_CUST_ID_B, CJ_BIZ_REG_NUM, CJ_USE_PROD
+- **혼합주문 분리**: line_code 5(외부) + 0~4(넥스원) → A, B 각각 송장 생성
+- **마켓 송장등록**: 4채널 API push (네이버/쿠팡/카페24/해미애찬)
+  - 송장번호 하이픈 자동 제거, 네이버 이중조인(api_line_id)
+- **배송상태 추적**: `shipping_status_service.py` + `delivery_status` 컬럼
+- **마켓별 파일 다운로드**: 수동 업로드용 엑셀 생성
+- **신규 서비스**: cj_shipping_service, invoice_matching_service, shipping_status_service, marketplace_invoice_file_service
+- **채널 스켈레톤**: 11번가(st11_client), 옥션/G마켓(esm_client), 카카오(kakao_client) — API키 등록 시 활성화
+- **마스터 로드맵**: `doc/MASTER_ROADMAP.md`
+
 ## 설계 문서
-- `doc/축산물_MES_설계서.md` — 축산물 이력번호 API + MES 구현 계획
+- `doc/MASTER_ROADMAP.md` — 마스터 로드맵 (AutoTool→3PL→SaaS, 8주 계획)
+- `doc/CJ_API_운영승인요청서.docx` — CJ택배 운영 전환 요청서
+- `doc/축산물_MES_설계서.md` — 축산물 이력번호 API + MES 구현 계획 (후순위)
 - `3pl/doc/Phase3_과금엔진_설계서.md` — 과금 엔진 v2.0 (조건별 공식)
 - `3pl/doc/Phase4_현장화면분할_설계서.md` — 현장 5모드 분할 UI/UX
 - `3pl/docs/security_review_20260318.md` — 보안 리뷰 (P0: bcrypt/API인증/RLS)
