@@ -93,6 +93,26 @@ def api_collect():
                 results[ch] = ch_result
                 continue
 
+            # 1.5) api_orders 테이블에 원본 저장 (송장등록 시 매핑용)
+            try:
+                api_rows = []
+                for o in orders:
+                    api_rows.append({
+                        'channel': ch,
+                        'api_order_id': o.get('api_order_id', ''),
+                        'api_line_id': o.get('api_line_id', ''),
+                        'order_date': o.get('order_date', '')[:10] if o.get('order_date') else collection_date,
+                        'match_status': 'matched',
+                        'raw_data': o.get('raw_data', {}),
+                    })
+                if api_rows:
+                    api_result = db.upsert_api_orders_batch(api_rows)
+                    ch_result['api_orders_saved'] = api_result
+                    logger.info(f'[APICollect] {ch} api_orders 저장: {api_result}')
+            except Exception as api_err:
+                logger.error(f'[APICollect] {ch} api_orders 저장 실패: {api_err}', exc_info=True)
+                ch_result['api_orders_error'] = str(api_err)
+
             # 2) API raw_data → 엑셀 형식 DataFrame
             df = api_orders_to_excel_df(orders, ch)
             if df.empty:
@@ -286,6 +306,100 @@ def api_collect_download():
     zip_buf.seek(0)
     return send_file(zip_buf, mimetype='application/zip', as_attachment=True,
                      download_name=f'API송장_{ch_label}_{ts}.zip')
+
+
+@orders_api_bp.route('/api/generate-shipping-from-db', methods=['POST'])
+@role_required('admin', 'manager', 'general')
+def generate_shipping_from_db():
+    """DB 주문으로 일괄배송 파일(집계표+송장) 생성."""
+    from services.order_processor import OrderProcessor
+
+    db = get_db()
+    mgr = g.marketplace
+    channel = request.form.get('channel', 'all')
+    date_from = request.form.get('date_from', today_kst())
+    date_to = request.form.get('date_to', today_kst())
+
+    channels = [channel] if channel != 'all' else mgr.get_active_channels()
+    all_files = []
+    output_dir = tempfile.mkdtemp(prefix='shipping_db_')
+
+    for ch in channels:
+        try:
+            # DB에서 해당 기간 주문 조회
+            txs = db.query_order_transactions(
+                date_from=date_from, date_to=date_to,
+                channel=ch, limit=10000,
+            )
+            if not txs:
+                continue
+
+            # api_orders에서 raw_data 가져와서 엑셀 변환
+            api_rows = db.query_api_orders(
+                channel=ch, date_from=date_from, date_to=date_to,
+            )
+            if not api_rows:
+                continue
+
+            from services.api_order_converter import api_orders_to_excel_df
+            # api_rows를 fetch_orders 반환 형태로 변환
+            orders = []
+            for ar in api_rows:
+                orders.append({
+                    'api_order_id': ar.get('api_order_id', ''),
+                    'api_line_id': ar.get('api_line_id', ''),
+                    'order_date': ar.get('order_date', ''),
+                    'raw_data': ar.get('raw_data', {}),
+                })
+
+            df = api_orders_to_excel_df(orders, ch)
+            if df.empty:
+                continue
+
+            excel_buf = io.BytesIO()
+            df.to_excel(excel_buf, index=False, engine='openpyxl')
+            excel_buf.seek(0)
+            excel_buf.name = f'{ch}_orders.xlsx'
+
+            proc = OrderProcessor()
+            result = proc.run(
+                mode=ch,
+                order_file=excel_buf,
+                option_file=None,
+                invoice_file=None,
+                target_type='송장',
+                output_dir=output_dir,
+                db=db,
+                option_source='db',
+                save_to_db=False,
+                uploaded_by=f'{current_user.username}(DB)',
+            )
+
+            if result.get('success') and result.get('files'):
+                all_files.extend(result['files'])
+
+        except Exception as e:
+            logger.error(f'[GenShipping] {ch} 오류: {e}', exc_info=True)
+
+    if not all_files:
+        return jsonify({'error': '생성된 파일이 없습니다.'}), 400
+
+    ts = now_kst().strftime('%Y%m%d_%H%M%S')
+
+    if len(all_files) == 1:
+        fp = all_files[0]
+        mime = ('application/vnd.ms-excel' if fp.endswith('.xls')
+                else 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        return send_file(fp, mimetype=mime, as_attachment=True,
+                         download_name=os.path.basename(fp))
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for fp in all_files:
+            zf.write(fp, os.path.basename(fp))
+    zip_buf.seek(0)
+    return send_file(zip_buf, mimetype='application/zip', as_attachment=True,
+                     download_name=f'일괄배송_{ts}.zip')
 
 
 @orders_api_bp.route('/api/api-collect-rollback', methods=['POST'])

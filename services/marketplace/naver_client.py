@@ -412,6 +412,43 @@ class NaverCommerceClient(MarketplaceBaseClient):
             'raw_data': raw,
         }
 
+    # ── 주문 상태 조회 (배송 추적) ──
+
+    def fetch_order_statuses(self, order_ids: list) -> list:
+        """productOrderId 기반 주문 상태 배치 조회.
+
+        POST /external/v1/pay-order/seller/product-orders/query
+        최대 50건씩 배치.
+        """
+        if not self.config.get('access_token'):
+            return []
+
+        results = []
+        for i in range(0, len(order_ids), 50):
+            chunk = order_ids[i:i + 50]
+            try:
+                resp = self.session.post(
+                    f'{self.BASE_URL}/external/v1/pay-order/seller/'
+                    f'product-orders/query',
+                    headers=self._get_headers(),
+                    json={'productOrderIds': chunk},
+                    timeout=30,
+                )
+                if resp.status_code == 200:
+                    data = resp.json().get('data', [])
+                    for item in data:
+                        po = item.get('productOrder', {})
+                        results.append({
+                            'api_order_id': po.get('productOrderId', ''),
+                            'status_raw': po.get('productOrderStatus', ''),
+                        })
+                else:
+                    logger.warning(f'[네이버] 상태 조회 실패: {resp.status_code}')
+            except Exception as e:
+                logger.error(f'[네이버] 상태 조회 오류: {e}')
+
+        return results
+
     # ── 송장 등록 (발송처리) ──
 
     def register_invoice(self, orders: list) -> list:

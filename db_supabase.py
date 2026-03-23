@@ -2752,10 +2752,15 @@ class SupabaseDB(DBBase):
                 return []
 
             # 2. api_orders에서 매핑 정보 조회
+            # order_no는 채널마다 다른 키에 매핑됨:
+            #   쿠팡/자사몰: order_no = api_order_id
+            #   네이버: order_no = productOrderId = api_line_id (!)
             order_nos = list(set(s['order_no'] for s in ships))
             api_map = {}  # (channel, order_no) → [{api_order_id, api_line_id, raw_data}]
             for chunk_start in range(0, len(order_nos), 100):
                 chunk = order_nos[chunk_start:chunk_start + 100]
+
+                # 방법1: api_order_id로 조회 (쿠팡/자사몰)
                 aq = self.client.table("api_orders") \
                     .select("channel,api_order_id,api_line_id,raw_data") \
                     .in_("api_order_id", chunk)
@@ -2767,6 +2772,23 @@ class SupabaseDB(DBBase):
                     if key not in api_map:
                         api_map[key] = []
                     api_map[key].append(a)
+
+                # 방법2: api_line_id로 조회 (네이버 — order_no=productOrderId=api_line_id)
+                unmapped = [n for n in chunk if not any(
+                    (s['channel'], n) in api_map for s in ships if s['order_no'] == n)]
+                if unmapped:
+                    aq2 = self.client.table("api_orders") \
+                        .select("channel,api_order_id,api_line_id,raw_data") \
+                        .in_("api_line_id", unmapped)
+                    if channel:
+                        aq2 = aq2.eq("channel", channel)
+                    api_res2 = aq2.execute()
+                    for a in (api_res2.data or []):
+                        # 네이버: order_no = api_line_id이므로 그 키로 저장
+                        key = (a['channel'], a['api_line_id'])
+                        if key not in api_map:
+                            api_map[key] = []
+                        api_map[key].append(a)
 
             # 3. 조인 결과
             result = []
@@ -2820,6 +2842,130 @@ class SupabaseDB(DBBase):
             except Exception as e:
                 print(f"[DB] bulk_update_shipping_status error: {u} → {e}")
         return count
+
+    def query_shipped_orders_for_tracking(self, channel=None, limit=200):
+        """배송 추적 대상 조회: 발송완료 but 배송완료/구매확정 아닌 건.
+
+        order_shipping + api_orders 조인하여 api_order_id 포함.
+
+        Returns:
+            [{channel, order_no, api_order_id, delivery_status, shipping_status}]
+        """
+        try:
+            q = self.client.table("order_shipping") \
+                .select("channel,order_no,shipping_status,delivery_status")
+            q = q.eq("shipping_status", "발송")
+            if channel:
+                q = q.eq("channel", channel)
+
+            # 배송완료/구매확정이 아닌 건만
+            # Supabase에서 NOT IN은 직접 지원 안 되므로 조건 추가
+            # delivery_status IS NULL OR delivery_status NOT IN (...)
+            # → or_ 사용
+            q = q.or_("delivery_status.is.null,delivery_status.not.in.(배송완료,구매확정,취소,반품완료)")
+            ship_res = q.order("created_at", desc=True).limit(limit).execute()
+            ships = ship_res.data or []
+
+            if not ships:
+                return []
+
+            # api_orders에서 api_order_id 매핑
+            # 네이버: order_no = api_line_id, 쿠팡/자사몰: order_no = api_order_id
+            order_nos = list(set(s['order_no'] for s in ships))
+            api_map = {}  # (channel, order_no) → api row
+            for chunk_start in range(0, len(order_nos), 100):
+                chunk = order_nos[chunk_start:chunk_start + 100]
+                # api_order_id로 조회
+                aq = self.client.table("api_orders") \
+                    .select("channel,api_order_id,api_line_id") \
+                    .in_("api_order_id", chunk)
+                if channel:
+                    aq = aq.eq("channel", channel)
+                api_res = aq.execute()
+                for a in (api_res.data or []):
+                    api_map[(a['channel'], a['api_order_id'])] = a
+
+                # api_line_id로도 조회 (네이버)
+                unmapped = [n for n in chunk if not any(
+                    (s['channel'], n) in api_map for s in ships if s['order_no'] == n)]
+                if unmapped:
+                    aq2 = self.client.table("api_orders") \
+                        .select("channel,api_order_id,api_line_id") \
+                        .in_("api_line_id", unmapped)
+                    if channel:
+                        aq2 = aq2.eq("channel", channel)
+                    api_res2 = aq2.execute()
+                    for a in (api_res2.data or []):
+                        api_map[(a['channel'], a['api_line_id'])] = a
+
+            result = []
+            for s in ships:
+                ch = s['channel']
+                ono = s['order_no']
+                api_row = api_map.get((ch, ono))
+                # 네이버: 송장등록 시 productOrderId(=api_line_id) 필요
+                api_oid = ''
+                if api_row:
+                    api_oid = api_row.get('api_line_id') or api_row.get('api_order_id', '')
+                result.append({
+                    'channel': ch,
+                    'order_no': ono,
+                    'shipping_status': s.get('shipping_status', ''),
+                    'delivery_status': s.get('delivery_status'),
+                    'api_order_id': api_oid,
+                })
+            return result
+        except Exception as e:
+            print(f"[DB] query_shipped_orders_for_tracking error: {e}")
+            return []
+
+    def bulk_update_delivery_status(self, updates):
+        """배송 상태 일괄 갱신.
+
+        Args:
+            updates: [{channel, order_no, delivery_status, delivery_status_raw,
+                       delivery_status_updated_at}]
+        Returns:
+            int: 업데이트 건수
+        """
+        count = 0
+        for u in updates:
+            try:
+                self.client.table("order_shipping").update({
+                    "delivery_status": u['delivery_status'],
+                    "delivery_status_raw": u.get('delivery_status_raw', ''),
+                    "delivery_status_updated_at": u.get('delivery_status_updated_at'),
+                }).eq("channel", u['channel']).eq("order_no", u['order_no']).execute()
+                count += 1
+            except Exception as e:
+                print(f"[DB] bulk_update_delivery_status error: {u} → {e}")
+        return count
+
+    def query_delivery_status_summary(self, channel=None):
+        """배송 상태별 건수 집계.
+
+        Returns:
+            {channel: {status: count, ...}, ...}
+        """
+        try:
+            q = self.client.table("order_shipping") \
+                .select("channel, delivery_status, shipping_status")
+            q = q.or_("shipping_status.eq.대기,shipping_status.eq.발송")
+            if channel:
+                q = q.eq("channel", channel)
+            res = q.limit(10000).execute()
+
+            summary = {}
+            for r in (res.data or []):
+                ch = r['channel']
+                ds = r.get('delivery_status') or r.get('shipping_status') or '대기'
+                if ch not in summary:
+                    summary[ch] = {}
+                summary[ch][ds] = summary[ch].get(ds, 0) + 1
+            return summary
+        except Exception as e:
+            print(f"[DB] query_delivery_status_summary error: {e}")
+            return {}
 
     def _batch_query_orders_by_keys(self, order_keys, date_from=None, date_to=None,
                                       channel_filter=None, status=None, limit=200):

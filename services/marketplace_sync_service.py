@@ -492,12 +492,14 @@ def push_invoices(db, marketplace_mgr, channel, triggered_by='system',
         courier_code = courier_codes.get(code_key, 'CJGLS')
 
         # register_invoice 입력 데이터 구성
+        # 송장번호 하이픈 제거 (쿠팡 등 일부 마켓은 숫자만 허용)
         invoice_data = []
         for p in pushable:
+            inv_no = (p.get('invoice_no') or '').replace('-', '').strip()
             invoice_data.append({
                 'api_order_id': p['api_order_id'],
                 'api_line_id': p['api_line_id'],
-                'invoice_no': p['invoice_no'],
+                'invoice_no': inv_no,
                 'courier_code': courier_code,
                 'raw_data': p.get('raw_data', {}),
             })

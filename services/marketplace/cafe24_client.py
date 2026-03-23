@@ -433,6 +433,43 @@ class Cafe24Client(MarketplaceBaseClient):
                  'item_code': item.get('order_item_code')} if is_item else order),
         }
 
+    # ── 주문 상태 조회 (배송 추적) ──
+
+    def fetch_order_statuses(self, order_ids: list) -> list:
+        """Cafe24 주문 상태 배치 조회.
+
+        GET /api/v2/admin/orders 에서 order_id 필터로 조회.
+        """
+        if not self.is_ready:
+            return []
+
+        results = []
+        headers = self._get_headers()
+
+        # 개별 조회 (Cafe24는 배치 조회 미지원, 개별로)
+        for oid in order_ids:
+            try:
+                resp = self.session.get(
+                    f'{self._base_url}/api/v2/admin/orders/{oid}',
+                    headers=headers,
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    order = resp.json().get('order', {})
+                    # items에서 첫 번째 아이템의 주문상태
+                    items = order.get('items', [])
+                    status_raw = items[0].get('order_status', '') if items else ''
+                    results.append({
+                        'api_order_id': oid,
+                        'status_raw': status_raw,
+                    })
+                elif resp.status_code == 429:
+                    self._handle_rate_limit(resp)
+            except Exception as e:
+                logger.error(f'[Cafe24] 상태조회 오류 ({oid}): {e}')
+
+        return results
+
     # ── 송장 등록 (발송처리) ──
 
     def register_invoice(self, orders: list) -> list:

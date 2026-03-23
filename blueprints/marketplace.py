@@ -74,6 +74,20 @@ def index():
                            recent_logs=recent_logs)
 
 
+@marketplace_bp.route('/shipping')
+@role_required('admin', 'general')
+def shipping():
+    """송장관리 페이지 — 일괄배송 파일생성, CJ 업로드, 마켓 송장등록, 배송추적."""
+    db = get_db()
+    mgr = g.marketplace
+
+    active_channels = mgr.get_active_channels()
+
+    return render_template('marketplace/shipping.html',
+                           active_channels=active_channels,
+                           today=today_kst())
+
+
 @marketplace_bp.route('/config/<channel>', methods=['POST'])
 @role_required('admin')
 def save_config(channel):
@@ -267,8 +281,12 @@ def sync():
 @marketplace_bp.route('/api/cj-tracking-upload', methods=['POST'])
 @role_required('admin', 'general')
 def cj_tracking_upload():
-    """CJ 송장결과 파일 업로드 → 이름+전화뒷4자리로 매칭 → order_shipping 반영."""
-    import io, re
+    """CJ 송장결과 파일 업로드 → 이름+전화뒷4자리로 매칭 → order_shipping 반영.
+
+    invoice_matching_service를 사용하여 api_orders + order_shipping 이중 매칭.
+    """
+    from services.invoice_matching_service import parse_cj_excel, match_invoices_to_orders
+
     file = request.files.get('file')
     if not file:
         return jsonify({'ok': False, 'error': '파일이 없습니다.'})
@@ -278,131 +296,90 @@ def cj_tracking_upload():
         return jsonify({'ok': False, 'error': 'xlsx 또는 xls 파일만 지원합니다.'})
 
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(io.BytesIO(file.read()), read_only=False)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-        wb.close()
+        # 1) CJ 엑셀 파싱 → 매칭 맵 생성
+        cj_map = parse_cj_excel(file.read(), filename)
 
-        if len(rows) < 2:
-            return jsonify({'ok': False, 'error': '데이터가 없습니다.'})
-
-        headers = [str(c or '').replace('\r\n', '').replace(' ', '') for c in rows[0]]
-
-        # CJ 표준 형식: 컬럼 인덱스로 감지 (40컬럼)
-        # 또는 컬럼명으로 감지
-        col_invoice = col_name = col_phone = None
-
-        for i, h in enumerate(headers):
-            if '운송장번호' in h:
-                col_invoice = i
-            elif h == '받는분' or (h == '받는분' and col_name is None):
-                col_name = i
-            elif '받는분전화' in h or '받는분휴대' in h:
-                col_phone = i
-
-        # 컬럼명으로 못 찾으면 CJ 표준 인덱스 사용 (40컬럼)
-        if col_invoice is None and len(headers) >= 22:
-            col_invoice = 7   # 운송장번호
-        if col_name is None and len(headers) >= 22:
-            col_name = 20     # 받는분
-        if col_phone is None and len(headers) >= 22:
-            col_phone = 21    # 받는분전화번호
-
-        if col_invoice is None or col_name is None or col_phone is None:
-            return jsonify({'ok': False,
-                            'error': '필수 컬럼을 찾을 수 없습니다. '
-                                     '"운송장번호", "받는분", "받는분전화번호" 컬럼이 필요합니다.'})
-
-        # CJ 파일 파싱: {이름+전화뒷4자리 → 운송장번호}
-        cj_map = {}
-        for row in rows[1:]:
-            row_list = list(row)
-            inv_no = str(row_list[col_invoice] or '').strip()
-            name = str(row_list[col_name] or '').strip()
-            phone = re.sub(r'[^0-9]', '', str(row_list[col_phone] or ''))
-
-            if not inv_no or not name or not phone:
-                continue
-            key = f"{name}_{phone[-4:]}" if len(phone) >= 4 else f"{name}_{phone}"
-            cj_map[key] = inv_no
-
-        if not cj_map:
-            return jsonify({'ok': False, 'error': '유효한 송장 데이터가 없습니다.'})
-
-        # api_orders에서 수취인 정보 추출 → CJ 파일과 매칭
+        # 2) 주문 매칭 (api_orders + order_shipping 이중)
         db = get_db()
-        from datetime import date, timedelta
-        today = date.today().strftime('%Y-%m-%d')
-        week_ago = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
-
-        api_rows = db.query_api_orders(date_from=week_ago, date_to=today)
-
-        # raw_data에서 채널별 수취인 이름+전화번호 추출
-        collected = []
-        for row in api_rows:
-            ch = row.get('channel', '')
-            raw = row.get('raw_data') or {}
-            order_no = row.get('api_line_id') or row.get('api_order_id', '')
-            name = phone = ''
-
-            if is_naver(ch):
-                po = raw.get('productOrder', {})
-                sa = po.get('shippingAddress', {})
-                name = sa.get('name', '')
-                phone = sa.get('tel1', '') or sa.get('tel2', '')
-            elif ch == '쿠팡':
-                # 쿠팡 ordersheets: receiver.{name, safeNumber, receiverNumber}
-                rcv = raw.get('receiver', {})
-                name = rcv.get('name', '')
-                phone = rcv.get('safeNumber', '') or rcv.get('receiverNumber', '')
-            elif ch == '자사몰':
-                name = raw.get('shipping_name', '') or raw.get('buyer_name', '')
-                phone = raw.get('shipping_phone', '') or raw.get('buyer_cellphone', '')
-
-            if name and order_no:
-                collected.append({
-                    'channel': ch,
-                    'order_no': order_no,
-                    'name': name,
-                    'phone': re.sub(r'[^0-9]', '', str(phone)),
-                })
-
-        # 이름+전화뒷4자리로 매칭
-        updates = []
-        matched = 0
-        seen = set()
-        for item in collected:
-            key = f"{item['name']}_{item['phone'][-4:]}" if len(item['phone']) >= 4 else f"{item['name']}_{item['phone']}"
-            if key in cj_map and item['order_no'] not in seen:
-                updates.append({
-                    'channel': item['channel'],
-                    'order_no': item['order_no'],
-                    'invoice_no': cj_map[key],
-                    'courier': 'CJ대한통운',
-                })
-                matched += 1
-                seen.add(item['order_no'])
-
-        if not updates:
-            return jsonify({'ok': False,
-                            'error': f'매칭 건이 없습니다. CJ 파일 {len(cj_map)}건, '
-                                     f'수집된 주문 {len(collected)}건'})
-
-        success_count = db.bulk_update_shipping_invoices(updates)
+        result = match_invoices_to_orders(db, cj_map, date_range_days=14)
 
         _log_action(f'CJ 송장파일 업로드: {file.filename} — '
-                    f'매칭 {matched}건, DB반영 {success_count}건')
+                    f'매칭 {result["matched"]}건, DB반영 {result["updated"]}건')
 
         return jsonify({
-            'ok': True,
-            'total': len(cj_map),
-            'matched': matched,
-            'success': success_count,
+            'ok': result['matched'] > 0,
+            'total': result['total'],
+            'matched': result['matched'],
+            'success': result['updated'],
+            'skipped': result['skipped'],
+            'errors': result['errors'],
         })
+    except ValueError as e:
+        return jsonify({'ok': False, 'error': str(e)})
     except Exception as e:
         logger.error(f'[CJ Upload] 오류: {e}', exc_info=True)
         return jsonify({'ok': False, 'error': str(e)})
+
+
+# ── 운송상태 동기화 ──
+
+@marketplace_bp.route('/api/sync-shipping-status', methods=['POST'])
+@role_required('admin', 'manager', 'general')
+def sync_shipping_status_route():
+    """마켓 API에서 주문 상태 폴링 → DB 반영."""
+    try:
+        from services.shipping_status_service import sync_shipping_status
+        db = get_db()
+        mgr = g.marketplace
+        channel = request.form.get('channel') or None
+
+        result = sync_shipping_status(db, mgr, channel)
+        summary = result.get('summary', {})
+
+        _log_action(f'배송상태 동기화: {summary.get("total_updated", 0)}건 갱신')
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'[ShippingStatus] 동기화 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/delivery-status-summary', methods=['GET'])
+@role_required('admin', 'manager', 'general')
+def delivery_status_summary():
+    """채널별 배송상태 집계."""
+    try:
+        db = get_db()
+        channel = request.args.get('channel') or None
+        summary = db.query_delivery_status_summary(channel)
+        return jsonify({'summary': summary})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── 마켓별 송장등록 파일 다운로드 ──
+
+@marketplace_bp.route('/api/download-invoice-file/<channel>', methods=['GET'])
+@role_required('admin', 'general')
+def download_invoice_file(channel):
+    """마켓 관리자 수동 업로드용 송장등록 엑셀 파일 생성 + 다운로드."""
+    import os
+    from flask import send_file
+    try:
+        from services.marketplace_invoice_file_service import generate_marketplace_invoice_file
+        db = get_db()
+        filepath = generate_marketplace_invoice_file(db, channel)
+
+        return send_file(
+            filepath,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=os.path.basename(filepath),
+        )
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[InvoiceFile] 생성 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 @marketplace_bp.route('/push-invoices', methods=['POST'])

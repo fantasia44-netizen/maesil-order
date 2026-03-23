@@ -114,6 +114,18 @@ class MarketplaceBaseClient(ABC):
         ...
 
     @abstractmethod
+    def fetch_order_statuses(self, order_ids: list) -> list:
+        """주문 상태 조회 (배송 추적용).
+
+        Args:
+            order_ids: api_order_id 리스트 (productOrderId / orderId 등)
+
+        Returns:
+            [{api_order_id, status_raw, status}]
+        """
+        ...
+
+    @abstractmethod
     def _normalize_order(self, raw: dict) -> dict:
         """API 원본 응답 → api_orders 스키마 변환."""
         ...

@@ -351,6 +351,78 @@ class CoupangWingClient(MarketplaceBaseClient):
             'raw_data': raw,
         }
 
+    # ── 주문 상태 조회 (배송 추적) ──
+
+    def fetch_order_statuses(self, order_ids: list) -> list:
+        """쿠팡 주문 상태 조회 — 각 상태별로 ordersheets 조회 후 order_id 매칭.
+
+        쿠팡은 개별 주문 조회 API가 없으므로 상태별 목록에서 찾는 방식.
+        order_ids는 쿠팡의 orderId (shipmentBoxId 아님).
+        """
+        vendor_id = self.config.get('vendor_id', '')
+        if not vendor_id:
+            return []
+
+        id_set = set(str(oid) for oid in order_ids)
+        results = []
+        found = set()
+
+        # DEPARTURE ~ FINAL_DELIVERY만 조회 (발송 이후 상태)
+        tracking_statuses = ['DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY']
+
+        from services.tz_utils import days_ago_kst, today_kst
+        date_from = days_ago_kst(30)
+        date_to = today_kst()
+
+        for status in tracking_statuses:
+            path = f'/v2/providers/openapi/apis/api/v4/vendors/{vendor_id}/ordersheets'
+            next_token = ''
+
+            while True:
+                params = {
+                    'createdAtFrom': date_from,
+                    'createdAtTo': date_to,
+                    'maxPerPage': 50,
+                    'status': status,
+                }
+                if next_token:
+                    params['nextToken'] = next_token
+
+                url = self.BASE_URL + path
+                try:
+                    full_url = url + '?' + '&'.join(f'{k}={v}' for k, v in params.items())
+                    headers = self._generate_hmac_signature('GET', full_url.replace(self.BASE_URL, ''))
+                    resp = self.session.get(url, params=params, headers=headers, timeout=30)
+
+                    if resp.status_code != 200:
+                        break
+
+                    data = resp.json().get('data', [])
+                    if not data:
+                        break
+
+                    for order in data:
+                        oid = str(order.get('orderId', ''))
+                        if oid in id_set and oid not in found:
+                            results.append({
+                                'api_order_id': oid,
+                                'status_raw': status,
+                            })
+                            found.add(oid)
+
+                    next_token = resp.json().get('nextToken', '')
+                    if not next_token:
+                        break
+                except Exception as e:
+                    logger.error(f'[쿠팡] 상태조회 오류 ({status}): {e}')
+                    break
+
+            # 전부 찾았으면 조기 종료
+            if found >= id_set:
+                break
+
+        return results
+
     # ── 송장 등록 (발송처리) ──
 
     def register_invoice(self, orders: list) -> list:
@@ -375,7 +447,13 @@ class CoupangWingClient(MarketplaceBaseClient):
             raw = o.get('raw_data', {})
             shipment_box_id = raw.get('shipmentBoxId')
             order_id = raw.get('orderId')
+
+            # vendorItemId: 최상위에 없으면 orderItems[0]에서 추출
             vendor_item_id = raw.get('vendorItemId')
+            if not vendor_item_id:
+                items = raw.get('orderItems', [])
+                if items:
+                    vendor_item_id = items[0].get('vendorItemId')
 
             if not shipment_box_id or not order_id:
                 continue

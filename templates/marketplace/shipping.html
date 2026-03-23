@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block title %}송장관리 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+{% block page_title %}송장관리 (배송/발송){% endblock %}
+
+{% block extra_css %}
+<style>
+    .step-card { border-left: 4px solid #dee2e6; transition: border-color 0.3s; }
+    .step-card.step-ready { border-left-color: #27ae60; }
+    .step-card.step-pending { border-left-color: #f39c12; }
+    .step-card.step-disabled { border-left-color: #dee2e6; opacity: 0.7; }
+    .step-number { display: inline-flex; align-items: center; justify-content: center;
+                   width: 28px; height: 28px; border-radius: 50%; font-weight: 700; font-size: 0.85rem; }
+    .step-active { background: #27ae60; color: #fff; }
+    .step-wait { background: #f39c12; color: #fff; }
+    .step-off { background: #dee2e6; color: #999; }
+    .status-summary .badge { font-size: 0.82rem; padding: 0.4em 0.7em; }
+    .channel-select { min-width: 180px; }
+    #logArea { max-height: 300px; overflow-y: auto; font-size: 0.82rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <!-- 상단: 배송상태 요약 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-truck"></i> <strong>배송상태 현황</strong></span>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadStatusSummary()">
+                <i class="bi bi-arrow-repeat"></i> 새로고침
+            </button>
+        </div>
+        <div class="card-body status-summary" id="statusSummary">
+            <div class="text-muted text-center py-3">
+                <span class="spinner-border spinner-border-sm"></span> 로딩 중...
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 1: 일괄배송 파일 생성 -->
+    <div class="card mb-4 step-card" id="step1Card">
+        <div class="card-header">
+            <span class="step-number step-active">1</span>
+            <strong class="ms-2">일괄배송 파일 생성</strong>
+            <small class="text-muted ms-2">— DB 주문 → 집계표 + 송장 엑셀</small>
+        </div>
+        <div class="card-body">
+            <form id="genShippingForm" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select name="channel" class="form-select form-select-sm channel-select">
+                        <option value="all">전체</option>
+                        {% for ch in active_channels %}
+                        <option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">시작일</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">종료일</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="generateShipping()">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> 파일 생성 + 다운로드
+                    </button>
+                </div>
+            </form>
+            <div id="genResult" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- STEP 2: CJ 송장 업로드 -->
+    <div class="card mb-4 step-card" id="step2Card">
+        <div class="card-header">
+            <span class="step-number step-wait">2</span>
+            <strong class="ms-2">CJ 송장 업로드</strong>
+            <small class="text-muted ms-2">— CJ 엑셀에서 운송장번호 매칭</small>
+        </div>
+        <div class="card-body">
+            <form id="cjUploadForm" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">CJ 송장결과 파일</label>
+                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-warning btn-sm" onclick="uploadCJ()">
+                        <i class="bi bi-upload"></i> 업로드 + 매칭
+                    </button>
+                </div>
+            </form>
+            <div id="cjResult" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- STEP 3: 마켓 송장등록 -->
+    <div class="card mb-4 step-card" id="step3Card">
+        <div class="card-header">
+            <span class="step-number step-wait">3</span>
+            <strong class="ms-2">마켓 송장등록</strong>
+            <small class="text-muted ms-2">— 송장번호를 각 마켓에 등록 (발송처리)</small>
+        </div>
+        <div class="card-body">
+            <!-- 대기 현황 -->
+            <div id="pendingInvoices" class="mb-3">
+                <div class="text-muted">대기 현황 로딩 중...</div>
+            </div>
+
+            <div class="row g-3">
+                <!-- API 자동등록 -->
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6><i class="bi bi-cloud-upload"></i> API 자동등록</h6>
+                            <form id="pushForm" class="row g-2 align-items-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="col">
+                                    <select name="channel" class="form-select form-select-sm channel-select">
+                                        {% for ch in active_channels %}
+                                        <option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-success btn-sm" onclick="pushInvoices()">
+                                        <i class="bi bi-send"></i> 송장 전송
+                                    </button>
+                                </div>
+                            </form>
+                            <div id="pushResult" class="mt-2" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 파일 다운로드 (수동 업로드용) -->
+                <div class="col-md-6">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6><i class="bi bi-download"></i> 마켓별 파일 다운로드</h6>
+                            <p class="text-muted" style="font-size:0.8rem;">마켓 관리자에서 수동 업로드할 엑셀</p>
+                            <div class="d-flex gap-2 flex-wrap">
+                                {% for ch in active_channels %}
+                                <a href="/marketplace/api/download-invoice-file/{{ ch }}"
+                                   class="btn btn-outline-secondary btn-sm" target="_blank">
+                                    <i class="bi bi-file-earmark-arrow-down"></i> {{ channel_labels.get(ch, ch) }}
+                                </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 4: 배송상태 동기화 -->
+    <div class="card mb-4 step-card" id="step4Card">
+        <div class="card-header">
+            <span class="step-number step-off">4</span>
+            <strong class="ms-2">배송상태 동기화</strong>
+            <small class="text-muted ms-2">— 마켓 API에서 배송중/배송완료 상태 가져오기</small>
+        </div>
+        <div class="card-body">
+            <form id="syncStatusForm" class="row g-3 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-auto">
+                    <label class="form-label">채널</label>
+                    <select name="channel" class="form-select form-select-sm channel-select">
+                        <option value="">전체</option>
+                        {% for ch in active_channels %}
+                        <option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-info btn-sm" onclick="syncShippingStatus()">
+                        <i class="bi bi-arrow-repeat"></i> 상태 동기화
+                    </button>
+                </div>
+            </form>
+            <div id="syncStatusResult" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- 로그 영역 -->
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-terminal"></i> 실행 로그
+        </div>
+        <div class="card-body p-2">
+            <div id="logArea" class="bg-dark text-light p-2 rounded font-monospace">
+                <div class="text-muted">작업을 실행하면 로그가 여기에 표시됩니다.</div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token() }}';
+
+function log(msg, type='info') {
+    const area = document.getElementById('logArea');
+    const colors = {info:'#adb5bd', success:'#27ae60', error:'#e74c3c', warn:'#f39c12'};
+    const time = new Date().toLocaleTimeString('ko-KR');
+    area.innerHTML += `<div style="color:${colors[type]||colors.info}">[${time}] ${msg}</div>`;
+    area.scrollTop = area.scrollHeight;
+}
+
+function showResult(id, html, type='success') {
+    const el = document.getElementById(id);
+    el.style.display = 'block';
+    el.innerHTML = `<div class="alert alert-${type} py-2" style="font-size:0.85rem;">${html}</div>`;
+}
+
+// ── 배송상태 요약 로드 ──
+function loadStatusSummary() {
+    fetch('/marketplace/api/delivery-status-summary', {headers:{'Accept':'application/json'}})
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('statusSummary');
+        const summary = data.summary || {};
+        if (!Object.keys(summary).length) {
+            div.innerHTML = '<div class="text-muted text-center">데이터 없음</div>';
+            return;
+        }
+        let html = '<div class="row g-3">';
+        for (const [ch, statuses] of Object.entries(summary)) {
+            html += `<div class="col-md-3"><div class="card"><div class="card-body py-2">`;
+            html += `<strong style="font-size:0.85rem;">${ch}</strong><div class="mt-1">`;
+            const statusColors = {'대기':'secondary','발송대기':'secondary','발송완료':'primary',
+                                  '발송':'primary','배송중':'info','배송완료':'success','구매확정':'dark'};
+            for (const [st, cnt] of Object.entries(statuses)) {
+                const color = statusColors[st] || 'secondary';
+                html += `<span class="badge bg-${color} me-1">${st} ${cnt}</span>`;
+            }
+            html += '</div></div></div></div>';
+        }
+        html += '</div>';
+        div.innerHTML = html;
+    })
+    .catch(e => log('상태 요약 로드 실패: ' + e, 'error'));
+}
+
+// ── 대기 현황 로드 ──
+function loadPendingInvoices() {
+    fetch('/marketplace/api/pending-invoices', {headers:{'Accept':'application/json'}})
+    .then(r => r.json())
+    .then(data => {
+        const div = document.getElementById('pendingInvoices');
+        const counts = data.counts || data;
+        let total = 0;
+        let html = '<div class="d-flex gap-2 flex-wrap">';
+        for (const [ch, cnt] of Object.entries(counts)) {
+            total += cnt;
+            html += `<span class="badge bg-warning text-dark">${ch}: ${cnt}건</span>`;
+        }
+        html += `</div><div class="mt-1 text-muted" style="font-size:0.8rem;">송장있음 + 대기 = push 가능 총 ${total}건</div>`;
+        div.innerHTML = html;
+    })
+    .catch(e => { document.getElementById('pendingInvoices').innerHTML = '<span class="text-muted">조회 실패</span>'; });
+}
+
+// ── STEP 1: 일괄배송 파일 생성 ──
+function generateShipping() {
+    const form = document.getElementById('genShippingForm');
+    const fd = new FormData(form);
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 생성 중...';
+    log('일괄배송 파일 생성 시작...', 'info');
+
+    fetch('/orders/api/generate-shipping-from-db', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => {
+        if (r.ok && r.headers.get('content-type')?.includes('application/')) {
+            // 파일 다운로드
+            return r.blob().then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const cd = r.headers.get('content-disposition') || '';
+                const fn = cd.match(/filename=(.+)/)?.[1] || 'shipping.xlsx';
+                a.href = url; a.download = fn; a.click();
+                log('파일 다운로드 완료: ' + fn, 'success');
+                showResult('genResult', '파일 생성 + 다운로드 완료', 'success');
+            });
+        }
+        return r.json().then(data => {
+            if (data.error) throw new Error(data.error);
+            log(JSON.stringify(data), 'success');
+            showResult('genResult', `생성 완료: ${data.message || ''}`, 'success');
+        });
+    })
+    .catch(e => {
+        log('파일 생성 실패: ' + e, 'error');
+        showResult('genResult', e.message, 'danger');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-file-earmark-spreadsheet"></i> 파일 생성 + 다운로드';
+    });
+}
+
+// ── STEP 2: CJ 송장 업로드 ──
+function uploadCJ() {
+    const form = document.getElementById('cjUploadForm');
+    const fd = new FormData(form);
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 매칭 중...';
+    log('CJ 송장파일 업로드 시작...', 'info');
+
+    fetch('/marketplace/api/cj-tracking-upload', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            log(`CJ 매칭 완료: 전체 ${data.total}건, 매칭 ${data.matched}건, DB반영 ${data.success}건`, 'success');
+            showResult('cjResult', `매칭 ${data.matched}건 / 전체 ${data.total}건 → DB반영 ${data.success}건`, 'success');
+            loadPendingInvoices();
+            loadStatusSummary();
+        } else {
+            log('CJ 매칭 실패: ' + data.error, 'error');
+            showResult('cjResult', data.error, 'danger');
+        }
+    })
+    .catch(e => {
+        log('CJ 업로드 오류: ' + e, 'error');
+        showResult('cjResult', e.message, 'danger');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-upload"></i> 업로드 + 매칭';
+    });
+}
+
+// ── STEP 3: API 송장 전송 ──
+function pushInvoices() {
+    const form = document.getElementById('pushForm');
+    const fd = new FormData(form);
+    const ch = fd.get('channel');
+    const btn = event.target.closest('button');
+
+    if (!confirm(`${ch} 채널에 송장을 일괄 전송합니다. 계속하시겠습니까?`)) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송 중...';
+    log(`${ch} 송장 전송 시작...`, 'info');
+
+    fetch('/marketplace/push-invoices', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            log(`${ch} 전송 실패: ${data.error}`, 'error');
+            showResult('pushResult', data.error, 'danger');
+        } else {
+            const msg = `성공 ${data.success||0}건 / 실패 ${data.failed||0}건 (총 ${data.total||0}건)`;
+            log(`${ch} 전송 완료: ${msg}`, data.failed > 0 ? 'warn' : 'success');
+            showResult('pushResult', msg, data.failed > 0 ? 'warning' : 'success');
+            if (data.errors && data.errors.length) {
+                data.errors.slice(0, 5).forEach(e => log(`  에러: ${e}`, 'error'));
+            }
+            loadPendingInvoices();
+            loadStatusSummary();
+        }
+    })
+    .catch(e => {
+        log('전송 오류: ' + e, 'error');
+        showResult('pushResult', e.message, 'danger');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i> 송장 전송';
+    });
+}
+
+// ── STEP 4: 배송상태 동기화 ──
+function syncShippingStatus() {
+    const form = document.getElementById('syncStatusForm');
+    const fd = new FormData(form);
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 동기화 중...';
+    log('배송상태 동기화 시작...', 'info');
+
+    fetch('/marketplace/api/sync-shipping-status', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        const s = data.summary || {};
+        log(`동기화 완료: 추적 ${s.total_tracked||0}건, 갱신 ${s.total_updated||0}건`, 'success');
+        showResult('syncStatusResult', `추적 ${s.total_tracked||0}건 → 갱신 ${s.total_updated||0}건`, 'success');
+        if (data.channels) {
+            data.channels.forEach(c => {
+                if (c.errors && c.errors.length) {
+                    c.errors.forEach(e => log(`  ${c.channel}: ${e}`, 'warn'));
+                }
+            });
+        }
+        loadStatusSummary();
+    })
+    .catch(e => {
+        log('동기화 오류: ' + e, 'error');
+        showResult('syncStatusResult', e.message, 'danger');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat"></i> 상태 동기화';
+    });
+}
+
+// 페이지 로드 시
+document.addEventListener('DOMContentLoaded', () => {
+    loadStatusSummary();
+    loadPendingInvoices();
+});
+</script>
+{% endblock %}
