@@ -256,23 +256,23 @@ class CJCourierClient:
                 'CUST_MGMT_DLCM_CD': self.cust_id,
                 'DLV_DV': '01',          # 택배
 
-                # 보내는분
-                'SENDR_NM': sender.get('name', '배마마'),
+                # 보내는분 (NOT NULL 필드 빈값 방어)
+                'SENDR_NM': sender.get('name', '') or '배마마',
                 'SENDR_TEL_NO1': s_tel[0], 'SENDR_TEL_NO2': s_tel[1], 'SENDR_TEL_NO3': s_tel[2],
                 'SENDR_CELL_NO1': s_tel[0], 'SENDR_CELL_NO2': s_tel[1], 'SENDR_CELL_NO3': s_tel[2],
                 'SENDR_SAFE_NO1': '', 'SENDR_SAFE_NO2': '', 'SENDR_SAFE_NO3': '',
-                'SENDR_ZIP_NO': sender.get('zipcode', ''),
-                'SENDR_ADDR': sender.get('address', ''),
-                'SENDR_DETAIL_ADDR': sender.get('detail_address', ''),
+                'SENDR_ZIP_NO': sender.get('zipcode', '') or '00000',
+                'SENDR_ADDR': sender.get('address', '') or '주소',
+                'SENDR_DETAIL_ADDR': sender.get('detail_address', '') or '.',
 
-                # 받는분
-                'RCVR_NM': receiver.get('name', ''),
+                # 받는분 (NOT NULL 필드 빈값 방어)
+                'RCVR_NM': receiver.get('name', '') or '수취인',
                 'RCVR_TEL_NO1': r_tel[0], 'RCVR_TEL_NO2': r_tel[1], 'RCVR_TEL_NO3': r_tel[2],
                 'RCVR_CELL_NO1': r_tel[0], 'RCVR_CELL_NO2': r_tel[1], 'RCVR_CELL_NO3': r_tel[2],
                 'RCVR_SAFE_NO1': '', 'RCVR_SAFE_NO2': '', 'RCVR_SAFE_NO3': '',
-                'RCVR_ZIP_NO': receiver.get('zipcode', ''),
-                'RCVR_ADDR': receiver.get('address', ''),
-                'RCVR_DETAIL_ADDR': receiver.get('detail_address', ''),
+                'RCVR_ZIP_NO': receiver.get('zipcode', '') or '00000',
+                'RCVR_ADDR': receiver.get('address', '') or '주소',
+                'RCVR_DETAIL_ADDR': receiver.get('detail_address', '') or '.',
 
                 # 주문자 (=보내는분과 동일)
                 'ORDRR_NM': sender.get('name', '배마마'),
