@@ -453,6 +453,49 @@ def create_app(config_class=None):
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)
     os.makedirs(app.config.get('OUTPUT_FOLDER', 'output'), exist_ok=True)
 
+    # ── 헬스체크 + 모니터링 엔드포인트 ──
+    @app.route('/health')
+    def health_check():
+        """시스템 헬스체크 (인증 불필요)."""
+        from flask import jsonify, g
+        from services.health_monitor import check_health
+        try:
+            db = getattr(g, '_db', None) or getattr(app, 'db', None)
+            mgr = getattr(g, 'marketplace', None)
+            result = check_health(db, mgr)
+            status_code = 200 if result['status'] == 'ok' else 503
+            return jsonify(result), status_code
+        except Exception as e:
+            return jsonify({'status': 'down', 'error': str(e)}), 503
+
+    @app.route('/health/report')
+    def health_report():
+        """일일 모니터링 리포트 (관리자만)."""
+        from flask import jsonify
+        from flask_login import current_user
+        if not current_user.is_authenticated:
+            return jsonify({'error': '로그인 필요'}), 401
+        from services.health_monitor import get_daily_report
+        return jsonify(get_daily_report())
+
+    @app.route('/health/errors')
+    def health_errors():
+        """최근 에러 목록 (관리자만)."""
+        from flask import jsonify
+        from flask_login import current_user
+        if not current_user.is_authenticated:
+            return jsonify({'error': '로그인 필요'}), 401
+        from services.health_monitor import get_recent_errors
+        return jsonify({'errors': get_recent_errors()})
+
+    # ── 전역 에러 핸들러에 모니터링 연동 ──
+    @app.errorhandler(500)
+    def handle_500(e):
+        from services.health_monitor import record_error
+        from flask import request
+        record_error('500', str(e), f'{request.method} {request.path}')
+        return {'error': '서버 내부 오류'}, 500
+
     return app
 
 
