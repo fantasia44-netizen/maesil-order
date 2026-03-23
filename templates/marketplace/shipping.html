@@ -74,27 +74,87 @@
         </div>
     </div>
 
-    <!-- STEP 2: CJ 송장 업로드 -->
+    <!-- STEP 2: CJ 송장 자동생성 (API) -->
     <div class="card mb-4 step-card" id="step2Card">
-        <div class="card-header">
-            <span class="step-number step-wait">2</span>
-            <strong class="ms-2">CJ 송장 업로드</strong>
-            <small class="text-muted ms-2">— CJ 엑셀에서 운송장번호 매칭</small>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <span class="step-number step-wait">2</span>
+                <strong class="ms-2">CJ 송장 만들기</strong>
+                <small class="text-muted ms-2">— 미배정 주문 → CJ 운송장 채번 + 예약접수</small>
+            </div>
+            <span id="noInvoiceCount" class="badge bg-warning text-dark">로딩중...</span>
         </div>
         <div class="card-body">
-            <form id="cjUploadForm" class="row g-3 align-items-end">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <div class="col-auto">
-                    <label class="form-label">CJ 송장결과 파일</label>
-                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
+            <div class="row g-3">
+                <!-- 좌: CJ API 자동 -->
+                <div class="col-md-6">
+                    <div class="card border-primary">
+                        <div class="card-header bg-primary text-white py-2">
+                            <i class="bi bi-lightning"></i> <strong>CJ API 자동생성</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted mb-2" style="font-size:0.8rem;">
+                                송장 없는 주문 → CJ 운송장번호 자동 채번 + 예약접수
+                            </p>
+                            <form id="cjAutoForm" class="row g-2 align-items-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="col">
+                                    <select name="channel" class="form-select form-select-sm">
+                                        <option value="">전체</option>
+                                        {% for ch in active_channels %}
+                                        <option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <input type="number" name="limit" class="form-control form-control-sm"
+                                           value="100" min="1" max="500" style="width:80px;" title="최대 건수">
+                                </div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="cjGenerateInvoices()">
+                                        <i class="bi bi-send"></i> CJ 송장 보내기
+                                    </button>
+                                </div>
+                            </form>
+                            <div id="cjAutoResult" class="mt-2" style="display:none;"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-auto">
-                    <button type="button" class="btn btn-warning btn-sm" onclick="uploadCJ()">
-                        <i class="bi bi-upload"></i> 업로드 + 매칭
-                    </button>
+
+                <!-- 우: CJ 엑셀 수동 업로드 -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header py-2">
+                            <i class="bi bi-upload"></i> <strong>CJ 엑셀 업로드</strong> (수동)
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted mb-2" style="font-size:0.8rem;">
+                                CJ에서 받은 송장결과 엑셀 → 이름+전화로 자동 매칭
+                            </p>
+                            <form id="cjUploadForm" class="row g-2 align-items-end">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="col">
+                                    <input type="file" name="file" class="form-control form-control-sm" accept=".xlsx,.xls" required>
+                                </div>
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-warning btn-sm" onclick="uploadCJ()">
+                                        <i class="bi bi-upload"></i> 매칭
+                                    </button>
+                                </div>
+                            </form>
+                            <div id="cjResult" class="mt-2" style="display:none;"></div>
+                        </div>
+                    </div>
                 </div>
-            </form>
-            <div id="cjResult" class="mt-3" style="display:none;"></div>
+            </div>
+
+            <!-- CJ 접수 확인 -->
+            <div class="mt-3 d-flex gap-2 align-items-center">
+                <button class="btn btn-outline-info btn-sm" onclick="cjCheckBooking()">
+                    <i class="bi bi-check-circle"></i> CJ 접수 확인
+                </button>
+                <span id="cjBookingStatus" class="text-muted" style="font-size:0.82rem;"></span>
+            </div>
         </div>
     </div>
 
@@ -311,7 +371,97 @@ function generateShipping() {
     });
 }
 
-// ── STEP 2: CJ 송장 업로드 ──
+// ── STEP 2a: CJ API 자동생성 ──
+function loadNoInvoiceCount() {
+    fetch('/marketplace/api/cj-orders-without-invoice', {headers:{'Accept':'application/json'}})
+    .then(r => r.json())
+    .then(data => {
+        const badge = document.getElementById('noInvoiceCount');
+        badge.textContent = `미배정 ${data.total||0}건`;
+        badge.className = data.total > 0 ? 'badge bg-danger' : 'badge bg-success';
+        if (data.by_channel) {
+            let detail = Object.entries(data.by_channel).map(([ch,cnt]) => `${ch}:${cnt}`).join(', ');
+            badge.title = detail;
+        }
+    })
+    .catch(() => {});
+}
+
+function cjGenerateInvoices() {
+    const form = document.getElementById('cjAutoForm');
+    const fd = new FormData(form);
+    const btn = event.target.closest('button');
+    const total = document.getElementById('noInvoiceCount').textContent.match(/\d+/)?.[0] || '?';
+
+    if (!confirm(`송장 미배정 ${total}건에 대해 CJ 운송장을 자동 생성합니다.\n\n진행하시겠습니까?`)) return;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> CJ 송장 생성 중...';
+    log('CJ 송장 자동생성 시작...', 'info');
+
+    fetch('/marketplace/api/cj-generate-invoices', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+        body: fd,
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            log('CJ 생성 실패: ' + data.error, 'error');
+            showResult('cjAutoResult', data.error, 'danger');
+        } else {
+            const msg = `성공 ${data.success||0}건 / 실패 ${data.failed||0}건 (총 ${data.total||0}건)`;
+            log('CJ 생성 완료: ' + msg, data.failed > 0 ? 'warn' : 'success');
+            showResult('cjAutoResult', msg, data.failed > 0 ? 'warning' : 'success');
+            if (data.results) {
+                data.results.slice(0, 5).forEach(r => {
+                    if (r.ok) log(`  ✓ ${r.order_no} → ${r.invoice_no} (${r.name})`, 'success');
+                    else log(`  ✗ ${r.order_no}: ${r.error}`, 'error');
+                });
+            }
+            loadNoInvoiceCount();
+            loadPendingInvoices();
+            loadStatusSummary();
+        }
+    })
+    .catch(e => {
+        log('CJ 생성 오류: ' + e, 'error');
+        showResult('cjAutoResult', e.message, 'danger');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send"></i> CJ 송장 보내기';
+    });
+}
+
+function cjCheckBooking() {
+    const btn = event.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 확인 중...';
+    log('CJ 접수 확인 중...', 'info');
+
+    fetch('/marketplace/api/cj-check-booking', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/x-www-form-urlencoded'},
+    })
+    .then(r => r.json())
+    .then(data => {
+        const el = document.getElementById('cjBookingStatus');
+        if (data.error) {
+            el.innerHTML = `<span class="text-danger">${data.error}</span>`;
+        } else {
+            el.innerHTML = `<span class="text-info">전체 ${data.total}건 — 집화확인 ${data.confirmed}건, 대기 ${data.pending}건</span>`;
+            log(`CJ 접수확인: 전체 ${data.total}건, 집화확인 ${data.confirmed}건`, 'success');
+        }
+    })
+    .catch(e => log('접수확인 오류: ' + e, 'error'))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle"></i> CJ 접수 확인';
+    });
+}
+
+// ── STEP 2b: CJ 엑셀 업로드 ──
 function uploadCJ() {
     const form = document.getElementById('cjUploadForm');
     const fd = new FormData(form);
@@ -433,6 +583,7 @@ function syncShippingStatus() {
 document.addEventListener('DOMContentLoaded', () => {
     loadStatusSummary();
     loadPendingInvoices();
+    loadNoInvoiceCount();
 });
 </script>
 {% endblock %}

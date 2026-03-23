@@ -382,6 +382,80 @@ def download_invoice_file(channel):
         return jsonify({'error': str(e)}), 500
 
 
+# ── CJ 송장 자동 생성 ──
+
+@marketplace_bp.route('/api/cj-orders-without-invoice', methods=['GET'])
+@role_required('admin', 'general')
+def cj_orders_without_invoice():
+    """송장 미배정 주문 현황 조회."""
+    try:
+        from services.cj_shipping_service import query_orders_without_invoice
+        db = get_db()
+        channel = request.args.get('channel') or None
+        orders = query_orders_without_invoice(db, channel=channel, limit=500)
+
+        # 채널별 집계
+        by_channel = {}
+        for o in orders:
+            ch = o['channel']
+            by_channel[ch] = by_channel.get(ch, 0) + 1
+
+        return jsonify({
+            'total': len(orders),
+            'by_channel': by_channel,
+            'orders': orders[:50],  # 미리보기 50건
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/cj-generate-invoices', methods=['POST'])
+@role_required('admin', 'general')
+def cj_generate_invoices():
+    """CJ 운송장 채번 + 예약접수 일괄 처리.
+
+    DB 주문 → CJ 채번 → CJ 예약 → order_shipping.invoice_no 업데이트.
+    """
+    try:
+        from services.cj_shipping_service import (
+            query_orders_without_invoice, generate_cj_invoices
+        )
+        db = get_db()
+        channel = request.form.get('channel') or None
+        limit = int(request.form.get('limit', 100))
+
+        orders = query_orders_without_invoice(db, channel=channel, limit=limit)
+        if not orders:
+            return jsonify({'total': 0, 'success': 0, 'failed': 0,
+                           'message': '송장 미배정 주문이 없습니다.'})
+
+        result = generate_cj_invoices(db, orders)
+
+        _log_action(f'CJ 송장 자동생성: {result["success"]}/{result["total"]}건 성공')
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f'[CJ Generate] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@marketplace_bp.route('/api/cj-check-booking', methods=['POST'])
+@role_required('admin', 'general')
+def cj_check_booking():
+    """CJ 예약접수 상태 확인 (상품추적으로 집화 확인)."""
+    try:
+        from services.cj_shipping_service import check_cj_booking_status
+        db = get_db()
+        channel = request.form.get('channel') or None
+
+        result = check_cj_booking_status(db, channel=channel)
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f'[CJ Check] 오류: {e}', exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @marketplace_bp.route('/push-invoices', methods=['POST'])
 @role_required('admin', 'general')
 def push_invoices_route():
