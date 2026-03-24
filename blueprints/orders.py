@@ -1468,14 +1468,14 @@ def api_rocket_add_product():
     db = get_db()
     try:
         # price_table에 로켓판매가 설정
-        existing = db.client.table('price_table').select('id,product_name') \
+        existing = db.client.table('price_master').select('id,product_name') \
             .eq('product_name', name).limit(1).execute()
         if existing.data:
-            db.client.table('price_table').update({'로켓판매가': price}) \
+            db.client.table('price_master').update({'rocket_price': price}) \
                 .eq('product_name', name).execute()
         else:
-            db.client.table('price_table').insert({
-                'product_name': name, '로켓판매가': price
+            db.client.table('price_master').insert({
+                'product_name': name, 'rocket_price': price
             }).execute()
 
         # product_costs에도 없으면 추가
