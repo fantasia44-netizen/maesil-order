@@ -1460,7 +1460,7 @@ def api_rocket_manual_list():
 @orders_bp.route('/api/rocket-manual/add-product', methods=['POST'])
 @role_required('admin', 'manager', 'sales')
 def api_rocket_add_product():
-    """로켓매출 상품 추가 (price_table에 로켓판매가 설정)"""
+    """로켓매출 상품 추가 (products + master_prices 동기화, 띄어쓰기 정규화)"""
     data = request.get_json()
     name = (data.get('product_name') or '').strip()
     price = data.get('rocket_price', 0)
@@ -1469,9 +1469,23 @@ def api_rocket_add_product():
     if not price or price <= 0:
         return jsonify({'success': False, 'error': '판매가를 입력하세요.'})
 
+    name_norm = name.replace(' ', '').replace('\u3000', '')
     db = get_db()
     try:
-        # master_prices에 로켓판매가 설정 (한글 컬럼명)
+        # products 테이블 우선 (정규화 비교)
+        existing_p = db.client.table('products').select('product_name') \
+            .eq('name_normalized', name_norm).limit(1).execute()
+        if existing_p.data:
+            real_name = existing_p.data[0]['product_name']
+            db.client.table('products').update({'rocket_price': float(price)}) \
+                .eq('product_name', real_name).execute()
+        else:
+            db.client.table('products').insert({
+                'product_name': name, 'name_normalized': name_norm,
+                'rocket_price': float(price), 'material_type': '완제품',
+            }).execute()
+
+        # master_prices 동기화 (하위호환)
         existing = db.client.table('master_prices').select('id') \
             .eq('품목명', name).limit(1).execute()
         if existing.data:
@@ -1482,18 +1496,7 @@ def api_rocket_add_product():
                 '품목명': name, '로켓판매가': price
             }).execute()
 
-        # price_master에도 동기화 (영문 컬럼)
-        existing2 = db.client.table('price_master').select('id') \
-            .eq('product_name', name).limit(1).execute()
-        if existing2.data:
-            db.client.table('price_master').update({'rocket_price': price}) \
-                .eq('product_name', name).execute()
-        else:
-            db.client.table('price_master').insert({
-                'product_name': name, 'rocket_price': price
-            }).execute()
-
-        # product_costs에도 없으면 추가
+        # product_costs에도 없으면 추가 (하위호환)
         pc = db.client.table('product_costs').select('product_name') \
             .eq('product_name', name).limit(1).execute()
         if not pc.data:
@@ -1734,16 +1737,26 @@ def api_products_list():
 @login_required
 @role_required('admin', 'manager', 'sales')
 def api_products_add():
-    """신규 상품 추가"""
+    """신규 상품 추가 (띄어쓰기 정규화 + 중복 체크)"""
     db = get_db()
     data = request.get_json()
     name = (data.get('product_name') or '').strip()
     if not name:
         return jsonify({'ok': False, 'error': '상품명을 입력하세요.'})
 
+    name_norm = name.replace(' ', '').replace('\u3000', '')
+
     try:
+        # 정규화된 이름으로 중복 체크
+        dup = db.client.table('products').select('product_name') \
+            .eq('name_normalized', name_norm).limit(1).execute()
+        if dup.data:
+            existing = dup.data[0]['product_name']
+            return jsonify({'ok': False, 'error': f'이미 등록된 상품입니다: "{existing}" (띄어쓰기 다른 동일 상품)'})
+
         row = {
             'product_name': name,
+            'name_normalized': name_norm,
             'cost_price': float(data.get('cost_price', 0) or 0),
             'unit': data.get('unit', '개'),
             'memo': data.get('memo', ''),
