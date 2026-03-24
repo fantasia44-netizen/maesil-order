@@ -93,6 +93,23 @@ def api_collect():
                 results[ch] = ch_result
                 continue
 
+            # 1.1) 2차 보충 수집 (네이버 API 간헐적 누락 대응 — 3초 대기 후 재호출)
+            import time
+            first_count = len(orders)
+            first_ids = set(o.get('api_line_id', '') for o in orders)
+            time.sleep(3)
+            try:
+                orders_2nd = client.fetch_orders(date_from, date_to,
+                                                  status_filter='invoice_target')
+                if orders_2nd:
+                    new_orders = [o for o in orders_2nd if o.get('api_line_id', '') not in first_ids]
+                    if new_orders:
+                        orders.extend(new_orders)
+                        logger.info(f'[APICollect] {ch} 2차 보충: +{len(new_orders)}건 (1차:{first_count} → 합계:{len(orders)})')
+                        ch_result['supplemented'] = len(new_orders)
+            except Exception as e2:
+                logger.warning(f'[APICollect] {ch} 2차 보충 실패 (무시): {e2}')
+
             # 1.5) api_orders 테이블에 원본 저장 (송장등록 시 매핑용)
             try:
                 api_rows = []
