@@ -1471,10 +1471,21 @@ def api_rocket_add_product():
 
     db = get_db()
     try:
-        # price_table에 로켓판매가 설정
-        existing = db.client.table('price_master').select('id,product_name') \
-            .eq('product_name', name).limit(1).execute()
+        # master_prices에 로켓판매가 설정 (한글 컬럼명)
+        existing = db.client.table('master_prices').select('id') \
+            .eq('품목명', name).limit(1).execute()
         if existing.data:
+            db.client.table('master_prices').update({'로켓판매가': price}) \
+                .eq('품목명', name).execute()
+        else:
+            db.client.table('master_prices').insert({
+                '품목명': name, '로켓판매가': price
+            }).execute()
+
+        # price_master에도 동기화 (영문 컬럼)
+        existing2 = db.client.table('price_master').select('id') \
+            .eq('product_name', name).limit(1).execute()
+        if existing2.data:
             db.client.table('price_master').update({'rocket_price': price}) \
                 .eq('product_name', name).execute()
         else:
