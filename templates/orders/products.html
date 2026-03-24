@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}상품관리{% endblock %}
+{% block content %}
+<h4 class="mb-3">상품관리</h4>
+
+<!-- 검색/필터 -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label">상품명 검색</label>
+        <input type="text" id="keyword" class="form-control form-control-sm" placeholder="검색어 입력" onkeydown="if(event.key==='Enter') loadProducts()">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">종류</label>
+        <select id="materialType" class="form-select form-select-sm">
+          <option value="">전체</option>
+          <option>원료</option><option>부재료</option><option>반제품</option><option>완제품</option><option>포장재</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">보관방법</label>
+        <select id="storageMethod" class="form-select form-select-sm">
+          <option value="">전체</option>
+          <option>냉동</option><option>냉장</option><option>실온</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm" onclick="loadProducts()">🔍 조회</button>
+        <button class="btn btn-success btn-sm" onclick="showAddModal()">➕ 신규상품</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 테이블 -->
+<div class="table-responsive">
+  <table class="table table-sm table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>상품명</th><th>유형</th><th>종류</th><th>식품유형</th><th>재고분류</th>
+        <th>보관</th><th>단가</th><th>단위</th><th>중량</th><th>관리</th>
+      </tr>
+    </thead>
+    <tbody id="productBody"></tbody>
+  </table>
+</div>
+<div id="pagination" class="d-flex justify-content-center"></div>
+
+<!-- 신규/수정 모달 -->
+<div class="modal fade" id="productModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="modalTitle">상품</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="editMode" value="add">
+    <input type="hidden" id="editName" value="">
+    <div class="mb-2"><label class="form-label">상품명 <span class="text-danger">*</span></label><input type="text" id="fProductName" class="form-control form-control-sm"></div>
+    <div class="row mb-2">
+      <div class="col-6"><label class="form-label">유형</label><select id="fCostType" class="form-select form-select-sm"><option>매입</option><option>생산</option></select></div>
+      <div class="col-6"><label class="form-label">종류</label><select id="fMaterialType" class="form-select form-select-sm"><option>완제품</option><option>원료</option><option>부재료</option><option>반제품</option><option>포장재</option></select></div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-6"><label class="form-label">식품유형</label><select id="fFoodType" class="form-select form-select-sm"><option value="">-</option><option>농산물</option><option>수산물</option><option>축산물</option></select></div>
+      <div class="col-6"><label class="form-label">재고분류</label><input type="text" id="fCategory" class="form-control form-control-sm"></div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-6"><label class="form-label">보관방법</label><select id="fStorage" class="form-select form-select-sm"><option value="">-</option><option>냉동</option><option>냉장</option><option>실온</option></select></div>
+      <div class="col-6"><label class="form-label">단가</label><input type="number" id="fCostPrice" class="form-control form-control-sm" value="0"></div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-4"><label class="form-label">단위</label><input type="text" id="fUnit" class="form-control form-control-sm"></div>
+      <div class="col-4"><label class="form-label">중량</label><input type="number" id="fWeight" class="form-control form-control-sm" value="0"></div>
+      <div class="col-4"><label class="form-label">중량단위</label><select id="fWeightUnit" class="form-select form-select-sm"><option>g</option><option>kg</option><option>ml</option><option>L</option></select></div>
+    </div>
+    <div class="mb-2"><label class="form-label">메모</label><input type="text" id="fMemo" class="form-control form-control-sm"></div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveProduct()">저장</button></div>
+</div></div></div>
+
+<script>
+let currentPage = 1;
+
+function loadProducts(page=1) {
+  currentPage = page;
+  const params = new URLSearchParams({
+    page, per_page: 50,
+    keyword: document.getElementById('keyword').value,
+    material_type: document.getElementById('materialType').value,
+    storage_method: document.getElementById('storageMethod').value,
+  });
+  fetch(`/orders/api/product-manage?${params}`, {headers: {'X-CSRFToken': window.CSRF_TOKEN}})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return alert(d.error);
+      const body = document.getElementById('productBody');
+      body.innerHTML = '';
+      d.data.forEach(p => {
+        body.innerHTML += `<tr>
+          <td>${p.product_name||''}</td><td>${p.cost_type||''}</td><td>${p.material_type||''}</td>
+          <td>${p.food_type||''}</td><td>${p.category||''}</td><td>${p.storage_method||''}</td>
+          <td class="text-end">${(p.cost_price||0).toLocaleString()}</td><td>${p.unit||''}</td>
+          <td>${p.weight||0}${p.weight_unit||'g'}</td>
+          <td><button class="btn btn-outline-primary btn-sm py-0" onclick='editProduct(${JSON.stringify(p)})'>수정</button></td>
+        </tr>`;
+      });
+      // 간단 페이지네이션
+      const pg = document.getElementById('pagination');
+      pg.innerHTML = '';
+      if (page > 1) pg.innerHTML += `<button class="btn btn-sm btn-outline-secondary me-1" onclick="loadProducts(${page-1})">◀ 이전</button>`;
+      pg.innerHTML += `<span class="mx-2">페이지 ${page}</span>`;
+      if (d.data.length >= 50) pg.innerHTML += `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="loadProducts(${page+1})">다음 ▶</button>`;
+    });
+}
+
+function showAddModal() {
+  document.getElementById('editMode').value = 'add';
+  document.getElementById('modalTitle').textContent = '신규 상품 추가';
+  document.getElementById('fProductName').value = '';
+  document.getElementById('fProductName').disabled = false;
+  document.getElementById('fCostType').value = '매입';
+  document.getElementById('fMaterialType').value = '완제품';
+  document.getElementById('fFoodType').value = '';
+  document.getElementById('fCategory').value = '';
+  document.getElementById('fStorage').value = '';
+  document.getElementById('fCostPrice').value = 0;
+  document.getElementById('fUnit').value = '';
+  document.getElementById('fWeight').value = 0;
+  document.getElementById('fWeightUnit').value = 'g';
+  document.getElementById('fMemo').value = '';
+  new bootstrap.Modal(document.getElementById('productModal')).show();
+}
+
+function editProduct(p) {
+  document.getElementById('editMode').value = 'edit';
+  document.getElementById('editName').value = p.product_name;
+  document.getElementById('modalTitle').textContent = `수정: ${p.product_name}`;
+  document.getElementById('fProductName').value = p.product_name;
+  document.getElementById('fProductName').disabled = true;
+  document.getElementById('fCostType').value = p.cost_type || '매입';
+  document.getElementById('fMaterialType').value = p.material_type || '완제품';
+  document.getElementById('fFoodType').value = p.food_type || '';
+  document.getElementById('fCategory').value = p.category || '';
+  document.getElementById('fStorage').value = p.storage_method || '';
+  document.getElementById('fCostPrice').value = p.cost_price || 0;
+  document.getElementById('fUnit').value = p.unit || '';
+  document.getElementById('fWeight').value = p.weight || 0;
+  document.getElementById('fWeightUnit').value = p.weight_unit || 'g';
+  document.getElementById('fMemo').value = p.memo || '';
+  new bootstrap.Modal(document.getElementById('productModal')).show();
+}
+
+function saveProduct() {
+  const mode = document.getElementById('editMode').value;
+  const body = {
+    product_name: document.getElementById('fProductName').value.trim(),
+    cost_type: document.getElementById('fCostType').value,
+    material_type: document.getElementById('fMaterialType').value,
+    food_type: document.getElementById('fFoodType').value,
+    category: document.getElementById('fCategory').value,
+    storage_method: document.getElementById('fStorage').value,
+    cost_price: parseFloat(document.getElementById('fCostPrice').value) || 0,
+    unit: document.getElementById('fUnit').value,
+    weight: parseFloat(document.getElementById('fWeight').value) || 0,
+    weight_unit: document.getElementById('fWeightUnit').value,
+    memo: document.getElementById('fMemo').value,
+  };
+  if (!body.product_name) return alert('상품명을 입력하세요.');
+
+  const url = mode === 'add' ? '/orders/api/product-manage' : `/orders/api/product-manage/${encodeURIComponent(document.getElementById('editName').value)}`;
+  const method = mode === 'add' ? 'POST' : 'PUT';
+
+  fetch(url, {method, headers: {'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN}, body: JSON.stringify(body)})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return alert(d.error);
+      alert(d.message);
+      bootstrap.Modal.getInstance(document.getElementById('productModal')).hide();
+      loadProducts(currentPage);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => loadProducts());
+</script>
+{% endblock %}

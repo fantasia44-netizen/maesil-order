@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}옵션관리{% endblock %}
+{% block content %}
+<h4 class="mb-3">옵션관리 <small class="text-muted">(수정만 가능 — 삭제/동기화는 마스터관리에서)</small></h4>
+
+<!-- 검색 -->
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">검색 (원문명/품목명)</label>
+        <input type="text" id="keyword" class="form-control form-control-sm" placeholder="검색어 입력" onkeydown="if(event.key==='Enter') loadOptions()">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">표시 건수</label>
+        <select id="perPage" class="form-select form-select-sm">
+          <option value="50">50건</option><option value="100">100건</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-primary btn-sm" onclick="loadOptions()">🔍 조회</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 테이블 -->
+<div class="table-responsive">
+  <table class="table table-sm table-hover">
+    <thead class="table-light">
+      <tr>
+        <th>ID</th><th>원문명</th><th>품목명</th><th>라인코드</th>
+        <th>출력순서</th><th>바코드</th><th>마지막 매칭</th><th>관리</th>
+      </tr>
+    </thead>
+    <tbody id="optionBody"></tbody>
+  </table>
+</div>
+<div id="pagination" class="d-flex justify-content-center"></div>
+
+<!-- 수정 모달 -->
+<div class="modal fade" id="optionModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title">옵션 수정</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="editId" value="">
+    <div class="mb-2"><label class="form-label">원문명</label><input type="text" id="fOriginal" class="form-control form-control-sm" disabled></div>
+    <div class="mb-2"><label class="form-label">품목명</label><input type="text" id="fProduct" class="form-control form-control-sm"></div>
+    <div class="row mb-2">
+      <div class="col-4"><label class="form-label">라인코드</label><input type="number" id="fLineCode" class="form-control form-control-sm"></div>
+      <div class="col-4"><label class="form-label">출력순서</label><input type="number" id="fSortOrder" class="form-control form-control-sm"></div>
+      <div class="col-4"><label class="form-label">바코드</label><input type="text" id="fBarcode" class="form-control form-control-sm"></div>
+    </div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveOption()">저장</button></div>
+</div></div></div>
+
+<script>
+let currentPage = 1;
+
+function loadOptions(page=1) {
+  currentPage = page;
+  const perPage = document.getElementById('perPage').value;
+  const keyword = document.getElementById('keyword').value;
+  const params = new URLSearchParams({page, per_page: perPage, keyword});
+
+  fetch(`/orders/api/options?${params}`, {headers: {'X-CSRFToken': window.CSRF_TOKEN}})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return alert(d.error);
+      const body = document.getElementById('optionBody');
+      body.innerHTML = '';
+      d.data.forEach(o => {
+        const matched = o.last_matched_at ? new Date(o.last_matched_at).toLocaleDateString() : '-';
+        body.innerHTML += `<tr>
+          <td class="text-muted">${o.id}</td>
+          <td>${o.original_name||''}</td>
+          <td><strong>${o.product_name||''}</strong></td>
+          <td class="text-center">${o.line_code??''}</td>
+          <td class="text-center">${o.sort_order??999}</td>
+          <td>${o.barcode||''}</td>
+          <td class="text-muted">${matched}</td>
+          <td><button class="btn btn-outline-primary btn-sm py-0" onclick='editOption(${JSON.stringify(o)})'>수정</button></td>
+        </tr>`;
+      });
+      const pg = document.getElementById('pagination');
+      pg.innerHTML = '';
+      if (page > 1) pg.innerHTML += `<button class="btn btn-sm btn-outline-secondary me-1" onclick="loadOptions(${page-1})">◀ 이전</button>`;
+      pg.innerHTML += `<span class="mx-2">페이지 ${page}</span>`;
+      if (d.data.length >= parseInt(perPage)) pg.innerHTML += `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="loadOptions(${page+1})">다음 ▶</button>`;
+    });
+}
+
+function editOption(o) {
+  document.getElementById('editId').value = o.id;
+  document.getElementById('fOriginal').value = o.original_name || '';
+  document.getElementById('fProduct').value = o.product_name || '';
+  document.getElementById('fLineCode').value = o.line_code ?? '';
+  document.getElementById('fSortOrder').value = o.sort_order ?? 999;
+  document.getElementById('fBarcode').value = o.barcode || '';
+  new bootstrap.Modal(document.getElementById('optionModal')).show();
+}
+
+function saveOption() {
+  const id = document.getElementById('editId').value;
+  const body = {
+    product_name: document.getElementById('fProduct').value.trim(),
+    line_code: parseInt(document.getElementById('fLineCode').value) || 0,
+    sort_order: parseInt(document.getElementById('fSortOrder').value) || 999,
+    barcode: document.getElementById('fBarcode').value.trim(),
+  };
+
+  fetch(`/orders/api/options/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN}, body: JSON.stringify(body)})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) return alert(d.error);
+      alert(d.message);
+      bootstrap.Modal.getInstance(document.getElementById('optionModal')).hide();
+      loadOptions(currentPage);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => loadOptions());
+</script>
+{% endblock %}

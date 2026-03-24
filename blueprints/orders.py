@@ -1453,6 +1453,42 @@ def api_rocket_manual_list():
         return jsonify({'error': str(e)}), 500
 
 
+@orders_bp.route('/api/rocket-manual/add-product', methods=['POST'])
+@role_required('admin', 'manager', 'sales')
+def api_rocket_add_product():
+    """로켓매출 상품 추가 (price_table에 로켓판매가 설정)"""
+    data = request.get_json()
+    name = (data.get('product_name') or '').strip()
+    price = data.get('rocket_price', 0)
+    if not name:
+        return jsonify({'success': False, 'error': '상품명을 입력하세요.'})
+    if not price or price <= 0:
+        return jsonify({'success': False, 'error': '판매가를 입력하세요.'})
+
+    db = get_db()
+    try:
+        # price_table에 로켓판매가 설정
+        existing = db.client.table('price_table').select('id,product_name') \
+            .eq('product_name', name).limit(1).execute()
+        if existing.data:
+            db.client.table('price_table').update({'로켓판매가': price}) \
+                .eq('product_name', name).execute()
+        else:
+            db.client.table('price_table').insert({
+                'product_name': name, '로켓판매가': price
+            }).execute()
+
+        # product_costs에도 없으면 추가
+        pc = db.client.table('product_costs').select('product_name') \
+            .eq('product_name', name).limit(1).execute()
+        if not pc.data:
+            db.upsert_product_cost(product_name=name, cost_price=0, material_type='완제품')
+
+        return jsonify({'success': True, 'message': f'"{name}" 로켓 판매가 {price:,}원 설정 완료'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @orders_bp.route('/api/rocket-manual/<int:rev_id>', methods=['PUT'])
 @role_required('admin', 'manager')
 def api_rocket_manual_update(rev_id):
@@ -1622,3 +1658,165 @@ def integrity_check():
         results['summary'] = f'검사 오류: {e}'
 
     return jsonify(results)
+
+
+# ════════════════════════════════════════════════════════════
+# 상품관리 (주문·판매용 — 조회 + 신규추가 + 수정, 삭제 불가)
+# ════════════════════════════════════════════════════════════
+
+@orders_bp.route('/products')
+@login_required
+@role_required('admin', 'manager', 'sales')
+def products_page():
+    """상품관리 페이지"""
+    return render_template('orders/products.html')
+
+
+@orders_bp.route('/api/product-manage', methods=['GET'])
+@login_required
+@role_required('admin', 'manager', 'sales')
+def api_products_list():
+    """상품 목록 조회 (페이지네이션 + 검색 + 필터)"""
+    db = get_db()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    keyword = request.args.get('keyword', '').strip()
+    material_type = request.args.get('material_type', '')
+    category = request.args.get('category', '')
+    storage = request.args.get('storage_method', '')
+
+    try:
+        q = db.client.table('product_costs').select('*')
+
+        if keyword:
+            q = q.ilike('product_name', f'%{keyword}%')
+        if material_type:
+            q = q.eq('material_type', material_type)
+        if category:
+            q = q.eq('category', category)
+        if storage:
+            q = q.eq('storage_method', storage)
+
+        q = q.order('product_name')
+        offset = (page - 1) * per_page
+        q = q.range(offset, offset + per_page - 1)
+        result = q.execute()
+
+        return jsonify({'ok': True, 'data': result.data or [], 'page': page, 'per_page': per_page})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@orders_bp.route('/api/product-manage', methods=['POST'])
+@login_required
+@role_required('admin', 'manager', 'sales')
+def api_products_add():
+    """신규 상품 추가"""
+    db = get_db()
+    data = request.get_json()
+    name = (data.get('product_name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': '상품명을 입력하세요.'})
+
+    try:
+        db.upsert_product_cost(
+            product_name=name,
+            cost_price=data.get('cost_price', 0),
+            unit=data.get('unit', ''),
+            memo=data.get('memo', ''),
+            weight=data.get('weight', 0),
+            weight_unit=data.get('weight_unit', 'g'),
+            cost_type=data.get('cost_type', '매입'),
+            material_type=data.get('material_type', '완제품'),
+            food_type=data.get('food_type', ''),
+            category=data.get('category', ''),
+            storage_method=data.get('storage_method', ''),
+        )
+        return jsonify({'ok': True, 'message': f'"{name}" 등록 완료'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@orders_bp.route('/api/product-manage/<product_name>', methods=['PUT'])
+@login_required
+@role_required('admin', 'manager', 'sales')
+def api_products_update(product_name):
+    """상품 수정 (삭제 불가)"""
+    db = get_db()
+    data = request.get_json()
+    try:
+        db.upsert_product_cost(
+            product_name=product_name,
+            cost_price=data.get('cost_price', 0),
+            unit=data.get('unit', ''),
+            memo=data.get('memo', ''),
+            weight=data.get('weight', 0),
+            weight_unit=data.get('weight_unit', 'g'),
+            cost_type=data.get('cost_type', '매입'),
+            material_type=data.get('material_type', '완제품'),
+            food_type=data.get('food_type', ''),
+            category=data.get('category', ''),
+            storage_method=data.get('storage_method', ''),
+        )
+        return jsonify({'ok': True, 'message': f'"{product_name}" 수정 완료'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+# ════════════════════════════════════════════════════════════
+# 옵션관리 (주문·판매용 — 조회 + 수정만, 삭제/동기화 불가)
+# ════════════════════════════════════════════════════════════
+
+@orders_bp.route('/options')
+@login_required
+@role_required('admin', 'manager', 'sales')
+def options_page():
+    """옵션관리 페이지 (영업용)"""
+    return render_template('orders/options.html')
+
+
+@orders_bp.route('/api/options', methods=['GET'])
+@login_required
+@role_required('admin', 'manager', 'sales')
+def api_options_list():
+    """옵션 목록 조회"""
+    db = get_db()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    keyword = request.args.get('keyword', '').strip()
+
+    try:
+        q = db.client.table('option_master').select('*') \
+            .or_('is_deleted.is.null,is_deleted.eq.false')
+
+        if keyword:
+            q = q.or_(f'original_name.ilike.%{keyword}%,product_name.ilike.%{keyword}%')
+
+        q = q.order('sort_order').order('product_name')
+        offset = (page - 1) * per_page
+        q = q.range(offset, offset + per_page - 1)
+        result = q.execute()
+
+        return jsonify({'ok': True, 'data': result.data or [], 'page': page, 'per_page': per_page})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+
+@orders_bp.route('/api/options/<int:option_id>', methods=['PUT'])
+@login_required
+@role_required('admin', 'manager', 'sales')
+def api_options_update(option_id):
+    """옵션 수정 (삭제 불가)"""
+    db = get_db()
+    data = request.get_json()
+    allowed_fields = ['product_name', 'line_code', 'sort_order', 'barcode']
+    update = {k: data[k] for k in allowed_fields if k in data}
+
+    if not update:
+        return jsonify({'ok': False, 'error': '수정할 항목이 없습니다.'})
+
+    try:
+        db.update_option_master(option_id, update)
+        return jsonify({'ok': True, 'message': '수정 완료'})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})

@@ -69,6 +69,8 @@ PAGE_REGISTRY = [
     ('packing_center', '패킹센터',      'bi-camera-video',       '/packing/',            ['admin','manager','logistics','sales','general'],                   '주문·판매'),
     ('price',          '판매가관리',     'bi-tags',               '/price',               ['admin','manager','sales','general'],                               '주문·판매'),
     ('promotions',     '행사/쿠폰',     'bi-megaphone',          '/promotions',          ['admin','manager','sales','general'],                               '주문·판매'),
+    ('sales_products', '상품관리',     'bi-box-seam',           '/orders/products',     ['admin','manager','sales'],                                        '주문·판매'),
+    ('sales_options',  '옵션관리',     'bi-list-check',         '/orders/options',      ['admin','manager','sales'],                                        '주문·판매'),
 
     # ── 거래처 ──
     ('trade',          '거래처 관리',    'bi-building',           '/trade',               ['admin','ceo','manager','sales','general'],                         '거래처'),

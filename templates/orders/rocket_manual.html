@@ -65,9 +65,14 @@
         </table>
 
         <div class="d-flex justify-content-between">
-            <button class="btn btn-sm btn-outline-secondary" onclick="addRow()">
-                <i class="bi bi-plus"></i> 행 추가
-            </button>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary" onclick="addRow()">
+                    <i class="bi bi-plus"></i> 행 추가
+                </button>
+                <button class="btn btn-sm btn-outline-success ms-2" onclick="showAddProduct()">
+                    <i class="bi bi-box-seam"></i> 상품 추가
+                </button>
+            </div>
             <button class="btn btn-primary" onclick="submitRocket()" id="btnSubmit">
                 <i class="bi bi-save"></i> 저장
             </button>
@@ -146,6 +151,28 @@
         </div>
     </div>
 </div>
+<!-- 상품 추가 모달 -->
+<div class="modal fade" id="addProductModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="bi bi-box-seam"></i> 로켓 상품 추가</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <p class="text-muted small">상품관리에 등록된 상품 중 선택하여 로켓 판매가를 설정합니다.</p>
+    <div class="mb-2">
+      <label class="form-label">상품 선택</label>
+      <select id="newProductSelect" class="form-select form-select-sm">
+        <option value="">-- 상품 검색 (입력하세요) --</option>
+      </select>
+    </div>
+    <div class="mb-2">
+      <label class="form-label">상품명 직접입력 <small class="text-muted">(목록에 없는 경우)</small></label>
+      <input type="text" id="newProductName" class="form-control form-control-sm" placeholder="새 상품명">
+    </div>
+    <div class="mb-2">
+      <label class="form-label">로켓 판매가 <span class="text-danger">*</span></label>
+      <input type="number" id="newProductPrice" class="form-control form-control-sm" min="0" value="0">
+    </div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-success btn-sm" onclick="saveNewProduct()">추가</button></div>
+</div></div></div>
 {% endblock %}
 
 {% block extra_js %}
@@ -323,6 +350,62 @@ function saveEdit() {
             al.className = 'alert alert-info';
             al.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
         } else { alert(data.error || '수정 실패'); }
+    })
+    .catch(e => alert('오류: ' + e.message));
+}
+
+function showAddProduct() {
+    // 상품관리에서 상품 목록 가져오기
+    fetch('/orders/api/product-manage?per_page=500', {headers: {'X-CSRFToken': csrf_token}})
+        .then(r => r.json())
+        .then(d => {
+            const sel = document.getElementById('newProductSelect');
+            sel.innerHTML = '<option value="">-- 상품 선택 --</option>';
+            (d.data || []).forEach(p => {
+                sel.innerHTML += `<option value="${p.product_name}">${p.product_name} (${p.material_type||''})</option>`;
+            });
+        });
+    document.getElementById('newProductName').value = '';
+    document.getElementById('newProductPrice').value = 0;
+    new bootstrap.Modal(document.getElementById('addProductModal')).show();
+}
+
+function saveNewProduct() {
+    const fromSelect = document.getElementById('newProductSelect').value;
+    const fromInput = document.getElementById('newProductName').value.trim();
+    const name = fromSelect || fromInput;
+    const price = parseInt(document.getElementById('newProductPrice').value) || 0;
+
+    if (!name) return alert('상품을 선택하거나 이름을 입력하세요.');
+    if (price <= 0) return alert('판매가를 입력하세요.');
+
+    // price_table에 추가 (로켓판매가 설정)
+    fetch('/orders/api/rocket-manual/add-product', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf_token},
+        body: JSON.stringify({product_name: name, rocket_price: price})
+    })
+    .then(parseJsonSafe)
+    .then(d => {
+        if (d.success) {
+            alert(d.message);
+            bootstrap.Modal.getInstance(document.getElementById('addProductModal')).hide();
+            // 드롭다운에 즉시 추가
+            document.querySelectorAll('.product-select').forEach(sel => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.dataset.price = price;
+                opt.textContent = `${name} (${price.toLocaleString()}원)`;
+                sel.appendChild(opt);
+            });
+            // 수정 모달 드롭다운에도
+            const editSel = document.getElementById('editProduct');
+            const eopt = document.createElement('option');
+            eopt.value = name; eopt.dataset.price = price; eopt.textContent = name;
+            editSel.appendChild(eopt);
+        } else {
+            alert(d.error || '추가 실패');
+        }
     })
     .catch(e => alert('오류: ' + e.message));
 }
