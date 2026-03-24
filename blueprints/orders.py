@@ -1807,7 +1807,21 @@ def api_products_update(product_name):
                     update[field] = data[field]
         if update:
             db.client.table('products').update(update).eq('product_name', product_name).execute()
-        return jsonify({'ok': True, 'message': f'"{product_name}" 수정 완료'})
+
+            # option_master 동기화: SKU → sort_order, barcode
+            sync_option = {}
+            if 'sku' in data:
+                try:
+                    sync_option['sort_order'] = int(data['sku'])
+                except (ValueError, TypeError):
+                    pass
+            if 'barcode' in data:
+                sync_option['barcode'] = str(data['barcode'] or '')
+            if sync_option:
+                db.client.table('option_master').update(sync_option) \
+                    .eq('product_name', product_name).execute()
+
+        return jsonify({'ok': True, 'message': f'"{product_name}" 수정 완료 (옵션 동기화됨)'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
@@ -1855,7 +1869,7 @@ def api_options_list():
 @login_required
 @role_required('admin', 'manager', 'sales')
 def api_options_update(option_id):
-    """옵션 수정 (삭제 불가)"""
+    """옵션 수정 (삭제 불가) — products 동기화 포함"""
     db = get_db()
     data = request.get_json()
     allowed_fields = ['product_name', 'line_code', 'sort_order', 'barcode']
@@ -1866,6 +1880,36 @@ def api_options_update(option_id):
 
     try:
         db.update_option_master(option_id, update)
-        return jsonify({'ok': True, 'message': '수정 완료'})
+
+        # products 동기화: 옵션에서 수정한 상품 정보를 products에도 반영
+        product_name = data.get('product_name')
+        if product_name:
+            product_name = product_name.strip()
+            name_norm = product_name.replace(' ', '').replace('\u3000', '')
+            p = db.client.table('products').select('id') \
+                .eq('name_normalized', name_norm).limit(1).execute()
+
+            if p.data:
+                sync = {}
+                if 'sort_order' in data:
+                    sync['sku'] = str(data['sort_order'])
+                if 'barcode' in data:
+                    sync['barcode'] = str(data['barcode'] or '')
+                if sync:
+                    db.client.table('products').update(sync) \
+                        .eq('name_normalized', name_norm).execute()
+            else:
+                # products에 없으면 신규 추가
+                db.client.table('products').insert({
+                    'product_name': product_name,
+                    'name_normalized': name_norm,
+                    'sku': str(data.get('sort_order', '')),
+                    'barcode': str(data.get('barcode', '')),
+                    'material_type': '완제품',
+                    'unit': '개',
+                    'is_active': True,
+                }).execute()
+
+        return jsonify({'ok': True, 'message': '수정 완료 (상품정보 동기화됨)'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
