@@ -1394,7 +1394,9 @@ function loadCjStatus() {
 function cjAutoGenerate() {
     const ch = document.getElementById('apiChannel').value;
     const btn = document.getElementById('btnCjAuto');
-    if (!confirm('CJ에 운송장 자동 채번 + 예약접수를 실행합니다.\n계속하시겠습니까?')) return;
+    console.log('[CJ] cjAutoGenerate called, channel:', ch);
+    if (!confirm('CJ에 운송장 채번 + 예약접수를 실행합니다. 계속?')) return;
+    console.log('[CJ] confirm OK, sending request...');
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> CJ 생성 중...';

@@ -231,6 +231,28 @@
 - **채널 스켈레톤**: 11번가(st11_client), 옥션/G마켓(esm_client), 카카오(kakao_client) — API키 등록 시 활성화
 - **마스터 로드맵**: `doc/MASTER_ROADMAP.md`
 
+## 상품 통합 시스템 (2026-03-24) — 5커밋
+- **products 통합 테이블**: product_costs + master_prices 병합 (189건)
+  - name_normalized 컬럼 (띄어쓰기 무관 비교, 공백 제거)
+  - SKU 숫자순 정렬, 바코드 option_master에서 가져옴
+- **_normalize_product_names 근본 수정**: 공백제거 → products 정식이름 변환 (캐시)
+- **상품관리 ↔ 옵션관리 양방향 동기화**: SKU/바코드 자동 반영
+- **완제품 96건 단위 g→개 수정** (수율/BOM 정합성)
+- **BOM 파싱 int→float** (소수점 BOM 지원)
+- **상품명 불일치 전수 정리**: stock_ledger/daily_revenue/option_master 전부 0건 달성
+- **핵심 원칙**: products가 유일한 마스터, name_normalized로 비교, 완제품=개/원료=kg
+
+## db/ Repository 분리 (2026-03-24) — 12개 repo
+- orders_repo, inventory_repo, shipping_repo, finance_repo
+- marketplace_repo, settlement_repo, auth_repo, hr_repo
+- packing_repo, product_repo, trade_repo, outbound_repo
+- 기존 db_supabase.py(5,230줄) 유지 (shim 전환 예정)
+
+## 테스트 + 모니터링 (2026-03-24)
+- pytest 5파일 29건 전체 PASS
+- /health 헬스체크 (DB/마켓API/CJ/에러 6항목)
+- /admin/errors 에러추적 + /admin/daily-report 일일리포트
+
 ## 설계 문서
 - `doc/MASTER_ROADMAP.md` — 마스터 로드맵 (AutoTool→3PL→SaaS, 8주 계획)
 - `doc/CJ_API_운영승인요청서.docx` — CJ택배 운영 전환 요청서
