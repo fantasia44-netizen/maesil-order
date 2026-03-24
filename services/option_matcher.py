@@ -63,6 +63,7 @@ def _normalize(key: str) -> str:
     s = unicodedata.normalize('NFKC', s)   # 전각→반각, 자모 통합
     s = s.replace(' ', '').upper()
     s = s.replace(',', ';')                # 구분자 통일
+    s = s.replace(';', '')                 # 세미콜론도 제거 (API vs 마스터 불일치 방지)
     return s
 
 
