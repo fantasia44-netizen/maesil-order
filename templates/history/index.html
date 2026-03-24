@@ -60,6 +60,7 @@
                         <th>날짜</th>
                         <th>유형</th>
                         <th>품목명</th>
+                        <th class="text-center" style="width:60px">SKU</th>
                         <th class="text-end">수량</th>
                         <th>단위</th>
                         <th>위치</th>
@@ -95,6 +96,7 @@
                             {% endif %}
                         </td>
                         <td>{{ rec.product_name }}</td>
+                        <td class="text-center text-muted small">{{ sku_map.get(rec.product_name, '-') }}</td>
                         <td class="text-end">{{ rec.qty|fmt_qty }}</td>
                         <td>{{ rec.unit|default('-') }}</td>
                         <td>{{ rec.location|default('-') }}</td>
@@ -121,7 +123,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="13" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
+                        <td colspan="14" class="text-center text-muted py-4">검색 결과가 없습니다.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

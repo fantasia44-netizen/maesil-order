@@ -245,6 +245,34 @@ def create_app(config_class=None):
             flash(f'"{BUSINESSES[biz_id]["name"]}" 사업자로 전환되었습니다.', 'info')
         return redirect(url_for('auth.login'))
 
+    # SKU 맵 (products 테이블) — 모든 템플릿에서 sku_map[product_name] 사용 가능
+    _sku_cache = {'data': None, 'ts': 0}
+
+    @app.context_processor
+    def inject_sku_map():
+        import time
+        now = time.time()
+        # 5분 캐시
+        if _sku_cache['data'] is None or now - _sku_cache['ts'] > 300:
+            try:
+                db = get_db()
+                rows = db.client.table('products').select('product_name, name_normalized, sku').execute()
+                sku_map = {}
+                for r in (rows.data or []):
+                    name = r.get('product_name', '')
+                    sku = r.get('sku', '')
+                    if name and sku:
+                        sku_map[name] = sku
+                        # 정규화 이름으로도 등록
+                        norm = r.get('name_normalized', '')
+                        if norm and norm != name:
+                            sku_map[norm] = sku
+                _sku_cache['data'] = sku_map
+                _sku_cache['ts'] = now
+            except Exception:
+                _sku_cache['data'] = _sku_cache['data'] or {}
+        return {'sku_map': _sku_cache['data']}
+
     # 사이드바 메뉴 (DB 기반 동적 권한 + 그룹핑 + 사업자별 필터링)
     @app.context_processor
     def inject_sidebar():

@@ -105,9 +105,10 @@
                 <thead class="table-light">
                     <tr>
                         <th style="cursor:pointer" onclick="sortTable(0,'text')">품목명 <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                        <th class="text-center" style="width:60px">SKU</th>
                         <th>카테고리</th>
                         <th>식품유형</th>
-                        <th class="text-end" style="cursor:pointer" onclick="sortTable(3,'num')">수량 <i class="bi bi-arrow-down-up text-muted small"></i></th>
+                        <th class="text-end" style="cursor:pointer" onclick="sortTable(4,'num')">수량 <i class="bi bi-arrow-down-up text-muted small"></i></th>
                         <th>단위</th>
                         <th>위치</th>
                         <th>보관방법</th>
@@ -122,19 +123,20 @@
                     </tr>
                     <tr class="table-secondary" id="filterRow">
                         <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="0" data-type="text"></td>
-                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="1" data-type="select"><option value="">전체</option></select></td>
-                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="2" data-type="select"><option value="">전체</option></select></td>
                         <td style="padding:4px"></td>
-                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="4" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="2" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="3" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"></td>
                         <td style="padding:4px"><select class="form-select form-select-sm" data-col="5" data-type="select"><option value="">전체</option></select></td>
                         <td style="padding:4px"><select class="form-select form-select-sm" data-col="6" data-type="select"><option value="">전체</option></select></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="7" data-type="select"><option value="">전체</option></select></td>
                         {% if view_mode == '소비기한분리' %}
-                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="7" data-type="select"><option value="">전체</option></select></td>
-                        {% elif view_mode == '제조일분리' %}
-                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="7" data-type="select"><option value="">전체</option></select></td>
-                        {% elif view_mode == '이력번호분리' %}
-                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="7" data-type="text"></td>
                         <td style="padding:4px"><select class="form-select form-select-sm" data-col="8" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode == '제조일분리' %}
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="8" data-type="select"><option value="">전체</option></select></td>
+                        {% elif view_mode == '이력번호분리' %}
+                        <td style="padding:4px"><input type="text" class="form-control form-control-sm" placeholder="검색..." data-col="8" data-type="text"></td>
+                        <td style="padding:4px"><select class="form-select form-select-sm" data-col="9" data-type="select"><option value="">전체</option></select></td>
                         {% endif %}
                     </tr>
                 </thead>
@@ -142,6 +144,7 @@
                     {% for row in rows %}
                     <tr{% if row.is_negative %} class="table-danger"{% endif %}>
                         <td><strong>{{ row.product_name }}</strong></td>
+                        <td class="text-center text-muted small">{{ sku_map.get(row.product_name, '-') }}</td>
                         <td>{{ row.category|default('-', true) }}</td>
                         <td>{% if row.food_type %}<span class="badge {% if row.food_type == '농산물' %}bg-success{% elif row.food_type == '수산물' %}bg-primary{% elif row.food_type == '축산물' %}bg-danger{% else %}bg-secondary{% endif %} small">{{ row.food_type }}</span>{% else %}-{% endif %}</td>
                         <td class="text-end">{{ row.qty|fmt_qty }}</td>
