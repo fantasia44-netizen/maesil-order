@@ -60,14 +60,14 @@
     </div>
     <div class="row mb-2">
       <div class="col-6"><label class="form-label">식품유형</label><select id="fFoodType" class="form-select form-select-sm"><option value="">-</option><option>농산물</option><option>수산물</option><option>축산물</option></select></div>
-      <div class="col-6"><label class="form-label">재고분류</label><input type="text" id="fCategory" class="form-control form-control-sm"></div>
-    </div>
-    <div class="row mb-2">
       <div class="col-6"><label class="form-label">보관방법</label><select id="fStorage" class="form-select form-select-sm"><option value="">-</option><option>냉동</option><option>냉장</option><option>실온</option></select></div>
-      <div class="col-6"><label class="form-label">단가</label><input type="number" id="fCostPrice" class="form-control form-control-sm" value="0"></div>
     </div>
     <div class="row mb-2">
-      <div class="col-4"><label class="form-label">단위</label><input type="text" id="fUnit" class="form-control form-control-sm"></div>
+      <div class="col-6"><label class="form-label">단가</label><input type="number" id="fCostPrice" class="form-control form-control-sm" value="0"></div>
+      <div class="col-6"><label class="form-label">단위</label><select id="fUnit" class="form-select form-select-sm"><option value="개">개</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="L">L</option><option value="팩">팩</option><option value="봉">봉</option></select></div>
+    </div>
+    <div class="row mb-2">
+      <div class="col-4" style="display:none"><label class="form-label">단위(구)</label><input type="text" id="fUnitOld" class="form-control form-control-sm"></div>
       <div class="col-4"><label class="form-label">중량</label><input type="number" id="fWeight" class="form-control form-control-sm" value="0"></div>
       <div class="col-4"><label class="form-label">중량단위</label><select id="fWeightUnit" class="form-select form-select-sm"><option>g</option><option>kg</option><option>ml</option><option>L</option></select></div>
     </div>
@@ -78,6 +78,7 @@
 </div></div></div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
 let currentPage = 1;
 
 function loadProducts(page=1) {
@@ -88,7 +89,7 @@ function loadProducts(page=1) {
     material_type: document.getElementById('materialType').value,
     storage_method: document.getElementById('storageMethod').value,
   });
-  fetch(`/orders/api/product-manage?${params}`, {headers: {'X-CSRFToken': window.CSRF_TOKEN}})
+  fetch(`/orders/api/product-manage?${params}`, {headers: {'X-CSRFToken': CSRF_TOKEN}})
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return alert(d.error);
@@ -171,7 +172,7 @@ function saveProduct() {
   const url = mode === 'add' ? '/orders/api/product-manage' : `/orders/api/product-manage/${encodeURIComponent(document.getElementById('editName').value)}`;
   const method = mode === 'add' ? 'POST' : 'PUT';
 
-  fetch(url, {method, headers: {'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN}, body: JSON.stringify(body)})
+  fetch(url, {method, headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN}, body: JSON.stringify(body)})
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return alert(d.error);

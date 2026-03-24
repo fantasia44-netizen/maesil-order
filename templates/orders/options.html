@@ -55,6 +55,7 @@
 </div></div></div>
 
 <script>
+const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
 let currentPage = 1;
 
 function loadOptions(page=1) {
@@ -63,7 +64,7 @@ function loadOptions(page=1) {
   const keyword = document.getElementById('keyword').value;
   const params = new URLSearchParams({page, per_page: perPage, keyword});
 
-  fetch(`/orders/api/options?${params}`, {headers: {'X-CSRFToken': window.CSRF_TOKEN}})
+  fetch(`/orders/api/options?${params}`, {headers: {'X-CSRFToken': CSRF_TOKEN}})
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return alert(d.error);
@@ -109,7 +110,7 @@ function saveOption() {
     barcode: document.getElementById('fBarcode').value.trim(),
   };
 
-  fetch(`/orders/api/options/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRFToken': window.CSRF_TOKEN}, body: JSON.stringify(body)})
+  fetch(`/orders/api/options/${id}`, {method: 'PUT', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN}, body: JSON.stringify(body)})
     .then(r => r.json())
     .then(d => {
       if (!d.ok) return alert(d.error);
