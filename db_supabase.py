@@ -131,13 +131,32 @@ class SupabaseDB(DBBase):
 
     # --- stock_ledger CRUD ---
 
-    @staticmethod
-    def _normalize_product_names(payload_list):
-        """품목명 공백 정규화 — '(수)건해삼채 200g' → '(수)건해삼채200g'."""
+    def _normalize_product_names(self, payload_list):
+        """품목명 정규화 — products 테이블 기준 정식 이름으로 변환.
+
+        products.name_normalized(공백 제거)로 매칭하여 정식 product_name을 반환.
+        products에 없으면 원본 그대로 유지.
+        """
+        if not payload_list:
+            return payload_list
+        # products 정규화 맵 캐시 (세션 내 1회)
+        if not hasattr(self, '_product_norm_cache') or self._product_norm_cache is None:
+            try:
+                rows = self.client.table('products').select('product_name, name_normalized').execute()
+                self._product_norm_cache = {r['name_normalized']: r['product_name'] for r in (rows.data or [])}
+            except Exception:
+                self._product_norm_cache = {}
+
+        norm_map = self._product_norm_cache
         for row in payload_list:
             pn = row.get('product_name', '')
             if pn:
-                row['product_name'] = str(pn).replace(' ', '').strip()
+                pn_clean = str(pn).replace(' ', '').replace('\u3000', '').strip()
+                # products에서 정식 이름 찾기
+                if pn_clean in norm_map:
+                    row['product_name'] = norm_map[pn_clean]
+                else:
+                    row['product_name'] = str(pn).strip()
         return payload_list
 
     def insert_stock_ledger(self, payload_list):
