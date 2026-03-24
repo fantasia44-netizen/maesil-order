@@ -382,6 +382,11 @@ def survey_preview():
         location = normalize_location(location)
 
         if is_export_format:
+            # 엑셀에 기준일 시스템재고(row[2])가 포함됨 → 그대로 사용
+            try:
+                excel_system_qty = float(row[2]) if len(row) > 2 and row[2] is not None else None
+            except (ValueError, TypeError):
+                excel_system_qty = None
             try:
                 actual_qty = float(row[3]) if len(row) > 3 and row[3] is not None else None
             except (ValueError, TypeError):
@@ -424,11 +429,19 @@ def survey_preview():
                     storage_method = sinfo.get('storage_method', '')
                 break
 
-        # 캐시된 이후 변동에서 조회 (DB 호출 없음)
-        after_mv_map = _get_after_movements(location)
-        after_movements = after_mv_map.get(product_name, 0) or after_mv_map.get(normalized_name, 0)
+        # 기준일 시스템재고 결정:
+        # 1순위: 엑셀에 포함된 기준일 시스템재고 (가장 정확 — 다운로드 시점 고정)
+        # 2순위: 현재재고 - 이후변동 (역산 — 시점 차이 발생 가능)
+        if is_export_format and excel_system_qty is not None:
+            # 엑셀 시스템재고 사용 (다운로드 시점 그대로)
+            system_qty_at_date = excel_system_qty
+            after_movements = current_qty - excel_system_qty
+        else:
+            # 역산 방식 (빈 양식 업로드 시)
+            after_mv_map = _get_after_movements(location)
+            after_movements = after_mv_map.get(product_name, 0) or after_mv_map.get(normalized_name, 0)
+            system_qty_at_date = current_qty - after_movements if survey_date else current_qty
 
-        system_qty_at_date = current_qty - after_movements if survey_date else current_qty
         delta = actual_qty - system_qty_at_date
 
         preview.append({
