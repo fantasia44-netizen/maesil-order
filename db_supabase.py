@@ -393,12 +393,14 @@ class SupabaseDB(DBBase):
     def upsert_revenue(self, payload_list):
         if not payload_list:
             return
-        # channel 필드 없는 레코드에 기본값 보장
+        # channel, invoice_no 필드 기본값 보장
         for p in payload_list:
             if 'channel' not in p:
                 p['channel'] = ''
+            if 'invoice_no' not in p:
+                p['invoice_no'] = ''
         self.client.table("daily_revenue").upsert(
-            payload_list, on_conflict="revenue_date,product_name,category,channel"
+            payload_list, on_conflict="revenue_date,product_name,category,channel,invoice_no"
         ).execute()
 
     def query_revenue(self, date_from=None, date_to=None, category=None, channel=None):

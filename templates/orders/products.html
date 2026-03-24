@@ -71,6 +71,7 @@
       <div class="col-4"><label class="form-label">중량</label><input type="number" id="fWeight" class="form-control form-control-sm" value="0"></div>
       <div class="col-4"><label class="form-label">중량단위</label><select id="fWeightUnit" class="form-select form-select-sm"><option>g</option><option>kg</option><option>ml</option><option>L</option></select></div>
     </div>
+    <div class="mb-2"><label class="form-label">바코드</label><input type="text" id="fBarcode" class="form-control form-control-sm" placeholder="바코드 스캔 또는 입력"></div>
     <div class="mb-2"><label class="form-label">메모</label><input type="text" id="fMemo" class="form-control form-control-sm"></div>
   </div>
   <div class="modal-footer"><button class="btn btn-primary btn-sm" onclick="saveProduct()">저장</button></div>
@@ -125,6 +126,7 @@ function showAddModal() {
   document.getElementById('fUnit').value = '';
   document.getElementById('fWeight').value = 0;
   document.getElementById('fWeightUnit').value = 'g';
+  document.getElementById('fBarcode').value = '';
   document.getElementById('fMemo').value = '';
   new bootstrap.Modal(document.getElementById('productModal')).show();
 }
@@ -144,6 +146,7 @@ function editProduct(p) {
   document.getElementById('fUnit').value = p.unit || '';
   document.getElementById('fWeight').value = p.weight || 0;
   document.getElementById('fWeightUnit').value = p.weight_unit || 'g';
+  document.getElementById('fBarcode').value = p.barcode || '';
   document.getElementById('fMemo').value = p.memo || '';
   new bootstrap.Modal(document.getElementById('productModal')).show();
 }

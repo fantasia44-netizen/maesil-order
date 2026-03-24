@@ -1403,6 +1403,8 @@ def api_rocket_manual():
 
     try:
         # 1. 매출 기록 (daily_revenue)
+        # upsert key: (date, product, category, channel, invoice_no)
+        # 같은 품목+다른 송장 = 별도 행, 송장 없으면 기존처럼 덮어쓰기
         db.upsert_revenue(revenue_payload)
 
         # 2. 재고차감 (stock_ledger SALES_OUT)
