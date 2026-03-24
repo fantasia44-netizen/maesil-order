@@ -67,7 +67,7 @@
         <span><i class="bi bi-tags"></i> 제품별 판매가</span>
         <div class="d-flex gap-2">
             <input type="text" id="searchInput" class="form-control form-control-sm"
-                   placeholder="품목명 검색..." style="width:220px;">
+                   placeholder="SKU 또는 품목명 검색..." style="width:220px;">
             <select id="channelFilter" class="form-select form-select-sm" style="width:140px;">
                 <option value="all">전체 채널</option>
                 <option value="naver">네이버만</option>
@@ -91,8 +91,8 @@
                 <thead class="table-light" style="position:sticky; top:0; z-index:1;">
                     <tr>
                         <th style="width:40px;" class="text-center">#</th>
-                        <th>품목명</th>
                         <th style="width:80px;">SKU</th>
+                        <th>품목명</th>
                         <th class="text-end" style="width:140px;">
                             <span class="badge ch-badge-naver">네이버</span>
                         </th>
@@ -191,8 +191,8 @@
 
             html += '<tr class="' + rowClass + '" id="price-row-' + item.id + '">';
             html += '<td class="text-center text-muted">' + (idx + 1) + '</td>';
+            html += '<td><strong>' + escapeHtml(item.sku || '-') + '</strong></td>';
             html += '<td>' + escapeHtml(item.product_name) + '</td>';
-            html += '<td><span class="text-muted small">' + escapeHtml(item.sku || '-') + '</span></td>';
 
             if (canEdit && editMode) {
                 // ── 수정 모드 ──

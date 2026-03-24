@@ -44,7 +44,12 @@ def api_data():
                 'rocket_price': float(r.get('로켓판매가', r.get('rocket_price', 0)) or 0),
             })
 
-        items.sort(key=lambda x: x['product_name'])
+        def sku_sort_key(x):
+            try:
+                return (0, int(x['sku']), x['product_name'])
+            except (ValueError, TypeError):
+                return (1, 0, x['product_name'])
+        items.sort(key=sku_sort_key)
 
         # 통계
         total = len(items)

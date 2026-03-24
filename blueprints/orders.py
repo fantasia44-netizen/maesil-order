@@ -1701,23 +1701,31 @@ def api_products_list():
     storage = request.args.get('storage_method', '')
 
     try:
-        q = db.client.table('product_costs').select('*')
+        q = db.client.table('products').select('*').eq('is_active', True)
 
         if keyword:
-            q = q.ilike('product_name', f'%{keyword}%')
+            q = q.or_(f'product_name.ilike.%{keyword}%,sku.ilike.%{keyword}%,barcode.ilike.%{keyword}%')
         if material_type:
             q = q.eq('material_type', material_type)
-        if category:
-            q = q.eq('category', category)
         if storage:
             q = q.eq('storage_method', storage)
 
-        q = q.order('product_name')
-        offset = (page - 1) * per_page
-        q = q.range(offset, offset + per_page - 1)
         result = q.execute()
+        data = result.data or []
 
-        return jsonify({'ok': True, 'data': result.data or [], 'page': page, 'per_page': per_page})
+        # SKU 숫자 정렬
+        def sku_key(x):
+            try:
+                return (0, int(x.get('sku') or 0))
+            except (ValueError, TypeError):
+                return (1, 0)
+        data.sort(key=sku_key)
+
+        # 페이지네이션
+        offset = (page - 1) * per_page
+        page_data = data[offset:offset + per_page]
+
+        return jsonify({'ok': True, 'data': page_data, 'page': page, 'per_page': per_page, 'total': len(data)})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
 
@@ -1734,19 +1742,27 @@ def api_products_add():
         return jsonify({'ok': False, 'error': '상품명을 입력하세요.'})
 
     try:
-        db.upsert_product_cost(
-            product_name=name,
-            cost_price=data.get('cost_price', 0),
-            unit=data.get('unit', ''),
-            memo=data.get('memo', ''),
-            weight=data.get('weight', 0),
-            weight_unit=data.get('weight_unit', 'g'),
-            cost_type=data.get('cost_type', '매입'),
-            material_type=data.get('material_type', '완제품'),
-            food_type=data.get('food_type', ''),
-            category=data.get('category', ''),
-            storage_method=data.get('storage_method', ''),
-        )
+        row = {
+            'product_name': name,
+            'cost_price': float(data.get('cost_price', 0) or 0),
+            'unit': data.get('unit', '개'),
+            'memo': data.get('memo', ''),
+            'weight': float(data.get('weight', 0) or 0),
+            'weight_unit': data.get('weight_unit', 'g'),
+            'cost_type': data.get('cost_type', '매입'),
+            'material_type': data.get('material_type', '완제품'),
+            'food_type': data.get('food_type', ''),
+            'storage_method': data.get('storage_method', ''),
+            'barcode': data.get('barcode', ''),
+            'sku': data.get('sku', ''),
+        }
+        db.client.table('products').insert(row).execute()
+        # product_costs에도 동기 삽입 (하위호환)
+        db.upsert_product_cost(product_name=name, cost_price=row['cost_price'],
+            unit=row['unit'], memo=row['memo'], weight=row['weight'],
+            weight_unit=row['weight_unit'], cost_type=row['cost_type'],
+            material_type=row['material_type'], food_type=row['food_type'],
+            storage_method=row['storage_method'])
         return jsonify({'ok': True, 'message': f'"{name}" 등록 완료'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
@@ -1760,19 +1776,19 @@ def api_products_update(product_name):
     db = get_db()
     data = request.get_json()
     try:
-        db.upsert_product_cost(
-            product_name=product_name,
-            cost_price=data.get('cost_price', 0),
-            unit=data.get('unit', ''),
-            memo=data.get('memo', ''),
-            weight=data.get('weight', 0),
-            weight_unit=data.get('weight_unit', 'g'),
-            cost_type=data.get('cost_type', '매입'),
-            material_type=data.get('material_type', '완제품'),
-            food_type=data.get('food_type', ''),
-            category=data.get('category', ''),
-            storage_method=data.get('storage_method', ''),
-        )
+        update = {}
+        for field in ['cost_price', 'unit', 'memo', 'weight', 'weight_unit',
+                       'cost_type', 'material_type', 'food_type', 'storage_method',
+                       'barcode', 'sku', 'naver_price', 'coupang_price', 'rocket_price',
+                       'self_mall_price']:
+            if field in data:
+                if field in ('cost_price', 'weight', 'naver_price', 'coupang_price',
+                             'rocket_price', 'self_mall_price'):
+                    update[field] = float(data[field] or 0)
+                else:
+                    update[field] = data[field]
+        if update:
+            db.client.table('products').update(update).eq('product_name', product_name).execute()
         return jsonify({'ok': True, 'message': f'"{product_name}" 수정 완료'})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})

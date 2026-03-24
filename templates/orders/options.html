@@ -70,7 +70,8 @@ function loadOptions(page=1) {
       if (!d.ok) return alert(d.error);
       const body = document.getElementById('optionBody');
       body.innerHTML = '';
-      d.data.forEach(o => {
+      window._optionData = d.data;
+      d.data.forEach((o, idx) => {
         const matched = o.last_matched_at ? new Date(o.last_matched_at).toLocaleDateString() : '-';
         body.innerHTML += `<tr>
           <td class="text-muted">${o.id}</td>
@@ -80,7 +81,7 @@ function loadOptions(page=1) {
           <td class="text-center">${o.sort_order??999}</td>
           <td>${o.barcode||''}</td>
           <td class="text-muted">${matched}</td>
-          <td><button class="btn btn-outline-primary btn-sm py-0" onclick='editOption(${JSON.stringify(o)})'>수정</button></td>
+          <td><button class="btn btn-outline-primary btn-sm py-0" onclick="editOption(window._optionData[${idx}])">수정</button></td>
         </tr>`;
       });
       const pg = document.getElementById('pagination');
