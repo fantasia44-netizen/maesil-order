@@ -134,34 +134,52 @@ class NaverCommerceClient(MarketplaceBaseClient):
 
     def fetch_orders(self, date_from: str, date_to: str,
                      status_filter: str = None) -> list:
-        """결제일 기준 주문 조회.
+        """네이버 권장 방식: last-changed-statuses → 개별 상세 조회.
 
-        네이버 API는 최대 24시간 범위만 허용하므로 자동 분할 처리.
-        PAYED_DATETIME 기준으로 조회하여 상태 변경과 무관하게 전체 주문 수집.
+        1단계: last-changed-statuses API로 변경된 주문 ID 수집 (누락 없는 방식)
+        2단계: product-orders/query API로 상세 데이터 일괄 조회
+        3단계: orderId별 전체 라인 보충 (같은 주문의 누락 라인 방지)
 
         Args:
-            status_filter: 'invoice_target' → 결제완료(PAYED)만 수집
-                           None → 전체 상태 수집 (기존 동작)
+            status_filter: 'invoice_target' → 결제완료(PAYED)만 필터링
+                           'shipped' → 발송완료만 필터링
+                           None → 전체 상태
         """
         if not self.config.get('access_token'):
             logger.warning('[네이버] 액세스 토큰 없음')
             return []
 
-        statuses = self.INVOICE_TARGET_STATUSES if status_filter == 'invoice_target' else None
+        # ── 1단계: 변경 주문 ID 수집 ──
+        all_ids = []
+        windows = self._split_date_range(date_from, date_to)
+        for win_from, win_to in windows:
+            ids = self._fetch_changed_order_ids_window(win_from, win_to)
+            all_ids.extend(ids)
 
+        # 중복 제거
+        unique_ids = list(dict.fromkeys(all_ids))
+        logger.info(f'[네이버] 1단계: 변경 주문 ID {len(unique_ids)}건 수집')
+
+        if not unique_ids:
+            return []
+
+        # ── 2단계: 상세 데이터 일괄 조회 (100건씩 분할) ──
         all_orders = []
         seen_ids = set()
-        windows = self._split_date_range(date_from, date_to)
+        BATCH_SIZE = 100
 
-        for win_from, win_to in windows:
-            orders = self._fetch_orders_window(win_from, win_to, statuses=statuses)
-            for o in orders:
+        for i in range(0, len(unique_ids), BATCH_SIZE):
+            batch = unique_ids[i:i + BATCH_SIZE]
+            details = self._fetch_order_details(batch)
+            for o in details:
                 pid = o.get('api_line_id', '')
                 if pid and pid not in seen_ids:
                     seen_ids.add(pid)
                     all_orders.append(o)
 
-        # ── orderId별 전체 라인 보충 (간헐적 라인 누락 대응) ──
+        logger.info(f'[네이버] 2단계: 상세 조회 {len(all_orders)}건')
+
+        # ── 3단계: orderId별 전체 라인 보충 (같은 주문의 누락 라인 방지) ──
         order_ids = set()
         for o in all_orders:
             oid = o.get('api_order_id', '')
@@ -175,6 +193,11 @@ class NaverCommerceClient(MarketplaceBaseClient):
                     f'{self.BASE_URL}/external/v1/pay-order/seller/orders/{oid}/product-orders',
                     headers=self._get_headers(), timeout=30,
                 )
+                if self._handle_rate_limit(resp):
+                    resp = self.session.get(
+                        f'{self.BASE_URL}/external/v1/pay-order/seller/orders/{oid}/product-orders',
+                        headers=self._get_headers(), timeout=30,
+                    )
                 if resp.status_code != 200:
                     continue
                 items = resp.json().get('data', [])
@@ -190,10 +213,17 @@ class NaverCommerceClient(MarketplaceBaseClient):
                 pass
 
         if supplemented:
-            logger.info(f'[네이버] orderId별 보충: +{supplemented}건')
+            logger.info(f'[네이버] 3단계: orderId별 보충 +{supplemented}건')
 
-        filter_label = f', 필터={statuses}' if statuses else ''
-        logger.info(f'[네이버] 총 주문 {len(all_orders)}건 조회 (결제일 기준{filter_label})')
+        # ── 상태 필터링 ──
+        if status_filter == 'invoice_target':
+            all_orders = [o for o in all_orders
+                          if o.get('order_status') in self.INVOICE_TARGET_STATUSES]
+        elif status_filter == 'shipped':
+            all_orders = [o for o in all_orders
+                          if o.get('order_status') in ('DELIVERING', 'DELIVERED')]
+
+        logger.info(f'[네이버] 최종: {len(all_orders)}건 (필터={status_filter or "전체"})')
         return all_orders
 
     def _fetch_orders_window(self, from_str: str, to_str: str,
