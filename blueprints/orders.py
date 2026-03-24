@@ -1371,6 +1371,7 @@ def api_rocket_manual():
     for item in items:
         product_name = str(item.get('product_name', '')).strip()
         qty = int(item.get('qty', 0))
+        invoice_no = str(item.get('invoice_no', '')).strip()
         if not product_name or qty <= 0:
             continue
 
@@ -1388,6 +1389,7 @@ def api_rocket_manual():
             'qty': qty,
             'unit_price': int(unit_price),
             'revenue': revenue,
+            'invoice_no': invoice_no,
         })
         stock_items.append({
             'product_name': product_name,
@@ -1441,7 +1443,7 @@ def api_rocket_manual_list():
 
     try:
         res = get_db().client.table('daily_revenue').select(
-            'id,revenue_date,product_name,qty,unit_price,revenue'
+            'id,revenue_date,product_name,qty,unit_price,revenue,invoice_no'
         ).eq('category', '로켓') \
          .gte('revenue_date', date_from) \
          .lte('revenue_date', date_to) \

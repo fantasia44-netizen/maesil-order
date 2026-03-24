@@ -30,11 +30,12 @@
         <table class="table table-sm" id="itemsTable">
             <thead class="table-light">
                 <tr>
-                    <th style="width:40%">품목명</th>
-                    <th style="width:15%" class="text-end">단가</th>
-                    <th style="width:15%">수량</th>
-                    <th style="width:15%" class="text-end">금액</th>
-                    <th style="width:15%"></th>
+                    <th style="width:30%">품목명</th>
+                    <th style="width:10%" class="text-end">단가</th>
+                    <th style="width:12%">수량</th>
+                    <th style="width:22%">송장번호</th>
+                    <th style="width:14%" class="text-end">금액</th>
+                    <th style="width:12%"></th>
                 </tr>
             </thead>
             <tbody id="itemsBody">
@@ -49,6 +50,7 @@
                     </td>
                     <td class="text-end price-cell">0</td>
                     <td><input type="number" class="form-control form-control-sm qty-input" min="1" value="1" onchange="calcAmount(this)" oninput="calcAmount(this)"></td>
+                    <td><input type="text" class="form-control form-control-sm invoice-input" placeholder="송장번호"></td>
                     <td class="text-end amount-cell">0</td>
                     <td><button class="btn btn-sm btn-outline-danger" onclick="removeRow(this)"><i class="bi bi-x"></i></button></td>
                 </tr>
@@ -58,6 +60,7 @@
                     <td>합계</td>
                     <td></td>
                     <td class="text-end" id="totalQty">0</td>
+                    <td></td>
                     <td class="text-end" id="totalAmount">0</td>
                     <td></td>
                 </tr>
@@ -104,6 +107,7 @@
                     <th>매출일</th>
                     <th>품목명</th>
                     <th class="text-end">수량</th>
+                    <th>송장번호</th>
                     <th class="text-end">단가</th>
                     <th class="text-end">매출액</th>
                     <th style="width:80px"></th>
@@ -253,8 +257,9 @@ function submitRocket() {
     document.querySelectorAll('#itemsBody tr').forEach(row => {
         const sel = row.querySelector('.product-select');
         const qty = parseInt(row.querySelector('.qty-input').value) || 0;
+        const invoice = (row.querySelector('.invoice-input').value || '').trim();
         if (sel.value && qty > 0) {
-            items.push({ product_name: sel.value, qty });
+            items.push({ product_name: sel.value, qty, invoice_no: invoice });
         }
     });
 
@@ -306,6 +311,7 @@ function loadHistory() {
                     <td>${r.revenue_date || ''}</td>
                     <td>${r.product_name || ''}</td>
                     <td class="text-end">${(r.qty || 0).toLocaleString()}</td>
+                    <td>${r.invoice_no || '-'}</td>
                     <td class="text-end">${(r.unit_price || 0).toLocaleString()}</td>
                     <td class="text-end">${(r.revenue || 0).toLocaleString()}</td>
                     <td>
