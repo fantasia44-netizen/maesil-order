@@ -230,37 +230,53 @@ def api_collect():
 @orders_api_bp.route('/api/api-collect-download', methods=['POST'])
 @role_required('admin', 'manager')
 def api_collect_download():
-    """API 주문수집 → 송장 파일만 다운로드 (DB 미반영, 미리보기)."""
+    """DB에 수집된 api_orders 기반 → 송장 파일 다운로드 (API 재호출 없음, 빠름)."""
     from services.order_processor import OrderProcessor
 
     db = get_db()
-    mgr = g.marketplace
     channel = request.form.get('channel', '')
     date_from = request.form.get('date_from', days_ago_kst(7))
     date_to = request.form.get('date_to', today_kst())
+    collection_date = request.form.get('collection_date', today_kst())
 
-    channels = [channel] if channel != 'all' else mgr.get_active_channels()
+    # DB api_orders에서 가져오기 (API 재호출 없음 → 빠름)
+    channels = [channel] if channel and channel != 'all' else [
+        '스마트스토어_배마마', '스마트스토어_해미애찬', '쿠팡', '자사몰']
     all_files = []
     channel_status = {}
     total_unmatched = []
     output_dir = tempfile.mkdtemp(prefix='api_preview_')
 
     for ch in channels:
-        client = mgr.get_client(ch)
-        if not client:
-            channel_status[ch] = '클라이언트 없음'
-            continue
-
-        err = _refresh_client(client, db)
-        if err:
-            channel_status[ch] = err
-            continue
-
         try:
-            orders = client.fetch_orders(date_from, date_to,
-                                         status_filter='invoice_target')
+            # DB에서 api_orders 조회 (N배송 제외: expectedDeliveryCompany=CJGLS만)
+            api_rows = db.query_api_orders(
+                channel=ch, date_from=date_from, date_to=date_to)
+
+            if not api_rows:
+                channel_status[ch] = '0건 (DB에 수집된 건 없음)'
+                continue
+
+            # raw_data에서 주문 형식으로 변환
+            orders = []
+            for row in api_rows:
+                raw = row.get('raw_data', {})
+                po = raw.get('productOrder', {}) if 'productOrder' in raw else raw
+
+                # N배송 제외 (네이버만 — CJGLS가 아닌 건 스킵)
+                if ch.startswith('스마트스토어'):
+                    company = po.get('expectedDeliveryCompany', '')
+                    if company and company != 'CJGLS':
+                        continue
+
+                orders.append({
+                    'api_order_id': row.get('api_order_id', ''),
+                    'api_line_id': row.get('api_line_id', ''),
+                    'raw_data': raw,
+                })
+
             if not orders:
-                channel_status[ch] = '0건'
+                channel_status[ch] = '0건 (N배송 제외 후)'
                 continue
 
             df = api_orders_to_excel_df(orders, ch)
@@ -301,7 +317,7 @@ def api_collect_download():
 
     if not all_files:
         return jsonify({
-            'error': '생성된 파일 없음',
+            'error': '생성된 파일 없음 (먼저 API 주문수집을 실행하세요)',
             'channel_status': channel_status,
             'unmatched': total_unmatched[:30],
         })
