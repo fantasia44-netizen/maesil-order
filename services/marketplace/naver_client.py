@@ -161,6 +161,37 @@ class NaverCommerceClient(MarketplaceBaseClient):
                     seen_ids.add(pid)
                     all_orders.append(o)
 
+        # ── orderId별 전체 라인 보충 (간헐적 라인 누락 대응) ──
+        order_ids = set()
+        for o in all_orders:
+            oid = o.get('api_order_id', '')
+            if oid:
+                order_ids.add(oid)
+
+        supplemented = 0
+        for oid in order_ids:
+            try:
+                resp = self.session.get(
+                    f'{self.BASE_URL}/external/v1/pay-order/seller/orders/{oid}/product-orders',
+                    headers=self._get_headers(), timeout=30,
+                )
+                if resp.status_code != 200:
+                    continue
+                items = resp.json().get('data', [])
+                for item in items:
+                    content = item.get('content', item)
+                    po = content.get('productOrder', {})
+                    pid = str(po.get('productOrderId', ''))
+                    if pid and pid not in seen_ids:
+                        seen_ids.add(pid)
+                        all_orders.append(self._normalize_order(content))
+                        supplemented += 1
+            except Exception:
+                pass
+
+        if supplemented:
+            logger.info(f'[네이버] orderId별 보충: +{supplemented}건')
+
         filter_label = f', 필터={statuses}' if statuses else ''
         logger.info(f'[네이버] 총 주문 {len(all_orders)}건 조회 (결제일 기준{filter_label})')
         return all_orders
