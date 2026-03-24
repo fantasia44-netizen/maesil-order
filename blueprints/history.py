@@ -95,12 +95,12 @@ def edit(row_id):
             flash('수정할 내용이 없습니다.', 'warning')
             return redirect(url_for('history.index'))
 
-        result = db.replace_stock_ledger(
+        new_id = db.replace_stock_ledger(
             row_id, update_data, replaced_by_user=current_user.username)
         _log_action('replace_stock_ledger', target=str(row_id),
                      detail=str(update_data),
-                     old_value=result.get('old_record'), new_value=update_data)
-        flash(f'이력 #{row_id} 수정 완료 (새 레코드 #{result.get("new_id")})', 'success')
+                     old_value=str(row_id), new_value=update_data)
+        flash(f'이력 #{row_id} 수정 완료 (새 레코드 #{new_id})', 'success')
     except Exception as e:
         flash(f'수정 중 오류: {e}', 'danger')
 
