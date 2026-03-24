@@ -1706,10 +1706,15 @@ def api_products_list():
     try:
         q = db.client.table('products').select('*').eq('is_active', True)
 
+        # 키워드 검색 (상품명, SKU, 바코드)
         if keyword:
             q = q.or_(f'product_name.ilike.%{keyword}%,sku.ilike.%{keyword}%,barcode.ilike.%{keyword}%')
+
+        # 기본: 완제품만 (영업용). 종류 필터 선택 시 해당 종류만
         if material_type:
             q = q.eq('material_type', material_type)
+        else:
+            q = q.eq('material_type', '완제품')
         if storage:
             q = q.eq('storage_method', storage)
 

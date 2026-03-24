@@ -21,7 +21,7 @@ def parse_components(comp_str):
         if idx > 0:
             name = item[:idx].strip()
             try:
-                qty = int(item[idx + 1:].strip())
+                qty = float(item[idx + 1:].strip())
             except ValueError:
                 name = item
                 qty = 1
