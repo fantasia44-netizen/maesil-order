@@ -3307,8 +3307,21 @@ class SupabaseDB(DBBase):
                 'csv': 'text/csv',
                 'pdf': 'application/pdf',
             }.get(ext, 'application/octet-stream')
-        # Supabase Storage 키: 한글 등 비ASCII 문자를 URL-encode (슬래시/점/하이픈/언더스코어 유지)
-        safe_path = '/'.join(quote(seg, safe='._-') for seg in path.split('/'))
+        # Supabase Storage 키: 한글→영문 변환 (InvalidKey 방지)
+        import re
+        _CH_MAP = {'스마트스토어_배마마': 'smartstore_baemama', '스마트스토어_해미애찬': 'smartstore_haemiae',
+                   '쿠팡': 'coupang', '자사몰': 'cafe24', '옥션': 'auction', '카카오': 'kakao',
+                   '집계표': 'summary', '송장': 'invoice', '외부송장': 'ext_invoice', '리얼패킹': 'realpacking',
+                   '통합집계표': 'total_summary', '통합출고': 'total_outbound', '일일매출': 'daily_sales',
+                   '매출집계표': 'sales_summary', '출고집계표': 'outbound_summary',
+                   '일자별종합': 'daily_total', '채널별주문수량': 'channel_orders',
+                   '넥스원': 'nexone', '해서': 'haeseo', 'aggregation': 'aggregation'}
+        def _to_ascii(s):
+            for kr, en in _CH_MAP.items():
+                s = s.replace(kr, en)
+            s = re.sub(r'[^\x00-\x7F]', '', s)  # 남은 비ASCII 제거
+            return s or 'file'
+        safe_path = '/'.join(_to_ascii(seg) for seg in path.split('/'))
         try:
             self.client.storage.from_(bucket).upload(
                 safe_path, file_bytes, file_options={"content-type": content_type}
