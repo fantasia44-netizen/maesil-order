@@ -37,8 +37,12 @@ def api_orders_to_excel_df(orders, channel):
 
         if is_naver(channel):
             po = raw.get('productOrder', {})
+            # N배송(네이버 풀필먼트)만 제외, 내일도착/도착보장은 우리 출고이므로 포함
+            # N배송: expectedDeliveryCompany가 CJGLS가 아닌 경우 (네이버 자체 배송)
             if po.get('deliveryAttributeType') == 'ARRIVAL_GUARANTEE':
-                continue
+                company = po.get('expectedDeliveryCompany', '')
+                if company != 'CJGLS':
+                    continue  # N배송 (네이버 풀필먼트) → 제외
             sa = po.get('shippingAddress', {})
             rows.append({
                 '상품주문번호': str(po.get('productOrderId', '')),
