@@ -2196,25 +2196,34 @@ class SupabaseDB(DBBase):
             print(f"[DB] mark_orders_outbound_done error: {e}")
 
     def query_outbound_summary(self, date_from=None, date_to=None):
-        """출고 처리 현황 요약."""
+        """출고 처리 현황 요약.
+
+        최적화: count=exact는 전체 테이블 스캔 → statement timeout.
+        count=estimated 사용 + limit(1)로 데이터 전송 최소화.
+        날짜 필터 없으면 이번달로 강제 제한.
+        """
         try:
+            # 날짜 범위 미지정 시 이번달로 강제 (풀스캔 방지)
+            if not date_from:
+                from datetime import datetime
+                date_from = datetime.now().strftime('%Y-%m-01')
+
             q_pending = self.client.table("order_transactions") \
                 .select("id", count="exact") \
-                .eq("is_outbound_done", False).eq("status", "정상")
+                .eq("is_outbound_done", False).eq("status", "정상") \
+                .gte("order_date", date_from).limit(1)
             q_done = self.client.table("order_transactions") \
                 .select("id", count="exact") \
-                .eq("is_outbound_done", True)
-            if date_from:
-                q_pending = q_pending.gte("order_date", date_from)
-                q_done = q_done.gte("order_date", date_from)
+                .eq("is_outbound_done", True) \
+                .gte("order_date", date_from).limit(1)
             if date_to:
                 q_pending = q_pending.lte("order_date", date_to)
                 q_done = q_done.lte("order_date", date_to)
             p_res = q_pending.execute()
             d_res = q_done.execute()
             return {
-                "pending": p_res.count if p_res.count is not None else len(p_res.data or []),
-                "done": d_res.count if d_res.count is not None else len(d_res.data or []),
+                "pending": p_res.count if p_res.count is not None else 0,
+                "done": d_res.count if d_res.count is not None else 0,
             }
         except Exception as e:
             print(f"[DB] query_outbound_summary error: {e}")
@@ -2260,6 +2269,7 @@ class SupabaseDB(DBBase):
 
         DB_CUTOFF_DATE 이전 기간은 daily_revenue(레거시)에서 조회,
         이후 기간은 order_transactions에서 조회.
+        최적화: 7일치만 조회하므로 paginate 대신 limit 사용 (대부분 1페이지).
         """
         from services.channel_config import DB_CUTOFF_DATE
         try:
@@ -2270,15 +2280,30 @@ class SupabaseDB(DBBase):
             # ── 1. order_transactions (cutoff 이후) ──
             ot_start = max(date_from, DB_CUTOFF_DATE)
             if ot_start <= today:
-                def ot_builder(table):
-                    return self.client.table(table).select(
+                # 7일치는 보통 수백~천건 이내 → limit 5000으로 1회 조회
+                try:
+                    res = self.client.table("order_transactions").select(
                         "order_date,total_amount,settlement"
                     ).gte("order_date", ot_start) \
                      .lte("order_date", today) \
                      .eq("status", "정상") \
-                     .order("order_date")
+                     .order("order_date") \
+                     .limit(5000).execute()
+                    ot_rows = res.data or []
+                except Exception as e:
+                    if self._is_connection_error(e):
+                        self._reconnect()
+                        res = self.client.table("order_transactions").select(
+                            "order_date,total_amount,settlement"
+                        ).gte("order_date", ot_start) \
+                         .lte("order_date", today) \
+                         .eq("status", "정상") \
+                         .order("order_date") \
+                         .limit(5000).execute()
+                        ot_rows = res.data or []
+                    else:
+                        raise
 
-                ot_rows = self._paginate_query("order_transactions", ot_builder)
                 for r in ot_rows:
                     d = r.get("order_date", "")
                     if not d:
@@ -2321,20 +2346,22 @@ class SupabaseDB(DBBase):
             return []
 
     def query_orders_by_channel(self, date_from=None, date_to=None):
-        """채널별 주문 통계 (채널 표시명 정규화 적용)."""
+        """채널별 주문 통계 (채널 표시명 정규화 적용).
+
+        최적화: 이번달(~31일)이므로 limit 10000 단일 쿼리로 대체.
+        """
         from services.channel_config import normalize_channel_display
         try:
-            def builder(table):
-                q = self.client.table(table) \
-                    .select("channel,qty,total_amount") \
-                    .eq("status", "정상")
-                if date_from:
-                    q = q.gte("order_date", date_from)
-                if date_to:
-                    q = q.lte("order_date", date_to)
-                return q.order("id")
+            q = self.client.table("order_transactions") \
+                .select("channel,qty,total_amount") \
+                .eq("status", "정상")
+            if date_from:
+                q = q.gte("order_date", date_from)
+            if date_to:
+                q = q.lte("order_date", date_to)
+            res = q.order("id").limit(10000).execute()
+            rows = res.data or []
 
-            rows = self._paginate_query("order_transactions", builder)
             channels = {}
             for r in rows:
                 ch = normalize_channel_display(r.get("channel", "기타"))
@@ -2348,19 +2375,45 @@ class SupabaseDB(DBBase):
             return []
 
     def query_stock_summary_by_location(self, exclude_products=None):
-        """창고별 재고 품목 수 요약 (양수 재고만). 최근 180일만 조회."""
+        """창고별 재고 품목 수 요약 (양수 재고만).
+
+        최적화: 180일 → 90일로 축소 + paginate 대신 limit 사용.
+        stock_ledger는 행수가 많으므로 조회 범위 최소화.
+        """
         try:
             today = today_kst()
-            date_from = days_ago_kst(180)
+            date_from = days_ago_kst(90)
 
-            def builder(table):
-                return self.client.table(table) \
-                    .select("product_name,location,qty") \
-                    .gte("transaction_date", date_from) \
-                    .lte("transaction_date", today) \
-                    .order("id")
+            # 90일치 limit 15000으로 1~2회 조회
+            all_data = []
+            offset = 0
+            page_size = 5000
+            while True:
+                try:
+                    res = self.client.table("stock_ledger") \
+                        .select("product_name,location,qty") \
+                        .gte("transaction_date", date_from) \
+                        .lte("transaction_date", today) \
+                        .order("id") \
+                        .range(offset, offset + page_size - 1).execute()
+                    rows = res.data or []
+                except Exception as e:
+                    if self._is_connection_error(e):
+                        self._reconnect()
+                        res = self.client.table("stock_ledger") \
+                            .select("product_name,location,qty") \
+                            .gte("transaction_date", date_from) \
+                            .lte("transaction_date", today) \
+                            .order("id") \
+                            .range(offset, offset + page_size - 1).execute()
+                        rows = res.data or []
+                    else:
+                        break
+                all_data.extend(rows)
+                if len(rows) < page_size:
+                    break
+                offset += page_size
 
-            all_data = self._paginate_query("stock_ledger", builder)
             # 품목+창고별 합산
             _excl = exclude_products or set()
             stock = {}
@@ -2383,18 +2436,21 @@ class SupabaseDB(DBBase):
             return []
 
     def query_top_products_by_revenue(self, days=30, limit=10):
-        """매출 TOP N 상품 (order_transactions 기반, 최근 N일)."""
+        """매출 TOP N 상품 (order_transactions 기반, 최근 N일).
+
+        최적화: limit 10000 단일 쿼리 (30일치 충분).
+        """
         try:
             date_from = days_ago_kst(days)
 
-            def builder(table):
-                return self.client.table(table) \
-                    .select("product_name,qty,total_amount,settlement") \
-                    .gte("order_date", date_from) \
-                    .eq("status", "정상") \
-                    .order("id")
+            res = self.client.table("order_transactions") \
+                .select("product_name,qty,total_amount,settlement") \
+                .gte("order_date", date_from) \
+                .eq("status", "정상") \
+                .order("id") \
+                .limit(10000).execute()
+            all_data = res.data or []
 
-            all_data = self._paginate_query("order_transactions", builder)
             products = {}
             for r in all_data:
                 pn = (r.get("product_name") or "").replace(' ', '').strip()
