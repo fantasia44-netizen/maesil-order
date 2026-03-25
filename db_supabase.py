@@ -2280,29 +2280,16 @@ class SupabaseDB(DBBase):
             # ── 1. order_transactions (cutoff 이후) ──
             ot_start = max(date_from, DB_CUTOFF_DATE)
             if ot_start <= today:
-                # 7일치는 보통 수백~천건 이내 → limit 5000으로 1회 조회
-                try:
-                    res = self.client.table("order_transactions").select(
+                # 7일치 전체 조회 (3컬럼만, paginate + 재연결)
+                def ot_builder(table):
+                    return self.client.table(table).select(
                         "order_date,total_amount,settlement"
                     ).gte("order_date", ot_start) \
                      .lte("order_date", today) \
                      .eq("status", "정상") \
-                     .order("order_date") \
-                     .limit(5000).execute()
-                    ot_rows = res.data or []
-                except Exception as e:
-                    if self._is_connection_error(e):
-                        self._reconnect()
-                        res = self.client.table("order_transactions").select(
-                            "order_date,total_amount,settlement"
-                        ).gte("order_date", ot_start) \
-                         .lte("order_date", today) \
-                         .eq("status", "정상") \
-                         .order("order_date") \
-                         .limit(5000).execute()
-                        ot_rows = res.data or []
-                    else:
-                        raise
+                     .order("order_date")
+
+                ot_rows = self._paginate_query("order_transactions", ot_builder)
 
                 for r in ot_rows:
                     d = r.get("order_date", "")
