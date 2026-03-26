@@ -164,7 +164,12 @@ def process_etc_outbound(db, date_str, location, items):
                 'shortage': [], 'out_count': 0, 'in_count': 0}
 
     try:
-        db.insert_stock_ledger(payload)
+        result = db.insert_stock_ledger(payload)
+        if result.get('failed', 0) > 0:
+            errors = result.get('errors', [])
+            err_msg = f"일부 항목 저장 실패 ({result['failed']}건): {'; '.join(errors[:3])}"
+            return {'success': False, 'warnings': [err_msg],
+                    'shortage': [], 'out_count': 0, 'in_count': 0}
     except Exception as e:
         return {'success': False, 'warnings': [f'DB 저장 중 오류: {e}'],
                 'shortage': [], 'out_count': 0, 'in_count': 0}

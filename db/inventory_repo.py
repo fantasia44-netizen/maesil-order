@@ -55,26 +55,35 @@ class InventoryRepo(BaseRepo):
         inserted = 0
         skipped = 0
 
-        # event_uid 있는 것: 배치 upsert (on_conflict → 스킵)
+        # event_uid 있는 것: 중복 체크 후 insert (유니크 제약 없어도 안전)
         if with_uid:
-            BATCH = 200
-            for i in range(0, len(with_uid), BATCH):
-                chunk = with_uid[i:i + BATCH]
-                try:
-                    self.client.table("stock_ledger").upsert(
-                        chunk, on_conflict="event_uid",
-                        ignore_duplicates=True
-                    ).execute()
-                    inserted += len(chunk)
-                except Exception as e1:
-                    # ignore_duplicates 미지원 시 개별 fallback
-                    print(f"[DB] stock_ledger batch upsert failed: {e1}")
-                    for p in chunk:
-                        try:
-                            self.client.table("stock_ledger").insert(p).execute()
-                            inserted += 1
-                        except Exception:
-                            skipped += 1
+            existing_uids = set()
+            try:
+                uid_list = [p['event_uid'] for p in with_uid]
+                res = self.client.table("stock_ledger").select("event_uid") \
+                    .in_("event_uid", uid_list).execute()
+                existing_uids = {r['event_uid'] for r in (res.data or [])}
+            except Exception:
+                pass
+
+            new_items = [p for p in with_uid if p['event_uid'] not in existing_uids]
+            skipped += len(with_uid) - len(new_items)
+
+            if new_items:
+                BATCH = 200
+                for i in range(0, len(new_items), BATCH):
+                    chunk = new_items[i:i + BATCH]
+                    try:
+                        self.client.table("stock_ledger").insert(chunk).execute()
+                        inserted += len(chunk)
+                    except Exception as e1:
+                        print(f"[DB] stock_ledger batch insert failed: {e1}")
+                        for p in chunk:
+                            try:
+                                self.client.table("stock_ledger").insert(p).execute()
+                                inserted += 1
+                            except Exception:
+                                skipped += 1
 
         # event_uid 없는 것: 배치 insert
         if without_uid:

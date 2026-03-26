@@ -33,22 +33,27 @@ def index():
     except Exception:
         pass
 
-    # 이력 조회
+    # 이력 조회 — 날짜 미입력 시 최근 30일 기본 표시
+    from services.tz_utils import today_kst
+    from datetime import datetime, timedelta
     date_from = request.args.get('date_from', '')
     date_to = request.args.get('date_to', '')
 
+    if not date_from and not date_to:
+        date_to = today_kst()
+        date_from = (datetime.strptime(date_to, '%Y-%m-%d') - timedelta(days=30)).strftime('%Y-%m-%d')
+
     history = []
-    if date_from or date_to:
-        try:
-            raw = db.query_stock_ledger(
-                date_to=date_to or '9999-12-31',
-                date_from=date_from or None,
-                type_list=['ETC_OUT', 'ETC_IN'],
-                order_desc=True,
-            )
-            history = raw
-        except Exception as e:
-            flash(f'기타출고 이력 조회 중 오류: {e}', 'danger')
+    try:
+        raw = db.query_stock_ledger(
+            date_to=date_to or '9999-12-31',
+            date_from=date_from or None,
+            type_list=['ETC_OUT', 'ETC_IN'],
+            order_desc=True,
+        )
+        history = raw
+    except Exception as e:
+        flash(f'기타출고 이력 조회 중 오류: {e}', 'danger')
 
     return render_template('etc_outbound/index.html',
                            history=history,
