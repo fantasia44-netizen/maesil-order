@@ -93,29 +93,36 @@ class OutboundRepo(BaseRepo):
     def query_outbound_summary(self, date_from=None, date_to=None):
         """출고 처리 현황 요약.
 
-        최적화: 날짜 필터 없으면 이번달로 강제 (풀스캔 방지) + limit(1).
+        최적화: count=exact → 풀스캔 timeout 유발.
+        id만 조회 후 len()으로 카운트.
+        날짜 필터 없으면 이번달로 강제 제한.
         """
         try:
             if not date_from:
                 from datetime import datetime
                 date_from = datetime.now().strftime('%Y-%m-01')
 
-            q_pending = self.client.table("order_transactions") \
-                .select("id", count="exact") \
-                .eq("is_outbound_done", False).eq("status", "정상") \
-                .gte("order_date", date_from).limit(1)
-            q_done = self.client.table("order_transactions") \
-                .select("id", count="exact") \
-                .eq("is_outbound_done", True) \
-                .gte("order_date", date_from).limit(1)
-            if date_to:
-                q_pending = q_pending.lte("order_date", date_to)
-                q_done = q_done.lte("order_date", date_to)
-            p_res = q_pending.execute()
-            d_res = q_done.execute()
+            def build_pending(table):
+                q = self.client.table(table).select("id") \
+                    .eq("is_outbound_done", False).eq("status", "정상") \
+                    .gte("order_date", date_from)
+                if date_to:
+                    q = q.lte("order_date", date_to)
+                return q.order("id")
+
+            def build_done(table):
+                q = self.client.table(table).select("id") \
+                    .eq("is_outbound_done", True) \
+                    .gte("order_date", date_from)
+                if date_to:
+                    q = q.lte("order_date", date_to)
+                return q.order("id")
+
+            pending = self._paginate_query("order_transactions", build_pending)
+            done = self._paginate_query("order_transactions", build_done)
             return {
-                "pending": p_res.count if p_res.count is not None else 0,
-                "done": d_res.count if d_res.count is not None else 0,
+                "pending": len(pending),
+                "done": len(done),
             }
         except Exception as e:
             print(f"[DB] query_outbound_summary error: {e}")
