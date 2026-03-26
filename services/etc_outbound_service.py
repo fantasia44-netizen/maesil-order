@@ -113,6 +113,7 @@ def process_etc_outbound(db, date_str, location, items):
                 "origin": base.get('origin', ''),
                 "manufacture_date": base.get('manufacture_date', ''),
                 "memo": memo_str,
+                "status": "active",
             })
             in_count += 1
             continue
@@ -131,6 +132,7 @@ def process_etc_outbound(db, date_str, location, items):
                 "category": snap_data.get('category', ''),
                 "storage_method": snap_data.get('storage_method', ''),
                 "memo": memo_str,
+                "status": "active",
             })
             out_count += 1
         else:
@@ -153,6 +155,7 @@ def process_etc_outbound(db, date_str, location, items):
                     "origin": g.get('origin', ''),
                     "manufacture_date": g.get('manufacture_date', ''),
                     "memo": memo_str,
+                    "status": "active",
                 })
                 g['qty'] -= deduct
                 remain -= deduct
