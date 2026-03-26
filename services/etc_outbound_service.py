@@ -18,10 +18,18 @@ def _validate_date(date_str):
         raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
 
 
-def _load_stock_snapshot(db, location):
-    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환."""
+def _load_stock_snapshot(db, location, as_of_date=None):
+    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환.
+    as_of_date가 주어지면 해당 날짜 기준 재고만 조회 (미래 데이터 제외).
+    """
     try:
-        all_data = db.query_stock_by_location(location)
+        if as_of_date:
+            all_data = db.query_stock_ledger(
+                date_to=as_of_date,
+                location=location,
+            )
+        else:
+            all_data = db.query_stock_by_location(location)
         return build_stock_snapshot(all_data)
     except Exception as e:
         print(f"재고 스냅샷 조회 에러: {e}")
@@ -69,8 +77,8 @@ def process_etc_outbound(db, date_str, location, items):
         return {'success': False, 'warnings': ['출고할 품목이 없습니다.'],
                 'shortage': [], 'out_count': 0, 'in_count': 0}
 
-    # 재고 스냅샷 로드
-    snapshot = _load_stock_snapshot(db, location)
+    # 재고 스냅샷 로드 — 입력한 날짜 기준 재고 확인
+    snapshot = _load_stock_snapshot(db, location, as_of_date=date_str)
 
     # 부족 체크 (차감 항목만)
     shortage = []
