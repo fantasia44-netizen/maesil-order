@@ -43,6 +43,20 @@ def process_etc_outbound(db, date_str, location, items):
     """
     _validate_date(date_str)
 
+    # ── 날짜 범위 검증 (미래 7일, 과거 30일 초과 차단) ──
+    from datetime import timedelta
+    input_date = datetime.strptime(date_str, '%Y-%m-%d')
+    today = datetime.now()
+    diff_days = (today - input_date).days
+    if diff_days > 30:
+        return {'success': False,
+                'warnings': [f'출고일({date_str})이 30일 이전입니다. 날짜를 확인해주세요. (연도 오입력 주의)'],
+                'shortage': [], 'out_count': 0, 'in_count': 0}
+    if diff_days < -7:
+        return {'success': False,
+                'warnings': [f'출고일({date_str})이 7일 이후입니다. 날짜를 확인해주세요.'],
+                'shortage': [], 'out_count': 0, 'in_count': 0}
+
     # ── 1차 실시간 검증 (Validation Engine) ──
     try:
         from core.validation_engine import _validate_date as v_date, _validate_location as v_loc
