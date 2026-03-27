@@ -10,6 +10,14 @@ from services.tz_utils import today_kst, days_ago_kst
 from services.option_matcher import _normalize as normalize_match_key
 
 class SupabaseDB(DBBase):
+    # 주문 목록 조회용 컬럼 (raw_data/raw_hash 제외 — 대용량 JSON으로 타임아웃 유발)
+    ORDER_LIST_COLUMNS = (
+        "id,order_date,channel,order_no,line_no,product_name,option_name,"
+        "qty,unit_price,total_amount,status,status_reason,"
+        "is_outbound_done,outbound_date,import_run_id,"
+        "recipient_name,collection_date,created_at,updated_at"
+    )
+
     def __init__(self):
         self.client: Client = None
         self._db_cols = None
@@ -2019,7 +2027,7 @@ class SupabaseDB(DBBase):
                                   status=None, search=None, limit=100, offset=0):
         """주문 목록 조회 (필터 지원)."""
         try:
-            q = self.client.table("order_transactions").select("*")
+            q = self.client.table("order_transactions").select(self.ORDER_LIST_COLUMNS)
             if date_from:
                 q = q.gte("order_date", date_from)
             if date_to:
@@ -2439,18 +2447,19 @@ class SupabaseDB(DBBase):
     def query_top_products_by_revenue(self, days=30, limit=10):
         """매출 TOP N 상품 (order_transactions 기반, 최근 N일).
 
-        최적화: limit 10000 단일 쿼리 (30일치 충분).
+        _paginate_query 사용: 10000건 초과 시에도 전체 데이터 집계.
         """
         try:
             date_from = days_ago_kst(days)
 
-            res = self.client.table("order_transactions") \
-                .select("product_name,qty,total_amount,settlement") \
-                .gte("order_date", date_from) \
-                .eq("status", "정상") \
-                .order("id") \
-                .limit(10000).execute()
-            all_data = res.data or []
+            def builder(table):
+                return self.client.table(table) \
+                    .select("product_name,qty,total_amount,settlement") \
+                    .gte("order_date", date_from) \
+                    .eq("status", "정상") \
+                    .order("id")
+
+            all_data = self._paginate_query("order_transactions", builder)
 
             products = {}
             for r in all_data:
@@ -3061,7 +3070,8 @@ class SupabaseDB(DBBase):
             for i in range(0, len(order_nos), 200):
                 batch_nos = list(order_nos)[i:i+200]
                 try:
-                    q = self.client.table("order_transactions").select("*") \
+                    q = self.client.table("order_transactions") \
+                        .select(self.ORDER_LIST_COLUMNS) \
                         .eq("channel", ch).in_("order_no", batch_nos)
                     if date_from:
                         q = q.gte("order_date", date_from)
@@ -3084,6 +3094,7 @@ class SupabaseDB(DBBase):
                                            limit=100, offset=0):
         """주문 확장 검색 (송장번호/수취인명 검색 포함).
         최적화: 채널별 배치 .in_() 조회 (N+1 제거).
+        raw_data/raw_hash 제외하여 대용량 날짜범위에서도 타임아웃 방지.
 
         search_field: 'all'(기본), 'order_no', 'product', 'invoice', 'recipient'
         """
@@ -3103,7 +3114,7 @@ class SupabaseDB(DBBase):
                 return results
 
             # 기본 검색 (기존 로직 확장)
-            q = self.client.table("order_transactions").select("*")
+            q = self.client.table("order_transactions").select(self.ORDER_LIST_COLUMNS)
             if date_from:
                 q = q.gte("order_date", date_from)
             if date_to:
@@ -3155,7 +3166,10 @@ class SupabaseDB(DBBase):
                 self._merge_invoice_no(results)
             return results
         except Exception as e:
+            import traceback
             print(f"[DB] query_order_transactions_extended error: {e}")
+            print(f"[DB]   params: date_from={date_from}, date_to={date_to}, search={search}, search_field={search_field}")
+            traceback.print_exc()
             return []
 
     def _merge_invoice_no(self, orders):

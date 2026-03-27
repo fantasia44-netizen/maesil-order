@@ -10,6 +10,14 @@ from .base import BaseRepo
 class OrdersRepo(BaseRepo):
     """주문/import_run 관련 DB Repository."""
 
+    # 주문 목록 조회용 컬럼 (raw_data/raw_hash 제외 — 대용량 JSON으로 타임아웃 유발)
+    ORDER_LIST_COLUMNS = (
+        "id,order_date,channel,order_no,line_no,product_name,option_name,"
+        "qty,unit_price,total_amount,status,status_reason,"
+        "is_outbound_done,outbound_date,import_run_id,"
+        "recipient_name,collection_date,created_at,updated_at"
+    )
+
     def create_import_run(self, channel, filename, file_hash, uploaded_by, total_rows):
         """import_runs 레코드 생성. 반환: (import_run_id, error_msg)"""
         try:
@@ -276,7 +284,7 @@ class OrdersRepo(BaseRepo):
                                   status=None, search=None, limit=100, offset=0):
         """주문 목록 조회 (필터 지원)."""
         try:
-            q = self.client.table("order_transactions").select("*")
+            q = self.client.table("order_transactions").select(self.ORDER_LIST_COLUMNS)
             if date_from:
                 q = q.gte("order_date", date_from)
             if date_to:
@@ -505,7 +513,7 @@ class OrdersRepo(BaseRepo):
                 return results
 
             # 기본 검색 (기존 로직 확장)
-            q = self.client.table("order_transactions").select("*")
+            q = self.client.table("order_transactions").select(self.ORDER_LIST_COLUMNS)
             if date_from:
                 q = q.gte("order_date", date_from)
             if date_to:
