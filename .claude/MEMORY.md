@@ -193,6 +193,12 @@
 - **Supabase Storage**: 한글 파일명 InvalidKey 400 에러 수정
 - **세션 만료 방어**: fetch JSON 파싱 에러 방지 (SyntaxError 대응)
 
+## ⚠️ DB 테이블명 주의 — cookdaddy(3PL) vs 메인(AutoTool) (2026-03-25)
+- cookdaddy DB에 `users`/`app_users`, `orders`/`api_orders`가 **모두 존재**
+- **3PL 코드**: `users` (operator_id 있음), `orders` 사용 — `app_users`/`api_orders` 사용 금지
+- **AutoTool 코드**: `app_users`, `api_orders` 사용
+- 상세: autotool_accounting/.claude/MEMORY.md 참조
+
 ## 3PL — PackFlow SaaS (2026-03-21 최신)
 - **경로**: autotool_accounting 레포 `3pl/` 폴더
 - **별도 Flask 앱** (Supabase, Multi-tenant operator_id 기반)
