@@ -354,7 +354,7 @@ class SupabaseDB(DBBase):
         # 1. products 마스터 (신규 등록 포함)
         try:
             res = self.client.table("products").select("product_name,unit") \
-                .eq("is_deleted", False).order("product_name").execute()
+                .order("product_name").execute()
             for r in (res.data or []):
                 name = r.get('product_name', '')
                 if name and name not in names_set:
