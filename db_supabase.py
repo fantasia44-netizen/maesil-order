@@ -344,21 +344,39 @@ class SupabaseDB(DBBase):
             return {}
 
     def query_unique_product_names(self):
-        """stock_ledger에서 고유 품목명+단위 목록 반환 (양수 재고 기준)."""
+        """products + stock_ledger에서 고유 품목명+단위 목록 반환.
+
+        products 테이블(마스터)을 우선 포함하고,
+        stock_ledger의 양수 재고 품목도 합침.
+        """
+        names_set = {}  # name → unit
+
+        # 1. products 마스터 (신규 등록 포함)
+        try:
+            res = self.client.table("products").select("product_name,unit") \
+                .eq("is_deleted", False).order("product_name").execute()
+            for r in (res.data or []):
+                name = r.get('product_name', '')
+                if name and name not in names_set:
+                    names_set[name] = r.get('unit') or '개'
+        except Exception:
+            pass
+
+        # 2. stock_ledger (양수 재고)
         def builder(table):
             return self.client.table(table).select("product_name,qty,unit") \
                 .eq("status", "active").order("id")
         all_data = self._paginate_query("stock_ledger", builder)
         totals = {}
-        units = {}
         for r in all_data:
             name = r.get('product_name', '')
             if name:
                 totals[name] = totals.get(name, 0) + (r.get('qty', 0) or 0)
-                if not units.get(name):
-                    units[name] = r.get('unit') or '개'
-        names = sorted([n for n, q in totals.items() if q > 0])
-        return [{'name': n, 'unit': units.get(n, '개') or '개'} for n in names]
+                if name not in names_set:
+                    names_set[name] = r.get('unit') or '개'
+
+        names = sorted(names_set.keys())
+        return [{'name': n, 'unit': names_set.get(n, '개') or '개'} for n in names]
 
     def query_unit_for_product(self, product_name):
         try:
