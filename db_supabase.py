@@ -12,10 +12,10 @@ from services.option_matcher import _normalize as normalize_match_key
 class SupabaseDB(DBBase):
     # 주문 목록 조회용 컬럼 (raw_data/raw_hash 제외 — 대용량 JSON으로 타임아웃 유발)
     ORDER_LIST_COLUMNS = (
-        "id,order_date,channel,order_no,line_no,product_name,"
+        "id,order_date,channel,order_no,line_no,product_name,option_name,"
         "qty,unit_price,total_amount,status,status_reason,"
         "is_outbound_done,outbound_date,import_run_id,"
-        "collection_date"
+        "recipient_name,collection_date,created_at,updated_at"
     )
 
     def __init__(self):
