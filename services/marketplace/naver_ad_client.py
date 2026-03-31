@@ -122,7 +122,7 @@ class NaverAdClient:
             ids: 엔티티 ID 리스트 (캠페인ID, 광고그룹ID 등)
             fields: 요청 필드 (기본: 비용/클릭/노출/전환)
             date_from: 'YYYY-MM-DD' (since, 포함)
-            date_to: 'YYYY-MM-DD' (until, 미포함 — 다음날 지정 필요)
+            date_to: 'YYYY-MM-DD' (until, 포함 — 당일 지정)
 
         Returns:
             [{id, salesAmt, clkCnt, impCnt, ccnt, convAmt, ...}, ...]
@@ -212,20 +212,19 @@ class NaverAdClient:
         campaign_ids = [c['nccCampaignId'] for c in campaigns]
         campaign_names = {c['nccCampaignId']: c.get('name', '') for c in campaigns}
 
-        # 하루씩 호출 (since=당일, until=다음날)
+        # 하루씩 호출 (since=당일, until=당일 — 네이버 API until은 inclusive)
         results = []
         dt = datetime.strptime(date_from, '%Y-%m-%d')
         dt_end = datetime.strptime(date_to, '%Y-%m-%d')
 
         while dt < dt_end:
             d_str = dt.strftime('%Y-%m-%d')
-            d_next = (dt + timedelta(days=1)).strftime('%Y-%m-%d')
 
             stats = self.get_stat(
                 ids=campaign_ids,
                 fields=['impCnt', 'clkCnt', 'salesAmt', 'ccnt', 'convAmt'],
                 date_from=d_str,
-                date_to=d_next,
+                date_to=d_str,
             )
             for item in stats:
                 cid = item.get('id', '')
