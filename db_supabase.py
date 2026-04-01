@@ -3511,8 +3511,8 @@ class SupabaseDB(DBBase):
     def query_expenses(self, month=None, category=None,
                         date_from=None, date_to=None):
         """비용 목록 조회. month 또는 date_from/date_to 기간 필터, category 필터."""
-        try:
-            q = self.client.table("expenses").select("*")
+        def builder(table):
+            q = self.client.table(table).select("*")
             q = q.or_("is_deleted.is.null,is_deleted.eq.false")
             if date_from and date_to:
                 q = q.gte("expense_date", date_from).lte("expense_date", date_to)
@@ -3524,9 +3524,9 @@ class SupabaseDB(DBBase):
                 q = q.eq("expense_month", month)
             if category:
                 q = q.eq("category", category)
-            q = q.order("expense_date", desc=True)
-            res = q.execute()
-            return res.data or []
+            return q.order("id")
+        try:
+            return self._paginate_query("expenses", builder)
         except Exception as e:
             print(f"[DB] query_expenses error: {e}")
             return []
