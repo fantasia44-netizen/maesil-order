@@ -163,12 +163,19 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
 
     # 3. 재고 스냅샷 로드
     snapshot = _load_stock_snapshot(db, location)
+    import logging as _log
+    _log.getLogger(__name__).warning(
+        f"[SET_DEBUG] location={location} snapshot_keys={list(snapshot.keys())[:30]}"
+    )
 
     # 4. 부족 체크 (구성품 + 부재료)
     shortage = []
     for item_name, needed_qty in sorted(final_items.items()):
         snap_data = snapshot_lookup(snapshot, item_name)
         available = snap_data.get('total', 0)
+        _log.getLogger(__name__).warning(
+            f"[SET_DEBUG] item={repr(item_name)} norm={repr(item_name.replace(' ',''))} available={available}"
+        )
         if available < needed_qty:
             shortage.append(
                 f"{item_name}: 필요 {needed_qty}, 현재고 {available} (부족 {needed_qty - available})"
