@@ -502,20 +502,31 @@ class SupabaseDB(DBBase):
                    and category in DAILY_REVENUE_ONLY_CATEGORIES)
 
         if not skip_ot:
-            def ot_builder(table):
-                q = self.client.table(table).select(
-                    "order_date,channel,product_name,qty,unit_price,"
-                    "total_amount,settlement,commission,discount_amount,shipping_fee"
-                ).eq("status", "정상").order("order_date", desc=True)
-                if date_from:
-                    q = q.gte("order_date", date_from)
-                if date_to:
-                    q = q.lte("order_date", date_to)
-                if channel and channel != "전체":
-                    q = q.eq("channel", channel)
-                return q
+            # 날짜 범위가 길면 7일씩 분할 조회 — 연결 끊김 방지
+            from datetime import datetime, timedelta as _td
+            def _iter_week_ranges(df, dt):
+                if not df or not dt:
+                    yield df, dt
+                    return
+                cur = datetime.strptime(df, '%Y-%m-%d')
+                end = datetime.strptime(dt, '%Y-%m-%d')
+                while cur <= end:
+                    chunk_end = min(cur + _td(days=6), end)
+                    yield cur.strftime('%Y-%m-%d'), chunk_end.strftime('%Y-%m-%d')
+                    cur = chunk_end + _td(days=1)
 
-            ot_rows = self._paginate_query("order_transactions", ot_builder)
+            ot_rows = []
+            for chunk_from, chunk_to in _iter_week_ranges(date_from, date_to):
+                def ot_builder(table, _cf=chunk_from, _ct=chunk_to):
+                    q = self.client.table(table).select(
+                        "order_date,channel,product_name,qty,unit_price,"
+                        "total_amount,settlement,commission,discount_amount,shipping_fee"
+                    ).eq("status", "정상").order("id")
+                    q = q.gte("order_date", _cf).lte("order_date", _ct)
+                    if channel and channel != "전체":
+                        q = q.eq("channel", channel)
+                    return q
+                ot_rows.extend(self._paginate_query("order_transactions", ot_builder))
 
             for r in ot_rows:
                 pn = (r.get("product_name") or "").replace(' ', '').strip()
