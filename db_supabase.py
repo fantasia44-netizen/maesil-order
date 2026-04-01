@@ -2533,7 +2533,7 @@ class SupabaseDB(DBBase):
             # 최근 주문
             orders = self.client.table("order_transactions") \
                 .select("id,channel,order_date,product_name,qty,processed_at") \
-                .order("processed_at", desc=True).limit(limit).execute()
+                .order("id", desc=True).limit(limit).execute()
             # 최근 재고 변동
             stock = self.client.table("stock_ledger") \
                 .select("id,type,product_name,qty,location,transaction_date") \
@@ -3436,7 +3436,9 @@ class SupabaseDB(DBBase):
                    '통합집계표': 'total_summary', '통합출고': 'total_outbound', '일일매출': 'daily_sales',
                    '매출집계표': 'sales_summary', '출고집계표': 'outbound_summary',
                    '일자별종합': 'daily_total', '채널별주문수량': 'channel_orders',
-                   '넥스원': 'nexone', '해서': 'haeseo', 'aggregation': 'aggregation'}
+                   '넥스원': 'nexone', '해서': 'haeseo', 'aggregation': 'aggregation',
+                   '수불장': 'ledger', '수불': 'ledger', '농산물': 'farm', '수산물': 'seafood', '축산물': 'livestock',
+                   '완제품': 'finished', '소분': 'repack', '세트': 'set', '입고': 'inbound', '출고': 'outbound'}
         def _to_ascii(s):
             for kr, en in _CH_MAP.items():
                 s = s.replace(kr, en)
@@ -3449,7 +3451,12 @@ class SupabaseDB(DBBase):
             )
             return True
         except Exception as e:
-            if '409' in str(e) or 'Duplicate' in str(e) or 'already exists' in str(e):
+            err_str = str(e)
+            is_dup = ('409' in err_str or '400' in err_str
+                      or 'duplicate' in err_str.lower()
+                      or 'already exists' in err_str.lower()
+                      or '23505' in err_str)
+            if is_dup:
                 try:
                     self.client.storage.from_(bucket).update(
                         safe_path, file_bytes, file_options={"content-type": content_type}
