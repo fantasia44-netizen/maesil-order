@@ -105,8 +105,9 @@ class SupabaseDB(DBBase):
             return payload_list
         return [{k: v for k, v in row.items() if k in self._db_cols} for row in payload_list]
 
-    def _paginate_query(self, table, query_builder, max_retries=3):
+    def _paginate_query(self, table, query_builder, max_retries=5):
         """페이지네이션으로 전체 데이터 조회 (페이지별 재시도)."""
+        import time
         all_data = []
         offset = 0
         page_size = 1000
@@ -123,6 +124,7 @@ class SupabaseDB(DBBase):
                     print(f"[DB] _paginate_query({table}) page {offset // page_size} "
                           f"attempt {attempt + 1}/{max_retries} error: {e}")
                     if self._is_connection_error(e) and attempt < max_retries - 1:
+                        time.sleep(1.5 * (attempt + 1))
                         self._reconnect()
             if rows is None:
                 import logging
