@@ -300,12 +300,28 @@ class SupabaseDB(DBBase):
     def query_stock_by_location(self, location, select_fields=None, product_names=None):
         sel_str = ",".join(select_fields) if select_fields else "*"
 
+        if product_names:
+            # 구성품별 개별 조회 — 글자 사이 % 삽입으로 공백 차이 흡수
+            all_data = []
+            seen_ids = set()
+            for name in product_names:
+                norm = name.replace(' ', '')
+                # 각 글자 사이에 % 삽입: '검은콩스틱' → '%검%은%콩%스%틱%'
+                fuzzy = '%' + '%'.join(norm) + '%'
+                def builder(table, _fuzzy=fuzzy):
+                    return self.client.table(table).select(sel_str) \
+                        .eq("status", "active").eq("location", location) \
+                        .ilike("product_name", _fuzzy).order("id")
+                rows = self._paginate_query("stock_ledger", builder)
+                for row in rows:
+                    if row.get('id') not in seen_ids:
+                        seen_ids.add(row.get('id'))
+                        all_data.append(row)
+            return all_data
+
         def builder(table):
-            q = self.client.table(table).select(sel_str) \
+            return self.client.table(table).select(sel_str) \
                 .eq("status", "active").eq("location", location).order("id")
-            if product_names:
-                q = q.in_("product_name", list(product_names))
-            return q
         return self._paginate_query("stock_ledger", builder)
 
     def query_filter_options(self):

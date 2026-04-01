@@ -176,9 +176,6 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
     for item_name, needed_qty in sorted(final_items.items()):
         snap_data = snapshot_lookup(snapshot, item_name)
         available = snap_data.get('total', 0)
-        _log.getLogger(__name__).warning(
-            f"[SET_DEBUG] item={repr(item_name)} norm={repr(item_name.replace(' ',''))} available={available}"
-        )
         if available < needed_qty:
             shortage.append(
                 f"{item_name}: 필요 {needed_qty}, 현재고 {available} (부족 {needed_qty - available})"
