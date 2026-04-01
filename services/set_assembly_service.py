@@ -19,10 +19,12 @@ def _validate_date(date_str):
         raise ValueError(f"날짜 형식이 올바르지 않습니다: {date_str}. YYYY-MM-DD 형식으로 입력하세요.")
 
 
-def _load_stock_snapshot(db, location):
-    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환."""
+def _load_stock_snapshot(db, location, product_names=None):
+    """특정 창고의 재고 스냅샷을 FIFO 그룹으로 반환.
+    product_names가 주어지면 해당 품목만 조회 (데이터량 최소화).
+    """
     try:
-        all_data = db.query_stock_by_location(location)
+        all_data = db.query_stock_by_location(location, product_names=product_names)
         return build_stock_snapshot(all_data)
     except Exception as e:
         print(f"재고 스냅샷 조회 에러: {e}")
@@ -161,12 +163,13 @@ def process_set_assembly(db, date_str, set_name, channel, location, qty,
                 'warnings': [f'세트 "{set_name}" ({channel})의 BOM 데이터를 찾을 수 없습니다.'],
                 'shortage': [], 'set_out_count': 0, 'set_in_count': 0}
 
-    # 3. 재고 스냅샷 로드
-    snapshot = _load_stock_snapshot(db, location)
-    import logging as _log
-    _log.getLogger(__name__).warning(
-        f"[SET_DEBUG] location={location} snapshot_keys={list(snapshot.keys())[:30]}"
-    )
+    # 3. 재고 스냅샷 로드 (BOM 구성품 + 부재료만 필터링하여 조회량 최소화)
+    needed_names = set(final_items.keys())
+    needed_names.update(sm['name'] for sm in sub_materials)
+    # 공백 제거 정규화 버전도 추가 (DB 저장명이 다를 수 있음)
+    needed_names_normalized = {n.replace(' ', '') for n in needed_names}
+    all_names = needed_names | needed_names_normalized
+    snapshot = _load_stock_snapshot(db, location, product_names=all_names)
 
     # 4. 부족 체크 (구성품 + 부재료)
     shortage = []

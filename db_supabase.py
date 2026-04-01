@@ -297,12 +297,15 @@ class SupabaseDB(DBBase):
             return q
         return self._paginate_query("stock_ledger", builder)
 
-    def query_stock_by_location(self, location, select_fields=None):
+    def query_stock_by_location(self, location, select_fields=None, product_names=None):
         sel_str = ",".join(select_fields) if select_fields else "*"
 
         def builder(table):
-            return self.client.table(table).select(sel_str) \
+            q = self.client.table(table).select(sel_str) \
                 .eq("status", "active").eq("location", location).order("id")
+            if product_names:
+                q = q.in_("product_name", list(product_names))
+            return q
         return self._paginate_query("stock_ledger", builder)
 
     def query_filter_options(self):
