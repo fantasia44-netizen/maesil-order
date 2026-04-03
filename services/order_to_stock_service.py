@@ -70,7 +70,10 @@ def _load_bom_map(db):
 
 
 def _load_option_map(db):
-    """option_master → {normalized_name: {sort_order, line_code}} 매핑 로드."""
+    """option_master → {normalized_name: {sort_order, line_code}} 매핑 로드.
+
+    공백 유무 차이로 매칭 실패하지 않도록 공백 제거 키도 등록.
+    """
     try:
         rows = db.query_option_master()
         if not rows:
@@ -80,11 +83,16 @@ def _load_option_map(db):
             nm = _norm(r.get('product_name', ''))
             if not nm:
                 continue
+            info = {
+                'sort_order': int(r.get('sort_order', 999) or 999),
+                'line_code': str(r.get('line_code', '0') or '0').strip(),
+            }
             if nm not in opt:
-                opt[nm] = {
-                    'sort_order': int(r.get('sort_order', 999) or 999),
-                    'line_code': str(r.get('line_code', '0') or '0').strip(),
-                }
+                opt[nm] = info
+            # 공백 제거 버전도 등록 (딸기당근스틱 ↔ 딸기당근 스틱)
+            nm_nospace = nm.replace(' ', '')
+            if nm_nospace != nm and nm_nospace not in opt:
+                opt[nm_nospace] = info
         return opt
     except Exception:
         return {}
@@ -92,9 +100,20 @@ def _load_option_map(db):
 
 def _get_warehouse(name, opt_map):
     """품목명 → 출고 창고 결정 (라인코드 기반)."""
+    if not opt_map:
+        return "넥스원"
     n = _norm(name)
-    if opt_map and n in opt_map:
-        lc = opt_map[n].get('line_code', '0')
+    # 1차: 정확 매칭
+    entry = opt_map.get(n)
+    # 2차: 공백 제거 매칭
+    if not entry:
+        n_nospace = n.replace(' ', '')
+        for k, v in opt_map.items():
+            if k.replace(' ', '') == n_nospace:
+                entry = v
+                break
+    if entry:
+        lc = entry.get('line_code', '0')
         return "해서" if lc == '5' else "넥스원"
     return "넥스원"
 
