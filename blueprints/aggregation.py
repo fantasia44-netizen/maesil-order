@@ -37,7 +37,7 @@ aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
 
 def _norm(text):
-    return unicodedata.normalize('NFC', str(text).strip())
+    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
 
 
 def _list_result_files(output_dir, limit=30):

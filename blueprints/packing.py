@@ -320,12 +320,15 @@ def api_lookup_barcode():
     barcode_map = {}
     if product_names_need_barcode:
         try:
+            # 공백 제거 매칭용 set
+            need_nospace = {n.replace(' ', '') for n in product_names_need_barcode}
             opt_list = db.query_option_master_as_list()  # 캐시 사용
             for opt in opt_list:
                 pn = opt.get('품목명', '')
                 bc = (opt.get('바코드') or '').strip()
-                if pn and bc and pn in product_names_need_barcode:
+                if pn and bc and pn.replace(' ', '') in need_nospace:
                     barcode_map[pn] = bc
+                    barcode_map[pn.replace(' ', '')] = bc
         except Exception:
             pass
 
@@ -334,7 +337,8 @@ def api_lookup_barcode():
     for o in order_rows:
         bc = (o.get('barcode') or '').strip()
         if not bc:
-            bc = barcode_map.get(o.get('product_name', ''), '')
+            pn = o.get('product_name', '')
+            bc = barcode_map.get(pn, '') or barcode_map.get(pn.replace(' ', ''), '')
         items.append({
             'product_name': o.get('product_name', ''),
             'qty': o.get('qty', 0),
