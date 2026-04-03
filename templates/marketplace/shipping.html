@@ -158,6 +158,98 @@
         </div>
     </div>
 
+    <!-- STEP 2.5: 송장 라벨 출력 -->
+    <div class="card mb-4 step-card" id="stepLabelCard">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <span class="step-number step-wait"><i class="bi bi-printer" style="font-size:0.75rem;"></i></span>
+                <strong class="ms-2">송장 라벨 출력</strong>
+                <small class="text-muted ms-2">— CJ 표준운송장 라벨 관리</small>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <span id="labelReadyCount" class="badge bg-warning text-dark">로딩중...</span>
+                <span id="labelPrintedCount" class="badge bg-success">-</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- 필터 + 액션 바 -->
+            <div class="row g-2 align-items-end mb-3">
+                <div class="col-auto">
+                    <label class="form-label mb-0" style="font-size:0.78rem;">채널</label>
+                    <select id="labelChannel" class="form-select form-select-sm" style="min-width:140px;">
+                        <option value="">전체</option>
+                        {% for ch in active_channels %}
+                        <option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-0" style="font-size:0.78rem;">날짜</label>
+                    <input type="date" id="labelDate" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label mb-0" style="font-size:0.78rem;">출력상태</label>
+                    <select id="labelStatus" class="form-select form-select-sm" style="width:110px;">
+                        <option value="all">전체</option>
+                        <option value="미출력" selected>미출력</option>
+                        <option value="출력완료">출력완료</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadLabelList()">
+                        <i class="bi bi-search"></i> 조회
+                    </button>
+                </div>
+                <div class="col-auto ms-auto">
+                    <button type="button" class="btn btn-dark btn-sm" onclick="printSelectedLabels()" id="btnPrintSelected" disabled>
+                        <i class="bi bi-printer"></i> 선택 출력 (<span id="selectedLabelCount">0</span>건)
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-outline-dark btn-sm" onclick="printAllLabels()">
+                        <i class="bi bi-printer-fill"></i> 전체 출력
+                    </button>
+                </div>
+            </div>
+
+            <!-- 송장 목록 테이블 -->
+            <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;" id="labelTable">
+                    <thead class="table-dark sticky-top">
+                        <tr>
+                            <th style="width:35px;"><input type="checkbox" id="labelCheckAll" onchange="toggleLabelCheckAll(this)"></th>
+                            <th style="width:70px;">출력</th>
+                            <th>송장번호</th>
+                            <th>채널</th>
+                            <th>주문번호</th>
+                            <th>받는분</th>
+                            <th>주소</th>
+                            <th style="width:90px;">출력시간</th>
+                            <th style="width:60px;">개별</th>
+                        </tr>
+                    </thead>
+                    <tbody id="labelTableBody">
+                        <tr><td colspan="9" class="text-center text-muted py-4">조회 버튼을 눌러주세요</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 개별 송장번호 입력 -->
+            <div class="mt-3 d-flex gap-2 align-items-center">
+                <div class="input-group input-group-sm" style="max-width:400px;">
+                    <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
+                    <input type="text" id="labelManualInv" class="form-control"
+                           placeholder="송장번호 직접 입력 (쉼표 구분)">
+                    <button class="btn btn-outline-dark" onclick="printLabelsManual()">
+                        <i class="bi bi-printer"></i> 출력
+                    </button>
+                </div>
+            </div>
+
+            <div id="labelResult" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
     <!-- STEP 3: 마켓 송장등록 -->
     <div class="card mb-4 step-card" id="step3Card">
         <div class="card-header">
@@ -579,11 +671,171 @@ function syncShippingStatus() {
     });
 }
 
+// ── 송장 라벨 출력 ──
+let _labelData = [];  // 조회된 라벨 목록 캐시
+
+function loadLabelReadyCount() {
+    const date = document.getElementById('labelDate')?.value || '';
+    fetch(`/shipping/api/label-ready-count?date=${date}`, {headers:{'Accept':'application/json'}})
+    .then(r => r.json())
+    .then(data => {
+        const badge = document.getElementById('labelReadyCount');
+        badge.textContent = `미출력 ${data.unprinted||data.count||0}건`;
+        badge.className = (data.unprinted||data.count||0) > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
+        const printed = document.getElementById('labelPrintedCount');
+        if (data.printed !== undefined) {
+            printed.textContent = `출력완료 ${data.printed}건`;
+        }
+    })
+    .catch(() => {});
+}
+
+function loadLabelList() {
+    const channel = document.getElementById('labelChannel').value;
+    const date = document.getElementById('labelDate').value;
+    const status = document.getElementById('labelStatus').value;
+    const tbody = document.getElementById('labelTableBody');
+
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 조회 중...</td></tr>';
+    log('송장 라벨 목록 조회...', 'info');
+
+    fetch(`/shipping/api/label-list?channel=${encodeURIComponent(channel)}&date=${date}&status=${status}`, {
+        headers: {'Accept': 'application/json'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        _labelData = data.items || [];
+        renderLabelTable(_labelData);
+        log(`라벨 목록 ${_labelData.length}건 조회`, 'success');
+        loadLabelReadyCount();
+    })
+    .catch(e => {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger py-3">조회 실패: ${e}</td></tr>`;
+        log('라벨 목록 조회 실패: ' + e, 'error');
+    });
+}
+
+function renderLabelTable(items) {
+    const tbody = document.getElementById('labelTableBody');
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">해당 조건의 송장이 없습니다</td></tr>';
+        return;
+    }
+
+    let html = '';
+    items.forEach((item, idx) => {
+        const printed = item.label_printed;
+        const statusBadge = printed
+            ? '<span class="badge bg-success">출력완료</span>'
+            : '<span class="badge bg-warning text-dark">미출력</span>';
+        const printedTime = item.label_printed_at
+            ? new Date(item.label_printed_at).toLocaleString('ko-KR', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+            : '-';
+        // 이름 마스킹 (2번째 글자)
+        const name = item.name || '';
+        const maskedName = name.length >= 3 ? name[0] + '*' + name.slice(2) : (name.length === 2 ? name[0] + '*' : name);
+        // 주소 축약
+        const addr = (item.address || '').substring(0, 25) + ((item.address||'').length > 25 ? '...' : '');
+        // 상품명
+        const prod = item.product_name || '';
+        const prodDisplay = prod.length > 20 ? prod.substring(0, 20) + '...' : prod;
+        // 주문건수
+        const orderCnt = item.order_count > 1 ? ` <span class="badge bg-info">${item.order_count}건</span>` : '';
+
+        html += `<tr class="${printed ? 'table-light' : ''}">
+            <td><input type="checkbox" class="label-check" data-idx="${idx}" data-inv="${item.invoice_no}" onchange="updateSelectedCount()"></td>
+            <td>${statusBadge}</td>
+            <td><code style="font-size:0.8rem;">${item.invoice_no || '-'}</code></td>
+            <td><span class="badge bg-secondary">${item.channel || ''}</span></td>
+            <td style="font-size:0.78rem;">${item.order_no || ''}${orderCnt}</td>
+            <td>${maskedName}</td>
+            <td style="font-size:0.78rem;" title="${prod}\n${item.address||''}">${prodDisplay || addr}</td>
+            <td style="font-size:0.75rem;">${printedTime}</td>
+            <td><button class="btn btn-outline-dark btn-sm py-0 px-1" onclick="printSingleLabel('${item.invoice_no}')" title="개별출력"><i class="bi bi-printer"></i></button></td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+    document.getElementById('labelCheckAll').checked = false;
+    updateSelectedCount();
+}
+
+function toggleLabelCheckAll(el) {
+    document.querySelectorAll('.label-check').forEach(cb => { cb.checked = el.checked; });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const checked = document.querySelectorAll('.label-check:checked');
+    const cnt = checked.length;
+    document.getElementById('selectedLabelCount').textContent = cnt;
+    document.getElementById('btnPrintSelected').disabled = cnt === 0;
+}
+
+function _getSelectedInvoiceNos() {
+    return Array.from(document.querySelectorAll('.label-check:checked'))
+        .map(cb => cb.dataset.inv).filter(Boolean);
+}
+
+function printSelectedLabels() {
+    const invoices = _getSelectedInvoiceNos();
+    if (!invoices.length) { alert('출력할 송장을 선택해주세요.'); return; }
+    _doPrintLabels(invoices, `선택 ${invoices.length}건`);
+}
+
+function printAllLabels() {
+    const invoices = _labelData.map(d => d.invoice_no).filter(Boolean);
+    if (!invoices.length) { alert('조회된 송장이 없습니다. 먼저 조회해주세요.'); return; }
+    if (!confirm(`조회된 ${invoices.length}건 전체를 출력합니다. 계속하시겠습니까?`)) return;
+    _doPrintLabels(invoices, `전체 ${invoices.length}건`);
+}
+
+function printSingleLabel(invoiceNo) {
+    _doPrintLabels([invoiceNo], '1건');
+}
+
+function printLabelsManual() {
+    const input = document.getElementById('labelManualInv').value.trim();
+    if (!input) { alert('송장번호를 입력해주세요.'); return; }
+    const invoices = input.split(',').map(s => s.trim()).filter(Boolean);
+    _doPrintLabels(invoices, `수동 ${invoices.length}건`);
+}
+
+function _doPrintLabels(invoice_nos, label) {
+    log(`라벨 출력 시작 (${label})...`, 'info');
+
+    fetch('/shipping/api/label-print', {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF, 'Content-Type': 'application/json'},
+        body: JSON.stringify({invoice_nos}),
+    })
+    .then(r => {
+        if (r.ok && r.headers.get('content-type')?.includes('application/pdf')) {
+            return r.blob().then(blob => {
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+                log(`라벨 PDF 생성 완료 (${label})`, 'success');
+                showResult('labelResult', `${label} 라벨이 새 탭에서 열렸습니다. Ctrl+P로 인쇄하세요.`, 'success');
+                // 목록 갱신
+                setTimeout(() => { loadLabelList(); loadLabelReadyCount(); }, 500);
+            });
+        }
+        return r.json().then(data => {
+            if (data.error) throw new Error(data.error);
+            showResult('labelResult', data.message || '완료', 'info');
+        });
+    })
+    .catch(e => {
+        log('라벨 생성 실패: ' + e, 'error');
+        showResult('labelResult', e.message, 'danger');
+    });
+}
+
 // 페이지 로드 시
 document.addEventListener('DOMContentLoaded', () => {
     loadStatusSummary();
     loadPendingInvoices();
     loadNoInvoiceCount();
+    loadLabelReadyCount();
 });
 </script>
 {% endblock %}

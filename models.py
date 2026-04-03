@@ -66,6 +66,7 @@ PAGE_REGISTRY = [
     ('import_runs',    '업로드이력 관리', 'bi-arrow-counterclockwise', '/orders/import-runs', ['admin','manager'],                                                '주문·판매'),
     ('aggregation',    '통합 집계',      'bi-calculator',         '/aggregation',         ['admin','manager','sales'],                                        '주문·판매'),
     ('shipment',       '출고 관리',      'bi-box-arrow-right',    '/shipment',            ['admin','ceo','manager','sales','logistics','general'],             '주문·판매'),
+    ('marketplace_ship','송장관리',     'bi-truck',              '/shipping',            ['admin','manager','sales','general'],                               '주문·판매'),
     ('packing_center', '패킹센터',      'bi-camera-video',       '/packing/',            ['admin','manager','logistics','sales','general'],                   '주문·판매'),
     ('price',          '판매가관리',     'bi-tags',               '/price',               ['admin','manager','sales','general'],                               '주문·판매'),
     ('promotions',     '행사/쿠폰',     'bi-megaphone',          '/promotions',          ['admin','manager','sales','general'],                               '주문·판매'),
@@ -127,7 +128,6 @@ PAGE_REGISTRY = [
     ('admin_logs',     '감사 로그',      'bi-shield-check',       '/admin/logs',          ['admin'],                                                          '관리'),
     ('integrity',      '정합성 검사',    'bi-clipboard2-check',   '/integrity',           ['admin','manager'],                                                '관리'),
     ('marketplace_api','API 연동',      'bi-cloud-arrow-down',   '/marketplace',         ['admin'],                                                              '관리'),
-    ('marketplace_ship','송장관리',     'bi-truck',              '/shipping',            ['admin','general'],                                                     '관리'),
     ('marketplace_val','교차검증',      'bi-check2-circle',      '/marketplace/validation', ['admin','manager','sales'],                                          '관리'),
     ('marketplace_sales','온라인 플랫폼 정산', 'bi-graph-up',    '/marketplace/sales',   ['admin','general'],                                                     '총무/경리'),
 ]

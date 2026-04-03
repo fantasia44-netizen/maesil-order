@@ -472,9 +472,24 @@ class CJCourierClient:
     # ══════════════════════════════════════════
 
     def refine_address(self, address: str) -> dict:
-        """주소 정제 → 권역 정보 반환."""
+        """주소 정제 → 분류코드·배달점소 등 라벨 인쇄에 필요한 전체 정보 반환.
+
+        Returns:
+            ok, dest_code(분류코드), sub_dest_code(서브분류코드),
+            short_addr(주소약칭), branch(배달점소),
+            sm_code(배달사원별칭), region(권역), p2p_code(P2P코드)
+        """
         if self.test_mode:
-            return {'ok': True, 'address': address, 'region': 'TEST'}
+            return {
+                'ok': True,
+                'dest_code': '380',
+                'sub_dest_code': '01',
+                'short_addr': '강남구 역삼동',
+                'branch': '역삼1',
+                'sm_code': 'A01',
+                'region': 'TEST',
+                'p2p_code': '',
+            }
 
         self._ensure_token()
         try:
@@ -495,9 +510,12 @@ class CJCourierClient:
                 return {
                     'ok': True,
                     'dest_code': d.get('CLSFCD', ''),
+                    'sub_dest_code': d.get('SUBCLSFCD', ''),
                     'short_addr': d.get('CLSFADDR', ''),
                     'branch': d.get('CLLDLVBRANNM', ''),
+                    'sm_code': d.get('CLLDLVEMPNICKNM', ''),
                     'region': d.get('RSPSDIV', ''),
+                    'p2p_code': d.get('P2PCD', ''),
                 }
             else:
                 return {'ok': False, 'error': data.get('RESULT_DETAIL', '')}

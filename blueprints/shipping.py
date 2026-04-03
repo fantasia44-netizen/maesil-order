@@ -241,3 +241,292 @@ def api_pending_invoices():
         return jsonify({'counts': counts})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ── 송장 라벨 출력 ──
+
+@shipping_bp.route('/api/label-ready-count')
+@role_required('admin', 'general')
+def api_label_ready_count():
+    """라벨 출력 건수 — 송장번호 기준 (미출력/출력완료 분리)."""
+    try:
+        db = get_db()
+        date = request.args.get('date') or today_kst()
+        q = db.client.table("order_shipping").select("invoice_no,label_printed") \
+            .neq("invoice_no", "") \
+            .not_.is_("invoice_no", "null") \
+            .eq("courier", "CJ대한통운") \
+            .gte("created_at", f"{date}T00:00:00") \
+            .limit(2000)
+        res = q.execute()
+
+        # 송장번호 기준 중복 제거
+        inv_status = {}
+        for i in (res.data or []):
+            inv = i.get('invoice_no', '')
+            if inv and inv not in inv_status:
+                inv_status[inv] = i.get('label_printed', False)
+
+        total = len(inv_status)
+        printed = sum(1 for v in inv_status.values() if v)
+        unprinted = total - printed
+        return jsonify({'count': total, 'unprinted': unprinted, 'printed': printed})
+    except Exception as e:
+        return jsonify({'count': 0, 'unprinted': 0, 'printed': 0, 'error': str(e)})
+
+
+@shipping_bp.route('/api/label-list')
+@role_required('admin', 'general')
+def api_label_list():
+    """라벨 출력 대상 목록 조회 (송장번호 기준 그룹핑)."""
+    try:
+        db = get_db()
+        channel = request.args.get('channel', '')
+        date = request.args.get('date', '') or today_kst()
+        status = request.args.get('status', 'all')
+
+        shipments = _query_shipments_for_label(db, channel, date, status)
+
+        # 송장번호 기준 그룹핑 (1 송장 = 1 라벨)
+        inv_map = {}
+        for s in shipments:
+            inv = s.get('invoice_no', '')
+            if not inv:
+                continue
+            if inv not in inv_map:
+                inv_map[inv] = {
+                    'invoice_no': inv,
+                    'channel': s.get('channel', ''),
+                    'order_nos': [],
+                    'name': s.get('receiver_name', ''),
+                    'address': s.get('receiver_addr', ''),
+                    'product_name': s.get('product_name', ''),
+                    'total_qty': s.get('total_qty', 0),
+                    'memo': s.get('memo', ''),
+                    'label_printed': s.get('label_printed', False),
+                    'label_printed_at': s.get('label_printed_at', ''),
+                }
+            order_no = s.get('order_no', '')
+            if order_no and order_no not in inv_map[inv]['order_nos']:
+                inv_map[inv]['order_nos'].append(order_no)
+
+        items = []
+        for inv, data in inv_map.items():
+            data['order_no'] = data['order_nos'][0] if data['order_nos'] else ''
+            data['order_count'] = len(data['order_nos'])
+            del data['order_nos']
+            items.append(data)
+
+        return jsonify({'items': items, 'total': len(items)})
+    except Exception as e:
+        return jsonify({'items': [], 'error': str(e)})
+
+
+@shipping_bp.route('/api/label-print', methods=['POST'])
+@role_required('admin', 'general')
+def api_label_print():
+    """CJ 표준운송장 라벨 PDF 생성.
+
+    body JSON:
+      - invoice_nos: ['...']   — 직접 지정
+      - channel, date, status  — 조건부 조회
+    """
+    from flask import Response
+    from services.courier.cj_label_generator import generate_labels_from_db_and_api
+    from services.courier.cj_client import CJCourierClient
+
+    data = request.get_json(silent=True) or {}
+    invoice_nos = data.get('invoice_nos', [])
+
+    db = get_db()
+
+    # 직접 송장번호 지정
+    if invoice_nos:
+        shipments = _query_shipments_by_invoice(db, invoice_nos)
+    else:
+        # 조건부 조회
+        channel = data.get('channel', '')
+        date = data.get('date', '') or today_kst()
+        status = data.get('status', '미출력')
+        shipments = _query_shipments_for_label(db, channel, date, status)
+
+    # 송장번호 기준 중복 제거 (1 송장 = 1 라벨)
+    seen = set()
+    unique_shipments = []
+    for s in shipments:
+        inv = s.get('invoice_no', '')
+        if inv and inv not in seen:
+            seen.add(inv)
+            unique_shipments.append(s)
+    shipments = unique_shipments
+
+    if not shipments:
+        return jsonify({'ok': False, 'error': '출력할 송장이 없습니다.'})
+
+    # CJ 클라이언트 (주소정제용)
+    cj = CJCourierClient(
+        cust_id=os.environ.get('CJ_CUST_ID', ''),
+        biz_reg_num=os.environ.get('CJ_BIZ_REG_NUM', ''),
+        test_mode=os.environ.get('CJ_USE_PROD', 'false').lower() != 'true',
+        use_prod=os.environ.get('CJ_USE_PROD', 'false').lower() == 'true',
+    )
+
+    # 발송인 정보
+    sender = {
+        'name': os.environ.get('CJ_SENDER_NAME', '배마마'),
+        'phone': os.environ.get('CJ_SENDER_PHONE', ''),
+        'address': os.environ.get('CJ_SENDER_ADDRESS', ''),
+    }
+
+    result = generate_labels_from_db_and_api(shipments, cj_client=cj, sender=sender)
+
+    if not result.get('ok'):
+        return jsonify({'ok': False, 'error': result.get('error', '라벨 생성 실패')})
+
+    # 출력 완료 표시 (label_printed 컬럼이 있으면)
+    printed_invoices = [s.get('invoice_no') for s in shipments if s.get('invoice_no')]
+    if printed_invoices:
+        try:
+            from datetime import datetime, timezone
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for inv in printed_invoices:
+                db.client.table("order_shipping").update({
+                    "label_printed": True,
+                    "label_printed_at": now_iso,
+                }).eq("invoice_no", inv).execute()
+        except Exception as e:
+            # label_printed 컬럼이 없으면 무시 (마이그레이션 전)
+            logger.info(f'label_printed 업데이트 스킵 (컬럼 미존재 가능): {e}')
+
+    _log_action(f'라벨 출력: {result["count"]}건')
+
+    return Response(
+        result['pdf_bytes'],
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'inline; filename=cj_labels_{result["count"]}.pdf',
+        }
+    )
+
+
+def _enrich_with_products(db, shipments: list) -> list:
+    """order_transactions에서 상품명·수량 조회해서 shipment에 추가."""
+    if not shipments:
+        return shipments
+    for ship in shipments:
+        order_no = ship.get('order_no', '')
+        channel = ship.get('channel', '')
+        if not order_no:
+            continue
+        try:
+            q = db.client.table("order_transactions") \
+                .select("product_name,qty") \
+                .eq("order_no", order_no) \
+                .eq("status", "정상")
+            if channel:
+                q = q.eq("channel", channel)
+            txn = q.execute()
+            if txn.data:
+                items = []
+                for t in txn.data:
+                    pname = t.get('product_name', '')
+                    qty = t.get('qty', 1)
+                    if pname:
+                        items.append(f'{pname} x{qty}' if qty and int(qty) > 1 else pname)
+                ship['product_name'] = ', '.join(items[:3])
+                if len(items) > 3:
+                    ship['product_name'] += f' 외 {len(items)-3}건'
+                ship['product_count'] = len(items)
+                ship['total_qty'] = sum(int(t.get('qty', 1) or 1) for t in txn.data)
+        except Exception as e:
+            logger.debug(f'[Label] 상품 조회 실패 ({order_no}): {e}')
+    return shipments
+
+
+def _query_shipments_by_invoice(db, invoice_nos: list) -> list:
+    """송장번호로 배송정보 조회 (order_shipping 기반)."""
+    if not invoice_nos:
+        return []
+    try:
+        results = []
+        for i in range(0, len(invoice_nos), 50):
+            chunk = invoice_nos[i:i+50]
+            res = db.client.table("order_shipping") \
+                .select("*") \
+                .in_("invoice_no", chunk) \
+                .execute()
+            if res.data:
+                results.extend(res.data)
+
+        shipments = []
+        for r in results:
+            shipments.append({
+                'invoice_no': r.get('invoice_no', ''),
+                'courier': r.get('courier', ''),
+                'order_no': r.get('order_no', ''),
+                'receiver_name': r.get('name', ''),
+                'receiver_phone': r.get('phone', ''),
+                'receiver_addr': r.get('address', ''),
+                'receiver_zipcode': '',
+                'product_name': '',
+                'memo': r.get('memo', ''),
+                'channel': r.get('channel', ''),
+                'label_printed': r.get('label_printed', False),
+                'label_printed_at': r.get('label_printed_at', ''),
+            })
+        return _enrich_with_products(db, shipments)
+    except Exception as e:
+        logger.error(f'[Label] 송장 조회 오류: {e}')
+        return []
+
+
+def _query_shipments_for_label(db, channel: str, date: str, status: str) -> list:
+    """조건부 배송정보 조회 (라벨 출력용)."""
+    try:
+        q = db.client.table("order_shipping") \
+            .select("*") \
+            .neq("invoice_no", "") \
+            .not_.is_("invoice_no", "null") \
+            .eq("courier", "CJ대한통운")
+
+        if channel:
+            q = q.eq("channel", channel)
+
+        if date:
+            q = q.gte("created_at", f"{date}T00:00:00")
+
+        # label_printed 필터 (컬럼 존재 시)
+        if status == '미출력':
+            try:
+                q = q.or_("label_printed.is.null,label_printed.eq.false")
+            except Exception:
+                pass
+        elif status == '출력완료':
+            try:
+                q = q.eq("label_printed", True)
+            except Exception:
+                pass
+
+        q = q.order("id").limit(200)
+        res = q.execute()
+
+        shipments = []
+        for r in (res.data or []):
+            shipments.append({
+                'invoice_no': r.get('invoice_no', ''),
+                'courier': r.get('courier', ''),
+                'order_no': r.get('order_no', ''),
+                'receiver_name': r.get('name', ''),
+                'receiver_phone': r.get('phone', ''),
+                'receiver_addr': r.get('address', ''),
+                'receiver_zipcode': '',
+                'product_name': '',
+                'memo': r.get('memo', ''),
+                'channel': r.get('channel', ''),
+                'label_printed': r.get('label_printed', False),
+                'label_printed_at': r.get('label_printed_at', ''),
+            })
+        return _enrich_with_products(db, shipments)
+    except Exception as e:
+        logger.error(f'[Label] 조건부 조회 오류: {e}')
+        return []

@@ -826,10 +826,10 @@ def _get_cj_client():
     from services.courier.cj_client import CJCourierClient
     cfg = current_app.config
     return CJCourierClient(
-        api_key=cfg.get('CJ_API_KEY', ''),
-        customer_id=cfg.get('CJ_CUSTOMER_ID', ''),
-        base_url=cfg.get('CJ_API_BASE_URL', ''),
+        cust_id=cfg.get('CJ_CUST_ID', ''),
+        biz_reg_num=cfg.get('CJ_BIZ_REG_NUM', ''),
         test_mode=cfg.get('CJ_API_TEST_MODE', True),
+        use_prod=cfg.get('CJ_USE_PROD', False),
     )
 
 
@@ -925,8 +925,13 @@ def api_courier_register():
 @packing_bp.route('/api/courier/label', methods=['POST'])
 @packing_required
 def api_courier_label():
-    """운송장 라벨 PDF 다운로드."""
+    """운송장 라벨 PDF 다운로드.
+
+    요청 body:
+      invoice_nos: ['송장번호1', ...]  — DB에서 배송정보 조회 후 라벨 생성
+    """
     from flask import Response
+    from services.courier.cj_label_generator import generate_labels_from_db_and_api
 
     data = request.get_json(silent=True) or {}
     invoice_nos = data.get('invoice_nos', [])
@@ -934,8 +939,38 @@ def api_courier_label():
     if not invoice_nos:
         return jsonify({'ok': False, 'error': '송장번호가 없습니다.'})
 
+    db = get_db()
     cj = _get_cj_client()
-    result = cj.get_label_pdf(invoice_nos)
+
+    # DB에서 배송 정보 조회
+    shipments = []
+    for inv_no in invoice_nos:
+        row = db.execute(
+            """SELECT os.*, o.order_no, o.receiver_name, o.receiver_phone,
+                      o.address as receiver_addr, o.zipcode as receiver_zipcode,
+                      o.item_name as product_name, o.delivery_memo as memo
+               FROM order_shipping os
+               JOIN orders o ON o.id = os.order_id
+               WHERE os.invoice_no = %s
+               LIMIT 1""",
+            (inv_no,)
+        )
+        if row:
+            r = row[0] if isinstance(row, list) else row
+            shipments.append(dict(r) if hasattr(r, 'keys') else r)
+
+    if not shipments:
+        return jsonify({'ok': False, 'error': '송장번호에 해당하는 배송정보가 없습니다.'})
+
+    # 발송인 정보
+    import os
+    sender = {
+        'name': os.environ.get('SENDER_NAME', ''),
+        'phone': os.environ.get('SENDER_PHONE', ''),
+        'address': os.environ.get('SENDER_ADDRESS', ''),
+    }
+
+    result = generate_labels_from_db_and_api(shipments, cj_client=cj, sender=sender)
 
     if not result.get('ok'):
         return jsonify({'ok': False, 'error': result.get('error', '라벨 생성 실패')})
