@@ -18,7 +18,7 @@
                 <label class="form-label">출고창고 <span class="text-danger">*</span></label>
                 <select class="form-select" id="warehouseSelect">
                     {% for loc in locations %}
-                    <option value="{{ loc }}" {{ 'selected' if loc == '넥스원' else '' }}>{{ loc }}</option>
+                    <option value="{{ loc }}" {{ 'selected' if loc == '해서' else '' }}>{{ loc }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -107,14 +107,15 @@
                     <th>매출일</th>
                     <th>품목명</th>
                     <th class="text-end">수량</th>
-                    <th>송장번호</th>
                     <th class="text-end">단가</th>
                     <th class="text-end">매출액</th>
+                    <th>송장번호</th>
+                    <th>출고창고</th>
                     <th style="width:80px"></th>
                 </tr>
             </thead>
             <tbody id="historyBody">
-                <tr><td colspan="6" class="text-center text-muted py-3">날짜를 선택하고 조회하세요</td></tr>
+                <tr><td colspan="8" class="text-center text-muted py-3">날짜를 선택하고 조회하세요</td></tr>
             </tbody>
         </table>
     </div>
@@ -132,15 +133,40 @@
                 <input type="hidden" id="editId">
                 <div class="mb-3">
                     <label class="form-label">품목명</label>
-                    <select class="form-select" id="editProduct">
+                    <select class="form-select" id="editProduct" onchange="onEditProductChange()">
                         {% for p in products %}
                         <option value="{{ p.name }}" data-price="{{ p.price }}">{{ p.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">수량 <small class="text-muted">(0 입력 시 삭제)</small></label>
+                        <input type="number" class="form-control" id="editQty" min="0" onchange="calcEditRevenue()" oninput="calcEditRevenue()">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">단가</label>
+                        <input type="number" class="form-control" id="editUnitPrice" min="0" onchange="calcEditRevenue()" oninput="calcEditRevenue()">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <label class="form-label">매출액</label>
+                        <input type="number" class="form-control" id="editRevenue" min="0" readonly>
+                        <small class="text-muted">자동 계산 (단가 x 수량)</small>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">송장번호</label>
+                        <input type="text" class="form-control" id="editInvoice" placeholder="송장번호">
+                    </div>
+                </div>
                 <div class="mb-3">
-                    <label class="form-label">수량 <small class="text-muted">(0 입력 시 삭제)</small></label>
-                    <input type="number" class="form-control" id="editQty" min="0">
+                    <label class="form-label">출고창고</label>
+                    <select class="form-select" id="editWarehouse">
+                        {% for loc in locations %}
+                        <option value="{{ loc }}">{{ loc }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
             </div>
             <div class="modal-footer">
@@ -298,37 +324,55 @@ function loadHistory() {
     if (!from || !to) return;
 
     const tbody = document.getElementById('historyBody');
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 조회 중...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> 조회 중...</td></tr>';
 
     fetch(`{{ url_for("orders.api_rocket_manual_list") }}?date_from=${from}&date_to=${to}`)
         .then(parseJsonSafe)
         .then(data => {
-            if (data.error) { tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">${data.error}</td></tr>`; return; }
+            if (data.error) { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-3">${data.error}</td></tr>`; return; }
             const items = data.items || [];
-            if (!items.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">조회 결과 없음</td></tr>'; return; }
+            if (!items.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">조회 결과 없음</td></tr>'; return; }
             tbody.innerHTML = items.map(r => `
                 <tr>
                     <td>${r.revenue_date || ''}</td>
                     <td>${r.product_name || ''}</td>
                     <td class="text-end">${(r.qty || 0).toLocaleString()}</td>
-                    <td>${r.invoice_no || '-'}</td>
                     <td class="text-end">${(r.unit_price || 0).toLocaleString()}</td>
-                    <td class="text-end">${(r.revenue || 0).toLocaleString()}</td>
+                    <td class="text-end fw-bold">${(r.revenue || 0).toLocaleString()}</td>
+                    <td>${r.invoice_no || '-'}</td>
+                    <td>${r.warehouse || '-'}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="openEdit(${r.id}, '${(r.product_name||'').replace(/'/g,"\\'")}', ${r.qty || 0})">
+                        <button class="btn btn-sm btn-outline-primary" onclick='openEdit(${JSON.stringify(r)})'>
                             <i class="bi bi-pencil"></i>
                         </button>
                     </td>
                 </tr>
             `).join('');
         })
-        .catch(e => { tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger py-3">오류: ${e.message}</td></tr>`; });
+        .catch(e => { tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger py-3">오류: ${e.message}</td></tr>`; });
 }
 
-function openEdit(id, productName, qty) {
-    document.getElementById('editId').value = id;
-    document.getElementById('editProduct').value = productName;
-    document.getElementById('editQty').value = qty;
+function onEditProductChange() {
+    const sel = document.getElementById('editProduct');
+    const price = parseInt(sel.selectedOptions[0]?.dataset.price) || 0;
+    document.getElementById('editUnitPrice').value = price;
+    calcEditRevenue();
+}
+
+function calcEditRevenue() {
+    const qty = parseInt(document.getElementById('editQty').value) || 0;
+    const price = parseInt(document.getElementById('editUnitPrice').value) || 0;
+    document.getElementById('editRevenue').value = qty * price;
+}
+
+function openEdit(r) {
+    document.getElementById('editId').value = r.id;
+    document.getElementById('editProduct').value = r.product_name || '';
+    document.getElementById('editQty').value = r.qty || 0;
+    document.getElementById('editUnitPrice').value = r.unit_price || 0;
+    document.getElementById('editRevenue').value = r.revenue || 0;
+    document.getElementById('editInvoice').value = r.invoice_no || '';
+    document.getElementById('editWarehouse').value = r.warehouse || '';
     new bootstrap.Modal(document.getElementById('editModal')).show();
 }
 
@@ -336,6 +380,9 @@ function saveEdit() {
     const id = document.getElementById('editId').value;
     const product_name = document.getElementById('editProduct').value;
     const qty = parseInt(document.getElementById('editQty').value) || 0;
+    const unit_price = parseInt(document.getElementById('editUnitPrice').value) || 0;
+    const invoice_no = document.getElementById('editInvoice').value.trim();
+    const warehouse = document.getElementById('editWarehouse').value;
 
     if (!product_name) { alert('품목을 선택하세요'); return; }
     if (qty === 0 && !confirm('수량 0 입력 시 해당 건이 삭제됩니다. 계속하시겠습니까?')) return;
@@ -343,7 +390,7 @@ function saveEdit() {
     fetch(`/orders/api/rocket-manual/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf_token },
-        body: JSON.stringify({ product_name, qty })
+        body: JSON.stringify({ product_name, qty, unit_price, invoice_no, warehouse })
     })
     .then(parseJsonSafe)
     .then(data => {

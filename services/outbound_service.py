@@ -151,7 +151,7 @@ def process_outbound_batch(db, df, location, qty_col, date_str,
 
 # ─── 단건 출고 (폼 기반) ───
 
-def process_single_outbound(db, date_str, location, items):
+def process_single_outbound(db, date_str, location, items, memo=''):
     """폼 기반 단건 출고 처리 (FIFO).
 
     Args:
@@ -159,6 +159,7 @@ def process_single_outbound(db, date_str, location, items):
         date_str: 처리일자 (YYYY-MM-DD)
         location: 출고 창고명
         items: list of dict -- [{product_name, qty, unit_price, unit}, ...]
+        memo: 선택적 메모 (예: '로켓매출 rev#123')
 
     Returns:
         dict: {success, count, shortage, warnings}
@@ -196,7 +197,7 @@ def process_single_outbound(db, date_str, location, items):
         snap_data = snapshot_lookup(stock, name)
         groups = snap_data.get('groups', [])
         if not groups:
-            payload.append({
+            entry = {
                 "transaction_date": date_str,
                 "type": "SALES_OUT",
                 "product_name": name,
@@ -206,7 +207,10 @@ def process_single_outbound(db, date_str, location, items):
                 "category": snap_data.get('category', ''),
                 "storage_method": snap_data.get('storage_method', ''),
                 "manufacture_date": '',
-            })
+            }
+            if memo:
+                entry["memo"] = memo
+            payload.append(entry)
             continue
         for g in groups:
             if remain <= 0:
@@ -214,7 +218,7 @@ def process_single_outbound(db, date_str, location, items):
             deduct = min(remain, g['qty'])
             if deduct <= 0:
                 continue
-            payload.append({
+            entry = {
                 "transaction_date": date_str,
                 "type": "SALES_OUT",
                 "product_name": name,
@@ -225,7 +229,10 @@ def process_single_outbound(db, date_str, location, items):
                 "storage_method": g['storage_method'],
                 "unit": g.get('unit', '개'),
                 "manufacture_date": g.get('manufacture_date', ''),
-            })
+            }
+            if memo:
+                entry["memo"] = memo
+            payload.append(entry)
             remain -= deduct
 
     insert_result = {'inserted': 0, 'failed': 0, 'errors': []}

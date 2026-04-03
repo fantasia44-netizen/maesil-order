@@ -1390,6 +1390,7 @@ def api_rocket_manual():
             'unit_price': int(unit_price),
             'revenue': revenue,
             'invoice_no': invoice_no,
+            'warehouse': warehouse,
         })
         stock_items.append({
             'product_name': product_name,
@@ -1411,7 +1412,8 @@ def api_rocket_manual():
         stock_msg = ''
         try:
             from services.outbound_service import process_single_outbound
-            result = process_single_outbound(db, revenue_date, warehouse, stock_items)
+            result = process_single_outbound(db, revenue_date, warehouse, stock_items,
+                                             memo=f'로켓매출 (rocket)')
             if result.get('success'):
                 stock_msg = f', 재고차감 {result.get("count", 0)}건'
             else:
@@ -1445,7 +1447,7 @@ def api_rocket_manual_list():
 
     try:
         res = get_db().client.table('daily_revenue').select(
-            'id,revenue_date,product_name,qty,unit_price,revenue,invoice_no'
+            'id,revenue_date,product_name,qty,unit_price,revenue,invoice_no,warehouse'
         ).eq('category', '로켓') \
          .gte('revenue_date', date_from) \
          .lte('revenue_date', date_to) \
@@ -1532,31 +1534,70 @@ def api_rocket_manual_update(rev_id):
 
         # 삭제
         if action == 'delete' or (new_qty is not None and int(new_qty) == 0):
+            # 재고 복원 (삭제 시 기존 출고분 되돌리기)
+            stock_msg = ''
+            try:
+                old_product = old_row.get('product_name', '')
+                old_qty = int(old_row.get('qty', 0))
+                old_warehouse = old_row.get('warehouse', '해서')
+                old_date = old_row.get('revenue_date', '')
+                if old_qty > 0 and old_product:
+                    db.client.table('stock_ledger').insert({
+                        'transaction_date': old_date,
+                        'type': 'SALES_RETURN',
+                        'product_name': old_product,
+                        'qty': old_qty,  # 양수 = 재고 복원
+                        'location': old_warehouse,
+                        'memo': f'로켓매출 삭제 복원 (rev#{rev_id})',
+                        'created_by': username,
+                    }).execute()
+                    stock_msg = f', 재고 +{old_qty} 복원({old_warehouse})'
+            except Exception as stk_err:
+                stock_msg = f' (재고복원 실패: {stk_err})'
+                current_app.logger.warning(f'로켓 삭제 재고복원 오류: {stk_err}')
+
             db.delete_revenue_by_id(rev_id)
             db.insert_audit_log({
                 'action': '로켓매출_삭제',
                 'user_name': username,
                 'target': f'daily_revenue#{rev_id}',
-                'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")} 삭제',
+                'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")} 삭제{stock_msg}',
                 'old_value': old_row,
             })
-            return jsonify({'success': True, 'message': '삭제 완료'})
+            return jsonify({'success': True, 'message': f'삭제 완료{stock_msg}'})
 
         # 수정
         import unicodedata
         update_data = {}
         if new_product and new_product != old_row.get('product_name'):
             update_data['product_name'] = new_product
-            price_map = db.query_price_table()
-            nm_key = unicodedata.normalize('NFC', new_product.strip())
-            prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
-            update_data['unit_price'] = int(prices.get('로켓판매가', 0))
+            # 단가가 별도 전송되지 않은 경우에만 자동 조회
+            if data.get('unit_price') is None:
+                price_map = db.query_price_table()
+                nm_key = unicodedata.normalize('NFC', new_product.strip())
+                prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
+                update_data['unit_price'] = int(prices.get('로켓판매가', 0))
+
+        # 단가 직접 수정
+        new_unit_price = data.get('unit_price')
+        if new_unit_price is not None:
+            update_data['unit_price'] = int(new_unit_price)
 
         if new_qty is not None:
             new_qty = int(new_qty)
             if new_qty <= 0:
                 return jsonify({'error': '수량은 1 이상이어야 합니다 (삭제는 0)'}), 400
             update_data['qty'] = new_qty
+
+        # 송장번호
+        new_invoice = data.get('invoice_no')
+        if new_invoice is not None:
+            update_data['invoice_no'] = new_invoice
+
+        # 출고창고
+        new_warehouse = data.get('warehouse')
+        if new_warehouse is not None:
+            update_data['warehouse'] = new_warehouse
 
         if not update_data:
             return jsonify({'error': '변경할 내용이 없습니다'}), 400
@@ -1566,16 +1607,75 @@ def api_rocket_manual_update(rev_id):
         update_data['revenue'] = int(up * q)
 
         db.client.table('daily_revenue').update(update_data).eq('id', rev_id).execute()
+
+        # 재고 조정 — 상품/수량/창고 변경 시 stock_ledger 반영
+        stock_msg = ''
+        try:
+            old_product = old_row.get('product_name', '')
+            old_qty = int(old_row.get('qty', 0))
+            old_warehouse = old_row.get('warehouse', '해서')
+            old_date = old_row.get('revenue_date', '')
+
+            final_product = update_data.get('product_name', old_product)
+            final_qty = update_data.get('qty', old_qty)
+            final_warehouse = update_data.get('warehouse', old_warehouse)
+
+            product_changed = final_product != old_product
+            qty_changed = final_qty != old_qty
+            warehouse_changed = final_warehouse != old_warehouse
+
+            if product_changed or warehouse_changed:
+                # 상품 or 창고 변경: 기존 것 복원 + 새 것 차감
+                if old_qty > 0:
+                    db.client.table('stock_ledger').insert({
+                        'transaction_date': old_date,
+                        'type': 'SALES_RETURN',
+                        'product_name': old_product,
+                        'qty': old_qty,
+                        'location': old_warehouse,
+                        'memo': f'로켓매출 수정 복원 (rev#{rev_id})',
+                        'created_by': username,
+                    }).execute()
+                if final_qty > 0:
+                    db.client.table('stock_ledger').insert({
+                        'transaction_date': old_date,
+                        'type': 'SALES_OUT',
+                        'product_name': final_product,
+                        'qty': -final_qty,
+                        'location': final_warehouse,
+                        'memo': f'로켓매출 수정 재차감 (rev#{rev_id})',
+                        'created_by': username,
+                    }).execute()
+                stock_msg = f', 재고 이동: {old_product}({old_warehouse})+{old_qty} → {final_product}({final_warehouse})-{final_qty}'
+            elif qty_changed:
+                # 수량만 변경: 차이만큼 조정
+                diff = final_qty - old_qty
+                if diff != 0:
+                    db.client.table('stock_ledger').insert({
+                        'transaction_date': old_date,
+                        'type': 'SALES_OUT' if diff > 0 else 'SALES_RETURN',
+                        'product_name': old_product,
+                        'qty': -abs(diff) if diff > 0 else abs(diff),
+                        'location': final_warehouse,
+                        'memo': f'로켓매출 수량수정 {"추가차감" if diff > 0 else "부분복원"} (rev#{rev_id})',
+                        'created_by': username,
+                    }).execute()
+                    stock_msg = f', 재고 {"-%d 추가차감" % abs(diff) if diff > 0 else "+%d 복원" % abs(diff)}({final_warehouse})'
+        except Exception as stk_err:
+            stock_msg = f' (재고조정 실패: {stk_err})'
+            current_app.logger.warning(f'로켓 수정 재고조정 오류: {stk_err}')
+
         db.insert_audit_log({
             'action': '로켓매출_수정',
             'user_name': username,
             'target': f'daily_revenue#{rev_id}',
-            'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")}→{update_data.get("qty", old_row.get("qty"))}',
+            'detail': f'{old_row.get("product_name")} qty:{old_row.get("qty")}→{update_data.get("qty", old_row.get("qty"))}{stock_msg}',
             'old_value': {'product_name': old_row.get('product_name'),
-                          'qty': old_row.get('qty'), 'revenue': old_row.get('revenue')},
+                          'qty': old_row.get('qty'), 'revenue': old_row.get('revenue'),
+                          'warehouse': old_row.get('warehouse')},
             'new_value': update_data,
         })
-        return jsonify({'success': True, 'message': '수정 완료'})
+        return jsonify({'success': True, 'message': f'수정 완료{stock_msg}'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
