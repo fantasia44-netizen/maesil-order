@@ -31,8 +31,8 @@ def _now_kst():
 
 
 def _norm(text):
-    """NFC 정규화 + strip"""
-    return unicodedata.normalize('NFC', str(text).strip())
+    """NFC 정규화 + 공백 제거 (매칭 키 용도)"""
+    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
 
 
 def _stock_date():

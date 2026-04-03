@@ -166,7 +166,8 @@ class SupabaseDB(DBBase):
                 if pn_clean in norm_map:
                     row['product_name'] = norm_map[pn_clean]
                 else:
-                    row['product_name'] = str(pn).strip()
+                    # products 마스터에 없어도 공백 제거 (일관성)
+                    row['product_name'] = pn_clean or str(pn).strip()
         return payload_list
 
     def insert_stock_ledger(self, payload_list):

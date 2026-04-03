@@ -37,8 +37,8 @@ def classify_file(filename):
 
 
 def _norm(text):
-    """한글 텍스트 NFC 정규화 (서버/클라이언트 인코딩 차이 방지)"""
-    return unicodedata.normalize('NFC', str(text).strip())
+    """한글 텍스트 NFC 정규화 + 공백 제거 (매칭 키 용도)"""
+    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
 
 
 class Aggregator:
