@@ -228,7 +228,12 @@ def _log_action(action, target=None, detail=None, user_id=None,
         payload['old_value'] = old_value
     if new_value is not None:
         payload['new_value'] = new_value
-    get_db().insert_audit_log(payload)
+    try:
+        get_db().insert_audit_log(payload)
+    except Exception:
+        # 감사 로그 실패가 주요 기능(로그인 등)을 중단시키면 안 됨
+        import traceback
+        current_app.logger.warning(f'audit_log 기록 실패: {traceback.format_exc()}')
 
 
 # ── Routes ──

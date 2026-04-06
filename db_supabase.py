@@ -66,6 +66,7 @@ class SupabaseDB(DBBase):
                 'ConnectError' in err_name or
                 'ConnectionTerminated' in err_name or
                 'TimeoutException' in err_name or
+                'ReadTimeout' in err_name or
                 'server disconnected' in err_msg or
                 'connection reset' in err_msg or
                 'statement timeout' in err_msg or
@@ -1372,30 +1373,38 @@ class SupabaseDB(DBBase):
 
     def query_user_by_id(self, user_id):
         """ID로 사용자 조회. dict or None."""
-        try:
+        def _do():
             res = self.client.table("app_users").select(self._USER_COLS) \
                 .eq("id", user_id).limit(1).execute()
             return res.data[0] if res.data else None
+        try:
+            return self._retry_on_disconnect(_do)
         except Exception:
             return None
 
     def query_user_by_username(self, username):
         """username으로 사용자 조회. dict or None."""
-        try:
+        def _do():
             res = self.client.table("app_users").select(self._USER_COLS) \
                 .eq("username", username).limit(1).execute()
             return res.data[0] if res.data else None
+        try:
+            return self._retry_on_disconnect(_do)
         except Exception:
             return None
 
     def insert_user(self, payload):
         """사용자 등록."""
-        self.client.table("app_users").insert(payload).execute()
+        def _do():
+            self.client.table("app_users").insert(payload).execute()
+        self._retry_on_disconnect(_do)
 
     def update_user(self, user_id, update_data, biz_id=None):
         """사용자 정보 수정."""
-        q = self.client.table("app_users").update(update_data).eq("id", user_id)
-        self._with_biz(q, biz_id).execute()
+        def _do():
+            q = self.client.table("app_users").update(update_data).eq("id", user_id)
+            self._with_biz(q, biz_id).execute()
+        self._retry_on_disconnect(_do)
 
     def query_all_users(self):
         """전체 사용자 목록."""
@@ -1429,7 +1438,9 @@ class SupabaseDB(DBBase):
             if key in payload and payload[key] is not None:
                 if isinstance(payload[key], (dict, list)):
                     payload[key] = json.dumps(payload[key], ensure_ascii=False)
-        self.client.table("audit_logs").insert(payload).execute()
+        def _do():
+            self.client.table("audit_logs").insert(payload).execute()
+        self._retry_on_disconnect(_do)
 
     def query_audit_logs(self, page=1, per_page=50, action_filter=None,
                          user_filter=None, date_from=None, date_to=None):
