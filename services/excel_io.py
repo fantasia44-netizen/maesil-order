@@ -265,7 +265,8 @@ def build_stock_snapshot(all_data):
             ft_val = r['food_type'] if (pd.notna(r.get('food_type')) and r['food_type'] != '') else ''
             all_meta[name] = {'unit': unit_val, 'category': cat_val, 'storage_method': stg_val, 'food_type': ft_val}
 
-    summary = summary[summary['qty'] > 0]
+    # ⚠️ 음수 FIFO 그룹 제거 금지 — total은 전체 합(음수 포함) 이어야 실제 재고와 일치
+    # 양수 그룹만 UI FIFO 리스트에 표시하되 total은 전체 sum 기준으로 계산
     summary = summary.sort_values(['product_name', 'expiry_date'], na_position='last')
 
     # ── stock dict: 메타 있는 모든 품목 미리 생성 (재고 0 포함) ──
@@ -281,20 +282,25 @@ def build_stock_snapshot(all_data):
 
     for _, r in summary.iterrows():
         name = r['product_name']
-        # stock[name]은 위에서 이미 생성됨
         unit_val = r['unit'] if (pd.notna(r.get('unit')) and r['unit'] != '') else '개'
-        stock[name]['groups'].append({
-            'category': r['category'] if pd.notna(r['category']) else '',
-            'expiry_date': r['expiry_date'] if pd.notna(r['expiry_date']) else None,
-            'storage_method': r['storage_method'] if pd.notna(r['storage_method']) else '',
-            'unit': unit_val,
-            'origin': r['origin'] if pd.notna(r.get('origin')) else '',
-            'manufacture_date': r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else '',
-            'food_type': r['food_type'] if pd.notna(r.get('food_type')) else '',
-            'lot_number': r['lot_number'] if pd.notna(r.get('lot_number')) else '',
-            'grade': r['grade'] if pd.notna(r.get('grade')) else '',
-            'qty': _snap_qty(r['qty'], unit_val)
-        })
-        stock[name]['total'] += _snap_qty(r['qty'], unit_val)
+        q_snap = _snap_qty(r['qty'], unit_val)
+
+        # total은 무조건 누적 (음수 그룹 포함)
+        stock[name]['total'] += q_snap
         stock[name]['unit'] = unit_val
+
+        # UI 표시 그룹은 양수만 — 음수는 초과 출고 이력으로 실물 없음
+        if q_snap > 0:
+            stock[name]['groups'].append({
+                'category': r['category'] if pd.notna(r['category']) else '',
+                'expiry_date': r['expiry_date'] if pd.notna(r['expiry_date']) else None,
+                'storage_method': r['storage_method'] if pd.notna(r['storage_method']) else '',
+                'unit': unit_val,
+                'origin': r['origin'] if pd.notna(r.get('origin')) else '',
+                'manufacture_date': r['manufacture_date'] if pd.notna(r.get('manufacture_date')) else '',
+                'food_type': r['food_type'] if pd.notna(r.get('food_type')) else '',
+                'lot_number': r['lot_number'] if pd.notna(r.get('lot_number')) else '',
+                'grade': r['grade'] if pd.notna(r.get('grade')) else '',
+                'qty': q_snap,
+            })
     return stock

@@ -429,20 +429,29 @@ def survey_preview():
                     storage_method = sinfo.get('storage_method', '')
                 break
 
-        # 기준일 시스템재고 결정:
-        # 1순위: 엑셀에 포함된 기준일 시스템재고 (가장 정확 — 다운로드 시점 고정)
-        # 2순위: 현재재고 - 이후변동 (역산 — 시점 차이 발생 가능)
+        # 기준일 시스템재고 결정 (서버 재계산 우선, 엑셀 값은 교차검증용):
+        after_mv_map = _get_after_movements(location)
+        after_movements_server = after_mv_map.get(product_name, 0) or after_mv_map.get(normalized_name, 0)
+        server_system_qty = current_qty - after_movements_server if survey_date else current_qty
+
+        # 엑셀에 박혀있는 시스템재고와 서버 재계산값이 다르면 경고
+        warn = None
         if is_export_format and excel_system_qty is not None:
-            # 엑셀 시스템재고 사용 (다운로드 시점 그대로)
-            system_qty_at_date = excel_system_qty
-            after_movements = current_qty - excel_system_qty
-        else:
-            # 역산 방식 (빈 양식 업로드 시)
-            after_mv_map = _get_after_movements(location)
-            after_movements = after_mv_map.get(product_name, 0) or after_mv_map.get(normalized_name, 0)
-            system_qty_at_date = current_qty - after_movements if survey_date else current_qty
+            if abs(excel_system_qty - server_system_qty) > max(1, server_system_qty * 0.01):
+                warn = (f'엑셀 시스템재고({excel_system_qty:g})와 '
+                        f'현재 재계산값({server_system_qty:g}) 불일치 — 서버값 사용')
+
+        # 항상 서버 재계산값 사용 (엑셀 값 신뢰 안함)
+        system_qty_at_date = server_system_qty
+        after_movements = after_movements_server
 
         delta = actual_qty - system_qty_at_date
+
+        # 큰 변동 경고 (현재 재고의 50% 이상)
+        large_delta = abs(delta) > max(10, current_qty * 0.5) if current_qty else abs(delta) > 10
+
+        # 조정 후 음수 예상 경고
+        would_be_negative = (current_qty + delta) < 0
 
         preview.append({
             'row': i,
@@ -454,9 +463,13 @@ def survey_preview():
             'memo': memo,
             'current_qty': current_qty,
             'system_qty_at_date': system_qty_at_date,
+            'excel_system_qty': excel_system_qty if is_export_format else None,
             'after_movements': after_movements,
             'actual_qty': actual_qty,
             'delta': delta,
+            'large_delta': large_delta,
+            'would_be_negative': would_be_negative,
+            'warning': warn,
             'survey_date': survey_date or None,
         })
 
