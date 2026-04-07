@@ -588,7 +588,13 @@ def survey_batch_history():
 @adjustment_bp.route('/survey/rollback', methods=['POST'])
 @role_required('admin', 'manager')
 def survey_rollback():
-    """배치 되돌리기: 동일 배치의 모든 조정을 역방향 적용."""
+    """배치 되돌리기: 원본 ADJUST를 유지하고, 같은 날짜에 offset ADJUST 생성.
+
+    원칙:
+      - 원본 보존 (audit trail)
+      - offset 레코드 transaction_date = 원본 transaction_date
+      - 과거 기준일 화면에서도 net=0 이 되어 재고 일관성 유지
+    """
     data = request.get_json(silent=True)
     batch_id = data.get('batch_id') if data else None
     if not batch_id:
@@ -598,52 +604,70 @@ def survey_rollback():
     from services.tz_utils import today_kst
     from datetime import timedelta
     end = today_kst()
-    start = (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=60)).strftime('%Y-%m-%d')
+    start = (datetime.strptime(end, '%Y-%m-%d') - timedelta(days=180)).strftime('%Y-%m-%d')
 
     movements = db.query_stock_ledger(date_from=start, date_to=end, type_list=['ADJUST'])
-    batch_items = [m for m in movements if m.get('memo', '').startswith(f'[{batch_id}]')]
+    batch_items = [m for m in movements
+                   if m.get('memo', '').startswith(f'[{batch_id}]')
+                   and not m.get('is_deleted')]
     if not batch_items:
         return jsonify({'ok': False, 'error': f'배치 "{batch_id}" 이력을 찾을 수 없습니다.'})
 
-    # 이미 되돌린 배치인지 확인
-    rollback_check = [m for m in movements if m.get('memo', '').startswith(f'[ROLLBACK-{batch_id}]')]
+    # 이미 offset 생성된 배치인지 확인
+    rollback_check = [m for m in movements
+                      if m.get('memo', '').startswith(f'[ROLLBACK-{batch_id}]')
+                      and not m.get('is_deleted')]
     if rollback_check:
         return jsonify({'ok': False, 'error': '이미 되돌린 배치입니다.'})
 
-    rollback_items = []
+    # 원본 날짜별 groupby → offset ADJUST 각각 같은 날짜로 생성
+    from services.adjustment_service import process_adjustment_batch
+    success = 0
+    fail = 0
+    errors = []
+    dates_processed = set()
+
+    # 원본 transaction_date 별로 묶어서 process_adjustment_batch 호출
+    from collections import defaultdict
+    by_date: dict[str, list] = defaultdict(list)
     for item in batch_items:
         qty = float(item.get('qty', 0))
         if qty == 0:
             continue
-        rollback_items.append({
+        d = str(item.get('transaction_date', ''))[:10]
+        by_date[d].append({
             'product_name': item['product_name'],
             'location': item.get('location', ''),
-            'qty': -qty,
+            'qty': -qty,  # 역방향
             'memo': f"[ROLLBACK-{batch_id}] 되돌리기 ({-qty:+g})",
             'unit': item.get('unit', '개'),
             'storage_method': item.get('storage_method', ''),
             'category': item.get('category', ''),
         })
 
-    if not rollback_items:
-        return jsonify({'ok': False, 'error': '되돌릴 항목이 없습니다.'})
+    for txn_date, items in by_date.items():
+        try:
+            result = process_adjustment_batch(
+                db, txn_date, items,
+                created_by=current_user.username)
+            success += result.get('count', 0)
+            dates_processed.add(txn_date)
+        except Exception as e:
+            fail += len(items)
+            errors.append(f'{txn_date}: {str(e)[:100]}')
 
-    try:
-        from services.adjustment_service import process_adjustment_batch
-        result = process_adjustment_batch(
-            db, today_kst(), rollback_items,
-            created_by=current_user.username)
-        _log_action('survey_rollback',
-                     detail=f'재고실사 되돌리기 {batch_id}: {result.get("count", 0)}건',
-                     new_value={'batch_id': batch_id, 'count': result.get('count', 0)})
-        return jsonify({
-            'ok': True,
-            'batch_id': batch_id,
-            'rollback_success': result.get('count', 0),
-            'rollback_fail': 0,
-        })
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
+    _log_action('survey_rollback',
+                 detail=f'재고실사 되돌리기 {batch_id}: {success}건 (원본 날짜 기준)',
+                 new_value={'batch_id': batch_id, 'success': success,
+                            'dates': sorted(dates_processed)})
+    return jsonify({
+        'ok': True,
+        'batch_id': batch_id,
+        'rollback_success': success,
+        'rollback_fail': fail,
+        'dates_processed': sorted(dates_processed),
+        'errors': errors[:5] if errors else [],
+    })
 
 
 @adjustment_bp.route('/batch', methods=['POST'])
