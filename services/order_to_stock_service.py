@@ -360,11 +360,16 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
                 })
                 remain -= deduct
 
+        # 재고차감 실패한 주문은 완료표시에서 제외하기 위해 그룹 단위로 추적
+        # warehouse 그룹 안의 주문 ID 목록 (현재 로직에선 group 단위로 분리되지 않으므로
+        # 안전을 위해 차감 실패 시 해당 그룹 전체를 차단)
         if payload:
             try:
                 for p in payload:
                     logger.info(f"[재고차감] {date_str} | {p['product_name']} | {p['qty']} | {warehouse} | SALES_OUT")
-                inserted, skipped = db.upsert_stock_ledger_idempotent(payload)
+                inserted, skipped = db._retry_on_disconnect(
+                    db.upsert_stock_ledger_idempotent, payload
+                )
                 total_outbound += inserted
                 total_skipped += skipped
                 logger.info(f"[재고차감완료] {date_str} | {warehouse} | {inserted}건 성공 | 중복스킵 {skipped}건")
@@ -375,11 +380,25 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
             except Exception as e:
                 logger.error(f"[재고차감실패] {date_str} | {warehouse} | {len(payload)}건 | {str(e)}")
                 errors.append(f"[{warehouse}] stock_ledger INSERT 실패: {e}")
+                # ★ atomicity: 차감 실패 그룹의 주문 ID는 완료표시 대상에서 제거
+                #   (다음번 자동처리에서 재시도 가능하도록)
+                failed_oids = [
+                    oid for oid in order_ids_done
+                    if order_stk_dates.get(oid) == date_str
+                ]
+                if failed_oids:
+                    logger.error(
+                        f"[재고차감실패→주문완료차단] {len(failed_oids)}건의 주문 완료표시를 보류"
+                    )
+                    order_ids_done = [
+                        oid for oid in order_ids_done if oid not in set(failed_oids)
+                    ]
 
     if total_skipped:
         log(f"⚠ 총 {total_skipped}건 중복 스킵됨 (idempotency)")
 
     # 5. 주문 처리 완료 표시 (주문별 stk_date=collection_date 기준)
+    #    재고차감이 성공한 주문만 여기 포함됨 (실패분은 위에서 제외됨)
     if order_ids_done:
         # (outbound_date, revenue_category) 그룹별로 묶어서 처리
         done_groups = {}  # (date, cat) → [order_ids]
@@ -390,8 +409,14 @@ def process_orders_to_stock(db, date_from=None, date_to=None, channel=None,
 
         for (odate, cat), ids in done_groups.items():
             try:
-                db.mark_orders_outbound_done(ids, odate, cat)
+                db._retry_on_disconnect(db.mark_orders_outbound_done, ids, odate, cat)
             except Exception as e:
+                # 재고는 이미 차감됐는데 주문 표시 실패 → 관리자 개입 필요
+                logger.critical(
+                    f"[CRITICAL] 재고차감 후 주문 완료표시 실패 - "
+                    f"수동 확인 필요: ids={ids[:10]}{'...' if len(ids)>10 else ''}, "
+                    f"date={odate}, cat={cat}, err={e}"
+                )
                 errors.append(f"mark_orders_outbound_done 실패 ({cat}): {e}")
 
         log(f"주문 {len(order_ids_done)}건 처리완료 표시")

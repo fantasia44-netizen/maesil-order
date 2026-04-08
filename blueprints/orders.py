@@ -1403,25 +1403,34 @@ def api_rocket_manual():
         return jsonify({'error': '유효한 입력 항목이 없습니다'}), 400
 
     try:
-        # 1. 매출 기록 (daily_revenue)
-        # upsert key: (date, product, category, channel, invoice_no)
-        # 같은 품목+다른 송장 = 별도 행, 송장 없으면 기존처럼 덮어쓰기
-        db.upsert_revenue(revenue_payload)
+        # 1. 매출 기록 (daily_revenue) — 연결오류 시 자동 재시도
+        db._retry_on_disconnect(db.upsert_revenue, revenue_payload)
 
         # 2. 재고차감 (stock_ledger SALES_OUT)
+        # ★ daily_revenue는 이미 저장됨. stock_ledger 실패 시 정합성 깨짐 →
+        #   사용자에게 명시적으로 표시 (silent warning 금지)
         stock_msg = ''
+        stock_critical = False
         try:
             from services.outbound_service import process_single_outbound
-            result = process_single_outbound(db, revenue_date, warehouse, stock_items,
-                                             memo=f'로켓매출 (rocket)')
+            result = db._retry_on_disconnect(
+                process_single_outbound, db, revenue_date, warehouse, stock_items,
+                memo=f'로켓매출 (rocket)'
+            )
             if result.get('success'):
                 stock_msg = f', 재고차감 {result.get("count", 0)}건'
             else:
                 shortage = result.get('shortage', [])
-                stock_msg = f' (재고 부족: {", ".join(shortage[:3])})'
+                stock_msg = f' ⚠️ 재고 부족(매출만 기록됨): {", ".join(shortage[:3])}'
+                stock_critical = True
+                current_app.logger.error(
+                    f'[로켓수동입력 재고부족] {revenue_date} | {warehouse} | '
+                    f'shortage={shortage}'
+                )
         except Exception as stk_err:
-            stock_msg = f' (재고차감 실패: {stk_err})'
-            current_app.logger.warning(f'로켓 재고차감 오류: {stk_err}')
+            stock_msg = f' ⚠️ 재고차감 실패(매출만 기록됨): {stk_err}'
+            stock_critical = True
+            current_app.logger.error(f'[로켓수동입력 재고차감 오류] {stk_err}')
 
         # 3. 감사 로그
         _log_action('rocket_manual',
@@ -1430,6 +1439,7 @@ def api_rocket_manual():
 
         return jsonify({
             'success': True,
+            'critical': stock_critical,
             'message': f'로켓매출 {len(revenue_payload)}건 저장 완료{stock_msg}',
         })
     except Exception as e:

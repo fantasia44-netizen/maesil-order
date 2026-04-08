@@ -102,11 +102,33 @@ def import_revenue():
         db = get_db()
 
         # 수정입력: 해당일 기존 매출 삭제 후 재입력
+        # ★ atomicity: 삭제 성공 후 upsert 실패 시 매출이 사라지므로
+        #   upsert를 retry로 감싸고, 실패 시 명시적 critical 알림.
         if mode == '수정입력':
-            deleted = db.delete_revenue_by_date(date_from=upload_date, date_to=upload_date)
-            flash(f'기존 매출 {deleted}건 삭제 후 재입력합니다.', 'info')
+            deleted = db._retry_on_disconnect(
+                db.delete_revenue_by_date,
+                date_from=upload_date, date_to=upload_date
+            )
+            try:
+                db._retry_on_disconnect(db.upsert_revenue, payload)
+            except Exception as upsert_err:
+                # 삭제는 성공했는데 재입력 실패 → 매출 0원 상태
+                current_app.logger.critical(
+                    f"[CRITICAL 매출 재입력 실패] {upload_date} | "
+                    f"기존 {deleted}건 삭제됨 | 신규 {len(payload)}건 입력 실패 | "
+                    f"파일: {filename} | err={upsert_err}"
+                )
+                flash(
+                    f'⚠️ 심각: 기존 매출 {deleted}건 삭제 완료, '
+                    f'그러나 신규 {len(payload)}건 입력 실패. '
+                    f'즉시 다시 업로드하거나 관리자에게 문의하세요. ({upsert_err})',
+                    'danger'
+                )
+                raise
+            flash(f'기존 매출 {deleted}건 삭제 후 {len(payload)}건 재입력 완료', 'info')
+        else:
+            db._retry_on_disconnect(db.upsert_revenue, payload)
 
-        db.upsert_revenue(payload)
         current_app.logger.info(f"[매출import성공] {upload_date} | {len(payload)}건 | 총매출 {total_rev:,}원 | 파일: {filename} | 사용자: {current_user.username}")
         flash(f'매출 {len(payload)}건 등록 완료 (합계: {total_rev:,}원)', 'success')
     except Exception as e:

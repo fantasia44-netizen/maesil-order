@@ -309,11 +309,23 @@ def single():
                 })
 
         # 매출 관리(daily_revenue)에 거래처매출 자동 등록
+        # 재고차감은 이미 성공한 상태이므로, 매출 등록 실패는 사용자에게 명시적으로 알림
+        revenue_failed = False
         if revenue_payload:
             try:
-                db.upsert_revenue(revenue_payload)
+                db._retry_on_disconnect(db.upsert_revenue, revenue_payload)
             except Exception as rev_err:
-                current_app.logger.warning(f'거래처매출 등록 실패: {rev_err}')
+                revenue_failed = True
+                current_app.logger.error(
+                    f'[거래처매출등록실패] {date_str} | {partner_name} | '
+                    f'{len(revenue_payload)}건 | {rev_err}'
+                )
+                flash(
+                    f'⚠️ 재고차감은 완료되었으나 매출 등록 실패: {rev_err}. '
+                    f'매출관리에서 수동 등록 필요 ({date_str}, {partner_name}, '
+                    f'{len(revenue_payload)}건)',
+                    'danger'
+                )
 
         # 본사 정보를 세션에 미리 저장 (result 페이지에서 DB 조회 불필요)
         my_biz_info = {}
