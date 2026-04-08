@@ -4,6 +4,31 @@ db_supabase.py — Supabase 구현 (CRUD/조회). 보고서용 조회는 raw row
 """
 import time
 import httpx
+
+# ──────────────────────────────────────────────────────────
+# 전역 monkey-patch: httpx.Client / AsyncClient의 http2 옵션을
+# 무조건 False로 강제. supabase-py 내부의 어떤 경로로도 HTTP/2가
+# 활성화되지 못하도록 차단.
+# 이유: HTTP/2 GOAWAY/StreamIDTooLow 폭사 방지 (큰 페이로드 처리 후
+# Supabase 측이 GOAWAY 보내고 stream state 어긋남이 누적되는 문제)
+# ──────────────────────────────────────────────────────────
+if not getattr(httpx, '_autotool_http1_forced', False):
+    _orig_client_init = httpx.Client.__init__
+    _orig_aclient_init = httpx.AsyncClient.__init__
+
+    def _forced_client_init(self, *args, **kwargs):
+        kwargs['http2'] = False
+        return _orig_client_init(self, *args, **kwargs)
+
+    def _forced_aclient_init(self, *args, **kwargs):
+        kwargs['http2'] = False
+        return _orig_aclient_init(self, *args, **kwargs)
+
+    httpx.Client.__init__ = _forced_client_init
+    httpx.AsyncClient.__init__ = _forced_aclient_init
+    httpx._autotool_http1_forced = True
+    print("[DB] httpx HTTP/1.1 전역 강제 활성화")
+
 from supabase import create_client, Client
 
 
