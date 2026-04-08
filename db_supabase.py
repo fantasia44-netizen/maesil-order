@@ -3,7 +3,47 @@ db_supabase.py — Supabase 구현 (CRUD/조회). 보고서용 조회는 raw row
 + 사용자 인증/관리 CRUD (app_users, audit_logs)
 """
 import time
+import httpx
 from supabase import create_client, Client
+
+
+def _force_http1_on_supabase_client(client):
+    """supabase Client 내부 postgrest/storage/auth 의 httpx 세션을
+    HTTP/1.1 전용으로 교체한다.
+
+    HTTP/2 stream state 에러(StreamIDTooLowError, ConnectionTerminated)
+    가 큰 페이로드 후 반복 발생하는 문제 회피.
+    """
+    for attr in ('postgrest', 'storage', 'auth', 'functions'):
+        sub = getattr(client, attr, None)
+        if sub is None:
+            continue
+        # postgrest: self.session, storage: self._client, auth: self._http_client
+        old = (getattr(sub, 'session', None) or
+               getattr(sub, '_client', None) or
+               getattr(sub, '_http_client', None))
+        if old is None or not isinstance(old, httpx.Client):
+            continue
+        try:
+            new = httpx.Client(
+                http2=False,
+                timeout=old.timeout,
+                headers=dict(old.headers),
+                base_url=old.base_url,
+                follow_redirects=True,
+            )
+            try:
+                old.close()
+            except Exception:
+                pass
+            if getattr(sub, 'session', None) is not None:
+                sub.session = new
+            elif getattr(sub, '_client', None) is not None:
+                sub._client = new
+            elif getattr(sub, '_http_client', None) is not None:
+                sub._http_client = new
+        except Exception as patch_err:
+            print(f"[DB] HTTP/1.1 강제 패치 실패 ({attr}): {patch_err}")
 from db_base import DBBase
 from config import SUPABASE_URL, SUPABASE_KEY
 from services.tz_utils import today_kst, days_ago_kst
@@ -34,6 +74,8 @@ class SupabaseDB(DBBase):
             self._url = url or SUPABASE_URL
             self._key = key or SUPABASE_KEY
             self.client = create_client(self._url, self._key)
+            # HTTP/2 GOAWAY/StreamIDTooLow 회피 — 모든 sub-client를 HTTP/1.1로 전환
+            _force_http1_on_supabase_client(self.client)
             try:
                 self.client.rpc("ensure_stock_ledger_columns", {}).execute()
             except Exception as col_err:
@@ -45,14 +87,35 @@ class SupabaseDB(DBBase):
             return False
 
     def _reconnect(self):
-        """HTTP/2 연결 풀 재생성 (Server disconnected 오류 복구)."""
+        """HTTP/2 연결 풀 재생성 (Server disconnected 오류 복구).
+
+        이전 httpx 클라이언트를 명시적으로 close해야 stale h2 stream state가
+        새 클라이언트로 전이되지 않는다.
+        """
         try:
             print("[DB] Supabase 재연결 시도...")
+            # 1) 이전 client의 내부 httpx 세션 강제 종료 (best-effort)
+            old = getattr(self, 'client', None)
+            if old is not None:
+                for attr in ('postgrest', 'auth', 'storage', 'functions'):
+                    sub = getattr(old, attr, None)
+                    if sub is None:
+                        continue
+                    inner = getattr(sub, 'session', None) or getattr(sub, '_client', None)
+                    try:
+                        if inner is not None and hasattr(inner, 'close'):
+                            inner.close()
+                    except Exception:
+                        pass
+            # 2) 새 클라이언트 생성
             self.client = create_client(
                 getattr(self, '_url', SUPABASE_URL),
                 getattr(self, '_key', SUPABASE_KEY),
             )
-            print("[DB] Supabase 재연결 성공")
+            # 3) HTTP/2 회피 — HTTP/1.1 강제
+            _force_http1_on_supabase_client(self.client)
+            # 4) 캐시된 컬럼 정보는 그대로 유지
+            print("[DB] Supabase 재연결 성공 (HTTP/1.1)")
             return True
         except Exception as e:
             print(f"[DB] Supabase 재연결 실패: {e}")
@@ -67,6 +130,10 @@ class SupabaseDB(DBBase):
                 'ConnectionTerminated' in err_name or
                 'TimeoutException' in err_name or
                 'ReadTimeout' in err_name or
+                'StreamIDTooLowError' in err_name or
+                'streaminputs' in err_msg or
+                'connectioninputs' in err_msg or
+                'connectionstate.closed' in err_msg or
                 'server disconnected' in err_msg or
                 'connection reset' in err_msg or
                 'statement timeout' in err_msg or
@@ -124,8 +191,17 @@ class SupabaseDB(DBBase):
                 except Exception as e:
                     print(f"[DB] _paginate_query({table}) page {offset // page_size} "
                           f"attempt {attempt + 1}/{max_retries} error: {e}")
-                    if self._is_connection_error(e) and attempt < max_retries - 1:
-                        time.sleep(1.5 * (attempt + 1))
+                    err_name = type(e).__name__
+                    # HTTP/2 stream state 오류는 즉시 재연결 (sleep 짧게)
+                    is_h2_state = (
+                        'StreamIDTooLowError' in err_name or
+                        'StreamInputs' in str(e) or
+                        'ConnectionInputs' in str(e) or
+                        'ConnectionState.CLOSED' in str(e)
+                    )
+                    if (self._is_connection_error(e) or is_h2_state) and attempt < max_retries - 1:
+                        sleep_sec = 0.5 if is_h2_state else 1.5 * (attempt + 1)
+                        time.sleep(sleep_sec)
                         self._reconnect()
             if rows is None:
                 import logging
@@ -176,9 +252,13 @@ class SupabaseDB(DBBase):
             return {'inserted': 0, 'failed': 0, 'errors': []}
         payload_list = self._normalize_product_names(payload_list)
         filtered = self._filter_payload(payload_list)
-        # 배치 삽입 시도 → 실패 시 개별 삽입 fallback
-        try:
+
+        def _batch_insert():
             self.client.table("stock_ledger").insert(filtered).execute()
+
+        # 배치 삽입 + 연결오류 자동 재시도 → 실패 시 개별 삽입 fallback
+        try:
+            self._retry_on_disconnect(_batch_insert)
             return {'inserted': len(filtered), 'failed': 0, 'errors': []}
         except Exception as batch_err:
             print(f"[stock_ledger] 배치 삽입 실패, 개별 삽입 시도: {batch_err}")
@@ -187,7 +267,9 @@ class SupabaseDB(DBBase):
             errors = []
             for row in filtered:
                 try:
-                    self.client.table("stock_ledger").insert(row).execute()
+                    self._retry_on_disconnect(
+                        lambda r=row: self.client.table("stock_ledger").insert(r).execute()
+                    )
                     inserted += 1
                 except Exception as row_err:
                     failed += 1

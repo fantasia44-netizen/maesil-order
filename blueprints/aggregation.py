@@ -542,18 +542,15 @@ def generate_report():
 
         # ══════════════════════════════════════════════
         # 1. 통합집계표: stock_ledger (SALES_OUT + ETC_OUT + ADJUST)
+        #    + daily_revenue (수동입력 로켓/거래처매출 보완)
         # ══════════════════════════════════════════════
         outbound = db.query_stock_ledger(
             date_from=date_from, date_to=date_to,
             type_list=['SALES_OUT', 'ETC_OUT', 'ADJUST'])
 
-        if not outbound:
-            flash(f'{date_label} 기간의 출고 데이터가 없습니다.', 'warning')
-            return redirect(url_for('aggregation.index'))
-
         # 품목별/창고별 합계: {(product_name, location): total_qty}
         agg = {}
-        for o in outbound:
+        for o in (outbound or []):
             nm = _norm(o.get('product_name', ''))
             loc = o.get('location', '기타')
             qty = abs(_safe_int(o.get('qty', 0)))
@@ -562,8 +559,70 @@ def generate_report():
             key = (nm, loc)
             agg[key] = agg.get(key, 0) + qty
 
+        # daily_revenue 보완 합산 — 수동입력 로켓/거래처매출이
+        # stock_ledger에 SALES_OUT으로 반영되지 않은 경우 누락 방지.
+        # stock_ledger에 이미 같은 (date, product, warehouse)가 있으면 중복 가산하지
+        # 않도록, daily_revenue 합계가 stock_ledger 합계보다 큰 경우의 차이만 보완.
+        try:
+            from collections import defaultdict as _dd2
+            sl_per_pn_wh = _dd2(int)
+            for o in (outbound or []):
+                nm = _norm(o.get('product_name', ''))
+                loc = o.get('location', '기타')
+                if not nm:
+                    continue
+                sl_per_pn_wh[(nm, loc)] += abs(_safe_int(o.get('qty', 0)))
+
+            dr_per_pn = _dd2(int)
+            dr_per_pn_wh = {}
+            dr_offset = 0
+            while True:
+                dr_resp = db.client.table('daily_revenue') \
+                    .select('product_name,category,qty,warehouse') \
+                    .in_('category', ['거래처매출', '로켓']) \
+                    .gte('revenue_date', date_from) \
+                    .lte('revenue_date', date_to) \
+                    .range(dr_offset, dr_offset + 999) \
+                    .execute()
+                dr_batch = dr_resp.data or []
+                for r in dr_batch:
+                    nm = _norm(r.get('product_name', ''))
+                    if not nm:
+                        continue
+                    wh = (r.get('warehouse') or '넥스원').strip() or '넥스원'
+                    q = _safe_int(r.get('qty', 0))
+                    if q <= 0:
+                        continue
+                    dr_per_pn[nm] += q
+                    dr_per_pn_wh[(nm, wh)] = dr_per_pn_wh.get((nm, wh), 0) + q
+                if len(dr_batch) < 1000:
+                    break
+                dr_offset += 1000
+
+            # 차이 보완: daily_revenue 합 > stock_ledger 합 인 품목만,
+            # daily_revenue가 지정한 창고로 차이 가산
+            for (nm, wh), dr_qty in dr_per_pn_wh.items():
+                sl_qty_total_for_pn = sum(
+                    v for (n, _), v in sl_per_pn_wh.items() if n == nm
+                )
+                dr_qty_total_for_pn = dr_per_pn[nm]
+                gap_total = dr_qty_total_for_pn - sl_qty_total_for_pn
+                if gap_total <= 0:
+                    continue
+                # 이 (nm, wh)가 daily_revenue 내에서 차지하는 비율로 gap 분배
+                share = dr_qty / dr_qty_total_for_pn if dr_qty_total_for_pn else 0
+                add_qty = int(round(gap_total * share))
+                if add_qty <= 0:
+                    continue
+                key = (nm, wh)
+                agg[key] = agg.get(key, 0) + add_qty
+        except Exception as _dr_err:
+            current_app.logger.warning(
+                f'[통합집계표] daily_revenue 보완 합산 실패: {_dr_err}'
+            )
+
         if not agg:
-            flash('유효한 출고 데이터가 없습니다.', 'warning')
+            flash(f'{date_label} 기간의 출고 데이터가 없습니다.', 'warning')
             return redirect(url_for('aggregation.index'))
 
         # sort_order 기준 정렬

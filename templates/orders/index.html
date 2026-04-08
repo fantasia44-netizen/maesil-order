@@ -285,10 +285,13 @@
 <script>
 (function() {
 
-    // 주문수집일 기본값 = 오늘
+    // 주문수집일 기본값 = 오늘 (로컬 KST 기준 — toISOString은 UTC라 사용 금지)
     var cdInput = document.getElementById('collectionDate');
     if (cdInput && !cdInput.value) {
-        cdInput.value = new Date().toISOString().slice(0, 10);
+        var _now = new Date();
+        cdInput.value = _now.getFullYear() + '-' +
+            String(_now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(_now.getDate()).padStart(2, '0');
     }
 
     function parseJsonSafe(res) {
