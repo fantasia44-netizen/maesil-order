@@ -281,3 +281,67 @@
 - [프로젝트 구조 상세](project_structure.md)
 - [Phase 1 계획서](phase1_plan.md)
 - [채널별 컬럼 매핑](channel_column_mapping.md)
+
+---
+
+# 📜 2026-04-08 매실인사이트 메인 특허 출원 완료 ★★★
+> argo-sight 작업이지만 멀티PC 동기화를 위해 여기에도 기록
+
+## 출원 정보
+- **출원일/우선일**: 2026-04-08
+- **출원인/발명자**: 김대희 (특허고객번호 4-2012-007562-2)
+- **명칭**: 전자상거래 플랫폼 집계 지표의 판매자 관점 실질 지표 변환 및 정산 차감 회계 재분류 방법과 시스템
+- **청구항 12개**: 3 독립항(역산/차감재분류/키워드4등급자동제어) + 종속 + 시스템/기록매체
+- **수수료**: 824,000원 → 개인 70% 감면 **247,200원**
+- **파일 위치**: `C:\argo-sight\patent\` (명세서_보정.md, 도면_보정판.drawio/.pdf, HWPX 원본)
+
+## ⚠️ 전략: 메인만 출원 + 서브(SSOT 매칭) 영업비밀
+**매칭 알고리즘 공개 절대 금지** (n-gram Jaccard, 정규화키, 격리/신규ID 자가성장):
+- 제품 UI 내부 로직 노출 금지 / 블로그/유튜브/컨퍼런스/채용공고 금지
+- 깃허브 public repo 금지 (private OK) / NDA 없는 IR 자료 금지
+- 공개 시 신규성 상실 → 서브 출원 거절됨
+
+## 기한
+- **서브 특허 출원**: 3~6개월 내 (cowork 리뷰 반영 후)
+- **PCT/해외 출원**: 2027-04-08 (우선일 12개월 이내)
+
+## 필수 백업 (분실 금지)
+- 출원번호 (10-2026-XXXXXXXX) / 수령확인서 PDF / 수수료 영수증 / HWPX 원본
+
+---
+
+# 🔧 2026-04-08 argo-sight 운영 4종 버그 수정 (커밋 b5c2082)
+
+1. **네이버 정산 28일 청크 분할** — `services/marketplace/naver_client.py` `fetch_settlements()`. 3개월 수집 시 1달 초과 400 해결
+2. **deposit_engine 제거** — `services/scheduler.py`. 4/7 쿠팡 정산 SSOT 전환 후 obsolete된 추정 엔진 import 잔재. 9개 operator 잡 매 시간 마비 해결
+3. **Supabase RemoteDisconnected retry** — `services/naver_ad/repository.py`. `_reset_session()` + `_request_with_retry()` 래퍼, keep-alive 드롭 시 세션 폐기 후 최대 3회 재시도
+4. **네이버 광고 code 10004 강등** — `services/marketplace/naver_ad_api_client.py`. 400+10004("데이터 0건")는 WARNING으로
+
+커밋: b5c2082 (코드), 86b4130 (argo-sight 메모리)
+
+## 📋 다음 작업 우선순위
+
+### 🔴 즉시 (이번주)
+- 배포 후 24~48시간 4종 에러 모니터링
+- 3개월 스마트스토어 수집 재실행 → 청크 로그 확인
+- `project_next_tasks_0407.md` 잔여: 빠른정산 operator플래그 / 정산상세 엑셀업로더 / 결과보고서 시트검증 / 크리에이티브 master 스케줄러편입
+
+### 🟡 중기 (1~3개월)
+- **서브 특허(SSOT 매칭) 출원 준비** — cowork 리뷰 반영, 부호 충돌 수정, 정규화 정의 보강
+- PCT/해외 출원 여부 결정
+- Phase E: 쿠팡 광고 분석 / Claude API 진단 고도화
+- autotool: 통합툴 주문완성 / 축산 MES / 3PL 과금 UI / API 이식 / 현장화면
+
+### 🟢 장기
+- 출원공개 (약 1년 6개월 후 자동)
+- 의견제출통지서(OA) 대응 (1~2년 후) — 종속항 승격 카드
+- 등록료 납부 → 특허권 확정
+
+---
+
+## 💡 멀티PC 메모리 동기화 교훈 (2026-04-08 학습) ★★★
+- **로컬 전용 (동기화 X)**: `C:\Users\USER\.claude\projects\C--{repo}\memory\*.md` — 이 PC에서만 보임
+- **공유 (동기화 O)**: `C:\{repo}\.claude\MEMORY.md` — git push로 집/회사/노트북 모두 동기화
+- **규칙**: 다른 PC에서도 봐야 할 내용은 **반드시 레포 `.claude/MEMORY.md`에 기록 + 해당 레포 git push**
+- **실수 패턴**: 코드만 push하고 메모리는 로컬에만 쓰면 집 PC에서 "작업은 끝났는데 다음할일 모름" 상태 ← 4/8 발견된 이슈
+- **해결**: 작업 종료 시 항상 두 가지 push — (1) 코드 커밋 (2) `.claude/MEMORY.md` 커밋
