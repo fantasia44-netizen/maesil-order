@@ -24,6 +24,96 @@ class FinanceRepo(BaseRepo):
             payload_list, on_conflict="revenue_date,product_name,category,channel"
         ).execute()
 
+        # ── 로켓/거래처매출 gap-filler: stock_ledger SALES_OUT 자동 생성 ──
+        # 같은 (date, product, warehouse) 에 SALES_OUT 이 이미 있으면 스킵.
+        # event_uid 'DR_AUTO:{...}' 로 idempotent. 호출자가 별도로 stock_ledger 를
+        # 쓰는 경우 (api_rocket_manual 등) 그 기록이 있으면 여기선 자동 생성하지 않음.
+        try:
+            self._auto_stock_from_revenue(payload_list)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f'[upsert_revenue] 자동 stock_ledger 생성 실패: {e}')
+
+    def _auto_stock_from_revenue(self, payload_list):
+        """daily_revenue 로켓/거래처매출 행에 대해 stock_ledger SALES_OUT 누락분을 채움.
+
+        목적: daily_revenue 에만 기록되고 stock_ledger 에 반영 안 된 '유령 재고' 방지.
+        안전성:
+          - 같은 (date, canonical_product, warehouse) 에 SALES_OUT 존재 시 스킵
+          - event_uid='DR_AUTO:...' 로 중복 insert 방지
+          - 이미 manual 경로가 stock_ledger 를 썼다면 그 기록이 감지되어 스킵
+        """
+        from services.product_name import canonical
+        targets = []
+        for p in payload_list:
+            cat = p.get('category') or ''
+            if cat not in ('로켓', '거래처매출'):
+                continue
+            qty = int(p.get('qty') or 0)
+            if qty <= 0:
+                continue
+            date = p.get('revenue_date') or ''
+            pn = canonical(p.get('product_name') or '')
+            wh = (p.get('warehouse') or '').strip() or '넥스원'
+            if not date or not pn:
+                continue
+            targets.append({'date': date, 'pn': pn, 'wh': wh, 'qty': qty, 'cat': cat})
+        if not targets:
+            return
+
+        # 기존 SALES_OUT 확인 — (date, pn, wh) 조합별 1회
+        checked = set()
+        to_insert = []
+        for t in targets:
+            key = (t['date'], t['pn'], t['wh'])
+            if key in checked:
+                continue
+            checked.add(key)
+            try:
+                existing = self.client.table('stock_ledger') \
+                    .select('id') \
+                    .eq('transaction_date', t['date']) \
+                    .eq('product_name', t['pn']) \
+                    .eq('location', t['wh']) \
+                    .eq('type', 'SALES_OUT') \
+                    .limit(1) \
+                    .execute()
+                if existing.data:
+                    continue  # 이미 있음 — 호출자가 써둠
+            except Exception:
+                continue
+
+            # 같은 키의 payload 합계
+            total_qty = sum(
+                x['qty'] for x in targets
+                if x['date'] == t['date'] and x['pn'] == t['pn'] and x['wh'] == t['wh']
+            )
+            to_insert.append({
+                'transaction_date': t['date'],
+                'type': 'SALES_OUT',
+                'product_name': t['pn'],
+                'qty': -total_qty,
+                'location': t['wh'],
+                'unit': '개',
+                'memo': f"daily_revenue 자동연동 ({t['cat']})",
+                'event_uid': f"DR_AUTO:{t['date']}:{t['wh']}:{t['pn']}:{t['cat']}",
+            })
+
+        if to_insert:
+            try:
+                # insert_stock_ledger 경유 → canonical 자동 적용
+                self.insert_stock_ledger(to_insert)
+                import logging
+                logging.getLogger(__name__).info(
+                    f'[upsert_revenue] daily_revenue→stock_ledger 자동연동: {len(to_insert)}건'
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    f'[upsert_revenue] 자동연동 insert 실패: {e}'
+                )
+
 
     def query_revenue(self, date_from=None, date_to=None, category=None, channel=None):
         """매출 조회 (order_transactions + daily_revenue 합산).

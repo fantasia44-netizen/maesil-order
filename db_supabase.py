@@ -586,15 +586,92 @@ class SupabaseDB(DBBase):
     def upsert_revenue(self, payload_list):
         if not payload_list:
             return
-        # channel, invoice_no 필드 기본값 보장
+        from services.product_name import canonical
+        # channel, invoice_no 필드 기본값 보장 + product_name canonical 통일
         for p in payload_list:
             if 'channel' not in p:
                 p['channel'] = ''
             if 'invoice_no' not in p:
                 p['invoice_no'] = ''
+            if p.get('product_name'):
+                p['product_name'] = canonical(p['product_name'])
         self.client.table("daily_revenue").upsert(
             payload_list, on_conflict="revenue_date,product_name,category,channel,invoice_no"
         ).execute()
+
+        # 로켓/거래처매출 gap-filler: 호출자가 stock_ledger 를 쓰지 않은 경우 자동 보완
+        try:
+            self._auto_stock_from_revenue(payload_list)
+        except Exception as e:
+            print(f'[upsert_revenue] 자동 stock_ledger 생성 실패: {e}')
+
+    def _auto_stock_from_revenue(self, payload_list):
+        """daily_revenue 로켓/거래처매출에 대해 누락된 stock_ledger SALES_OUT 을 채움.
+
+        안전성:
+          - 같은 (date, canonical_product, warehouse) 에 SALES_OUT 존재 시 스킵
+          - event_uid='DR_AUTO:...' 로 idempotent
+          - 이미 호출자(api_rocket_manual 등)가 stock_ledger 를 썼다면 감지되어 스킵
+        """
+        from services.product_name import canonical
+        targets = []
+        for p in payload_list:
+            cat = p.get('category') or ''
+            if cat not in ('로켓', '거래처매출'):
+                continue
+            qty = int(p.get('qty') or 0)
+            if qty <= 0:
+                continue
+            date = p.get('revenue_date') or ''
+            pn = canonical(p.get('product_name') or '')
+            wh = (p.get('warehouse') or '').strip() or '넥스원'
+            if not date or not pn:
+                continue
+            targets.append({'date': date, 'pn': pn, 'wh': wh, 'qty': qty, 'cat': cat})
+        if not targets:
+            return
+
+        # (date, pn, wh) 조합별 합계 + 기존 SALES_OUT 존재 여부 확인
+        from collections import defaultdict
+        grouped = defaultdict(int)
+        cats = {}
+        for t in targets:
+            key = (t['date'], t['pn'], t['wh'])
+            grouped[key] += t['qty']
+            cats[key] = t['cat']
+
+        to_insert = []
+        for (date, pn, wh), total_qty in grouped.items():
+            try:
+                existing = self.client.table('stock_ledger') \
+                    .select('id') \
+                    .eq('transaction_date', date) \
+                    .eq('product_name', pn) \
+                    .eq('location', wh) \
+                    .eq('type', 'SALES_OUT') \
+                    .limit(1) \
+                    .execute()
+                if existing.data:
+                    continue
+            except Exception:
+                continue
+            to_insert.append({
+                'transaction_date': date,
+                'type': 'SALES_OUT',
+                'product_name': pn,
+                'qty': -total_qty,
+                'location': wh,
+                'unit': '개',
+                'memo': f'daily_revenue 자동연동 ({cats[(date,pn,wh)]})',
+                'event_uid': f'DR_AUTO:{date}:{wh}:{pn}:{cats[(date,pn,wh)]}',
+            })
+
+        if to_insert:
+            try:
+                self.insert_stock_ledger(to_insert)
+                print(f'[upsert_revenue] daily_revenue→stock_ledger 자동연동: {len(to_insert)}건')
+            except Exception as e:
+                print(f'[upsert_revenue] 자동연동 insert 실패: {e}')
 
     def query_revenue(self, date_from=None, date_to=None, category=None, channel=None):
         """매출 조회 (order_transactions + daily_revenue 합산).

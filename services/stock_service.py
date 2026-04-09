@@ -34,6 +34,102 @@ def _get_stock_unmanaged_set(db):
         return set()
 
 
+def _compute_daily_revenue_supplement(db, date_to, stock_ledger_rows):
+    """daily_revenue(로켓/거래처매출) 중 stock_ledger SALES_OUT 에 미반영된 qty 계산.
+
+    반환: stock_ledger 포맷의 synthetic 음수 row 리스트.
+    이 row 들을 stock_ledger 원본에 합치면 snapshot groupby 가 자동으로 차감함.
+
+    통합집계(aggregation.py) 와 동일 로직 — 두 화면의 수치 일관성 보장.
+
+    gap 계산:
+      per (canonical product_name):
+        sl_sum = stock_ledger SALES_OUT/ETC_OUT/ADJUST 절대값 합 (창고 무관)
+        dr_sum = daily_revenue qty 합 (로켓/거래처매출)
+        gap_total = max(0, dr_sum - sl_sum)
+      per (canonical product_name, warehouse):
+        share = dr_per_wh / dr_sum
+        supplement_qty = round(gap_total * share)
+    """
+    from services.product_name import canonical
+    from collections import defaultdict
+
+    # 1) stock_ledger SALES_OUT/ETC_OUT/ADJUST per canonical product
+    sl_per_pn = defaultdict(int)
+    for o in (stock_ledger_rows or []):
+        t = o.get('type', '')
+        if t not in ('SALES_OUT', 'ETC_OUT', 'ADJUST'):
+            continue
+        nm = canonical(o.get('product_name', ''))
+        if not nm:
+            continue
+        sl_per_pn[nm] += abs(int(o.get('qty', 0) or 0))
+
+    # 2) daily_revenue (로켓/거래처매출) 전체 조회 — date_to 까지
+    dr_per_pn = defaultdict(int)
+    dr_per_pn_wh = {}
+    try:
+        offset = 0
+        while True:
+            resp = db.client.table('daily_revenue') \
+                .select('product_name,category,qty,warehouse') \
+                .in_('category', ['거래처매출', '로켓']) \
+                .lte('revenue_date', date_to) \
+                .range(offset, offset + 999) \
+                .execute()
+            batch = resp.data or []
+            for r in batch:
+                nm = canonical(r.get('product_name', ''))
+                if not nm:
+                    continue
+                wh = (r.get('warehouse') or '넥스원').strip() or '넥스원'
+                q = int(r.get('qty', 0) or 0)
+                if q <= 0:
+                    continue
+                dr_per_pn[nm] += q
+                dr_per_pn_wh[(nm, wh)] = dr_per_pn_wh.get((nm, wh), 0) + q
+            if len(batch) < 1000:
+                break
+            offset += 1000
+    except Exception:
+        return []
+
+    if not dr_per_pn:
+        return []
+
+    # 3) gap 계산 및 synthetic 음수 row 생성
+    supplement = []
+    for (nm, wh), dr_qty in dr_per_pn_wh.items():
+        dr_total = dr_per_pn.get(nm, 0)
+        sl_total = sl_per_pn.get(nm, 0)
+        gap_total = dr_total - sl_total
+        if gap_total <= 0:
+            continue
+        share = dr_qty / dr_total if dr_total else 0
+        add_qty = int(round(gap_total * share))
+        if add_qty <= 0:
+            continue
+        supplement.append({
+            'transaction_date': date_to,
+            'type': 'SALES_OUT',
+            'product_name': nm,
+            'qty': -add_qty,
+            'location': wh,
+            'unit': '개',
+            'category': '',
+            'storage_method': '',
+            'manufacture_date': '',
+            'expiry_date': None,
+            'origin': '',
+            'food_type': '',
+            'lot_number': '',
+            'grade': '',
+            'event_uid': f'DR_SUPPLEMENT:{date_to}:{wh}:{nm}',
+            'memo': 'daily_revenue 보완 (stock_ledger 미반영분)',
+        })
+    return supplement
+
+
 def validate_date(date_str):
     """날짜 형식 검증. 유효하면 True, 아니면 ValueError 발생."""
     try:
@@ -158,6 +254,18 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
     all_data = db.query_stock_ledger(date_str)
     if not all_data:
         return []
+
+    # ★ daily_revenue 보완 차감 (통합집계와 동일 소스 기준)
+    #   로켓/거래처매출 중 stock_ledger SALES_OUT 에 반영되지 않은 건을 보완.
+    #   통합집계(aggregation.py:544-622) 와 완전히 동일한 로직.
+    try:
+        _supplement = _compute_daily_revenue_supplement(db, date_str, all_data)
+        if _supplement:
+            all_data = list(all_data) + _supplement
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'[query_stock_snapshot] daily_revenue 보완 실패: {_e}')
 
     df = pd.DataFrame(all_data)
     if df.empty:
