@@ -2474,17 +2474,30 @@ class SupabaseDB(DBBase):
             print(f"[DB] mark_orders_outbound_done error: {e}")
 
     def query_outbound_summary(self, date_from=None, date_to=None):
-        """출고 처리 현황 요약.
+        """출고 처리 현황 요약 — SQL RPC 우선, 실패 시 Python 폴백."""
+        if not date_from:
+            from datetime import datetime
+            date_from = datetime.now().strftime('%Y-%m-01')
 
-        최적화: count=exact → 풀스캔 timeout 유발.
-        id만 조회 후 len()으로 카운트 (필터 있으면 충분히 빠름).
-        날짜 필터 없으면 이번달로 강제 제한.
-        """
+        # RPC 경로 (dashboard_rpc.sql)
         try:
-            if not date_from:
-                from datetime import datetime
-                date_from = datetime.now().strftime('%Y-%m-01')
+            res = self.client.rpc('get_dashboard_outbound_summary', {
+                'p_date_from': date_from,
+                'p_date_to': date_to,
+            }).execute()
+            data = res.data
+            if isinstance(data, list):
+                data = data[0] if data else None
+            if data:
+                return {
+                    'pending': int(data.get('pending', 0) or 0),
+                    'done': int(data.get('done', 0) or 0),
+                }
+        except Exception as e:
+            print(f"[DB] RPC get_dashboard_outbound_summary 실패, 폴백: {e}")
 
+        # 폴백: 기존 풀스캔
+        try:
             def build_pending(table):
                 q = self.client.table(table).select("id") \
                     .eq("is_outbound_done", False).eq("status", "정상") \
@@ -2547,12 +2560,24 @@ class SupabaseDB(DBBase):
             return {'total_amount': 0, 'settlement': 0, 'commission': 0, 'qty': 0}
 
     def query_revenue_trend(self, days=7):
-        """최근 N일 매출 추이 (order_transactions + daily_revenue 합산).
+        """최근 N일 매출 추이 — SQL RPC 우선, 실패 시 Python 폴백."""
+        # RPC 경로
+        try:
+            res = self.client.rpc('get_dashboard_revenue_trend', {
+                'p_days': days,
+            }).execute()
+            data = res.data
+            if isinstance(data, list):
+                return [
+                    {'date': r.get('date', ''),
+                     'total': int(r.get('total', 0) or 0),
+                     'settlement': int(r.get('settlement', 0) or 0)}
+                    for r in data
+                ]
+        except Exception as e:
+            print(f"[DB] RPC get_dashboard_revenue_trend 실패, 폴백: {e}")
 
-        DB_CUTOFF_DATE 이전 기간은 daily_revenue(레거시)에서 조회,
-        이후 기간은 order_transactions에서 조회.
-        최적화: 7일치만 조회하므로 paginate 대신 limit 사용 (대부분 1페이지).
-        """
+        # 폴백: 기존 풀스캔
         from services.channel_config import DB_CUTOFF_DATE
         try:
             date_from = days_ago_kst(days)
@@ -2615,11 +2640,30 @@ class SupabaseDB(DBBase):
             return []
 
     def query_orders_by_channel(self, date_from=None, date_to=None):
-        """채널별 주문 통계 (채널 표시명 정규화 적용).
-
-        최적화: 이번달(~31일)이므로 limit 10000 단일 쿼리로 대체.
-        """
+        """채널별 주문 통계 — SQL RPC 우선, 실패 시 Python 폴백."""
         from services.channel_config import normalize_channel_display
+
+        # RPC 경로
+        try:
+            res = self.client.rpc('get_dashboard_orders_by_channel', {
+                'p_date_from': date_from,
+                'p_date_to': date_to,
+            }).execute()
+            data = res.data
+            if isinstance(data, list):
+                # 정규화: 같은 정규화 이름으로 합치기
+                merged = {}
+                for r in data:
+                    ch = normalize_channel_display(r.get('channel', '기타'))
+                    if ch not in merged:
+                        merged[ch] = {'channel': ch, 'count': 0, 'qty': 0, 'amount': 0}
+                    merged[ch]['count'] += int(r.get('count', 0) or 0)
+                    merged[ch]['qty'] += int(r.get('qty', 0) or 0)
+                    merged[ch]['amount'] += int(r.get('amount', 0) or 0)
+                return sorted(merged.values(), key=lambda x: x['count'], reverse=True)
+        except Exception as e:
+            print(f"[DB] RPC get_dashboard_orders_by_channel 실패, 폴백: {e}")
+
         try:
             q = self.client.table("order_transactions") \
                 .select("channel,qty,total_amount") \
@@ -2644,11 +2688,28 @@ class SupabaseDB(DBBase):
             return []
 
     def query_stock_summary_by_location(self, exclude_products=None):
-        """창고별 재고 품목 수 요약 (양수 재고만).
+        """창고별 재고 요약 — SQL RPC 우선, 실패 시 Python 폴백.
 
-        최적화: 180일 → 90일로 축소 + paginate 대신 limit 사용.
-        stock_ledger는 행수가 많으므로 조회 범위 최소화.
+        exclude_products 파라미터는 RPC에서 지원 안 함 → 폴백 경로에서만 적용.
+        실무상 exclude_products가 빈 set일 때 RPC가 훨씬 빠름.
         """
+        # RPC 경로 (exclude_products가 비어있을 때만)
+        if not exclude_products:
+            try:
+                res = self.client.rpc('get_dashboard_stock_by_location', {
+                    'p_days': 90,
+                }).execute()
+                data = res.data
+                if isinstance(data, list):
+                    return [
+                        {'location': r.get('location', ''),
+                         'product_count': int(r.get('product_count', 0) or 0),
+                         'total_qty': int(r.get('total_qty', 0) or 0)}
+                        for r in data
+                    ]
+            except Exception as e:
+                print(f"[DB] RPC get_dashboard_stock_by_location 실패, 폴백: {e}")
+
         try:
             today = today_kst()
             date_from = days_ago_kst(90)
@@ -2705,10 +2766,25 @@ class SupabaseDB(DBBase):
             return []
 
     def query_top_products_by_revenue(self, days=30, limit=10):
-        """매출 TOP N 상품 (order_transactions 기반, 최근 N일).
+        """매출 TOP N 상품 — SQL RPC 우선, 실패 시 Python 폴백."""
+        # RPC 경로
+        try:
+            res = self.client.rpc('get_dashboard_top_products', {
+                'p_days': days,
+                'p_limit': limit,
+            }).execute()
+            data = res.data
+            if isinstance(data, list):
+                return [
+                    {'product_name': r.get('product_name', ''),
+                     'qty': int(r.get('qty', 0) or 0),
+                     'revenue': int(r.get('revenue', 0) or 0),
+                     'settlement': int(r.get('settlement', 0) or 0)}
+                    for r in data[:limit]
+                ]
+        except Exception as e:
+            print(f"[DB] RPC get_dashboard_top_products 실패, 폴백: {e}")
 
-        _paginate_query 사용: 10000건 초과 시에도 전체 데이터 집계.
-        """
         try:
             date_from = days_ago_kst(days)
 
