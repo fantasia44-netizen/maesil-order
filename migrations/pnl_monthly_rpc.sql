@@ -108,7 +108,7 @@ BEGIN
     WITH filt AS (
         SELECT
             COALESCE(buyer_corp_name, '기타') AS vendor,
-            COALESCE(supply_cost_total, supply_amount, 0)::BIGINT AS amt
+            COALESCE(supply_cost_total, 0)::BIGINT AS amt
         FROM tax_invoices
         WHERE direction = 'sales'
           AND (is_deleted IS NULL OR is_deleted = FALSE)
@@ -139,7 +139,7 @@ BEGIN
     WITH filt AS (
         SELECT
             COALESCE(supplier_corp_name, '기타') AS vendor,
-            COALESCE(supply_cost_total, supply_amount, 0)::BIGINT AS amt
+            COALESCE(supply_cost_total, 0)::BIGINT AS amt
         FROM tax_invoices
         WHERE direction = 'purchase'
           AND (is_deleted IS NULL OR is_deleted = FALSE)
