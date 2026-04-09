@@ -21,6 +21,8 @@ CREATE OR REPLACE FUNCTION get_revenue_summary_agg(
 LANGUAGE sql STABLE SECURITY DEFINER SET statement_timeout = '10s'
 AS $$
     WITH ot_agg AS (
+        -- order_transactions: category 컬럼 없음 → category 필터는 daily_revenue에만 적용
+        -- category 필터가 있으면 order_transactions 제외
         SELECT
             COALESCE(SUM(total_amount), 0)::BIGINT AS revenue,
             COALESCE(SUM(settlement), 0)::BIGINT AS settlement,
@@ -29,7 +31,7 @@ AS $$
         FROM order_transactions
         WHERE status = '정상'
           AND order_date BETWEEN p_date_from AND p_date_to
-          AND (p_category IS NULL OR p_category = '전체' OR category = p_category)
+          AND (p_category IS NULL OR p_category = '전체')
     ),
     dr_agg AS (
         SELECT
@@ -50,18 +52,19 @@ AS $$
             FROM order_transactions
             WHERE status = '정상'
               AND order_date BETWEEN p_date_from AND p_date_to
-              AND (p_category IS NULL OR p_category = '전체' OR category = p_category)
+              AND (p_category IS NULL OR p_category = '전체')
             GROUP BY COALESCE(channel, '기타')
         ) x
     ),
     by_category AS (
+        -- category는 daily_revenue에만 존재
         SELECT jsonb_object_agg(category, total) AS data
         FROM (
             SELECT COALESCE(category, '기타') AS category,
-                   SUM(total_amount)::BIGINT AS total
-            FROM order_transactions
-            WHERE status = '정상'
-              AND order_date BETWEEN p_date_from AND p_date_to
+                   SUM(revenue)::BIGINT AS total
+            FROM daily_revenue
+            WHERE (is_deleted IS NULL OR is_deleted = FALSE)
+              AND revenue_date BETWEEN p_date_from AND p_date_to
             GROUP BY COALESCE(category, '기타')
         ) x
     )
