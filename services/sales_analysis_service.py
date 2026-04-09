@@ -35,25 +35,42 @@ def _prev_month(year, month):
 # ═══════════════════════════════════════════════════════════════
 
 def _fetch_month_sales(db, year, month):
-    """특정 월의 품목별 판매 데이터 집계 (합계만).
+    """특정 월의 품목별 판매 데이터 집계 — SQL RPC 우선, 실패 시 Python 폴백.
 
-    DB_CUTOFF_DATE 이전 월 → daily_revenue(레거시)에서 조회.
-    DB_CUTOFF_DATE 이후 월 → order_transactions에서 조회.
-
-    Returns:
-        dict: {product_name: {'total_qty': int, 'total_amount': int}}
+    Phase 2-3: 002_sales_analysis_rpc 마이그 적용 시 풀스캔 제거.
     """
-    first, last, _ = _month_range(year, month)
+    # RPC 경로
+    try:
+        res = db.client.rpc('get_monthly_sales_agg', {
+            'p_year': year,
+            'p_month': month,
+        }).execute()
+        data = res.data or {}
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if isinstance(data, dict) and data:
+            return {
+                pn: {
+                    'total_qty': int(v.get('total_qty', 0) or 0),
+                    'total_amount': int(v.get('total_amount', 0) or 0),
+                }
+                for pn, v in data.items()
+            }
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'[SALES-ANALYSIS] RPC get_monthly_sales_agg 실패, 폴백: {e}'
+        )
 
+    # 폴백: 기존 페이지네이션 풀스캔
+    first, last, _ = _month_range(year, month)
     agg = defaultdict(lambda: {'total_qty': 0, 'total_amount': 0})
 
-    # cutoff 이전 월이면 daily_revenue(레거시)에서 조회
     if last < DB_CUTOFF_DATE:
         rows = _fetch_legacy_sales(db, first, last)
     elif first >= DB_CUTOFF_DATE:
         rows = _fetch_order_sales(db, first, last)
     else:
-        # 월이 cutoff를 걸치는 경우
         from datetime import timedelta
         cutoff = datetime.strptime(DB_CUTOFF_DATE, '%Y-%m-%d').date()
         prev_day = (cutoff - timedelta(days=1)).isoformat()

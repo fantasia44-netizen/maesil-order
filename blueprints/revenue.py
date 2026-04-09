@@ -34,12 +34,12 @@ def _allowed(filename):
 @revenue_bp.route('/')
 @role_required('admin', 'ceo', 'manager', 'sales', 'general')
 def index():
-    """매출 조회 (order_transactions 기반)"""
+    """매출 조회 (order_transactions 기반) — OOM 차단: 기본 30일 + summary RPC."""
     db = get_db()
 
-    # 기본 3개월 범위
+    # Phase 2-3: 기본 90일 → 30일로 축소 (SaaS OOM 방어)
     _today = today_kst()
-    _default_from = (datetime.strptime(_today, '%Y-%m-%d') - timedelta(days=90)).strftime('%Y-%m-%d')
+    _default_from = (datetime.strptime(_today, '%Y-%m-%d') - timedelta(days=30)).strftime('%Y-%m-%d')
     date_from = request.args.get('date_from', '') or _default_from
     date_to = request.args.get('date_to', '') or _today
     category = request.args.get('category', '전체')
@@ -49,15 +49,34 @@ def index():
     total_settlement = 0
     total_commission = 0
 
+    # 총계: SQL RPC 우선 (즉시 반환)
+    try:
+        res = db.client.rpc('get_revenue_summary_agg', {
+            'p_date_from': date_from,
+            'p_date_to': date_to,
+            'p_category': category if category != '전체' else None,
+        }).execute()
+        _sum = res.data
+        if isinstance(_sum, list):
+            _sum = _sum[0] if _sum else None
+        if _sum:
+            total_revenue = int(_sum.get('total_revenue', 0) or 0)
+            total_settlement = int(_sum.get('total_settlement', 0) or 0)
+            total_commission = int(_sum.get('total_commission', 0) or 0)
+    except Exception as _rpc_err:
+        current_app.logger.warning(f'[REVENUE] summary RPC 실패: {_rpc_err}')
+
     try:
         data = db.query_revenue(
             date_from=date_from or None,
             date_to=date_to or None,
             category=category if category != '전체' else None,
         )
-        total_revenue = sum(r.get('revenue', 0) for r in data)
-        total_settlement = sum(r.get('settlement', 0) for r in data)
-        total_commission = sum(r.get('commission', 0) for r in data)
+        # RPC 실패 시 Python으로 폴백
+        if total_revenue == 0 and data:
+            total_revenue = sum(r.get('revenue', 0) for r in data)
+            total_settlement = sum(r.get('settlement', 0) for r in data)
+            total_commission = sum(r.get('commission', 0) for r in data)
     except Exception as e:
         flash(f'매출 조회 중 오류: {e}', 'danger')
 

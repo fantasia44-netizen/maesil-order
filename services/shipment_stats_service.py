@@ -6,19 +6,29 @@ revenue_service.py의 get_revenue_stats() 패턴과 동일 구조.
 
 
 def get_shipment_stats(db, date_from=None, date_to=None, location=None):
-    """출고 통계 데이터 산출 (메인 오케스트레이터).
+    """출고 통계 데이터 산출 — SQL RPC 우선, 실패 시 Python 폴백.
 
-    Args:
-        db: SupabaseDB instance
-        date_from: 시작일 (YYYY-MM-DD) or None
-        date_to: 종료일 (YYYY-MM-DD) or None
-        location: 창고 필터 ('넥스원', '해서' 등) or None
-
-    Returns:
-        dict: summary, daily_totals, monthly_totals, location_breakdown,
-              category_breakdown, daily_location_totals, monthly_location_totals,
-              top_products
+    Phase 2-3 OOM 차단: stock_ledger 풀스캔 → 단일 RPC JSONB 반환.
     """
+    # RPC 경로 (001_shipment_stats_rpc)
+    try:
+        res = db.client.rpc('get_shipment_stats_agg', {
+            'p_date_from': date_from,
+            'p_date_to': date_to,
+            'p_location': location,
+        }).execute()
+        data = res.data
+        if isinstance(data, list):
+            data = data[0] if data else None
+        if data:
+            return data
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'[SHIPMENT-STATS] RPC 실패, Python 폴백: {e}'
+        )
+
+    # 폴백: 기존 raw 풀스캔 + Python 집계
     raw = db.query_stock_ledger(
         date_from=date_from,
         date_to=date_to,
