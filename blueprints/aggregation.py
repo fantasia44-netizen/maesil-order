@@ -77,64 +77,31 @@ def api_summary():
 
     db = get_db()
     try:
-        # 출고 현황 (SALES_OUT + ETC_OUT + ADJUST)
-        outbound = db.query_stock_ledger(
-            date_from=date_from, date_to=date_to,
-            type_list=['SALES_OUT', 'ETC_OUT', 'ADJUST'])
+        # ── SQL RPC 1회 호출로 모든 집계 (Phase 1 OOM 차단) ──
+        res = db.client.rpc('get_aggregation_summary', {
+            'p_date_from': date_from,
+            'p_date_to': date_to,
+        }).execute()
+        agg = res.data or {}
+        if isinstance(agg, list):
+            agg = agg[0] if agg else {}
 
-        outbound_count = len(outbound)
-        outbound_items = set()
-        outbound_qty = 0
-        location_counts = {}
-        for o in outbound:
-            outbound_items.add(o.get('product_name', ''))
-            outbound_qty += abs(_safe_int(o.get('qty', 0)))
-            loc = o.get('location', '기타')
-            location_counts[loc] = location_counts.get(loc, 0) + 1
-
-        # 거래처 출고 (SALES_OUT with note containing 거래처 etc.)
-        # → stock_ledger에는 구분 없이 SALES_OUT으로 들어가므로 전체 포함됨
-
-        # 매출 현황
-        revenue = db.query_revenue(date_from=date_from, date_to=date_to)
-        revenue_total = 0
-        revenue_count = len(revenue or [])
-        category_revenue = {}
-        channel_revenue = {}
-        for r in (revenue or []):
-            amt = float(r.get('revenue', 0) or r.get('amount', 0) or 0)
-            revenue_total += amt
-            cat = r.get('category', '기타')
-            category_revenue[cat] = category_revenue.get(cat, 0) + amt
-            ch = r.get('channel', '')
-            if ch:
-                channel_revenue[ch] = channel_revenue.get(ch, 0) + amt
-
-        # 입고 현황
-        inbound = db.query_stock_ledger(
-            date_from=date_from, date_to=date_to,
-            type_list=['INBOUND'])
-        inbound_count = len(inbound)
-
-        # 생산 현황
-        production = db.query_stock_ledger(
-            date_from=date_from, date_to=date_to,
-            type_list=['PRODUCTION', 'PROD_OUT'])
-        production_count = len(production)
+        ob = agg.get('outbound') or {}
+        rev = agg.get('revenue') or {}
 
         return jsonify({
             'date_from': date_from,
             'date_to': date_to,
-            'outbound_count': outbound_count,
-            'outbound_items': len(outbound_items),
-            'outbound_qty': outbound_qty,
-            'locations': location_counts,
-            'inbound_count': inbound_count,
-            'production_count': production_count,
-            'revenue_count': revenue_count,
-            'revenue_total': int(revenue_total),
-            'category_revenue': {k: int(v) for k, v in category_revenue.items()},
-            'channel_revenue': {k: int(v) for k, v in channel_revenue.items()},
+            'outbound_count': int(ob.get('count', 0) or 0),
+            'outbound_items': int(ob.get('items', 0) or 0),
+            'outbound_qty': int(ob.get('qty', 0) or 0),
+            'locations': {k: int(v or 0) for k, v in (ob.get('locations') or {}).items()},
+            'inbound_count': int(agg.get('inbound_count', 0) or 0),
+            'production_count': int(agg.get('production_count', 0) or 0),
+            'revenue_count': int(rev.get('count', 0) or 0),
+            'revenue_total': int(rev.get('total', 0) or 0),
+            'category_revenue': {k: int(v or 0) for k, v in (rev.get('by_category') or {}).items()},
+            'channel_revenue': {k: int(v or 0) for k, v in (rev.get('by_channel') or {}).items()},
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -169,104 +136,29 @@ def api_channel_orders():
 
     db = get_db()
     try:
-        from collections import defaultdict
-
-        # 일자별 그룹별 {date: {group: qty}}
-        agg = defaultdict(lambda: defaultdict(int))
         groups = ['일반매출', '쿠팡매출', '로켓', 'N배송', '거래처매출', '기타출고']
 
-        # 1. order_transactions (온라인 채널) — collection_date 기준 (없으면 order_date fallback)
-        # 1-a: collection_date가 있는 주문
-        offset = 0
-        while True:
-            resp = db.client.table('order_transactions') \
-                .select('collection_date,channel,qty') \
-                .eq('status', '정상') \
-                .gte('collection_date', date_from) \
-                .lte('collection_date', date_to) \
-                .range(offset, offset + 999) \
-                .execute()
-            batch = resp.data or []
-            for r in batch:
-                d = r.get('collection_date', '')
-                if not d:
-                    continue
-                grp = _channel_group(r.get('channel', ''))
-                agg[d][grp] += _safe_int(r.get('qty', 0))
-            if len(batch) < 1000:
-                break
-            offset += 1000
+        # ── SQL RPC 1회: 일자×그룹 피벗 집계 (Phase 1 OOM 차단) ──
+        res = db.client.rpc('get_channel_orders_agg', {
+            'p_date_from': date_from,
+            'p_date_to': date_to,
+        }).execute()
+        agg_json = res.data or {}
+        if isinstance(agg_json, list):
+            agg_json = agg_json[0] if agg_json else {}
+        raw_rows = agg_json.get('rows') or []
 
-        # 1-b: collection_date가 NULL인 주문 (기존 데이터 → order_date fallback)
-        offset = 0
-        while True:
-            resp = db.client.table('order_transactions') \
-                .select('order_date,channel,qty') \
-                .eq('status', '정상') \
-                .is_('collection_date', 'null') \
-                .gte('order_date', date_from) \
-                .lte('order_date', date_to) \
-                .range(offset, offset + 999) \
-                .execute()
-            batch = resp.data or []
-            for r in batch:
-                d = r.get('order_date', '')
-                if not d:
-                    continue
-                grp = _channel_group(r.get('channel', ''))
-                agg[d][grp] += _safe_int(r.get('qty', 0))
-            if len(batch) < 1000:
-                break
-            offset += 1000
-
-        # 2. daily_revenue (거래처매출, 로켓)
-        offset = 0
-        while True:
-            resp = db.client.table('daily_revenue') \
-                .select('revenue_date,category,qty') \
-                .in_('category', ['거래처매출', '로켓']) \
-                .gte('revenue_date', date_from) \
-                .lte('revenue_date', date_to) \
-                .range(offset, offset + 999) \
-                .execute()
-            batch = resp.data or []
-            for r in batch:
-                d = r.get('revenue_date', '')
-                if not d:
-                    continue
-                cat = (r.get('category') or '').strip()
-                if cat == '로켓':
-                    grp = '로켓'
-                else:
-                    grp = '거래처매출'
-                agg[d][grp] += _safe_int(r.get('qty', 0))
-            if len(batch) < 1000:
-                break
-            offset += 1000
-
-        # 3. stock_ledger ETC_OUT + ADJUST (기타출고/무상출고/재고조정)
-        etc_rows = db.query_stock_ledger(
-            date_from=date_from, date_to=date_to,
-            type_list=['ETC_OUT', 'ADJUST'])
-        for r in etc_rows:
-            d = r.get('transaction_date', '')
-            if not d:
-                continue
-            qty = abs(_safe_int(r.get('qty', 0)))
-            if qty > 0:
-                agg[d]['기타출고'] += qty
-
-        # 결과 구성
-        dates = sorted(agg.keys())
         rows = []
         totals = {g: 0 for g in groups}
         totals['합계'] = 0
 
-        for d in dates:
+        for rr in raw_rows:
+            d = rr.get('date', '')
+            g_map = rr.get('groups') or {}
             row = {'date': d}
             row_total = 0
             for g in groups:
-                v = agg[d].get(g, 0)
+                v = int(g_map.get(g, 0) or 0)
                 row[g] = v
                 row_total += v
                 totals[g] += v

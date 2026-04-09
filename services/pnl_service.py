@@ -225,8 +225,30 @@ def _calc_sga(db, year_month, commission_total):
 # ──────────────────────────────────────────────
 
 def _fetch_month_data(db, date_from, date_to, year_month):
-    """한 달치 데이터 일괄 조회 (DB 4회)."""
+    """한 달치 데이터 일괄 조회 — SQL RPC 1회 (Phase 1 OOM 차단).
+
+    구 버전: 4개 테이블 Python 풀스캔 + defaultdict 4중 집계 (피크 ~6MB/월).
+    신 버전: get_pnl_monthly_agg RPC 1회 호출, JSONB 파싱만 수행.
+    """
+    try:
+        res = db.client.rpc('get_pnl_monthly_agg', {
+            'p_date_from': date_from,
+            'p_date_to': date_to,
+            'p_year_month': year_month,
+        }).execute()
+        agg = res.data or {}
+        if isinstance(agg, list):
+            agg = agg[0] if agg else {}
+    except Exception as e:
+        logger.warning(f"[P&L] RPC get_pnl_monthly_agg 실패, 폴백 사용: {e}")
+        agg = None
+
+    if agg:
+        return {'_rpc': agg}
+
+    # 폴백: 기존 Python 경로
     return {
+        '_rpc': None,
         'settlements': db.query_api_settlements(date_from=date_from, date_to=date_to) or [],
         'tax_sales': db.query_tax_invoices(direction='sales',
                                            date_from=date_from, date_to=date_to) or [],
@@ -244,13 +266,43 @@ _SETTLE_PREFIXES = (
 
 
 def _calc_revenue_v2(db, date_from, date_to, data):
-    """매출 집계 v2: api_settlements(정산서 업로드분만) + tax_invoices(거래처).
+    """매출 집계 v2: RPC JSONB 우선, 폴백은 Python.
 
-    api_settlements 중 정산서 prefix 항목만 집계 (API 일별 데이터와 이중 계산 방지).
-    데이터 없으면 기존 _calc_revenue()로 폴백.
+    RPC는 정산서 prefix 필터 + 플랫폼 거래처 제외까지 SQL에서 처리.
     """
-    settlements = data['settlements']
-    tax_sales = data['tax_sales']
+    agg = data.get('_rpc')
+    if agg:
+        rev = agg.get('revenue') or {}
+        b2b = agg.get('b2b') or {}
+        online_total = int(rev.get('online_total', 0) or 0)
+        online_commission = int(rev.get('online_commission', 0) or 0)
+        b2b_total = int(b2b.get('b2b_total', 0) or 0)
+        by_channel = {k: int(v or 0) for k, v in (rev.get('by_channel') or {}).items()}
+        b2b_by_vendor = {k: int(v or 0) for k, v in (b2b.get('by_vendor') or {}).items()}
+
+        # 데이터 없으면 기존 폴백 경로
+        if online_total == 0 and b2b_total == 0:
+            legacy = _calc_revenue(db, date_from, date_to)
+            legacy['data_source'] = 'legacy'
+            legacy['online_total'] = legacy['total']
+            legacy['b2b_total'] = 0
+            legacy['b2b_by_vendor'] = {}
+            return legacy
+
+        return {
+            'total': online_total + b2b_total,
+            'online_total': online_total,
+            'b2b_total': b2b_total,
+            'by_channel': by_channel,
+            'b2b_by_vendor': b2b_by_vendor,
+            'total_commission': online_commission,
+            'total_qty': 0,
+            'data_source': 'settlement_rpc',
+        }
+
+    # ── 폴백: Python 풀스캔 (RPC 실패 시에만) ──
+    settlements = data.get('settlements', [])
+    tax_sales = data.get('tax_sales', [])
 
     online_total = 0
     online_commission = 0
@@ -258,7 +310,6 @@ def _calc_revenue_v2(db, date_from, date_to, data):
 
     for s in settlements:
         sid = s.get('settlement_id', '')
-        # 정산서 파일 업로드분만 집계 (API 일별 데이터 제외)
         if not any(sid.startswith(p) for p in _SETTLE_PREFIXES):
             continue
         gross = int(s.get('gross_sales') or 0)
@@ -268,24 +319,19 @@ def _calc_revenue_v2(db, date_from, date_to, data):
         online_commission += comm
         online_by_channel[ch] += gross
 
-    # 거래처 매출 (매출 세금계산서)
-    # 온라인 플랫폼 거래처는 정산서에 이미 포함 → 제외 (이중 계산 방지)
-    _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}   # 로켓그로스 = 쿠팡 매입
+    _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}
     b2b_total = 0
     b2b_by_vendor = defaultdict(int)
-    b2b_excluded = defaultdict(int)   # 제외된 플랫폼 매출 (참고용)
     for inv in tax_sales:
         if inv.get('status') == 'cancelled':
             continue
         amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
         vendor = (inv.get('buyer_corp_name') or inv.get('vendor_name') or '기타')
         if vendor in _PLATFORM_BUYERS:
-            b2b_excluded[vendor] += amt
             continue
         b2b_total += amt
         b2b_by_vendor[vendor] += amt
 
-    # 데이터 없으면 기존 로직 폴백
     if online_total == 0 and b2b_total == 0:
         legacy = _calc_revenue(db, date_from, date_to)
         legacy['data_source'] = 'legacy'
@@ -294,9 +340,8 @@ def _calc_revenue_v2(db, date_from, date_to, data):
         legacy['b2b_by_vendor'] = {}
         return legacy
 
-    total = online_total + b2b_total
     return {
-        'total': total,
+        'total': online_total + b2b_total,
         'online_total': online_total,
         'b2b_total': b2b_total,
         'by_channel': dict(online_by_channel),
@@ -308,9 +353,31 @@ def _calc_revenue_v2(db, date_from, date_to, data):
 
 
 def _calc_cogs_v2(db, date_from, date_to, data, revenue_qty=0):
-    """매출원가 v2: 매입 세금계산서 우선, 없으면 기존 폴백."""
-    tax_purchases = data['tax_purchases']
+    """매출원가 v2: RPC JSONB 우선, 폴백 Python."""
+    agg = data.get('_rpc')
+    if agg:
+        pur = agg.get('purchase') or {}
+        purchase_total = int(pur.get('purchase_total', 0) or 0)
+        by_vendor = {k: int(v or 0) for k, v in (pur.get('by_vendor') or {}).items()}
 
+        if purchase_total == 0:
+            legacy = _calc_cogs(db, date_from, date_to, revenue_qty)
+            legacy['data_source'] = 'legacy'
+            legacy['purchase_invoice_total'] = 0
+            legacy['by_vendor'] = {}
+            return legacy
+
+        return {
+            'total': purchase_total,
+            'purchase_invoice_total': purchase_total,
+            'by_vendor': by_vendor,
+            'actual_cost': 0,
+            'estimated_cost': 0,
+            'data_source': 'tax_invoice_rpc',
+        }
+
+    # ── 폴백: Python 풀스캔 ──
+    tax_purchases = data.get('tax_purchases', [])
     purchase_total = 0
     by_vendor = defaultdict(int)
     for inv in tax_purchases:
@@ -350,39 +417,54 @@ def _calc_sga_v2(data, commission_from_revenue):
       제조경비: 연구개발비
       영업외: 이자비용
     """
-    settlements = data['settlements']
-    expense_rows = data['expenses']
+    agg = data.get('_rpc')
+    if agg:
+        # RPC 경로: expenses by_category + ad_cost by_channel 직접 사용
+        ref_commission = round(commission_from_revenue)
+        ad_info = agg.get('ad_cost') or {}
+        ref_ad_cost = int(ad_info.get('total_ad_cost', 0) or 0)
+        ad_by_channel = {k: int(v or 0) for k, v in (ad_info.get('by_channel') or {}).items()}
 
-    # 정산서 수수료/광고비 — 참고용으로만 기록 (판관비 합산 안 함)
-    ref_commission = round(commission_from_revenue)
-    ref_ad_cost = 0
-    ad_by_channel = defaultdict(int)
-    for s in settlements:
-        sid = s.get('settlement_id', '')
-        if sid.startswith('ad_cost_'):
-            cost = int(s.get('other_deductions') or 0)
-            ch = s.get('channel', '기타')
-            ref_ad_cost += cost
-            ad_by_channel[ch] += cost
+        raw_cats = (agg.get('expenses') or {}).get('by_category') or {}
+    else:
+        # 폴백: Python 풀스캔
+        settlements = data.get('settlements', [])
+        expense_rows = data.get('expenses', [])
+
+        ref_commission = round(commission_from_revenue)
+        ref_ad_cost = 0
+        ad_by_channel_dd = defaultdict(int)
+        for s in settlements:
+            sid = s.get('settlement_id', '')
+            if sid.startswith('ad_cost_'):
+                cost = int(s.get('other_deductions') or 0)
+                ch = s.get('channel', '기타')
+                ref_ad_cost += cost
+                ad_by_channel_dd[ch] += cost
+        ad_by_channel = dict(ad_by_channel_dd)
+
+        raw_cats = defaultdict(float)
+        for row in expense_rows:
+            cat = row.get('category', '기타')
+            amt = float(row.get('amount', 0))
+            raw_cats[cat] += amt
 
     # 영업외비용 카테고리 (판관비에서 분리)
     _NON_OPERATING = {'이자비용'}
     # 제조경비 카테고리
     _MANUFACTURING = {'연구개발비'}
 
-    # expenses → 카테고리별 집계 (판관비/제조경비/영업외 분리)
-    by_category = defaultdict(float)       # 판관비
-    by_mfg = defaultdict(float)            # 제조경비
-    by_non_op = defaultdict(float)         # 영업외비용
-    for row in expense_rows:
-        cat = row.get('category', '기타')
-        amt = float(row.get('amount', 0))
+    by_category = defaultdict(float)   # 판관비
+    by_mfg = defaultdict(float)        # 제조경비
+    by_non_op = defaultdict(float)     # 영업외비용
+    for cat, amt in raw_cats.items():
+        amt_f = float(amt or 0)
         if cat in _NON_OPERATING:
-            by_non_op[cat] += amt
+            by_non_op[cat] += amt_f
         elif cat in _MANUFACTURING:
-            by_mfg[cat] += amt
+            by_mfg[cat] += amt_f
         else:
-            by_category[cat] += amt
+            by_category[cat] += amt_f
 
     total_sga = sum(round(v) for v in by_category.values())
     total_mfg = sum(round(v) for v in by_mfg.values())
@@ -509,38 +591,57 @@ def calculate_channel_pnl(db, year_month):
     """
     date_from, date_to = _month_range(year_month)
     data = _fetch_month_data(db, date_from, date_to, year_month)
-    settlements = data['settlements']
 
-    # api_settlements가 있으면 정산서 기반 (정산서 prefix만 집계)
-    settle_rows = [s for s in settlements
-                   if any(s.get('settlement_id', '').startswith(p)
-                          for p in _SETTLE_PREFIXES)]
+    agg = data.get('_rpc')
+    if agg:
+        # RPC 경로 — 풀스캔 없이 JSONB 집계만 사용
+        rev = agg.get('revenue') or {}
+        ad = agg.get('ad_cost') or {}
+        b2b = agg.get('b2b') or {}
+        rev_by_ch = {k: int(v or 0) for k, v in (rev.get('by_channel') or {}).items()}
+        comm_by_ch = {k: int(v or 0) for k, v in (rev.get('commission_by_channel') or {}).items()}
+        ad_by_ch = {k: int(v or 0) for k, v in (ad.get('by_channel') or {}).items()}
 
-    if settle_rows or [s for s in settlements
-                       if s.get('settlement_id', '').startswith('ad_cost_')]:
-        ch_data = defaultdict(lambda: {
-            'revenue': 0, 'commission': 0, 'ad_cost': 0,
-        })
-        for s in settlements:
-            sid = s.get('settlement_id', '')
-            ch = s.get('channel', '기타')
-            if sid.startswith('ad_cost_'):
-                ch_data[ch]['ad_cost'] += int(s.get('other_deductions') or 0)
-            elif any(sid.startswith(p) for p in _SETTLE_PREFIXES):
-                ch_data[ch]['revenue'] += int(s.get('gross_sales') or 0)
-                ch_data[ch]['commission'] += int(s.get('total_commission') or 0)
+        ch_data = defaultdict(lambda: {'revenue': 0, 'commission': 0, 'ad_cost': 0})
+        for ch, amt in rev_by_ch.items():
+            ch_data[ch]['revenue'] += amt
+        for ch, amt in comm_by_ch.items():
+            ch_data[ch]['commission'] += amt
+        for ch, amt in ad_by_ch.items():
+            ch_data[ch]['ad_cost'] += amt
+        for vendor, amt in (b2b.get('by_vendor') or {}).items():
+            ch_data[f'거래처({vendor})']['revenue'] += int(amt or 0)
 
-        # 거래처 매출 (세금계산서) 추가 — 플랫폼 거래처 제외
-        _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}
-        for inv in data['tax_sales']:
-            if inv.get('status') == 'cancelled':
-                continue
-            vendor = inv.get('buyer_corp_name') or inv.get('vendor_name') or '거래처'
-            if vendor in _PLATFORM_BUYERS:
-                continue
-            amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
-            ch_data[f'거래처({vendor})']['revenue'] += amt
+        has_data = bool(ch_data)
+    else:
+        # ── 폴백: Python 풀스캔 ──
+        settlements = data.get('settlements', [])
+        settle_rows = [s for s in settlements
+                       if any(s.get('settlement_id', '').startswith(p)
+                              for p in _SETTLE_PREFIXES)]
+        has_data = bool(settle_rows or [s for s in settlements
+                                         if s.get('settlement_id', '').startswith('ad_cost_')])
+        ch_data = defaultdict(lambda: {'revenue': 0, 'commission': 0, 'ad_cost': 0})
+        if has_data:
+            for s in settlements:
+                sid = s.get('settlement_id', '')
+                ch = s.get('channel', '기타')
+                if sid.startswith('ad_cost_'):
+                    ch_data[ch]['ad_cost'] += int(s.get('other_deductions') or 0)
+                elif any(sid.startswith(p) for p in _SETTLE_PREFIXES):
+                    ch_data[ch]['revenue'] += int(s.get('gross_sales') or 0)
+                    ch_data[ch]['commission'] += int(s.get('total_commission') or 0)
+            _PLATFORM_BUYERS = {'쿠팡(주)', '쿠팡주식회사'}
+            for inv in data.get('tax_sales', []):
+                if inv.get('status') == 'cancelled':
+                    continue
+                vendor = inv.get('buyer_corp_name') or inv.get('vendor_name') or '거래처'
+                if vendor in _PLATFORM_BUYERS:
+                    continue
+                amt = int(inv.get('supply_cost_total') or inv.get('supply_amount') or 0)
+                ch_data[f'거래처({vendor})']['revenue'] += amt
 
+    if has_data:
         channels = []
         total_rev = total_comm = total_ad = total_profit = 0
 
