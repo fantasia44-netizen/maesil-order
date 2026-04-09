@@ -251,21 +251,50 @@ def query_stock_snapshot(db, date_str, location=None, category=None,
             ...
         ]
     """
-    all_data = db.query_stock_ledger(date_str)
+    # ─────────────────────────────────────────────
+    # Phase 3: 재고 스냅샷 RPC 우선 (OOM 차단)
+    # stock_ledger 풀스캔 + pandas groupby 제거, SQL 집계로 대체
+    # ─────────────────────────────────────────────
+    split_mode = 'none'
+    if split_manufacture:
+        split_mode = 'manufacture'
+    elif split_expiry:
+        split_mode = 'expiry'
+    elif split_lot_number:
+        split_mode = 'lot_number'
+
+    try:
+        res = db.client.rpc('get_stock_snapshot_agg', {
+            'p_date_to': date_str,
+            'p_split_mode': split_mode,
+        }).execute()
+        snapshot_rows = res.data or []
+        if snapshot_rows:
+            all_data = snapshot_rows
+        else:
+            all_data = db.query_stock_ledger(date_str)
+    except Exception as _rpc_err:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'[query_stock_snapshot] RPC 실패, 풀스캔 폴백: {_rpc_err}')
+        all_data = db.query_stock_ledger(date_str)
+
     if not all_data:
         return []
 
-    # ★ daily_revenue 보완 차감 (통합집계와 동일 소스 기준)
-    #   로켓/거래처매출 중 stock_ledger SALES_OUT 에 반영되지 않은 건을 보완.
-    #   통합집계(aggregation.py:544-622) 와 완전히 동일한 로직.
-    try:
-        _supplement = _compute_daily_revenue_supplement(db, date_str, all_data)
-        if _supplement:
-            all_data = list(all_data) + _supplement
-    except Exception as _e:
-        import logging
-        logging.getLogger(__name__).warning(
-            f'[query_stock_snapshot] daily_revenue 보완 실패: {_e}')
+    # ★ daily_revenue 보완 차감 — RPC 경로에선 이미 SQL 집계 완료 상태라 스킵
+    #   raw 폴백 때만 적용
+    _is_rpc_path = isinstance(all_data, list) and all_data and \
+                   'transaction_date' not in all_data[0]
+    if not _is_rpc_path:
+        try:
+            _supplement = _compute_daily_revenue_supplement(db, date_str, all_data)
+            if _supplement:
+                all_data = list(all_data) + _supplement
+        except Exception as _e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f'[query_stock_snapshot] daily_revenue 보완 실패: {_e}')
 
     df = pd.DataFrame(all_data)
     if df.empty:
@@ -448,7 +477,25 @@ def query_history_view(db, date_str, mode='전체이력', location=None,
         "전체이력": None,
     }
     filter_types = type_map.get(mode)
-    all_data = db.query_stock_ledger(date_str, order_desc=True)
+
+    # Phase 3: 이력 조회 SQL RPC 우선 (필터링 SQL 이관)
+    all_data = None
+    try:
+        res = db.client.rpc('get_stock_history_view', {
+            'p_date_to': date_str,
+            'p_types': filter_types,
+            'p_location': location if location and location != '전체' else None,
+            'p_category': category if category and category != '전체' else None,
+            'p_storage_method': storage_method if storage_method and storage_method != '전체' else None,
+            'p_search': search if search else None,
+            'p_limit': 5000,
+        }).execute()
+        all_data = res.data or []
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'[query_history_view] RPC 실패, 풀스캔 폴백: {_e}')
+        all_data = db.query_stock_ledger(date_str, order_desc=True)
 
     results = []
     for r in all_data:
