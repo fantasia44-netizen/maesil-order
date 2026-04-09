@@ -353,19 +353,17 @@ def _calc_revenue_v2(db, date_from, date_to, data):
 
 
 def _calc_cogs_v2(db, date_from, date_to, data, revenue_qty=0):
-    """매출원가 v2: RPC JSONB 우선, 폴백 Python."""
+    """매출원가 v2: RPC JSONB 우선, 폴백 Python.
+
+    RPC 성공 시에는 매입 세금계산서가 0이어도 actual_cost/bom 레거시 경로로
+    폴백하지 않음 — 6개월 trend 루프에서 매달 actual_cost/bom 전체 스캔을 반복해
+    7초+ 지연 발생하던 문제 차단 (2026-04-10 핫픽스).
+    """
     agg = data.get('_rpc')
     if agg:
         pur = agg.get('purchase') or {}
         purchase_total = int(pur.get('purchase_total', 0) or 0)
         by_vendor = {k: int(v or 0) for k, v in (pur.get('by_vendor') or {}).items()}
-
-        if purchase_total == 0:
-            legacy = _calc_cogs(db, date_from, date_to, revenue_qty)
-            legacy['data_source'] = 'legacy'
-            legacy['purchase_invoice_total'] = 0
-            legacy['by_vendor'] = {}
-            return legacy
 
         return {
             'total': purchase_total,
@@ -732,6 +730,14 @@ def calculate_channel_pnl(db, year_month):
 #  월별 추이 (최근 N개월)
 # ──────────────────────────────────────────────
 
+def _pnl_trend_worker(db, ym):
+    """단일 월 PnL 계산 (병렬 워커)."""
+    try:
+        return (ym, calculate_monthly_pnl(db, ym), None)
+    except Exception as e:
+        return (ym, None, e)
+
+
 def calculate_pnl_trend(db, months=6):
     """최근 N개월 손익 추이.
 
@@ -770,17 +776,45 @@ def calculate_pnl_trend(db, months=6):
         'net_margin': [],
     }
 
+    # 대상 월 목록 생성 (병렬 실행용)
+    target_yms = []
     for i in range(months - 1, -1, -1):
-        # i개월 전 계산
         y = current.year
         m = current.month - i
         while m <= 0:
             m += 12
             y -= 1
-        ym = f"{y}-{m:02d}"
+        target_yms.append(f"{y}-{m:02d}")
+
+    # 병렬 계산 (ThreadPool) — 각 월은 독립적, Supabase 커넥션 공유 OK
+    from concurrent.futures import ThreadPoolExecutor
+    pnl_by_ym = {}
+    with ThreadPoolExecutor(max_workers=min(months, 6)) as pool:
+        futures = [pool.submit(_pnl_trend_worker, db, ym) for ym in target_yms]
+        for f in futures:
+            ym, pnl, err = f.result()
+            if err:
+                logger.warning(f"[P&L] {ym} 추이 계산 실패: {err}")
+            pnl_by_ym[ym] = pnl
+
+    for ym in target_yms:
+        pnl = pnl_by_ym.get(ym)
+        if pnl is None:
+            # 실패 월: 0 채움
+            result['months'].append(ym)
+            result['revenue'].append(0)
+            result['cogs'].append(0)
+            result['gross_profit'].append(0)
+            result['sga'].append(0)
+            result['operating_profit'].append(0)
+            result['non_operating'].append(0)
+            result['net_profit'].append(0)
+            result['gross_margin'].append(0)
+            result['operating_margin'].append(0)
+            result['net_margin'].append(0)
+            continue
 
         try:
-            pnl = calculate_monthly_pnl(db, ym)
             result['months'].append(ym)
             rev_total = pnl['revenue']['total']
             result['revenue'].append(rev_total)
