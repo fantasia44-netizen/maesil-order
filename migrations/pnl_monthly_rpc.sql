@@ -107,14 +107,14 @@ BEGIN
     -- ────────────────────────────────────────
     WITH filt AS (
         SELECT
-            COALESCE(buyer_corp_name, vendor_name, '기타') AS vendor,
+            COALESCE(buyer_corp_name, '기타') AS vendor,
             COALESCE(supply_cost_total, supply_amount, 0)::BIGINT AS amt
         FROM tax_invoices
         WHERE direction = 'sales'
           AND (is_deleted IS NULL OR is_deleted = FALSE)
           AND COALESCE(status,'') <> 'cancelled'
           AND write_date BETWEEN p_date_from AND p_date_to
-          AND COALESCE(buyer_corp_name, vendor_name, '기타') <> ALL(v_platform_buyers)
+          AND COALESCE(buyer_corp_name, '기타') <> ALL(v_platform_buyers)
     ),
     totals AS (
         SELECT COALESCE(SUM(amt),0)::BIGINT AS b2b_total FROM filt
@@ -138,7 +138,7 @@ BEGIN
     -- ────────────────────────────────────────
     WITH filt AS (
         SELECT
-            COALESCE(supplier_corp_name, vendor_name, '기타') AS vendor,
+            COALESCE(supplier_corp_name, '기타') AS vendor,
             COALESCE(supply_cost_total, supply_amount, 0)::BIGINT AS amt
         FROM tax_invoices
         WHERE direction = 'purchase'
