@@ -34,10 +34,11 @@ AS $$
           AND (p_category IS NULL OR p_category = '전체')
     ),
     dr_agg AS (
+        -- daily_revenue에는 settlement/commission 컬럼 없음 → revenue만 합산
         SELECT
             COALESCE(SUM(revenue), 0)::BIGINT AS revenue,
-            COALESCE(SUM(settlement), 0)::BIGINT AS settlement,
-            COALESCE(SUM(commission), 0)::BIGINT AS commission,
+            0::BIGINT AS settlement,
+            0::BIGINT AS commission,
             COUNT(*)::BIGINT AS cnt
         FROM daily_revenue
         WHERE (is_deleted IS NULL OR is_deleted = FALSE)
