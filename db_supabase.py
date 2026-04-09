@@ -43,7 +43,13 @@ def _force_http1_on_supabase_client(client):
         sub = getattr(client, attr, None)
         if sub is None:
             continue
-        # postgrest: self.session, storage: self._client, auth: self._http_client
+        # storage 는 건너뜀: 모듈 로드 시점의 httpx.Client monkey-patch 로
+        # 이미 http2=False 로 생성되어 있고, storage._client 를 교체하면
+        # supabase-py 내부 bucket 프록시가 닫힌 참조를 계속 사용해서
+        # "Cannot send a request, as the client has been closed" 가 폭주함.
+        if attr == 'storage':
+            continue
+        # postgrest: self.session, auth: self._http_client
         old = (getattr(sub, 'session', None) or
                getattr(sub, '_client', None) or
                getattr(sub, '_http_client', None))
@@ -122,7 +128,9 @@ class SupabaseDB(DBBase):
             # 1) 이전 client의 내부 httpx 세션 강제 종료 (best-effort)
             old = getattr(self, 'client', None)
             if old is not None:
-                for attr in ('postgrest', 'auth', 'storage', 'functions'):
+                for attr in ('postgrest', 'auth', 'functions'):
+                    # storage 는 스킵: bucket 프록시가 _client 참조를 캐시해서
+                    # 여기서 close 하면 새 client 로 교체돼도 old 참조가 남아 폭주함.
                     sub = getattr(old, attr, None)
                     if sub is None:
                         continue
@@ -244,14 +252,17 @@ class SupabaseDB(DBBase):
     # --- stock_ledger CRUD ---
 
     def _normalize_product_names(self, payload_list):
-        """품목명 정규화 — products 테이블 기준 정식 이름으로 변환.
+        """품목명 정규화 — 전사 표준 canonical() 단일 규칙.
 
-        products.name_normalized(공백 제거)로 매칭하여 정식 product_name을 반환.
-        products에 없으면 원본 그대로 유지.
+        stock_ledger 등 모든 쓰기 경로의 choke point.
+        product_name 을 canonical() 로 통일해 공백 드리프트를 원천 차단.
+        products 마스터에 정식 이름이 있으면 그걸로 교체.
         """
         if not payload_list:
             return payload_list
-        # products 정규화 맵 캐시 (세션 내 1회)
+        from services.product_name import canonical
+
+        # products 정규화 맵 캐시 (세션 내 1회) — name_normalized → 정식 product_name
         if not hasattr(self, '_product_norm_cache') or self._product_norm_cache is None:
             try:
                 rows = self.client.table('products').select('product_name, name_normalized').execute()
@@ -262,14 +273,11 @@ class SupabaseDB(DBBase):
         norm_map = self._product_norm_cache
         for row in payload_list:
             pn = row.get('product_name', '')
-            if pn:
-                pn_clean = str(pn).replace(' ', '').replace('\u3000', '').strip()
-                # products에서 정식 이름 찾기
-                if pn_clean in norm_map:
-                    row['product_name'] = norm_map[pn_clean]
-                else:
-                    # products 마스터에 없어도 공백 제거 (일관성)
-                    row['product_name'] = pn_clean or str(pn).strip()
+            if not pn:
+                continue
+            pn_clean = canonical(pn)
+            # products 마스터에 정식 이름이 있으면 그걸로 사용, 없으면 canonical 결과
+            row['product_name'] = norm_map.get(pn_clean) or pn_clean or str(pn).strip()
         return payload_list
 
     def insert_stock_ledger(self, payload_list):
@@ -1970,6 +1978,12 @@ class SupabaseDB(DBBase):
         반환: {inserted, updated, skipped, failed, errors, rpc_error}
         """
         import json
+        # ★ 모든 주문 저장의 choke point — product_name canonical 통일
+        from services.product_name import canonical
+        for o in orders or []:
+            txn = o.get("transaction") if isinstance(o, dict) else None
+            if txn and txn.get("product_name"):
+                txn["product_name"] = canonical(txn["product_name"])
         try:
             res = self.client.rpc("rpc_upsert_order_batch", {
                 "p_import_run_id": import_run_id,
@@ -3564,28 +3578,40 @@ class SupabaseDB(DBBase):
             s = re.sub(r'[^\x00-\x7F]', '', s)  # 남은 비ASCII 제거
             return s or 'file'
         safe_path = '/'.join(_to_ascii(seg) for seg in path.split('/'))
-        try:
+
+        def _do_upload():
             self.client.storage.from_(bucket).upload(
                 safe_path, file_bytes, file_options={"content-type": content_type}
             )
-            return True
-        except Exception as e:
-            err_str = str(e)
-            is_dup = ('409' in err_str or '400' in err_str
-                      or 'duplicate' in err_str.lower()
-                      or 'already exists' in err_str.lower()
-                      or '23505' in err_str)
-            if is_dup:
-                try:
-                    self.client.storage.from_(bucket).update(
-                        safe_path, file_bytes, file_options={"content-type": content_type}
-                    )
-                    return True
-                except Exception as e2:
-                    print(f"[DB] _storage_upload({bucket}) update error: {e2}")
-            else:
-                print(f"[DB] _storage_upload({bucket}) error: {e}")
-            return False
+
+        for attempt in (1, 2):
+            try:
+                _do_upload()
+                return True
+            except Exception as e:
+                err_str = str(e)
+                # 닫힌 httpx 클라이언트 감지 → 1회 재연결 후 재시도
+                if attempt == 1 and 'client has been closed' in err_str.lower():
+                    try:
+                        self._reconnect()
+                    except Exception:
+                        pass
+                    continue
+                is_dup = ('409' in err_str or '400' in err_str
+                          or 'duplicate' in err_str.lower()
+                          or 'already exists' in err_str.lower()
+                          or '23505' in err_str)
+                if is_dup:
+                    try:
+                        self.client.storage.from_(bucket).update(
+                            safe_path, file_bytes, file_options={"content-type": content_type}
+                        )
+                        return True
+                    except Exception as e2:
+                        print(f"[DB] _storage_upload({bucket}) update error: {e2}")
+                else:
+                    print(f"[DB] _storage_upload({bucket}) error: {e}")
+                return False
 
     def _storage_signed_url(self, bucket_key, path, expires_in=3600):
         """범용 서명 URL 생성."""
@@ -5334,6 +5360,11 @@ class SupabaseDB(DBBase):
 
     def upsert_api_orders_batch(self, orders):
         """API 주문 배치 upsert. Returns: {new, updated, skipped}."""
+        # ★ 마켓 API → api_orders 저장 choke point — canonical 통일
+        from services.product_name import canonical
+        for o in orders or []:
+            if isinstance(o, dict) and o.get('product_name'):
+                o['product_name'] = canonical(o['product_name'])
         new = 0
         updated = 0
         skipped = 0

@@ -52,28 +52,21 @@ def _snap_qty(val, unit='개'):
 
 
 def normalize_product_name(name):
-    """품목명 정규화 — 공백 제거 후 비교용 키 생성.
+    """품목명 정규화 — 전사 표준 canonical() 위임.
     예: '(수)건해삼채 200g' → '(수)건해삼채200g'
     """
-    if not name:
-        return ''
-    return str(name).replace(' ', '').strip()
+    from services.product_name import canonical
+    return canonical(name)
 
 
 def snapshot_lookup(stock, name):
-    """stock snapshot에서 품목명을 정규화하여 조회.
-    정확 매칭 우선, 없으면 공백 제거 후 매칭 시도.
+    """stock snapshot에서 품목명을 canonical 키로 조회.
+    build_stock_snapshot 가 이미 canonical 키로 dict 를 생성하므로
+    여기서도 canonical(name) 로 1-shot 매칭.
     returns: {groups: [...], total: int, unit: str} or empty dict
     """
-    # 1) 정확 매칭
-    if name in stock:
-        return stock[name]
-    # 2) 공백 제거 후 매칭
     norm = normalize_product_name(name)
-    for key, val in stock.items():
-        if normalize_product_name(key) == norm:
-            return val
-    return {}
+    return stock.get(norm) or stock.get(name) or {}
 
 
 def safe_date(val, fmt='%Y-%m-%d'):
@@ -238,6 +231,12 @@ def build_stock_snapshot(all_data):
     if not all_data:
         return {}
     df = pd.DataFrame(all_data)
+    # ⚠️ product_name 공백 정규화 — 공백 유무로 같은 품목이 2개 키로 쪼개지는
+    # 드리프트 방지 (canonical 단일 규칙). 저장 경로에서도 canonical 로 통일하지만
+    # 과거 데이터 호환을 위해 런타임에도 정규화.
+    if 'product_name' in df.columns:
+        from services.product_name import canonical
+        df['product_name'] = df['product_name'].map(canonical)
     for col in ['origin', 'manufacture_date', 'storage_method', 'category', 'unit', 'food_type', 'lot_number', 'grade']:
         if col not in df.columns:
             df[col] = ''

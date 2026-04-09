@@ -13,10 +13,13 @@ class FinanceRepo(BaseRepo):
     def upsert_revenue(self, payload_list):
         if not payload_list:
             return
-        # channel 필드 없는 레코드에 기본값 보장
+        from services.product_name import canonical
+        # channel 필드 없는 레코드에 기본값 보장 + product_name canonical 통일
         for p in payload_list:
             if 'channel' not in p:
                 p['channel'] = ''
+            if p.get('product_name'):
+                p['product_name'] = canonical(p['product_name'])
         self.client.table("daily_revenue").upsert(
             payload_list, on_conflict="revenue_date,product_name,category,channel"
         ).execute()

@@ -31,8 +31,9 @@ def _now_kst():
 
 
 def _norm(text):
-    """NFC 정규화 + 공백 제거 (매칭 키 용도)"""
-    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
+    """품목명 매칭 키 — 전사 표준 canonical() 위임."""
+    from services.product_name import canonical
+    return canonical(text)
 
 
 def _stock_date():
@@ -524,6 +525,9 @@ def process_realtime_outbound(db, import_run_id):
     # 4. FIFO 재고 차감
     total_outbound = 0
     total_skipped = 0
+    # 재고부족으로 차감 실패한 order_id 수집 → 완료표시에서 제외
+    failed_oids = set()
+    shortage_msgs = []
     for (date_str, warehouse), items in outbound_groups.items():
         merged = {}
         merged_oids = {}
@@ -537,31 +541,36 @@ def process_realtime_outbound(db, import_run_id):
             stock_snap = build_stock_snapshot(stock_data)
         except Exception as e:
             errors.append(f"[{warehouse}] 재고 조회 실패: {e}")
+            # 재고 조회 자체 실패 → 이 그룹 전체 실패 처리
+            for oid_list in merged_oids.values():
+                failed_oids.update(oid_list)
             continue
 
         payload = []
         for nm, req in merged.items():
             snap = snapshot_lookup(stock_snap, nm)
             groups = snap.get('groups', [])
+            available = sum(int(g.get('qty', 0) or 0) for g in groups) if groups else 0
+
+            # 재고부족 시 부분차감 금지 — 이 품목 전체 스킵 + 에러 수집
+            if available < req:
+                msg = f"[{warehouse}] {nm}: 재고부족 (요청 {req} / 가용 {available})"
+                shortage_msgs.append(msg)
+                errors.append(msg)
+                log(f"⚠ {msg}")
+                logger.warning(f"[재고부족] {date_str} | {nm} | req={req} avail={available} | {warehouse} | import_run#{import_run_id}")
+                for oid in merged_oids.get(nm, []):
+                    failed_oids.add(oid)
+                continue
+
             remain = req
             oids_key = "_".join(str(o) for o in sorted(set(merged_oids.get(nm, []))))
             base_uid = f"SO:{date_str}:{warehouse}:{_norm(nm)}:{oids_key}"
 
-            if not groups:
-                payload.append({
-                    "transaction_date": date_str, "type": "SALES_OUT",
-                    "product_name": nm, "qty": -remain, "location": warehouse,
-                    "unit": snap.get('unit', '개'), "category": snap.get('category', ''),
-                    "storage_method": snap.get('storage_method', ''),
-                    "manufacture_date": '',
-                    "event_uid": f"{base_uid}:0",
-                })
-                continue
-
             for gi, g in enumerate(groups):
                 if remain <= 0:
                     break
-                deduct = min(remain, g['qty'])
+                deduct = min(remain, int(g.get('qty', 0) or 0))
                 if deduct <= 0:
                     continue
                 payload.append({
@@ -593,10 +602,12 @@ def process_realtime_outbound(db, import_run_id):
                 errors.append(f"[{warehouse}] stock_ledger 오류: {e}")
 
     # 5. 주문 처리 완료 표시 (N배송: 매출일 기준, 일반: 오늘 기준)
-    if order_ids_done:
+    # 재고부족 등으로 차감 실패한 주문은 완료표시에서 제외 (재실행 가능하도록 보존)
+    done_ids_effective = [oid for oid in order_ids_done if oid not in failed_oids]
+    if done_ids_effective:
         # (outbound_date, revenue_category) 그룹별 처리
         done_groups = {}
-        for oid in order_ids_done:
+        for oid in done_ids_effective:
             cat = order_cats.get(oid, '일반매출')
             odt = order_dates.get(oid, today_str)
             done_groups.setdefault((odt, cat), []).append(oid)
@@ -606,11 +617,17 @@ def process_realtime_outbound(db, import_run_id):
             except Exception as e:
                 errors.append(f"mark_done 오류 ({cat}): {e}")
 
-    log(f"실시간 처리 완료: 출고 {total_outbound}건, 주문 {len(order_ids_done)}건")
+    if shortage_msgs:
+        log(f"⚠ 재고부족 {len(shortage_msgs)}건 — 해당 주문은 완료표시 제외 (재고 보충 후 재처리 필요)")
+
+    log(f"실시간 처리 완료: 출고 {total_outbound}건, 주문 {len(done_ids_effective)}건"
+        + (f", 재고부족 스킵 {len(failed_oids)}건" if failed_oids else ""))
 
     return {
         'outbound_count': total_outbound,
-        'processed_orders': len(order_ids_done),
+        'processed_orders': len(done_ids_effective),
+        'failed_orders': len(failed_oids),
+        'shortage_messages': shortage_msgs,
         'errors': errors,
         'logs': logs,
     }

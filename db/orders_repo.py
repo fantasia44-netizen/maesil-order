@@ -72,6 +72,13 @@ class OrdersRepo(BaseRepo):
         반환: {inserted, updated, skipped, failed, errors, rpc_error}
         """
         import json
+        # ★ 모든 주문 저장의 choke point — product_name canonical 통일
+        #   공백 드리프트(예: "중기이유식 세트" vs "중기이유식세트") 원천 차단
+        from services.product_name import canonical
+        for o in orders or []:
+            txn = o.get("transaction") if isinstance(o, dict) else None
+            if txn and txn.get("product_name"):
+                txn["product_name"] = canonical(txn["product_name"])
         try:
             res = self.client.rpc("rpc_upsert_order_batch", {
                 "p_import_run_id": import_run_id,

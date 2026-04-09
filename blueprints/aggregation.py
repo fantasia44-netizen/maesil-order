@@ -37,7 +37,9 @@ aggregation_bp = Blueprint('aggregation', __name__, url_prefix='/aggregation')
 
 
 def _norm(text):
-    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
+    """품목명 매칭 키 — 전사 표준 canonical() 위임."""
+    from services.product_name import canonical
+    return canonical(text)
 
 
 def _list_result_files(output_dir, limit=30):

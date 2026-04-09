@@ -245,10 +245,11 @@ def single():
 
         # 거래기록 (manual_trades) 삽입 + 매출 데이터 수집
         revenue_payload = []
+        from services.product_name import canonical
         for item in items:
             qty = abs(int(item['qty']))
             unit_price = int(item.get('unit_price', 0))
-            product_name = str(item['product_name']).strip()
+            product_name = canonical(item['product_name'])
             trade_data = {
                 'partner_name': partner_name,
                 'product_name': product_name,
@@ -279,7 +280,7 @@ def single():
 
         # 부대비용 → manual_trades + revenue_payload 추가
         for ec in extra_costs:
-            ec_name = str(ec.get('name', '')).strip()
+            ec_name = canonical(ec.get('name', ''))
             ec_amount = int(ec.get('amount', 0))
             ec_memo = str(ec.get('memo', '')).strip()
             if ec_name and ec_amount > 0:
@@ -719,8 +720,9 @@ def update_trade(trade_id):
 
         # daily_revenue 연동 수정
         try:
+            from services.product_name import canonical
             trade_date = trade.get('trade_date', '')
-            product_name = trade.get('product_name', '')
+            product_name = canonical(trade.get('product_name', ''))
             if trade_date and product_name:
                 db.client.table('daily_revenue').update({
                     'qty': new_qty,

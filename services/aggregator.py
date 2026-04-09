@@ -37,8 +37,9 @@ def classify_file(filename):
 
 
 def _norm(text):
-    """한글 텍스트 NFC 정규화 + 공백 제거 (매칭 키 용도)"""
-    return unicodedata.normalize('NFC', str(text).replace(' ', '').strip())
+    """품목명 매칭 키 — 전사 표준 canonical() 위임."""
+    from services.product_name import canonical
+    return canonical(text)
 
 
 class Aggregator:

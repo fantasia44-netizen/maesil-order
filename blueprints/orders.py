@@ -1015,25 +1015,27 @@ def api_n_delivery():
 
     # 단가 테이블 로드 (매출 자동 반영)
     import hashlib, json
+    from services.product_name import canonical
     price_map = db.query_price_table()
 
     # 주문 배열 구성
     orders = []
     for i, item in enumerate(items):
-        product_name = item.get('product_name', '')
+        product_name_raw = item.get('product_name', '')
         qty = int(item.get('qty', 0))
-        if not product_name or qty <= 0:
+        if not product_name_raw or qty <= 0:
             continue
 
-        # 단가 조회: 네이버판매가 우선
-        import unicodedata
-        nm_key = unicodedata.normalize('NFC', product_name.strip())
-        prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
+        # 매칭/저장용 키: 전사 표준 canonical 적용 (공백 드리프트 방지)
+        product_name = canonical(product_name_raw)
+
+        # 단가 조회: canonical 키로 조회 (호환: 원본으로도 재시도)
+        prices = price_map.get(product_name, {}) or price_map.get(product_name_raw, {})
         unit_price = prices.get('네이버판매가', 0)
         total_amount = unit_price * qty
 
         order_no = f"NDEL_{order_date.replace('-', '')}_{i+1:03d}"
-        raw_data = {"product_name": product_name, "qty": qty, "order_date": order_date, "source": "N배송_수동"}
+        raw_data = {"product_name": product_name_raw, "qty": qty, "order_date": order_date, "source": "N배송_수동"}
         raw_hash = hashlib.sha256(json.dumps(raw_data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
         transaction = {
@@ -1042,7 +1044,7 @@ def api_n_delivery():
             "order_no": order_no,
             "line_no": 1,
             "original_option": "",
-            "original_product": product_name,
+            "original_product": product_name_raw,
             "raw_data": raw_data,
             "raw_hash": raw_hash,
             "parser_version": "1.0",
@@ -1108,7 +1110,14 @@ def api_n_delivery():
                 rt = process_realtime_outbound(db, import_run_id)
                 result['realtime'] = rt
                 oc = rt.get('outbound_count', 0)
-                rt_msg = f' (출고 {oc}건)'
+                fo = rt.get('failed_orders', 0)
+                shortage = rt.get('shortage_messages', []) or []
+                rt_msg = f' (출고 {oc}건'
+                if fo:
+                    rt_msg += f', ⚠️ 재고부족 {fo}건 스킵'
+                rt_msg += ')'
+                if shortage:
+                    result['shortage_messages'] = shortage
             except Exception as rt_err:
                 result['realtime_error'] = str(rt_err)
                 rt_msg = f' (⚠️ 출고 자동처리 실패: {rt_err})'
@@ -1196,12 +1205,12 @@ def api_n_delivery_update(tx_id):
                 update_data['settlement'] = up * new_qty
 
         if new_product and new_product != old_row.get('product_name'):
-            update_data['product_name'] = new_product
-            # 단가 재조회
-            import unicodedata
+            from services.product_name import canonical
+            new_product_canon = canonical(new_product)
+            update_data['product_name'] = new_product_canon
+            # 단가 재조회 (canonical 키)
             price_map = db.query_price_table()
-            nm_key = unicodedata.normalize('NFC', new_product.strip())
-            prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
+            prices = price_map.get(new_product_canon, {}) or price_map.get(new_product, {})
             new_up = prices.get('네이버판매가', 0)
             update_data['unit_price'] = new_up
             qty = new_qty if new_qty else old_row.get('qty', 0)
@@ -1368,16 +1377,17 @@ def api_rocket_manual():
     revenue_payload = []
     stock_items = []
 
+    from services.product_name import canonical
     for item in items:
-        product_name = str(item.get('product_name', '')).strip()
+        product_name_raw = str(item.get('product_name', '')).strip()
         qty = int(item.get('qty', 0))
         invoice_no = str(item.get('invoice_no', '')).strip()
-        if not product_name or qty <= 0:
+        if not product_name_raw or qty <= 0:
             continue
 
-        import unicodedata
-        nm_key = unicodedata.normalize('NFC', product_name)
-        prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
+        # 전사 표준 canonical 적용 — 공백 드리프트 차단
+        product_name = canonical(product_name_raw)
+        prices = price_map.get(product_name, {}) or price_map.get(product_name_raw, {})
         unit_price = prices.get('로켓판매가', 0)
         revenue = int(unit_price * qty)
 
@@ -1547,7 +1557,8 @@ def api_rocket_manual_update(rev_id):
             # 재고 복원 (삭제 시 기존 출고분 되돌리기)
             stock_msg = ''
             try:
-                old_product = old_row.get('product_name', '')
+                from services.product_name import canonical
+                old_product = canonical(old_row.get('product_name', ''))
                 old_qty = int(old_row.get('qty', 0))
                 old_warehouse = old_row.get('warehouse', '해서')
                 old_date = old_row.get('revenue_date', '')
@@ -1577,15 +1588,15 @@ def api_rocket_manual_update(rev_id):
             return jsonify({'success': True, 'message': f'삭제 완료{stock_msg}'})
 
         # 수정
-        import unicodedata
+        from services.product_name import canonical
         update_data = {}
         if new_product and new_product != old_row.get('product_name'):
+            new_product = canonical(new_product)
             update_data['product_name'] = new_product
             # 단가가 별도 전송되지 않은 경우에만 자동 조회
             if data.get('unit_price') is None:
                 price_map = db.query_price_table()
-                nm_key = unicodedata.normalize('NFC', new_product.strip())
-                prices = price_map.get(nm_key, {}) or price_map.get(nm_key.replace(' ', ''), {})
+                prices = price_map.get(new_product, {})
                 update_data['unit_price'] = int(prices.get('로켓판매가', 0))
 
         # 단가 직접 수정
@@ -1621,12 +1632,12 @@ def api_rocket_manual_update(rev_id):
         # 재고 조정 — 상품/수량/창고 변경 시 stock_ledger 반영
         stock_msg = ''
         try:
-            old_product = old_row.get('product_name', '')
+            old_product = canonical(old_row.get('product_name', ''))
             old_qty = int(old_row.get('qty', 0))
             old_warehouse = old_row.get('warehouse', '해서')
             old_date = old_row.get('revenue_date', '')
 
-            final_product = update_data.get('product_name', old_product)
+            final_product = canonical(update_data.get('product_name', old_product))
             final_qty = update_data.get('qty', old_qty)
             final_warehouse = update_data.get('warehouse', old_warehouse)
 

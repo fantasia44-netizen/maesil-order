@@ -112,6 +112,11 @@ class MarketplaceRepo(BaseRepo):
 
     def upsert_api_orders_batch(self, orders):
         """API 주문 배치 upsert. Returns: {new, updated, skipped}."""
+        # ★ 마켓 API → api_orders 저장 choke point — canonical 통일
+        from services.product_name import canonical
+        for o in orders or []:
+            if isinstance(o, dict) and o.get('product_name'):
+                o['product_name'] = canonical(o['product_name'])
         new = 0
         updated = 0
         skipped = 0
