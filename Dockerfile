@@ -23,4 +23,4 @@ USER appuser
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "2", "--timeout", "120", "--worker-class", "gthread", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "2", "--timeout", "120", "--worker-class", "gthread", "--max-requests", "500", "--max-requests-jitter", "100", "app:create_app()"]

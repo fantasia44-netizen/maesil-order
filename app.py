@@ -481,6 +481,14 @@ def create_app(config_class=None):
     os.makedirs(app.config.get('UPLOAD_FOLDER', 'uploads'), exist_ok=True)
     os.makedirs(app.config.get('OUTPUT_FOLDER', 'output'), exist_ok=True)
 
+    # ── 10분 주기 메모리/캐시/엑셀파일 정리 ──
+    try:
+        from services.memory_utils import start_cleanup_scheduler
+        start_cleanup_scheduler(app)
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning(f'[Cleanup] 스케줄러 시작 실패: {_e}')
+
     # ── 헬스체크 + 모니터링 엔드포인트 ──
     @app.route('/health')
     def health_check():

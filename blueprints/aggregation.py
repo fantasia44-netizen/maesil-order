@@ -426,6 +426,9 @@ def generate_report():
     output_dir = current_app.config['OUTPUT_FOLDER']
     os.makedirs(output_dir, exist_ok=True)
 
+    from services.memory_utils import BusyContext
+    _busy_ctx = BusyContext()
+    _busy_ctx.__enter__()
     try:
         ts = now_kst().strftime("%Y%m%d_%H%M%S")
         generated_files = []
@@ -1171,6 +1174,14 @@ def generate_report():
         flash(f"[{date_label}] 보고서 생성 완료 — 출고 {total_items}종 {total_qty:,}개, "
               f"파일 {len(generated_files)}개", 'success')
 
+        # ── 대용량 데이터 명시적 해제 + 강제 GC ──
+        try:
+            import gc
+            del outbound, agg, sorted_items
+            gc.collect()
+        except Exception:
+            pass
+
         downloads = []
         for fpath in generated_files:
             fname = os.path.basename(fpath)
@@ -1190,6 +1201,8 @@ def generate_report():
         import traceback
         traceback.print_exc()
         return redirect(url_for('aggregation.index'))
+    finally:
+        _busy_ctx.__exit__(None, None, None)
 
 
 # ================================================================
