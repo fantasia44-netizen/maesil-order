@@ -132,13 +132,27 @@ def api_update(record_id):
             update_data[key] = None
     if not update_data:
         return jsonify({'error': '수정할 항목이 없습니다.'}), 400
+
+    original = get_db().query_stock_ledger_by_id(record_id)
+    if not original:
+        return jsonify({'error': '레코드를 찾을 수 없습니다.'}), 404
+
+    skip_fields = {'id', 'status', 'replaced_by', 'replaces',
+                   'created_at', 'updated_at', 'updated_by', 'created_by',
+                   'is_deleted', 'deleted_at', 'deleted_by'}
+    new_payload = {k: v for k, v in original.items() if k not in skip_fields}
+    new_payload.update(update_data)
+
     try:
-        result = get_db().replace_stock_ledger(
-            record_id, update_data, replaced_by_user=current_user.username)
+        new_id = get_db().replace_stock_ledger(
+            record_id, new_payload, replaced_by_user=current_user.username)
         _log_action('replace_adjustment', target=str(record_id),
-                     old_value=result.get('old_record'), new_value=update_data)
-        return jsonify({'success': True, 'new_id': result.get('new_id')})
+                     old_value={k: original.get(k) for k in update_data},
+                     new_value=update_data)
+        return jsonify({'success': True, 'new_id': new_id})
     except Exception as e:
+        _log_action('replace_adjustment_error', target=str(record_id),
+                     detail=f'조정 수정 오류: {str(e)}', new_value=update_data)
         return jsonify({'error': str(e)}), 500
 
 
