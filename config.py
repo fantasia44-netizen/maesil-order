@@ -148,6 +148,9 @@ class Config:
         'production': {'name': '생산부', 'level': 50},
         'general': {'name': '총무부', 'level': 50},
         'packing': {'name': '위탁업체', 'level': 10},
+        # ── 플로워 3PL 전용 역할 ──
+        'operator': {'name': '3PL운영자', 'level': 80},
+        'client':   {'name': '화주사', 'level': 10},
     }
 
 
