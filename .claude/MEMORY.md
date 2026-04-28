@@ -1,5 +1,9 @@
-# AutoTool 프로젝트 메모리
+# Maesil Order 프로젝트 메모리
 
+> **레포명**: maesil-order (github.com/fantasia44-netizen/maesil-order)
+> **로컬 경로**: C:\maesil-order (폴더 rename 예정, 현재 C:\autotool_git)
+> **역할**: 3PL 주문/패킹/출고/정산 관리 SaaS (PackFlow → Maesil Order)
+> **DB**: Supabase (cookdaddy 프로젝트)
 > 3대 PC(회사/노트북/집) 모두 git pull로 동기화.
 
 ## 필수 규칙 (모든 PC/AI 공통)
