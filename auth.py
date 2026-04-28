@@ -265,10 +265,8 @@ def login():
             return render_template('login.html', form=form)
 
         if user and user.check_password(form.password.data):
-            # 패킹 사용자는 패킹센터 로그인으로 안내
-            if user.role == 'packing':
-                flash('위탁업체는 패킹센터 로그인을 이용해주세요.', 'warning')
-                return redirect(url_for('packing.packing_login'))
+            # 구 패킹센터 사용자 — 플로워 현장 모드로 통합
+            # (packing role → /field/ 로 리다이렉트, 별도 로그인 불필요)
 
             if not user.is_active_user:
                 flash('비활성화된 계정입니다. 관리자에게 문의하세요.', 'danger')
@@ -304,13 +302,17 @@ def login():
             next_page = request.args.get('next')
             if next_page and not next_page.startswith('/'):
                 next_page = None
-            # 모바일 접속 시 모바일 홈으로
-            if '/m/' in (next_page or ''):
+            if next_page:
                 return redirect(next_page)
-            # CEO 역할은 모바일 대시보드로 자동 이동
+            # 역할별 기본 랜딩
             if user.role == 'ceo':
-                return redirect(next_page or url_for('mobile.ceo_dashboard'))
-            return redirect(next_page or url_for('main.dashboard'))
+                return redirect(url_for('mobile.ceo_dashboard'))
+            if user.role == 'client':
+                return redirect(url_for('client_portal.dashboard'))
+            if user.role in ('packing', 'operator'):
+                return redirect(url_for('field.dashboard') if user.role == 'packing'
+                                else url_for('operator.dashboard'))
+            return redirect(url_for('main.dashboard'))
         else:
             # 로그인 실패 — IP 시도 기록
             _record_ip_attempt(client_ip)

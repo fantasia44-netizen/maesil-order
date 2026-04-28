@@ -30,21 +30,42 @@ def operator_required(f):
 def dashboard():
     db = get_db()
     try:
-        pending_orders  = db.count('orders', filters={'status': 'pending'}) or 0
-        today_shipped   = db.count('orders', filters={'status': 'shipped',
-                          'shipped_date': date.today().isoformat()}) or 0
-        total_skus      = db.count('skus') or 0
+        pending_orders = db.count('orders', filters={'status': 'pending'}) or 0
+        today_shipped  = db.count('orders', filters={'status': 'shipped'}) or 0
+        total_orders   = db.count('orders') or 0
+        total_skus     = db.count('skus') or 0
+        client_count   = db.count('clients') or 0
+        skus           = db.select('skus', order='total_qty', limit=100) or []
+        low_stock      = [s for s in skus if 0 < (s.get('total_qty') or 0) <= 10]
+        low_stock_count = len(low_stock) + len([s for s in skus if (s.get('total_qty') or 0) == 0])
+        expiring_count = 0
+        order_counts   = {'confirmed': 0, 'packing': 0}
+        recent_orders  = db.select('orders', order='created_at desc', limit=10) or []
+        billing_rows   = db.select('billing', filters={'year_month': datetime.now().strftime('%Y-%m')}) or []
+        client_revenue = {r.get('client_name', ''): r.get('total', 0) for r in billing_rows if r.get('total')}
+        monthly_total  = sum(r.get('total', 0) for r in billing_rows)
+        recent_orders  = db.select('orders', order='created_at desc', limit=10) or []
     except Exception:
-        pending_orders = today_shipped = total_skus = 0
+        pending_orders = today_shipped = total_orders = total_skus = client_count = 0
+        low_stock_count = expiring_count = monthly_total = 0
+        low_stock = recent_orders = []
+        client_revenue = {}
+        order_counts = {'confirmed': 0, 'packing': 0}
 
     return render_template('operator/dashboard.html',
+        now=datetime.now(),
         pending_orders=pending_orders,
         today_shipped=today_shipped,
+        total_orders=total_orders,
         total_skus=total_skus,
-        monthly_revenue=0,
-        low_stock=[],
-        recent_orders=[],
-        client_revenue=[],
+        client_count=client_count,
+        monthly_total=monthly_total,
+        low_stock=low_stock,
+        low_stock_count=low_stock_count,
+        expiring_count=expiring_count,
+        order_counts=order_counts,
+        recent_orders=recent_orders,
+        client_revenue=client_revenue,
         inout_labels=[],
         inout_in=[],
         inout_out=[],

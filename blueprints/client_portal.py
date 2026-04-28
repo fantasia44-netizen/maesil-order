@@ -60,12 +60,14 @@ def dashboard():
 
     return render_template('client/dashboard.html',
         client_name=client_name,
-        total_skus=total_skus,
-        pending_orders=pending_ord,
+        sku_count=total_skus,
         total_qty=total_qty,
+        in_progress=pending_ord,
+        shipped_count=0,
         top_skus=skus,
         recent_orders=orders,
-        this_month_billing=billing,
+        billing_summary=billing,
+        now=datetime.now(),
         current_month=datetime.now().strftime('%Y-%m'),
     )
 

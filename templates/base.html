@@ -426,107 +426,97 @@
         {% if is_packing %}
         {# ── 현장 직원 ── #}
         <li><span class="sidebar-group-label">현장</span></li>
-        <li><a href="/field" class="{{ 'active' if ep == 'packing.field_dashboard' else '' }}">
+        <li><a href="/field/" class="{{ 'active' if ep == 'field.dashboard' else '' }}">
             <i class="bi bi-grid-3x3-gap-fill"></i> 현장 대시보드
         </a></li>
-        <li><a href="/field/packing" class="{{ 'active' if 'packing' in ep else '' }}">
-            <i class="bi bi-box-seam"></i> 패킹
+        <li><a href="/field/inbound" class="{{ 'active' if ep == 'field.inbound' else '' }}">
+            <i class="bi bi-box-arrow-in-down"></i> 입고 스캔
         </a></li>
         <li><a href="/field/picking" class="{{ 'active' if 'picking' in ep else '' }}">
             <i class="bi bi-list-check"></i> 피킹
         </a></li>
-        <li><a href="/field/scan" class="{{ 'active' if 'scan' in ep else '' }}">
-            <i class="bi bi-upc-scan"></i> 바코드 스캔
+        <li><a href="/field/shipping" class="{{ 'active' if ep == 'field.shipping' else '' }}">
+            <i class="bi bi-truck"></i> 출고 / 상차
         </a></li>
-        <li><a href="/field/stockcheck" class="{{ 'active' if 'stockcheck' in ep else '' }}">
+        <li><a href="/field/scan" class="{{ 'active' if ep == 'field.scan' else '' }}">
+            <i class="bi bi-upc-scan"></i> 바코드 조회
+        </a></li>
+        <li><a href="/field/stockcheck" class="{{ 'active' if ep == 'field.stockcheck' else '' }}">
             <i class="bi bi-clipboard-check"></i> 재고 실사
         </a></li>
-        <li><a href="/field/shipping" class="{{ 'active' if 'shipping' in ep else '' }}">
-            <i class="bi bi-truck"></i> 출고 처리
+        <li><a href="/field/transfer" class="{{ 'active' if ep == 'field.transfer' else '' }}">
+            <i class="bi bi-arrow-left-right"></i> 창고 이동
         </a></li>
 
         {% elif is_client %}
         {# ── 화주사 포털 ── #}
         <li><span class="sidebar-group-label">내 현황</span></li>
-        <li><a href="/client/dashboard" class="{{ 'active' if ep == 'client.dashboard' else '' }}">
+        <li><a href="/client/dashboard" class="{{ 'active' if ep == 'client_portal.dashboard' else '' }}">
             <i class="bi bi-speedometer2"></i> 대시보드
         </a></li>
-        <li><a href="/client/inventory" class="{{ 'active' if 'inventory' in ep else '' }}">
+        <li><a href="/client/inventory" class="{{ 'active' if ep == 'client_portal.inventory' else '' }}">
             <i class="bi bi-box-seam"></i> 내 재고
         </a></li>
-        <li><a href="/client/orders" class="{{ 'active' if 'order' in ep else '' }}">
+        <li><a href="/client/orders" class="{{ 'active' if ep == 'client_portal.orders' else '' }}">
             <i class="bi bi-cart3"></i> 주문 현황
         </a></li>
         <li><span class="sidebar-group-label">정산</span></li>
-        <li><a href="/client/billing" class="{{ 'active' if 'billing' in ep else '' }}">
+        <li><a href="/client/billing" class="{{ 'active' if ep == 'client_portal.billing' else '' }}">
             <i class="bi bi-receipt"></i> 과금 내역
-        </a></li>
-        <li><span class="sidebar-group-label">지원</span></li>
-        <li><a href="/client/videos" class="{{ 'active' if 'video' in ep else '' }}">
-            <i class="bi bi-play-circle"></i> 이용 가이드
         </a></li>
 
         {% else %}
-        {# ── 운영자 ── #}
+        {# ── 운영자 (operator / admin / ceo / manager / 기타) ── #}
         <li><span class="sidebar-group-label">개요</span></li>
-        <li><a href="/operator/dashboard" class="{{ 'active' if 'dashboard' in ep else '' }}">
+        <li><a href="/operator/dashboard" class="{{ 'active' if ep == 'operator.dashboard' else '' }}">
             <i class="bi bi-speedometer2"></i> 대시보드
         </a></li>
-        <li><a href="/operator/kpi" class="{{ 'active' if 'kpi' in ep else '' }}">
+        <li><a href="/operator/kpi" class="{{ 'active' if ep == 'operator.kpi' else '' }}">
             <i class="bi bi-bar-chart-line"></i> KPI 분석
         </a></li>
 
         <li><span class="sidebar-group-label">화주사</span></li>
-        <li><a href="/operator/clients" class="{{ 'active' if 'client' in ep else '' }}">
+        <li><a href="/operator/clients" class="{{ 'active' if ep == 'operator.clients' else '' }}">
             <i class="bi bi-building"></i> 화주사 관리
         </a></li>
-        <li><a href="/operator/skus" class="{{ 'active' if 'sku' in ep else '' }}">
+        <li><a href="/operator/skus" class="{{ 'active' if ep == 'operator.skus' else '' }}">
             <i class="bi bi-tags"></i> 상품 (SKU)
         </a></li>
 
         <li><span class="sidebar-group-label">물류</span></li>
-        <li><a href="/operator/inbound" class="{{ 'active' if 'inbound' in ep else '' }}">
+        <li><a href="/operator/inbound" class="{{ 'active' if ep == 'operator.inbound' else '' }}">
             <i class="bi bi-box-arrow-in-down"></i> 입고
         </a></li>
-        <li><a href="/operator/inventory" class="{{ 'active' if 'inventory' in ep else '' }}">
+        <li><a href="/operator/inventory" class="{{ 'active' if ep == 'operator.inventory' else '' }}">
             <i class="bi bi-boxes"></i> 재고
         </a></li>
-        <li><a href="/operator/orders" class="{{ 'active' if 'order' in ep else '' }}">
-            <i class="bi bi-cart3"></i> 주문 / 출고
+        <li><a href="/operator/shipments" class="{{ 'active' if ep == 'operator.shipments' else '' }}">
+            <i class="bi bi-truck"></i> 출고 / 배송
         </a></li>
-        <li><a href="/operator/returns" class="{{ 'active' if 'return' in ep else '' }}">
+        <li><a href="/operator/returns" class="{{ 'active' if ep == 'operator.returns' else '' }}">
             <i class="bi bi-arrow-return-left"></i> 반품
-        </a></li>
-        <li><a href="/operator/transfers" class="{{ 'active' if 'transfer' in ep else '' }}">
-            <i class="bi bi-arrow-left-right"></i> 창고 이동
-        </a></li>
-        <li><a href="/operator/shipments" class="{{ 'active' if 'shipment' in ep else '' }}">
-            <i class="bi bi-truck"></i> 송장 / 배송
         </a></li>
 
         <li><span class="sidebar-group-label">현장</span></li>
-        <li><a href="/field" class="{{ 'active' if 'field' in ep else '' }}">
+        <li><a href="/field/" class="{{ 'active' if ep == 'field.dashboard' else '' }}">
             <i class="bi bi-grid-3x3-gap-fill"></i> 현장 모드
         </a></li>
 
         <li><span class="sidebar-group-label">정산</span></li>
-        <li><a href="/operator/billing" class="{{ 'active' if 'billing' in ep else '' }}">
+        <li><a href="/operator/billing" class="{{ 'active' if ep == 'operator.billing' else '' }}">
             <i class="bi bi-calculator"></i> 과금 계산
         </a></li>
-        <li><a href="/operator/finance" class="{{ 'active' if 'finance' in ep else '' }}">
+        <li><a href="/operator/finance" class="{{ 'active' if ep == 'operator.finance' else '' }}">
             <i class="bi bi-graph-up-arrow"></i> 경영 분석
         </a></li>
 
-        {% if role == 'admin' %}
-        <li><span class="sidebar-group-label">관리</span></li>
-        <li><a href="/operator/warehouses" class="{{ 'active' if 'warehouse' in ep else '' }}">
+        {% if role in ('admin', 'operator') %}
+        <li><span class="sidebar-group-label">설정</span></li>
+        <li><a href="/operator/warehouses" class="{{ 'active' if ep == 'operator.warehouses' else '' }}">
             <i class="bi bi-building-gear"></i> 창고 설정
         </a></li>
-        <li><a href="/operator/users" class="{{ 'active' if 'user' in ep else '' }}">
+        <li><a href="/operator/users" class="{{ 'active' if ep == 'operator.users' else '' }}">
             <i class="bi bi-people"></i> 사용자
-        </a></li>
-        <li><a href="/operator/audit" class="{{ 'active' if 'audit' in ep else '' }}">
-            <i class="bi bi-shield-check"></i> 감사 로그
         </a></li>
         {% endif %}
         {% endif %}
@@ -549,10 +539,10 @@
             </div>
         </div>
         <div class="d-flex gap-1">
-            <a href="/auth/change-password" class="btn-sidebar-action flex-fill">
+            <a href="/change-password" class="btn-sidebar-action flex-fill">
                 <i class="bi bi-person-gear"></i> 계정
             </a>
-            <a href="/auth/logout" class="btn-sidebar-action btn-sidebar-logout"
+            <a href="/logout" class="btn-sidebar-action btn-sidebar-logout"
                style="width:auto;padding-left:.6rem;padding-right:.6rem;" title="로그아웃">
                 <i class="bi bi-box-arrow-left"></i>
             </a>
