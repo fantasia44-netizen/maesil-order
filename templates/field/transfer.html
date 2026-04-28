@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}창고 이동 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .scan-input-lg {
+        font-size: 1.4rem; padding: 0.75rem 1rem; text-align: center;
+        border: 2px solid var(--border); border-radius: 10px;
+    }
+    .scan-input-lg:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(232,160,32,0.2); outline: none; }
+    .transfer-arrow { font-size: 1.5rem; color: var(--amber); text-align: center; padding: 0.5rem; }
+    .loc-display {
+        border: 2px solid var(--border); border-radius: 10px; padding: 0.75rem 1rem;
+        font-size: 1.4rem; font-weight: 800; text-align: center; color: var(--amber);
+        background: var(--amber-pale); letter-spacing: 2px; min-height: 3.5rem;
+        display: flex; align-items: center; justify-content: center;
+    }
+    .loc-display.empty { color: var(--text-muted); font-size: 0.9rem; font-weight: 400; letter-spacing: 0; }
+    .transfer-card {
+        border: 2px solid var(--border); border-radius: 12px;
+        padding: 0.9rem 1rem; margin-bottom: 0.5rem; font-size: 0.85rem;
+    }
+    .error-banner {
+        position: fixed; top: 0; left: 0; right: 0;
+        background: #ef4444; color: #fff; text-align: center;
+        font-size: 1rem; font-weight: 700; padding: 0.75rem; z-index: 9999; display: none;
+    }
+    .error-banner.show { display: block; }
+    .step-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.6rem; height: 1.6rem; border-radius: 50%;
+        background: var(--amber); color: #fff; font-size: 0.75rem; font-weight: 800;
+        flex-shrink: 0;
+    }
+    .step-badge.done { background: #22c55e; }
+    .step-badge.inactive { background: var(--border); color: var(--text-muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="errBanner" class="error-banner"></div>
+
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-arrow-left-right me-2 text-amber"></i>창고 이동</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">로케이션 간 재고 이동</div>
+    </div>
+    <a href="/field" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>현장 홈
+    </a>
+</div>
+
+<div class="page-body">
+
+    {# 진행 단계 #}
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-center gap-2">
+                <span class="step-badge" id="step1Badge">1</span>
+                <span style="font-size:0.85rem;" id="step1Label">출발 로케이션 입력</span>
+                <div style="flex:1;height:2px;background:var(--border);margin:0 0.5rem;" id="line12"></div>
+                <span class="step-badge inactive" id="step2Badge">2</span>
+                <span style="font-size:0.85rem;color:var(--text-muted);" id="step2Label">바코드 스캔</span>
+                <div style="flex:1;height:2px;background:var(--border);margin:0 0.5rem;" id="line23"></div>
+                <span class="step-badge inactive" id="step3Badge">3</span>
+                <span style="font-size:0.85rem;color:var(--text-muted);" id="step3Label">도착 로케이션</span>
+            </div>
+        </div>
+    </div>
+
+    {# 출발 / 도착 로케이션 표시 #}
+    <div class="row g-2 mb-3 align-items-center">
+        <div class="col-5">
+            <div class="text-muted mb-1" style="font-size:0.78rem;text-align:center;">출발</div>
+            <div class="loc-display empty" id="fromDisplay">미입력</div>
+        </div>
+        <div class="col-2">
+            <div class="transfer-arrow"><i class="bi bi-arrow-right"></i></div>
+        </div>
+        <div class="col-5">
+            <div class="text-muted mb-1" style="font-size:0.78rem;text-align:center;">도착</div>
+            <div class="loc-display empty" id="toDisplay">미입력</div>
+        </div>
+    </div>
+
+    {# 입력 패널 #}
+    <div class="card mb-3" id="inputPanel">
+        <div class="card-body">
+
+            {# STEP 1: 출발 로케이션 #}
+            <div id="panelStep1">
+                <label class="form-label fw-bold">출발 로케이션</label>
+                <input type="text" id="fromInput" class="form-control scan-input-lg"
+                       placeholder="예: A-01-01" autocomplete="off" autofocus style="text-transform:uppercase;">
+                <button class="btn btn-amber w-100 mt-2" onclick="confirmFrom()">
+                    <i class="bi bi-check2 me-1"></i>확인
+                </button>
+            </div>
+
+            {# STEP 2: 바코드 스캔 #}
+            <div id="panelStep2" style="display:none;">
+                <label class="form-label fw-bold">바코드 스캔</label>
+                <input type="text" id="barcodeInput" class="form-control scan-input-lg"
+                       placeholder="바코드 스캔..." autocomplete="off">
+                <div class="row g-2 mt-1">
+                    <div class="col-8">
+                        <label class="form-label" style="font-size:0.82rem;">이동 수량</label>
+                        <input type="number" id="moveQty" class="form-control" min="1" value="1">
+                    </div>
+                    <div class="col-4 d-flex align-items-end">
+                        <button class="btn btn-amber w-100" onclick="confirmBarcode()">
+                            <i class="bi bi-check2"></i>
+                        </button>
+                    </div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="resetStep(1)">
+                    <i class="bi bi-arrow-left me-1"></i>로케이션 재입력
+                </button>
+            </div>
+
+            {# STEP 3: 도착 로케이션 #}
+            <div id="panelStep3" style="display:none;">
+                <div class="mb-2" style="font-size:0.85rem;">
+                    <span class="fw-semibold" id="skuNameDisplay">—</span>
+                    <span class="text-muted ms-2" id="moveQtyDisplay">—</span>
+                </div>
+                <label class="form-label fw-bold">도착 로케이션</label>
+                <input type="text" id="toInput" class="form-control scan-input-lg"
+                       placeholder="예: B-02-03" autocomplete="off" style="text-transform:uppercase;">
+                <button class="btn btn-amber w-100 mt-2" onclick="confirmTransfer()">
+                    <i class="bi bi-arrow-left-right me-1"></i>이동 실행
+                </button>
+                <button class="btn btn-outline-secondary btn-sm w-100 mt-2" onclick="resetStep(2)">
+                    <i class="bi bi-arrow-left me-1"></i>바코드 재스캔
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    {# 이동 이력 #}
+    <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-journal-text me-2 text-amber"></i>이동 이력</span>
+            <span id="transferCount" class="badge badge-amber">0건</span>
+        </div>
+        <div class="card-body p-3" id="transferList">
+            <div class="text-center text-muted py-3" style="font-size:0.85rem;">이동 이력이 없습니다</div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+let step = 1, fromLoc = '', currentSku = null, moveQty = 1;
+let transfers = [];
+
+document.getElementById('fromInput').addEventListener('keydown', e => { if (e.key === 'Enter') confirmFrom(); });
+document.getElementById('barcodeInput').addEventListener('keydown', e => { if (e.key === 'Enter') confirmBarcode(); });
+document.getElementById('toInput').addEventListener('keydown', e => { if (e.key === 'Enter') confirmTransfer(); });
+
+function confirmFrom() {
+    const val = document.getElementById('fromInput').value.trim().toUpperCase();
+    if (!val) { showErr('로케이션을 입력하세요'); return; }
+    fromLoc = val;
+    document.getElementById('fromDisplay').textContent = val;
+    document.getElementById('fromDisplay').classList.remove('empty');
+    goStep(2);
+}
+
+function confirmBarcode() {
+    const barcode = document.getElementById('barcodeInput').value.trim();
+    const qty = parseInt(document.getElementById('moveQty').value) || 1;
+    if (!barcode) { showErr('바코드를 스캔하세요'); return; }
+
+    fetch('/field/api/sku-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ barcode, location: fromLoc })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            beep(880, 0.1);
+            currentSku = d.sku;
+            moveQty = qty;
+            document.getElementById('skuNameDisplay').textContent = d.sku.name;
+            document.getElementById('moveQtyDisplay').textContent = `${qty}개 이동`;
+            goStep(3);
+        } else {
+            beep(300, 0.3, 'square');
+            showErr(d.error || '상품 조회 실패');
+        }
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function confirmTransfer() {
+    const toLoc = document.getElementById('toInput').value.trim().toUpperCase();
+    if (!toLoc) { showErr('도착 로케이션을 입력하세요'); return; }
+    if (toLoc === fromLoc) { showErr('출발과 도착 로케이션이 같습니다'); return; }
+
+    document.getElementById('toDisplay').textContent = toLoc;
+    document.getElementById('toDisplay').classList.remove('empty');
+
+    fetch('/field/api/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({
+            sku_id: currentSku.id,
+            from_location: fromLoc,
+            to_location: toLoc,
+            qty: moveQty
+        })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            beep(880, 0.15);
+            const t = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+            transfers.unshift({
+                sku_name: currentSku.name,
+                from: fromLoc, to: toLoc,
+                qty: moveQty, t
+            });
+            renderTransfers();
+            alert(`이동 완료: ${currentSku.name} ${moveQty}개\n${fromLoc} → ${toLoc}`);
+            resetStep(1);
+        } else {
+            beep(300, 0.3, 'square');
+            showErr(d.error || '이동 실패');
+        }
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function goStep(n) {
+    step = n;
+    [1,2,3].forEach(i => {
+        document.getElementById('panelStep' + i).style.display = i === n ? '' : 'none';
+        const badge = document.getElementById('step' + i + 'Badge');
+        const label = document.getElementById('step' + i + 'Label');
+        if (i < n) { badge.classList.add('done'); badge.innerHTML = '<i class="bi bi-check-lg"></i>'; }
+        else if (i === n) { badge.classList.remove('done','inactive'); label.style.color = ''; }
+        else { badge.classList.add('inactive'); badge.textContent = i; label.style.color = 'var(--text-muted)'; }
+    });
+    const inputEl = n === 1 ? 'fromInput' : n === 2 ? 'barcodeInput' : 'toInput';
+    setTimeout(() => document.getElementById(inputEl)?.focus(), 50);
+}
+
+function resetStep(toStep) {
+    if (toStep <= 1) {
+        fromLoc = ''; currentSku = null;
+        document.getElementById('fromDisplay').textContent = '미입력';
+        document.getElementById('fromDisplay').classList.add('empty');
+        document.getElementById('fromInput').value = '';
+        document.getElementById('barcodeInput').value = '';
+    }
+    if (toStep <= 2) {
+        document.getElementById('toDisplay').textContent = '미입력';
+        document.getElementById('toDisplay').classList.add('empty');
+        document.getElementById('toInput').value = '';
+    }
+    goStep(toStep);
+}
+
+function renderTransfers() {
+    document.getElementById('transferCount').textContent = transfers.length + '건';
+    if (!transfers.length) return;
+    document.getElementById('transferList').innerHTML = transfers.map(tr =>
+        `<div class="transfer-card d-flex justify-content-between align-items-center">
+            <div>
+                <div class="fw-semibold">${tr.sku_name}</div>
+                <div style="font-size:0.78rem;color:var(--text-muted);">
+                    <span style="color:var(--amber);font-weight:700;">${tr.from}</span>
+                    <i class="bi bi-arrow-right mx-1"></i>
+                    <span style="color:#2563eb;font-weight:700;">${tr.to}</span>
+                    · ${tr.qty}개
+                </div>
+            </div>
+            <small class="text-muted">${tr.t}</small>
+        </div>`
+    ).join('');
+}
+
+function showErr(msg) {
+    const b = document.getElementById('errBanner');
+    b.textContent = msg; b.classList.add('show');
+    setTimeout(() => b.classList.remove('show'), 3500);
+}
+
+function beep(freq, dur, type='sine') {
+    try {
+        const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type; o.frequency.value = freq; g.gain.value = 0.15;
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur);
+    } catch(e) {}
+}
+</script>
+{% endblock %}

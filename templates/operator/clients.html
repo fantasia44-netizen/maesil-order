@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}화주사 관리 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-building me-2 text-amber"></i>화주사 관리</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
+            총 {{ clients|length }}개 화주사
+        </div>
+    </div>
+    <button class="btn btn-amber btn-sm" id="toggleNewForm">
+        <i class="bi bi-plus-lg me-1"></i>화주사 등록
+    </button>
+</div>
+
+<div class="page-body">
+
+    {# ── 등록 폼 ── #}
+    <div id="newClientForm" class="d-none mb-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-person-plus me-2 text-amber"></i>새 화주사 등록
+            </div>
+            <div class="card-body">
+                <form method="post" action="/operator/clients/create">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">화주사명 <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control" placeholder="예: (주)홍길동유통" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">사업자번호</label>
+                            <input type="text" name="business_no" class="form-control" placeholder="000-00-00000">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">담당자명</label>
+                            <input type="text" name="contact_name" class="form-control" placeholder="홍길동">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">연락처</label>
+                            <input type="tel" name="contact_phone" class="form-control" placeholder="010-0000-0000">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">이메일</label>
+                            <input type="email" name="contact_email" class="form-control" placeholder="contact@example.com">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">주소</label>
+                            <input type="text" name="address" class="form-control" placeholder="서울시 강남구 ...">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label fw-semibold">메모</label>
+                            <input type="text" name="memo" class="form-control" placeholder="특이사항">
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button type="submit" class="btn btn-amber w-100">
+                                <i class="bi bi-check2 me-1"></i>등록하기
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {# ── 검색 ── #}
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form class="d-flex gap-2 flex-wrap" method="get">
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="화주사명 검색" value="{{ filter_search or '' }}" style="max-width:220px;">
+                <select name="status" class="form-select form-select-sm" style="max-width:130px;">
+                    <option value="">전체 상태</option>
+                    <option value="active"   {% if filter_status=='active'   %}selected{% endif %}>활성</option>
+                    <option value="inactive" {% if filter_status=='inactive' %}selected{% endif %}>비활성</option>
+                </select>
+                <button class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-search me-1"></i>검색
+                </button>
+            </form>
+        </div>
+    </div>
+
+    {# ── 목록 ── #}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>화주사명</th>
+                            <th>사업자번호</th>
+                            <th>담당자</th>
+                            <th>연락처</th>
+                            <th>SKU 수</th>
+                            <th>상태</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in clients %}
+                        <tr>
+                            <td>
+                                <a href="/operator/clients/{{ c.id }}"
+                                   class="fw-semibold text-decoration-none"
+                                   style="color:var(--text);">
+                                    {{ c.name }}
+                                </a>
+                            </td>
+                            <td class="text-muted">{{ c.business_no or '-' }}</td>
+                            <td>{{ c.contact_name or '-' }}</td>
+                            <td>{{ c.contact_phone or '-' }}</td>
+                            <td>
+                                <span class="badge badge-amber">{{ c.sku_count|default(0) }}</span>
+                            </td>
+                            <td>
+                                {% if c.is_active %}
+                                <span class="badge badge-done">활성</span>
+                                {% else %}
+                                <span class="badge badge-cancel">비활성</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="/operator/clients/{{ c.id }}"
+                                   class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-chevron-right"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-5">
+                                <i class="bi bi-building" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                                등록된 화주사가 없습니다.<br>
+                                <button class="btn btn-amber btn-sm mt-3" id="emptyAddBtn">
+                                    <i class="bi bi-plus-lg me-1"></i>첫 화주사 등록하기
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const toggleBtn  = document.getElementById('toggleNewForm');
+const form       = document.getElementById('newClientForm');
+const emptyBtn   = document.getElementById('emptyAddBtn');
+
+toggleBtn && toggleBtn.addEventListener('click', () => {
+    form.classList.toggle('d-none');
+    toggleBtn.innerHTML = form.classList.contains('d-none')
+        ? '<i class="bi bi-plus-lg me-1"></i>화주사 등록'
+        : '<i class="bi bi-x-lg me-1"></i>닫기';
+});
+emptyBtn && emptyBtn.addEventListener('click', () => {
+    form.classList.remove('d-none');
+    form.scrollIntoView({ behavior: 'smooth' });
+});
+</script>
+{% endblock %}

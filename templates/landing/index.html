@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>플로워 — 물류센터를 위한 3PL SaaS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css');
+
+:root {
+    --amber: #e8a020;
+    --amber-dark: #c8881a;
+    --amber-pale: #fff8e7;
+    --bg: #fffbee;
+    --text: #1a1612;
+    --text-muted: #6b6050;
+    --border: #e8e0cc;
+}
+
+* { box-sizing: border-box; }
+body { font-family: 'Pretendard Variable', sans-serif; background: #fff; color: var(--text); margin: 0; }
+
+/* NAV */
+.landing-nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border); padding: 0.75rem 0;
+}
+.nav-brand { font-size: 1.3rem; font-weight: 800; color: var(--amber); text-decoration: none; }
+.nav-brand span { color: var(--text); }
+
+/* HERO */
+.hero {
+    background: linear-gradient(135deg, #fffbee 0%, #fff8dc 50%, #fef3c7 100%);
+    padding: 6rem 0 5rem;
+    position: relative; overflow: hidden;
+}
+.hero::before {
+    content: ''; position: absolute; top: -120px; right: -120px;
+    width: 500px; height: 500px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(232,160,32,0.15) 0%, transparent 70%);
+}
+.hero-badge {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: var(--amber-pale); border: 1.5px solid var(--amber);
+    color: var(--amber-dark); padding: 0.3rem 0.9rem; border-radius: 100px;
+    font-size: 0.82rem; font-weight: 700; margin-bottom: 1.5rem;
+}
+.hero-title {
+    font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.15;
+    letter-spacing: -0.02em; margin-bottom: 1.25rem;
+}
+.hero-title .highlight { color: var(--amber); }
+.hero-sub { font-size: 1.1rem; color: var(--text-muted); line-height: 1.7; margin-bottom: 2.5rem; max-width: 520px; }
+.btn-amber-lg {
+    background: var(--amber); color: #fff; border: none;
+    padding: 0.85rem 2rem; border-radius: 12px; font-size: 1rem; font-weight: 700;
+    text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem;
+    transition: background 0.2s, transform 0.15s;
+}
+.btn-amber-lg:hover { background: var(--amber-dark); color: #fff; transform: translateY(-1px); }
+.btn-ghost { background: transparent; border: 2px solid var(--border); color: var(--text);
+    padding: 0.85rem 2rem; border-radius: 12px; font-size: 1rem; font-weight: 600;
+    text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem;
+    transition: border-color 0.2s; }
+.btn-ghost:hover { border-color: var(--amber); color: var(--amber-dark); }
+
+/* STATS BAR */
+.stats-bar { background: var(--text); color: #fff; padding: 2.5rem 0; }
+.stat-item { text-align: center; }
+.stat-num { font-size: 2.2rem; font-weight: 900; color: var(--amber); }
+.stat-label { font-size: 0.85rem; color: rgba(255,255,255,0.6); margin-top: 0.2rem; }
+
+/* FEATURES */
+.features { padding: 5rem 0; background: #fff; }
+.section-label { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+.section-title { font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 800; line-height: 1.25; margin-bottom: 1rem; }
+.section-sub { color: var(--text-muted); font-size: 1rem; line-height: 1.7; }
+
+.feature-card {
+    border: 1.5px solid var(--border); border-radius: 20px; padding: 2rem;
+    transition: border-color 0.2s, box-shadow 0.2s; height: 100%;
+    background: #fff;
+}
+.feature-card:hover { border-color: var(--amber); box-shadow: 0 4px 24px rgba(232,160,32,0.12); }
+.feature-icon {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: var(--amber-pale); display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; color: var(--amber); margin-bottom: 1.25rem;
+}
+.feature-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem; }
+.feature-desc { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; }
+
+/* HOW IT WORKS */
+.howitworks { background: var(--bg); padding: 5rem 0; }
+.step-num { font-size: 3rem; font-weight: 900; color: rgba(232,160,32,0.2); line-height: 1; margin-bottom: 0.5rem; }
+.step-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
+.step-desc { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; }
+
+/* ROLES */
+.roles { padding: 5rem 0; background: #fff; }
+.role-card {
+    border-radius: 20px; padding: 2rem; border: 1.5px solid var(--border); height: 100%;
+}
+.role-card.operator { background: linear-gradient(135deg, #fffbee, #fff3cc); border-color: var(--amber); }
+.role-card.field    { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-color: #22c55e; }
+.role-card.client   { background: linear-gradient(135deg, #eff6ff, #dbeafe); border-color: #2563eb; }
+.role-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+.role-title { font-size: 1.1rem; font-weight: 800; margin-bottom: 0.3rem; }
+.role-sub   { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem; }
+.role-features { list-style: none; padding: 0; margin: 0; }
+.role-features li { font-size: 0.85rem; padding: 0.3rem 0; display: flex; align-items: center; gap: 0.5rem; }
+.role-features li::before { content: '✓'; color: var(--amber); font-weight: 700; }
+.role-card.field .role-features li::before { color: #22c55e; }
+.role-card.client .role-features li::before { color: #2563eb; }
+
+/* PRICING */
+.pricing { background: var(--bg); padding: 5rem 0; }
+.price-card {
+    border: 1.5px solid var(--border); border-radius: 20px; padding: 2rem; background: #fff; height: 100%;
+}
+.price-card.featured {
+    border-color: var(--amber); background: linear-gradient(135deg, #fffbee, #fff3cc);
+    box-shadow: 0 8px 32px rgba(232,160,32,0.15);
+}
+.price-badge { font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.75rem; border-radius: 100px;
+    background: var(--amber); color: #fff; display: inline-block; margin-bottom: 1rem; }
+.price-plan { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.25rem; }
+.price-amount { font-size: 2.5rem; font-weight: 900; color: var(--amber); line-height: 1; }
+.price-unit  { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+.price-sep   { border-top: 1px solid var(--border); margin: 1.25rem 0; }
+.price-features { list-style: none; padding: 0; margin: 0; }
+.price-features li { font-size: 0.85rem; padding: 0.3rem 0; display: flex; gap: 0.5rem; }
+.price-features li .chk { color: var(--amber); font-weight: 700; flex-shrink: 0; }
+
+/* CTA */
+.cta-section {
+    background: linear-gradient(135deg, var(--text) 0%, #2d2419 100%);
+    padding: 5rem 0; text-align: center;
+}
+.cta-title { font-size: clamp(1.8rem, 3vw, 2.8rem); font-weight: 900; color: #fff; margin-bottom: 1rem; }
+.cta-sub   { color: rgba(255,255,255,0.65); font-size: 1rem; margin-bottom: 2.5rem; }
+
+/* FOOTER */
+.landing-footer { background: var(--text); color: rgba(255,255,255,0.5); padding: 2rem 0; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="landing-nav">
+    <div class="container d-flex align-items-center justify-content-between">
+        <a href="/" class="nav-brand">플로워<span style="font-weight:400;font-size:0.9rem;margin-left:0.3rem;">by 매실</span></a>
+        <div class="d-flex gap-3 align-items-center">
+            <a href="#features" class="text-decoration-none" style="font-size:0.88rem;color:var(--text-muted);">기능</a>
+            <a href="#pricing"  class="text-decoration-none" style="font-size:0.88rem;color:var(--text-muted);">요금제</a>
+            <a href="/login" class="text-decoration-none" style="font-size:0.88rem;color:var(--text-muted);">로그인</a>
+            <a href="/login" class="btn-amber-lg" style="padding:0.5rem 1.25rem;font-size:0.88rem;">
+                무료 시작
+            </a>
+        </div>
+    </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-lg-7">
+                <div class="hero-badge"><i class="bi bi-boxes"></i>3PL 물류 SaaS</div>
+                <h1 class="hero-title">
+                    복잡한 물류,<br>
+                    <span class="highlight">플로워</span>가 단순하게.
+                </h1>
+                <p class="hero-sub">
+                    입고부터 출고까지, 과금까지.<br>
+                    물류센터 운영에 필요한 모든 것을 하나의 플랫폼에서.
+                </p>
+                <div class="d-flex gap-3 flex-wrap">
+                    <a href="/login" class="btn-amber-lg">
+                        <i class="bi bi-play-fill"></i>무료로 시작하기
+                    </a>
+                    <a href="#features" class="btn-ghost">
+                        <i class="bi bi-info-circle"></i>기능 살펴보기
+                    </a>
+                </div>
+            </div>
+            <div class="col-lg-5 d-none d-lg-block">
+                <div class="p-4">
+                    <div style="background:#fff;border-radius:20px;padding:1.5rem;box-shadow:0 8px 40px rgba(0,0,0,0.08);">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;font-weight:600;">오늘의 현황</div>
+                        <div class="row g-2 mb-3">
+                            {% for label, val, color in [('처리대기','12건','#e8a020'),('오늘출고','47건','#2563eb'),('재고부족','3종','#ef4444'),('이달매출','3.2백만','#22c55e')] %}
+                            <div class="col-6">
+                                <div style="background:var(--bg);border-radius:12px;padding:0.75rem;text-align:center;">
+                                    <div style="font-size:1.3rem;font-weight:900;color:{{ color }};">{{ val }}</div>
+                                    <div style="font-size:0.72rem;color:var(--text-muted);">{{ label }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        <div style="background:var(--bg);border-radius:12px;padding:0.75rem;">
+                            <div style="font-size:0.72rem;font-weight:600;margin-bottom:0.5rem;">최근 출고</div>
+                            {% for name, time in [('쿠팡 주문 23건','09:12'),('네이버 주문 8건','10:34'),('자사몰 주문 5건','11:20')] %}
+                            <div style="display:flex;justify-content:space-between;font-size:0.75rem;padding:0.25rem 0;border-bottom:1px solid var(--border);">
+                                <span>{{ name }}</span><span style="color:var(--text-muted);">{{ time }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- STATS -->
+<div class="stats-bar">
+    <div class="container">
+        <div class="row g-4">
+            <div class="col-6 col-md-3">
+                <div class="stat-item"><div class="stat-num">99.5%</div><div class="stat-label">출고 정확도</div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-item"><div class="stat-num">실시간</div><div class="stat-label">재고 추적</div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-item"><div class="stat-num">자동</div><div class="stat-label">과금 계산</div></div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-item"><div class="stat-num">3역할</div><div class="stat-label">운영자 / 현장 / 화주</div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+    <div class="container">
+        <div class="text-center mb-5">
+            <div class="section-label">핵심 기능</div>
+            <h2 class="section-title">물류센터 운영의 모든 것</h2>
+            <p class="section-sub mx-auto" style="max-width:500px;">
+                입고 예정 관리부터 바코드 피킹, 자동 과금 계산까지.<br>복잡한 3PL 업무를 플로워 하나로.
+            </p>
+        </div>
+        <div class="row g-4">
+            {% for icon, title, desc in [
+                ('bi-box-arrow-in-down','입고 관리','입고 예정 등록부터 실물 확인까지. LOT 번호와 유통기한을 자동으로 관리합니다.'),
+                ('bi-boxes','실시간 재고','로케이션 단위 재고 추적. 품절·부족 알림, 유통기한 경고를 자동으로 받습니다.'),
+                ('bi-list-check','피킹 & 패킹','바코드 스캔으로 피킹 오류 제로. 현장 직원용 모바일 최적화 화면 제공.'),
+                ('bi-truck','출고 & 상차','송장 스캔 한 번으로 상차 완료. CJ·네이버·쿠팡 등 자동 연동.'),
+                ('bi-receipt','자동 과금','보관비·출고비·부가서비스를 자동 계산. 화주사별 청구서 즉시 발행.'),
+                ('bi-graph-up','KPI 대시보드','매출·출고량·재고회전율·정확도를 한눈에. 화주사별 성과 리포트.')
+            ] %}
+            <div class="col-md-6 col-lg-4">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="bi {{ icon }}"></i></div>
+                    <div class="feature-title">{{ title }}</div>
+                    <p class="feature-desc mb-0">{{ desc }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="howitworks">
+    <div class="container">
+        <div class="text-center mb-5">
+            <div class="section-label">도입 절차</div>
+            <h2 class="section-title">3단계로 시작하세요</h2>
+        </div>
+        <div class="row g-4">
+            {% for num, title, desc in [
+                ('01','회원가입 & 센터 등록','창고, 로케이션, 화주사 정보를 등록합니다. 10분이면 기본 설정 완료.'),
+                ('02','SKU & 재고 등록','엑셀 업로드 또는 직접 입력으로 상품 마스터와 초기 재고를 등록합니다.'),
+                ('03','바로 운영 시작','피킹, 출고, 과금을 플로워로 관리하세요. 현장 직원과 화주사에게 각각 계정을 발급합니다.')
+            ] %}
+            <div class="col-md-4">
+                <div class="step-num">{{ num }}</div>
+                <div class="step-title">{{ title }}</div>
+                <p class="step-desc mb-0">{{ desc }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- ROLES -->
+<section class="roles">
+    <div class="container">
+        <div class="text-center mb-5">
+            <div class="section-label">역할별 화면</div>
+            <h2 class="section-title">모든 구성원을 위한 인터페이스</h2>
+        </div>
+        <div class="row g-4">
+            <div class="col-md-4">
+                <div class="role-card operator">
+                    <div class="role-icon">🏢</div>
+                    <div class="role-title">운영자</div>
+                    <div class="role-sub">물류센터 관리자 전용</div>
+                    <ul class="role-features">
+                        <li>KPI 대시보드 & 분석</li>
+                        <li>화주사 관리 & 과금</li>
+                        <li>재고 전체 현황</li>
+                        <li>출고 관리 & 반품 처리</li>
+                        <li>창고 & 로케이션 설정</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="role-card field">
+                    <div class="role-icon">📦</div>
+                    <div class="role-title">현장 직원</div>
+                    <div class="role-sub">모바일 최적화 현장 모드</div>
+                    <ul class="role-features" style="--chk-color:#22c55e;">
+                        <li>바코드 스캔 입고</li>
+                        <li>피킹 리스트 & 확인</li>
+                        <li>송장 스캔 출고/상차</li>
+                        <li>재고 실사 (카운팅)</li>
+                        <li>로케이션 이동</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="role-card client">
+                    <div class="role-icon">🛒</div>
+                    <div class="role-title">화주사</div>
+                    <div class="role-sub">납품 기업 셀프 포털</div>
+                    <ul class="role-features">
+                        <li>내 재고 실시간 조회</li>
+                        <li>주문 현황 & 배송추적</li>
+                        <li>월별 청구 내역</li>
+                        <li>엑셀 다운로드</li>
+                        <li>이상 알림 수신</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing" id="pricing">
+    <div class="container">
+        <div class="text-center mb-5">
+            <div class="section-label">요금제</div>
+            <h2 class="section-title">센터 규모에 맞게 선택하세요</h2>
+            <p class="section-sub">모든 요금제 VAT 별도 · 월 단위 결제 · 언제든 해지 가능</p>
+        </div>
+        <div class="row g-4 justify-content-center">
+            <div class="col-md-4">
+                <div class="price-card">
+                    <div class="price-plan">Starter</div>
+                    <div class="price-amount">99,000</div>
+                    <div class="price-unit">원 / 월</div>
+                    <div class="price-sep"></div>
+                    <ul class="price-features">
+                        <li><span class="chk">✓</span>화주사 5개까지</li>
+                        <li><span class="chk">✓</span>SKU 500개까지</li>
+                        <li><span class="chk">✓</span>운영자 2명</li>
+                        <li><span class="chk">✓</span>현장 직원 5명</li>
+                        <li><span class="chk">✓</span>기본 과금 계산</li>
+                        <li style="opacity:0.35;"><span class="chk">✗</span>API 연동</li>
+                    </ul>
+                    <a href="/login" class="btn-ghost d-block text-center mt-3">시작하기</a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="price-card featured">
+                    <div class="price-badge">인기</div>
+                    <div class="price-plan">Pro</div>
+                    <div class="price-amount">299,000</div>
+                    <div class="price-unit">원 / 월</div>
+                    <div class="price-sep"></div>
+                    <ul class="price-features">
+                        <li><span class="chk">✓</span>화주사 무제한</li>
+                        <li><span class="chk">✓</span>SKU 무제한</li>
+                        <li><span class="chk">✓</span>운영자 10명</li>
+                        <li><span class="chk">✓</span>현장 직원 무제한</li>
+                        <li><span class="chk">✓</span>API 연동 (쿠팡·네이버·CJ)</li>
+                        <li><span class="chk">✓</span>KPI 분석 대시보드</li>
+                    </ul>
+                    <a href="/login" class="btn-amber-lg d-flex justify-content-center mt-3">시작하기</a>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="price-card">
+                    <div class="price-plan">Enterprise</div>
+                    <div class="price-amount" style="font-size:1.8rem;">문의</div>
+                    <div class="price-unit">커스텀 계약</div>
+                    <div class="price-sep"></div>
+                    <ul class="price-features">
+                        <li><span class="chk">✓</span>Pro 모든 기능 포함</li>
+                        <li><span class="chk">✓</span>전용 서버 / SLA 보장</li>
+                        <li><span class="chk">✓</span>맞춤 개발 지원</li>
+                        <li><span class="chk">✓</span>온사이트 교육</li>
+                        <li><span class="chk">✓</span>전담 매니저</li>
+                        <li><span class="chk">✓</span>세금계산서 자동 발행</li>
+                    </ul>
+                    <a href="mailto:hello@maesil.net" class="btn-ghost d-block text-center mt-3">문의하기</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+    <div class="container">
+        <h2 class="cta-title">지금 바로 시작하세요</h2>
+        <p class="cta-sub">신용카드 없이 무료로 시작 · 14일 무료 체험 · 언제든 해지 가능</p>
+        <a href="/login" class="btn-amber-lg" style="font-size:1.1rem;padding:1rem 2.5rem;">
+            <i class="bi bi-arrow-right-circle"></i>무료 체험 시작
+        </a>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="landing-footer">
+    <div class="container d-flex justify-content-between flex-wrap gap-2">
+        <div>
+            <span style="color:var(--amber);font-weight:700;">플로워</span> by 매실시스템즈 ·
+            사업자번호 830-45-01231 · <a href="mailto:hello@maesil.net" style="color:inherit;">hello@maesil.net</a>
+        </div>
+        <div class="d-flex gap-3">
+            <a href="/privacy" style="color:inherit;text-decoration:none;">개인정보처리방침</a>
+            <a href="/terms"   style="color:inherit;text-decoration:none;">이용약관</a>
+        </div>
+    </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

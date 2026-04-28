@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}창고 설정 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-building me-2 text-amber"></i>창고 설정</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">로케이션 및 구역 관리</div>
+    </div>
+    <button class="btn btn-amber btn-sm" onclick="toggleForm()">
+        <i class="bi bi-plus-lg me-1"></i>창고 추가
+    </button>
+</div>
+
+<div class="page-body">
+
+    {# 창고 추가 폼 #}
+    <div class="card mb-4" id="warehouseForm" style="display:none;">
+        <div class="card-header"><i class="bi bi-plus-circle me-2 text-amber"></i>새 창고 등록</div>
+        <div class="card-body">
+            <form method="post" action="/operator/warehouses/create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">창고명 <span class="text-danger">*</span></label>
+                        <input type="text" name="name" class="form-control form-control-sm" required placeholder="예: 1창고">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">보관 유형</label>
+                        <select name="storage_type" class="form-select form-select-sm">
+                            <option value="mixed">복합</option>
+                            <option value="room">상온 전용</option>
+                            <option value="cold">냉장 전용</option>
+                            <option value="frozen">냉동 전용</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">면적(㎡)</label>
+                        <input type="number" name="area_sqm" class="form-control form-control-sm" min="0" placeholder="선택">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">주소</label>
+                        <input type="text" name="address" class="form-control form-control-sm" placeholder="선택 입력">
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-amber btn-sm"><i class="bi bi-check2 me-1"></i>등록</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleForm()">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# 창고 목록 #}
+    {% for wh in warehouses|default([]) %}
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-building text-amber"></i>
+                <span class="fw-bold">{{ wh.name }}</span>
+                {% if wh.storage_type == 'cold' %}
+                <span class="badge" style="background:#dbeafe;color:#1d4ed8;">냉장</span>
+                {% elif wh.storage_type == 'frozen' %}
+                <span class="badge" style="background:#e0e7ff;color:#4338ca;">냉동</span>
+                {% elif wh.storage_type == 'room' %}
+                <span class="badge bg-light text-secondary">상온</span>
+                {% else %}
+                <span class="badge badge-amber">복합</span>
+                {% endif %}
+                <span class="text-muted" style="font-size:0.8rem;">{{ wh.area_sqm or '' }}{% if wh.area_sqm %}㎡{% endif %}</span>
+            </div>
+            <div class="d-flex gap-2">
+                <button onclick="toggleLocationForm({{ wh.id }})" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-plus me-1"></i>로케이션 추가
+                </button>
+                <a href="/operator/warehouses/{{ wh.id }}/edit" class="btn btn-outline-secondary btn-sm">수정</a>
+            </div>
+        </div>
+
+        {# 로케이션 추가 폼 #}
+        <div id="locForm_{{ wh.id }}" style="display:none;" class="px-3 pt-3 pb-2 border-bottom">
+            <form method="post" action="/operator/warehouses/{{ wh.id }}/locations/create" class="d-flex gap-2 flex-wrap">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="text" name="location_code" class="form-control form-control-sm"
+                       placeholder="로케이션 코드 (예: A-01-01)" style="max-width:200px;" required>
+                <select name="zone" class="form-select form-select-sm" style="max-width:110px;">
+                    <option value="">구역 선택</option>
+                    <option value="A">A구역</option>
+                    <option value="B">B구역</option>
+                    <option value="C">C구역</option>
+                    <option value="D">D구역</option>
+                </select>
+                <input type="number" name="capacity" class="form-control form-control-sm"
+                       placeholder="용량" min="0" style="max-width:90px;">
+                <button type="submit" class="btn btn-amber btn-sm">추가</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        onclick="toggleLocationForm({{ wh.id }})">취소</button>
+            </form>
+        </div>
+
+        {# 로케이션 그리드 #}
+        <div class="card-body">
+            {% if wh.locations %}
+            <div class="row g-2">
+                {% for loc in wh.locations %}
+                <div class="col-6 col-md-3 col-lg-2">
+                    <div class="p-2 rounded text-center"
+                         style="border:1.5px solid {{ '#22c55e' if loc.is_active else '#e5e7eb' }};
+                                background:{{ 'rgba(34,197,94,0.05)' if loc.is_active else '#f9fafb' }};
+                                font-size:0.82rem;">
+                        <div class="fw-bold" style="color:var(--amber);letter-spacing:1px;">{{ loc.location_code }}</div>
+                        <div class="text-muted" style="font-size:0.72rem;">
+                            {% if loc.capacity %}{{ loc.current_qty|default(0) }}/{{ loc.capacity }}{% else %}—{% endif %}
+                        </div>
+                        {% if not loc.is_active %}
+                        <span class="badge bg-light text-muted" style="font-size:0.68rem;">비활성</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center text-muted py-4" style="font-size:0.85rem;">
+                <i class="bi bi-grid" style="font-size:1.5rem;opacity:0.3;display:block;margin-bottom:0.4rem;"></i>
+                등록된 로케이션이 없습니다
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="card-footer" style="font-size:0.78rem;color:var(--text-muted);">
+            로케이션 {{ wh.locations|default([])|length }}개
+            {% if wh.address %} · {{ wh.address }}{% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">
+            <i class="bi bi-building" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+            등록된 창고가 없습니다
+        </div>
+    </div>
+    {% endfor %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleForm() {
+    const f = document.getElementById('warehouseForm');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+function toggleLocationForm(id) {
+    const f = document.getElementById('locForm_' + id);
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+    if (f.style.display !== 'none') f.querySelector('input[name="location_code"]')?.focus();
+}
+</script>
+{% endblock %}

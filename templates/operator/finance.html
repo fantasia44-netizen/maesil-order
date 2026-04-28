@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% block title %}정산 / 재무 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chart-wrap { position: relative; height: 240px; }
+    .finance-section-title {
+        font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+        color: var(--text-muted); letter-spacing: 0.05em; margin-bottom: 0.75rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-calculator me-2 text-amber"></i>정산 / 재무</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">과금 정산 및 수납 관리</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        <form class="d-flex gap-2" method="get">
+            <input type="month" name="month" class="form-control form-control-sm"
+                   value="{{ filter_month or '' }}" style="max-width:150px;">
+            <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-search me-1"></i>조회</button>
+        </form>
+        <button class="btn btn-amber btn-sm" onclick="calcAll()">
+            <i class="bi bi-lightning-charge me-1"></i>일괄 계산
+        </button>
+        <a href="/operator/finance/export?month={{ filter_month or '' }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i>엑셀
+        </a>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# 이달 요약 KPI #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-amber">
+                <div class="kpi-label">총 청구액</div>
+                <div class="kpi-value text-amber">{{ '{:,.0f}'.format(summary.total_billed|default(0)) }}</div>
+                <div class="kpi-sub">원</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-green">
+                <div class="kpi-label">수납 완료</div>
+                <div class="kpi-value" style="color:#16a34a;">{{ '{:,.0f}'.format(summary.total_paid|default(0)) }}</div>
+                <div class="kpi-sub">원</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card" style="border-color:#ef4444;">
+                <div class="kpi-label">미수금</div>
+                <div class="kpi-value text-danger">{{ '{:,.0f}'.format(summary.total_unpaid|default(0)) }}</div>
+                <div class="kpi-sub">원</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-blue">
+                <div class="kpi-label">수납률</div>
+                <div class="kpi-value" style="color:#2563eb;">{{ '{:.1f}'.format(summary.paid_rate|default(0)) }}</div>
+                <div class="kpi-sub">%</div>
+            </div>
+        </div>
+    </div>
+
+    {# 과금 항목별 분석 + 월별 추이 #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-pie-chart me-2 text-amber"></i>과금 항목별 비중</div>
+                <div class="card-body d-flex align-items-center justify-content-center">
+                    <div style="max-width:220px;width:100%;">
+                        <canvas id="billingPie"></canvas>
+                    </div>
+                </div>
+                <div class="card-footer" style="font-size:0.82rem;">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">보관비</span>
+                        <span class="fw-semibold">{{ '{:,.0f}'.format(summary.storage_total|default(0)) }}원</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="text-muted">출고비</span>
+                        <span class="fw-semibold">{{ '{:,.0f}'.format(summary.shipment_total|default(0)) }}원</span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span class="text-muted">부가서비스</span>
+                        <span class="fw-semibold">{{ '{:,.0f}'.format(summary.extra_total|default(0)) }}원</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-bar-chart me-2 text-amber"></i>월별 청구 추이 (12개월)</div>
+                <div class="card-body">
+                    <div class="chart-wrap">
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 화주사별 정산 테이블 #}
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-table me-2 text-amber"></i>{{ filter_month or current_month }} 화주사별 정산</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mb-0" style="font-size:0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>화주사</th>
+                            <th class="text-end">보관비</th>
+                            <th class="text-end">출고비</th>
+                            <th class="text-end">부가서비스</th>
+                            <th class="text-end fw-bold">합계</th>
+                            <th class="text-end">VAT(10%)</th>
+                            <th>상태</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in billing_rows|default([]) %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.client_name }}</td>
+                            <td class="text-end">{{ '{:,.0f}'.format(row.storage|default(0)) }}</td>
+                            <td class="text-end">{{ '{:,.0f}'.format(row.shipment|default(0)) }}</td>
+                            <td class="text-end">{{ '{:,.0f}'.format(row.extra|default(0)) }}</td>
+                            <td class="text-end fw-bold text-amber">{{ '{:,.0f}'.format(row.total|default(0)) }}</td>
+                            <td class="text-end text-muted">{{ '{:,.0f}'.format((row.total|default(0)) * 0.1) }}</td>
+                            <td>
+                                {% if row.status == 'paid' %}<span class="badge badge-done">수납완료</span>
+                                {% elif row.status == 'overdue' %}<span class="badge badge-cancel">연체</span>
+                                {% else %}<span class="badge badge-wait">미수납</span>{% endif %}
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    {% if row.status != 'paid' %}
+                                    <button onclick="markPaid({{ row.billing_id }}, '{{ row.client_name }}')"
+                                            class="btn btn-outline-secondary btn-sm" style="font-size:0.75rem;">
+                                        수납처리
+                                    </button>
+                                    {% endif %}
+                                    <a href="/operator/finance/invoice/{{ row.billing_id }}"
+                                       class="btn btn-amber btn-sm" style="font-size:0.75rem;" target="_blank">
+                                        <i class="bi bi-file-earmark-text"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="8" class="text-center text-muted py-4">청구 데이터 없음</td></tr>
+                        {% endfor %}
+                    </tbody>
+                    {% if billing_rows|default([]) %}
+                    <tfoot style="background:var(--amber-pale);">
+                        <tr>
+                            <td class="fw-bold">합계</td>
+                            <td class="text-end fw-semibold">{{ '{:,.0f}'.format(billing_rows|sum(attribute='storage')|default(0)) }}</td>
+                            <td class="text-end fw-semibold">{{ '{:,.0f}'.format(billing_rows|sum(attribute='shipment')|default(0)) }}</td>
+                            <td class="text-end fw-semibold">{{ '{:,.0f}'.format(billing_rows|sum(attribute='extra')|default(0)) }}</td>
+                            <td class="text-end fw-bold text-amber">{{ '{:,.0f}'.format(summary.total_billed|default(0)) }}</td>
+                            <td class="text-end text-muted">{{ '{:,.0f}'.format((summary.total_billed|default(0)) * 0.1) }}</td>
+                            <td colspan="2"></td>
+                        </tr>
+                    </tfoot>
+                    {% endif %}
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {# 미수금 현황 #}
+    {% if overdue_rows|default([]) %}
+    <div class="card" style="border-color:#ef4444;">
+        <div class="card-header" style="border-color:#ef4444;">
+            <i class="bi bi-exclamation-triangle me-2" style="color:#ef4444;"></i>
+            미수금 현황 — {{ overdue_rows|length }}건
+        </div>
+        <div class="card-body p-0">
+            <table class="table mb-0" style="font-size:0.85rem;">
+                <thead>
+                    <tr><th>화주사</th><th>청구월</th><th class="text-end">금액</th><th>연체일수</th><th></th></tr>
+                </thead>
+                <tbody>
+                    {% for r in overdue_rows %}
+                    <tr>
+                        <td class="fw-semibold">{{ r.client_name }}</td>
+                        <td>{{ r.year_month }}</td>
+                        <td class="text-end fw-bold text-danger">{{ '{:,.0f}'.format(r.total|default(0)) }}</td>
+                        <td><span class="badge badge-cancel">{{ r.overdue_days }}일</span></td>
+                        <td>
+                            <button onclick="markPaid({{ r.billing_id }}, '{{ r.client_name }}')"
+                                    class="btn btn-outline-secondary btn-sm" style="font-size:0.75rem;">수납처리</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+const monthly = {{ monthly_data|default([])|tojson }};
+const billingBreakdown = {
+    storage:  {{ summary.storage_total|default(0) }},
+    shipment: {{ summary.shipment_total|default(0) }},
+    extra:    {{ summary.extra_total|default(0) }}
+};
+
+Chart.defaults.font.family = 'Pretendard Variable, sans-serif';
+Chart.defaults.font.size   = 11;
+Chart.defaults.color       = '#888';
+
+new Chart(document.getElementById('billingPie'), {
+    type: 'doughnut',
+    data: {
+        labels: ['보관비', '출고비', '부가서비스'],
+        datasets: [{
+            data: [billingBreakdown.storage, billingBreakdown.shipment, billingBreakdown.extra],
+            backgroundColor: ['#e8a020','#2563eb','#8b5cf6'],
+            borderWidth: 2, borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }
+    }
+});
+
+new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+        labels: monthly.map(m => m.month),
+        datasets: [
+            { label: '보관비', data: monthly.map(m => m.storage),  backgroundColor: 'rgba(232,160,32,0.8)', borderRadius: 3 },
+            { label: '출고비', data: monthly.map(m => m.shipment), backgroundColor: 'rgba(37,99,235,0.8)',  borderRadius: 3 },
+            { label: '부가',   data: monthly.map(m => m.extra),    backgroundColor: 'rgba(139,92,246,0.8)', borderRadius: 3 }
+        ]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top' } },
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true,
+            ticks: { callback: v => (v/10000).toFixed(0) + '만' } } }
+    }
+});
+
+function markPaid(billingId, clientName) {
+    if (!confirm(`'${clientName}' 수납 처리하시겠습니까?`)) return;
+    fetch('/operator/finance/billing/' + billingId + '/mark-paid', {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF }
+    }).then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error || '처리 실패'); });
+}
+
+function calcAll() {
+    const month = document.querySelector('input[name="month"]').value;
+    if (!month) { alert('조회 월을 선택하세요'); return; }
+    if (!confirm(`${month} 전체 화주사 과금을 계산하시겠습니까?`)) return;
+    fetch('/operator/finance/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ month })
+    }).then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error || '계산 실패'); });
+}
+</script>
+{% endblock %}

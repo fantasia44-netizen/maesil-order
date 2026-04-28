@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}사용자 관리 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-people me-2 text-amber"></i>사용자 관리</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">전체 {{ users|default([])|length }}명</div>
+    </div>
+    <button class="btn btn-amber btn-sm" onclick="toggleForm()">
+        <i class="bi bi-person-plus me-1"></i>사용자 초대
+    </button>
+</div>
+
+<div class="page-body">
+
+    {# 사용자 초대 폼 #}
+    <div class="card mb-4" id="userForm" style="display:none;">
+        <div class="card-header"><i class="bi bi-person-plus me-2 text-amber"></i>새 사용자 초대</div>
+        <div class="card-body">
+            <form method="post" action="/operator/users/invite">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">이메일 <span class="text-danger">*</span></label>
+                        <input type="email" name="email" class="form-control form-control-sm" required placeholder="user@example.com">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">이름</label>
+                        <input type="text" name="name" class="form-control form-control-sm" placeholder="홍길동">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">역할 <span class="text-danger">*</span></label>
+                        <select name="role" class="form-select form-select-sm" required id="roleSelect"
+                                onchange="toggleClientSelect(this.value)">
+                            <option value="operator">운영자 (Operator)</option>
+                            <option value="packing">현장 직원 (Packing)</option>
+                            <option value="client">화주사 (Client)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2" id="clientSelectWrap" style="display:none;">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">화주사 <span class="text-danger">*</span></label>
+                        <select name="client_id" class="form-select form-select-sm" id="clientSelectInput">
+                            <option value="">선택...</option>
+                            {% for c in clients|default([]) %}
+                            <option value="{{ c.id }}">{{ c.company_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-amber btn-sm"><i class="bi bi-envelope me-1"></i>초대 메일 발송</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleForm()">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# 역할별 탭 #}
+    <div class="d-flex gap-2 mb-3">
+        {% for r, label in [('', '전체'), ('operator', '운영자'), ('packing', '현장직원'), ('client', '화주사')] %}
+        <a href="/operator/users?role={{ r }}"
+           class="btn btn-sm {{ 'btn-amber' if filter_role == r or (not filter_role and not r) else 'btn-outline-secondary' }}">
+            {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    {# 사용자 테이블 #}
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>이름</th>
+                        <th>이메일</th>
+                        <th>역할</th>
+                        <th>화주사</th>
+                        <th>최근 로그인</th>
+                        <th>상태</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users|default([]) %}
+                    <tr>
+                        <td class="fw-semibold" style="font-size:0.88rem;">
+                            <i class="bi bi-person-circle me-1 text-amber"></i>{{ u.name or u.username or '-' }}
+                        </td>
+                        <td style="font-size:0.82rem;">{{ u.email or '-' }}</td>
+                        <td>
+                            {% if u.role == 'operator' %}
+                            <span class="badge badge-amber">운영자</span>
+                            {% elif u.role == 'packing' %}
+                            <span class="badge badge-process">현장직원</span>
+                            {% elif u.role == 'client' %}
+                            <span class="badge badge-done">화주사</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ u.role }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="font-size:0.82rem;">{{ u.client_name or '—' }}</td>
+                        <td class="text-muted" style="font-size:0.78rem;">
+                            {{ u.last_login[:10] if u.last_login else '미로그인' }}
+                        </td>
+                        <td>
+                            {% if u.is_active %}
+                            <span class="badge badge-done">활성</span>
+                            {% else %}
+                            <span class="badge badge-cancel">비활성</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <button onclick="toggleActive({{ u.id }}, {{ u.is_active|lower }})"
+                                        class="btn btn-sm {{ 'btn-outline-danger' if u.is_active else 'btn-outline-secondary' }}"
+                                        style="font-size:0.75rem;">
+                                    {{ '비활성화' if u.is_active else '활성화' }}
+                                </button>
+                                <button onclick="resetPw({{ u.id }}, '{{ u.name or u.email }}')"
+                                        class="btn btn-outline-secondary btn-sm" style="font-size:0.75rem;">
+                                    비번초기화
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted py-5">
+                            <i class="bi bi-people" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                            사용자가 없습니다
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+function toggleForm() {
+    const f = document.getElementById('userForm');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
+function toggleClientSelect(role) {
+    const wrap = document.getElementById('clientSelectWrap');
+    const input = document.getElementById('clientSelectInput');
+    wrap.style.display = role === 'client' ? '' : 'none';
+    input.required = role === 'client';
+}
+
+function toggleActive(id, isActive) {
+    const action = isActive ? '비활성화' : '활성화';
+    if (!confirm(`사용자를 ${action}하시겠습니까?`)) return;
+    fetch('/operator/users/' + id + '/toggle-active', {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF }
+    }).then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error || '처리 실패'); });
+}
+
+function resetPw(id, name) {
+    if (!confirm(`'${name}'의 비밀번호를 초기화하고 메일을 발송하시겠습니까?`)) return;
+    fetch('/operator/users/' + id + '/reset-password', {
+        method: 'POST', headers: { 'X-CSRFToken': CSRF }
+    }).then(r => r.json()).then(d => { if (d.ok) alert('비밀번호 재설정 메일이 발송되었습니다.'); else alert(d.error || '처리 실패'); });
+}
+</script>
+{% endblock %}

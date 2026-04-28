@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block title %}피킹 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pick-card {
+        border: 2px solid var(--border); border-radius: 14px;
+        padding: 1.25rem; margin-bottom: 0.75rem; transition: all 0.2s;
+    }
+    .pick-card.active  { border-color: #8b5cf6; background: rgba(139,92,246,0.04); }
+    .pick-card.done    { border-color: #22c55e; background: rgba(34,197,94,0.04); opacity: 0.7; }
+    .pick-card.short   { border-color: #ef4444; background: rgba(239,68,68,0.04); }
+    .pick-location     { font-size: 2rem; font-weight: 800; color: #8b5cf6; letter-spacing: 2px; }
+    .pick-sku          { font-size: 1.15rem; font-weight: 700; }
+    .pick-qty          { font-size: 1.8rem; font-weight: 800; }
+    .scan-input-lg {
+        font-size: 1.4rem; padding: 0.75rem 1rem; text-align: center;
+        border: 2px solid var(--border); border-radius: 10px;
+    }
+    .scan-input-lg:focus { border-color: #8b5cf6; box-shadow: 0 0 0 3px rgba(139,92,246,0.15); outline: none; }
+    .progress-bar-purple { background: #8b5cf6 !important; }
+    .error-banner {
+        position: fixed; top: 0; left: 0; right: 0;
+        background: #ef4444; color: #fff; text-align: center;
+        font-size: 1rem; font-weight: 700; padding: 0.75rem; z-index: 9999; display: none;
+    }
+    .error-banner.show { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="errBanner" class="error-banner"></div>
+
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-list-check me-2" style="color:#8b5cf6;"></i>피킹</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">
+            대기 {{ pending_lists|default([])|length }}건
+        </div>
+    </div>
+    <a href="/field" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>현장 홈
+    </a>
+</div>
+
+<div class="page-body">
+
+    {% if not active_list %}
+    {# ── 피킹 목록 선택 ── #}
+    <div class="card mb-3">
+        <div class="card-header">
+            <i class="bi bi-clipboard me-2" style="color:#8b5cf6;"></i>피킹 대기 목록
+        </div>
+        <div class="card-body p-0">
+            {% if pending_lists %}
+            <table class="table table-hover mb-0">
+                <thead><tr><th>피킹번호</th><th>화주사</th><th>상품 수</th><th>요청일</th><th></th></tr></thead>
+                <tbody>
+                    {% for pl in pending_lists %}
+                    <tr>
+                        <td class="fw-semibold">{{ pl.pick_no or pl.id }}</td>
+                        <td>{{ pl.client_name|default('-') }}</td>
+                        <td><span class="badge badge-amber">{{ pl.item_count|default(0) }}종</span></td>
+                        <td class="text-muted" style="font-size:0.82rem;">{{ pl.created_at[:10] if pl.created_at else '-' }}</td>
+                        <td>
+                            <a href="/field/picking/{{ pl.id }}" class="btn btn-sm"
+                               style="background:#8b5cf6;color:#fff;font-weight:600;">
+                                시작
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-clipboard-x" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                대기 중인 피킹 목록이 없습니다
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% else %}
+    {# ── 피킹 진행 중 ── #}
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+                <span style="font-size:0.82rem;font-weight:600;">진행률</span>
+                <span style="font-size:0.82rem;color:var(--text-muted);">
+                    {{ done_count|default(0) }} / {{ total_count|default(0) }}
+                </span>
+            </div>
+            <div class="progress" style="height:10px;border-radius:5px;">
+                <div class="progress-bar progress-bar-purple"
+                     style="width:{{ (done_count|default(0) / total_count|default(1) * 100)|round }}%;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 스캔 입력 #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <label class="form-label fw-bold">바코드 스캔</label>
+            <input type="text" id="pickScan" class="form-control scan-input-lg"
+                   placeholder="상품 바코드 스캔..." autocomplete="off" autofocus>
+        </div>
+    </div>
+
+    {# 피킹 아이템 목록 #}
+    <div id="pickItems">
+        {% for item in active_list.items|default([]) %}
+        <div class="pick-card {{ 'done' if item.is_done else 'active' if loop.first and not item.is_done else '' }}"
+             id="pickItem_{{ item.id }}" data-item-id="{{ item.id }}" data-barcode="{{ item.barcode }}">
+            <div class="d-flex align-items-start justify-content-between">
+                <div class="flex-grow-1">
+                    <div class="pick-location mb-1">{{ item.location or '—' }}</div>
+                    <div class="pick-sku">{{ item.sku_name }}</div>
+                    <div class="text-muted" style="font-size:0.82rem;">{{ item.sku_code }}</div>
+                </div>
+                <div class="text-end">
+                    <div class="pick-qty" style="color:{{ '#22c55e' if item.is_done else '#8b5cf6' }};">
+                        {{ item.picked_qty|default(0) }}/{{ item.required_qty }}
+                    </div>
+                    {% if item.is_done %}
+                    <span class="badge badge-done">완료</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-outline-danger flex-fill" onclick="cancelPicking()">
+            <i class="bi bi-x-circle me-1"></i>중단
+        </button>
+        <button class="btn flex-fill" style="background:#8b5cf6;color:#fff;font-weight:700;"
+                onclick="completePicking()">
+            <i class="bi bi-check2-all me-1"></i>피킹 완료
+        </button>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+const pickScan = document.getElementById('pickScan');
+
+if (pickScan) {
+    pickScan.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); processPick(); } });
+    document.addEventListener('click', e => {
+        if (!e.target.closest('button,a,input')) pickScan.focus();
+    });
+    window.addEventListener('DOMContentLoaded', () => pickScan.focus());
+}
+
+function processPick() {
+    const barcode = pickScan.value.trim();
+    if (!barcode) return;
+
+    fetch('/field/api/pick-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ barcode, list_id: '{{ active_list.id if active_list else "" }}' })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            beep(880, 0.1);
+            const card = document.getElementById('pickItem_' + d.item_id);
+            if (card && d.is_done) card.className = 'pick-card done';
+            if (d.all_done) {
+                alert('피킹 완료! 모든 상품을 피킹했습니다.');
+                location.href = '/field/picking';
+            }
+        } else {
+            beep(300, 0.3, 'square');
+            showErr(d.error || '스캔 실패');
+        }
+        pickScan.value = '';
+        pickScan.focus();
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function completePicking() {
+    if (!confirm('피킹을 완료 처리하시겠습니까?')) return;
+    fetch('/field/api/pick-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ list_id: '{{ active_list.id if active_list else "" }}' })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) location.href = '/field/picking';
+        else showErr(d.error || '완료 처리 실패');
+    });
+}
+
+function cancelPicking() {
+    if (confirm('피킹을 중단하시겠습니까?')) location.href = '/field/picking';
+}
+
+function showErr(msg) {
+    const b = document.getElementById('errBanner');
+    b.textContent = msg; b.classList.add('show');
+    setTimeout(() => b.classList.remove('show'), 3500);
+}
+
+function beep(freq, dur, type='sine') {
+    try {
+        const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type; o.frequency.value = freq; g.gain.value = 0.15;
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur);
+    } catch(e) {}
+}
+</script>
+{% endblock %}

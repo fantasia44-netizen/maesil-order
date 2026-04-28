@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+{% block title %}입고 관리 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-box-arrow-in-down me-2 text-amber"></i>입고 관리</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">
+            전체 {{ total_count|default(0) }}건
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/operator/inbound/export" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i>엑셀
+        </a>
+        <button class="btn btn-amber btn-sm" onclick="toggleForm()">
+            <i class="bi bi-plus-lg me-1"></i>입고 예정 등록
+        </button>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# 입고 예정 등록 폼 #}
+    <div class="card mb-4" id="inboundForm" style="display:none;">
+        <div class="card-header">
+            <i class="bi bi-plus-circle me-2 text-amber"></i>입고 예정 등록
+        </div>
+        <div class="card-body">
+            <form method="post" action="/operator/inbound/create">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">화주사 <span class="text-danger">*</span></label>
+                        <select name="client_id" class="form-select form-select-sm" required id="clientSelect"
+                                onchange="loadSkus(this.value)">
+                            <option value="">선택...</option>
+                            {% for c in clients|default([]) %}
+                            <option value="{{ c.id }}">{{ c.company_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">입고 예정일 <span class="text-danger">*</span></label>
+                        <input type="date" name="expected_date" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">거래처 / 출처</label>
+                        <input type="text" name="supplier" class="form-control form-control-sm" placeholder="선택 입력">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-semibold" style="font-size:0.85rem;">메모</label>
+                        <input type="text" name="note" class="form-control form-control-sm" placeholder="선택 입력">
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="fw-semibold mb-2" style="font-size:0.85rem;">입고 품목</div>
+                    <div id="inboundItems">
+                        <div class="row g-2 mb-2 inbound-item-row">
+                            <div class="col-5">
+                                <select name="sku_id[]" class="form-select form-select-sm sku-select">
+                                    <option value="">SKU 선택...</option>
+                                </select>
+                            </div>
+                            <div class="col-3">
+                                <input type="number" name="qty[]" class="form-control form-control-sm"
+                                       placeholder="수량" min="1">
+                            </div>
+                            <div class="col-3">
+                                <input type="text" name="lot[]" class="form-control form-control-sm"
+                                       placeholder="LOT번호 (선택)">
+                            </div>
+                            <div class="col-1">
+                                <button type="button" class="btn btn-outline-danger btn-sm w-100"
+                                        onclick="removeItem(this)" disabled>
+                                    <i class="bi bi-trash3"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-1" onclick="addItem()">
+                        <i class="bi bi-plus me-1"></i>품목 추가
+                    </button>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="submit" class="btn btn-amber btn-sm">
+                        <i class="bi bi-check2 me-1"></i>등록
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleForm()">취소</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# 필터 #}
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form class="d-flex gap-2 flex-wrap" method="get">
+                <select name="client_id" class="form-select form-select-sm" style="max-width:140px;">
+                    <option value="">화주사 전체</option>
+                    {% for c in clients|default([]) %}
+                    <option value="{{ c.id }}" {% if filter_client == c.id|string %}selected{% endif %}>
+                        {{ c.company_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <select name="status" class="form-select form-select-sm" style="max-width:120px;">
+                    <option value="">상태 전체</option>
+                    <option value="pending"   {% if filter_status=='pending'   %}selected{% endif %}>대기</option>
+                    <option value="receiving" {% if filter_status=='receiving' %}selected{% endif %}>입고중</option>
+                    <option value="done"      {% if filter_status=='done'      %}selected{% endif %}>완료</option>
+                    <option value="cancelled" {% if filter_status=='cancelled' %}selected{% endif %}>취소</option>
+                </select>
+                <input type="date" name="date_from" class="form-control form-control-sm"
+                       value="{{ filter_date_from or '' }}" style="max-width:140px;">
+                <span class="align-self-center text-muted" style="font-size:0.8rem;">~</span>
+                <input type="date" name="date_to" class="form-control form-control-sm"
+                       value="{{ filter_date_to or '' }}" style="max-width:140px;">
+                <button class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-search me-1"></i>검색
+                </button>
+            </form>
+        </div>
+    </div>
+
+    {# 입고 테이블 #}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>입고번호</th>
+                            <th>화주사</th>
+                            <th>품목</th>
+                            <th>예정일</th>
+                            <th>입고일</th>
+                            <th>상태</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ib in inbounds|default([]) %}
+                        <tr>
+                            <td class="fw-semibold" style="font-size:0.82rem;">{{ ib.inbound_no or ib.id }}</td>
+                            <td style="font-size:0.85rem;">{{ ib.client_name or '-' }}</td>
+                            <td class="text-muted" style="font-size:0.82rem;">
+                                {{ ib.item_summary|default('')|truncate(28) }}
+                            </td>
+                            <td class="text-muted" style="font-size:0.82rem;">
+                                {{ ib.expected_date[:10] if ib.expected_date else '-' }}
+                            </td>
+                            <td class="text-muted" style="font-size:0.82rem;">
+                                {{ ib.received_at[:10] if ib.received_at else '-' }}
+                            </td>
+                            <td>
+                                {% set s = ib.status %}
+                                {% if s == 'pending' %}<span class="badge badge-wait">대기</span>
+                                {% elif s == 'receiving' %}<span class="badge badge-process">입고중</span>
+                                {% elif s == 'done' %}<span class="badge badge-done">완료</span>
+                                {% elif s == 'cancelled' %}<span class="badge badge-cancel">취소</span>
+                                {% else %}<span class="badge bg-secondary">{{ s }}</span>{% endif %}
+                            </td>
+                            <td>
+                                <a href="/operator/inbound/{{ ib.id }}"
+                                   class="btn btn-outline-secondary btn-sm" style="font-size:0.75rem;">
+                                    상세
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-5">
+                                <i class="bi bi-box-arrow-in-down" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                                입고 내역이 없습니다
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if total_pages|default(1) > 1 %}
+    <nav class="mt-3">
+        <ul class="pagination pagination-sm justify-content-center mb-0">
+            {% for p in range(1, (total_pages|default(1)) + 1) %}
+            <li class="page-item {{ 'active' if p == (current_page|default(1)) else '' }}">
+                <a class="page-link" href="?page={{ p }}&status={{ filter_status or '' }}">{{ p }}</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const allSkus = {{ skus_by_client|default({})|tojson }};
+
+function toggleForm() {
+    const f = document.getElementById('inboundForm');
+    f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+
+function loadSkus(clientId) {
+    const skus = allSkus[clientId] || [];
+    document.querySelectorAll('.sku-select').forEach(sel => {
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">SKU 선택...</option>';
+        skus.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id; opt.textContent = `[${s.sku_code}] ${s.name}`;
+            if (s.id == cur) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    });
+}
+
+function addItem() {
+    const container = document.getElementById('inboundItems');
+    const rows = container.querySelectorAll('.inbound-item-row');
+    const clientId = document.getElementById('clientSelect').value;
+    const skus = allSkus[clientId] || [];
+
+    const div = document.createElement('div');
+    div.className = 'row g-2 mb-2 inbound-item-row';
+    div.innerHTML = `
+        <div class="col-5">
+            <select name="sku_id[]" class="form-select form-select-sm sku-select">
+                <option value="">SKU 선택...</option>
+                ${skus.map(s => `<option value="${s.id}">[${s.sku_code}] ${s.name}</option>`).join('')}
+            </select>
+        </div>
+        <div class="col-3">
+            <input type="number" name="qty[]" class="form-control form-control-sm" placeholder="수량" min="1">
+        </div>
+        <div class="col-3">
+            <input type="text" name="lot[]" class="form-control form-control-sm" placeholder="LOT번호 (선택)">
+        </div>
+        <div class="col-1">
+            <button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="removeItem(this)">
+                <i class="bi bi-trash3"></i>
+            </button>
+        </div>`;
+    container.appendChild(div);
+    rows[0].querySelector('button[onclick="removeItem(this)"]').disabled = false;
+}
+
+function removeItem(btn) {
+    const row = btn.closest('.inbound-item-row');
+    const rows = document.querySelectorAll('.inbound-item-row');
+    if (rows.length <= 1) return;
+    row.remove();
+    if (document.querySelectorAll('.inbound-item-row').length === 1) {
+        document.querySelector('.inbound-item-row button[onclick="removeItem(this)"]').disabled = true;
+    }
+}
+</script>
+{% endblock %}

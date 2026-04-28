@@ -1,59 +1,363 @@
-{% extends "base.html" %}
-{% block title %}로그인 - {{ current_biz.name|default('배마마') }} 통합시스템{% endblock %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>플로워 — 로그인</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+    <style>
+        :root {
+            --amber: #e8a020;
+            --amber-light: #f5b93a;
+            --amber-pale: #fff8e7;
+            --text: #1e293b;
+        }
 
-{% block public_content %}
-<div class="min-vh-100 d-flex align-items-center justify-content-center" style="background: linear-gradient(135deg, {{ current_biz.color|default('#2c3e50') }} 0%, #3498db 100%);">
-    <div class="card shadow-lg" style="width: 400px; border-radius: 16px;">
-        <div class="card-body p-5">
-            <div class="text-center mb-4">
-                <i class="bi {{ current_biz.icon|default('bi-gear-wide-connected') }}" style="font-size: 2.5rem; color: {{ current_biz.color|default('#3498db') }};"></i>
-                <h3 class="mt-2 fw-bold">{{ current_biz.name|default('배마마') }} 통합시스템</h3>
-                <p class="text-muted">제조·유통 통합관리</p>
-                {% if businesses|default({})|length > 1 %}
-                <div class="mt-2">
-                    {% for bid, bconf in businesses.items() %}
-                    {% if bid != current_biz_id %}
-                    <a href="/switch-biz/{{ bid }}" class="btn btn-sm btn-outline-secondary">
-                        <i class="bi {{ bconf.icon }}"></i> {{ bconf.name }}(으)로 전환
-                    </a>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-                {% endif %}
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        /* ── 왼쪽 비주얼 패널 ── */
+        .visual-panel {
+            flex: 1;
+            background: linear-gradient(160deg, #fffbee 0%, #fff3cc 50%, #ffe8a0 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .visual-panel::before {
+            content: '';
+            position: absolute;
+            top: 15%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 440px; height: 440px;
+            background: radial-gradient(circle, rgba(232,160,32,0.12) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .visual-brand {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        .visual-brand-icon {
+            width: 56px; height: 56px;
+            background: var(--amber);
+            border-radius: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            color: #fff;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 4px 16px rgba(232,160,32,0.35);
+        }
+        .visual-brand-name {
+            font-size: 2rem;
+            font-weight: 900;
+            color: var(--text);
+            letter-spacing: -0.04em;
+        }
+        .visual-brand-name span { color: var(--amber); }
+        .visual-brand-sub {
+            font-size: 0.88rem;
+            color: #92744a;
+            margin-top: 0.25rem;
+        }
+
+        .feature-list {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            width: 100%;
+            max-width: 340px;
+            margin-bottom: 2rem;
+        }
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.9rem 1.2rem;
+            background: rgba(255,255,255,0.75);
+            border: 1px solid rgba(232,160,32,0.2);
+            border-radius: 12px;
+            animation: slideIn 0.5s ease-out forwards;
+            opacity: 0;
+            backdrop-filter: blur(4px);
+        }
+        .feature-item:nth-child(1) { animation-delay: 0.15s; }
+        .feature-item:nth-child(2) { animation-delay: 0.3s; }
+        .feature-item:nth-child(3) { animation-delay: 0.45s; }
+        .feature-item:nth-child(4) { animation-delay: 0.6s; }
+
+        .feature-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+        .feature-label {
+            font-size: 0.78rem;
+            color: #92744a;
+            margin-bottom: 0.1rem;
+        }
+        .feature-value {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+        .feature-value.amber { color: var(--amber); }
+
+        .visual-tagline {
+            position: relative;
+            z-index: 1;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text);
+            text-align: center;
+            animation: fadeIn 0.5s ease-out 0.9s forwards;
+            opacity: 0;
+        }
+        .visual-tagline span { color: var(--amber); }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-16px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+
+        /* ── 오른쪽 로그인 패널 ── */
+        .login-panel {
+            width: 460px;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            border-left: 1px solid #f0e8d0;
+        }
+        .login-form {
+            width: 100%;
+            max-width: 340px;
+        }
+        .login-title {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--text);
+            margin-bottom: 0.4rem;
+            letter-spacing: -0.03em;
+        }
+        .login-subtitle {
+            font-size: 0.88rem;
+            color: #64748b;
+            margin-bottom: 2rem;
+        }
+
+        .form-label {
+            font-size: 0.83rem;
+            font-weight: 700;
+            color: #374151;
+            margin-bottom: 0.35rem;
+        }
+        .form-control {
+            padding: 0.7rem 1rem;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            font-family: inherit;
+        }
+        .form-control:focus {
+            border-color: var(--amber);
+            box-shadow: 0 0 0 3px rgba(232,160,32,0.15);
+            outline: none;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--amber);
+            color: #fff;
+            font-weight: 700;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+            transition: all 0.2s;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(232,160,32,0.35);
+            font-family: inherit;
+        }
+        .btn-login:hover {
+            background: #d4911a;
+            box-shadow: 0 4px 14px rgba(232,160,32,0.45);
+            transform: translateY(-1px);
+        }
+        .btn-login:active { transform: translateY(0); }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #f0e8d0;
+            margin: 1.5rem 0;
+        }
+
+        .login-link {
+            color: var(--amber);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .login-link:hover { text-decoration: underline; color: #d4911a; }
+
+        .flash-messages { width: 100%; margin-bottom: 1rem; }
+
+        /* 반응형 */
+        @media (max-width: 768px) {
+            .visual-panel { display: none; }
+            .login-panel  { width: 100%; border-left: none; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- 왼쪽 비주얼 -->
+<div class="visual-panel">
+    <div class="visual-brand">
+        <div class="visual-brand-icon"><i class="bi bi-boxes"></i></div>
+        <div class="visual-brand-name">플<span>로</span>워</div>
+        <div class="visual-brand-sub">3PL 물류관리 SaaS</div>
+    </div>
+
+    <div class="feature-list">
+        <div class="feature-item">
+            <span class="feature-icon">📦</span>
+            <div>
+                <div class="feature-label">화주사별 재고 실시간 현황</div>
+                <div class="feature-value amber">로케이션 단위 추적</div>
             </div>
-
-            <form method="POST" novalidate>
-                {{ form.hidden_tag() }}
-
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">{{ form.username.label.text }}</label>
-                    {{ form.username(class="form-control form-control-lg", placeholder="아이디 입력", autofocus=true) }}
-                </div>
-
-                <div class="mb-4">
-                    <label class="form-label fw-semibold">{{ form.password.label.text }}</label>
-                    {{ form.password(class="form-control form-control-lg", placeholder="비밀번호 입력") }}
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-lg w-100 mb-3">
-                    <i class="bi bi-box-arrow-in-right"></i> 로그인
-                </button>
-            </form>
-
-            {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                <div class="alert alert-{{ category }} py-2 small" role="alert">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
-            {% endwith %}
-
-            <div class="text-center">
-                <a href="{{ url_for('auth.register') }}" class="text-decoration-none">
-                    계정이 없으신가요? <strong>회원가입</strong>
-                </a>
+        </div>
+        <div class="feature-item">
+            <span class="feature-icon">🧾</span>
+            <div>
+                <div class="feature-label">과금 자동 계산</div>
+                <div class="feature-value amber">보관비 · 출고비 · 부가서비스</div>
+            </div>
+        </div>
+        <div class="feature-item">
+            <span class="feature-icon">📱</span>
+            <div>
+                <div class="feature-label">현장 모드 (모바일 최적화)</div>
+                <div class="feature-value amber">패킹 · 피킹 · 바코드 스캔</div>
+            </div>
+        </div>
+        <div class="feature-item">
+            <span class="feature-icon">📊</span>
+            <div>
+                <div class="feature-label">KPI · 경영 분석 대시보드</div>
+                <div class="feature-value amber">입출고량 · 회전율 · P&amp;L</div>
             </div>
         </div>
     </div>
+
+    <div class="visual-tagline">
+        복잡한 물류, <span>플로워</span>가 단순하게.
+    </div>
 </div>
-{% endblock %}
+
+<!-- 오른쪽 로그인 폼 -->
+<div class="login-panel">
+    <div class="login-form">
+        <h1 class="login-title">로그인</h1>
+        <p class="login-subtitle">플로워에 오신 것을 환영합니다.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show py-2"
+                 role="alert" style="font-size:0.85rem;">
+                {{ message }}
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('auth.login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="mb-3">
+                <label class="form-label">아이디</label>
+                <input type="text" name="username" class="form-control"
+                       placeholder="아이디를 입력하세요" required autofocus
+                       autocomplete="username">
+            </div>
+
+            <div class="mb-4">
+                <label class="form-label">비밀번호</label>
+                <div class="position-relative">
+                    <input type="password" name="password" id="passwordInput" class="form-control"
+                           placeholder="비밀번호를 입력하세요" required
+                           autocomplete="current-password"
+                           style="padding-right:2.8rem;">
+                    <button type="button" onclick="togglePw()"
+                            style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);
+                                   background:none;border:none;color:#9ca3af;cursor:pointer;padding:0;font-size:1rem;">
+                        <i class="bi bi-eye" id="pwEye"></i>
+                    </button>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-login">
+                <i class="bi bi-box-arrow-in-right me-1"></i> 로그인
+            </button>
+        </form>
+
+        <hr class="divider">
+
+        <div class="text-center" style="font-size:0.85rem;color:#64748b;">
+            계정이 없으신가요?&nbsp;
+            <a href="{{ url_for('auth.register') }}" class="login-link">신규 등록</a>
+        </div>
+
+        <div class="text-center mt-2" style="font-size:0.8rem;">
+            <a href="{{ url_for('auth.change_password') }}" class="text-muted text-decoration-none">
+                비밀번호 변경
+            </a>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function togglePw() {
+    const input = document.getElementById('passwordInput');
+    const eye   = document.getElementById('pwEye');
+    if (input.type === 'password') {
+        input.type = 'text';
+        eye.className = 'bi bi-eye-slash';
+    } else {
+        input.type = 'password';
+        eye.className = 'bi bi-eye';
+    }
+}
+</script>
+</body>
+</html>

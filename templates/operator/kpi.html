@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block title %}KPI 분석 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chart-wrap { position: relative; height: 220px; }
+    .chart-wrap-lg { position: relative; height: 300px; }
+    .trend-up   { color: #22c55e; font-size: 0.78rem; }
+    .trend-down { color: #ef4444; font-size: 0.78rem; }
+    .trend-flat { color: var(--text-muted); font-size: 0.78rem; }
+    .kpi-delta  { font-size: 0.78rem; margin-top: 0.1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-graph-up me-2 text-amber"></i>KPI 분석</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">운영 성과 지표</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        <form class="d-flex gap-2" method="get">
+            <input type="month" name="month" class="form-control form-control-sm"
+                   value="{{ filter_month or '' }}" style="max-width:150px;">
+            <button class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-search me-1"></i>조회
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# 핵심 KPI #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-amber">
+                <div class="kpi-label">이달 매출</div>
+                <div class="kpi-value text-amber">{{ '{:,.0f}'.format(kpi.revenue|default(0)) }}</div>
+                <div class="kpi-sub">원</div>
+                <div class="kpi-delta {{ 'trend-up' if kpi.revenue_delta|default(0) >= 0 else 'trend-down' }}">
+                    {% if kpi.revenue_delta|default(0) >= 0 %}▲{% else %}▼{% endif %}
+                    {{ '{:,.0f}'.format(kpi.revenue_delta|default(0)|abs) }}원 전월比
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-blue">
+                <div class="kpi-label">출고 건수</div>
+                <div class="kpi-value" style="color:#2563eb;">{{ '{:,}'.format(kpi.shipment_count|default(0)) }}</div>
+                <div class="kpi-sub">건</div>
+                <div class="kpi-delta {{ 'trend-up' if kpi.shipment_delta|default(0) >= 0 else 'trend-down' }}">
+                    {% if kpi.shipment_delta|default(0) >= 0 %}▲{% else %}▼{% endif %}
+                    {{ kpi.shipment_delta|default(0)|abs }}건 전월比
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card kpi-green">
+                <div class="kpi-label">재고 회전율</div>
+                <div class="kpi-value" style="color:#16a34a;">{{ '{:.1f}'.format(kpi.turnover_rate|default(0)) }}</div>
+                <div class="kpi-sub">회/월</div>
+                <div class="kpi-delta trend-flat">목표 2.0회</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="kpi-card">
+                <div class="kpi-label">출고 정확도</div>
+                <div class="kpi-value">{{ '{:.1f}'.format(kpi.accuracy_rate|default(100)) }}</div>
+                <div class="kpi-sub">%</div>
+                <div class="kpi-delta {{ 'trend-up' if kpi.accuracy_rate|default(100) >= 99 else 'trend-down' }}">
+                    목표 99.5%
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 월별 매출 추이 + 출고량 추이 #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-7">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-bar-chart me-2 text-amber"></i>월별 매출 추이 (12개월)
+                </div>
+                <div class="card-body">
+                    <div class="chart-wrap-lg">
+                        <canvas id="revenueChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-5">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-box-arrow-up me-2 text-amber"></i>출고량 추이 (12개월)
+                </div>
+                <div class="card-body">
+                    <div class="chart-wrap-lg">
+                        <canvas id="shipmentChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 입/출고 비교 + 화주사별 매출 #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-arrow-left-right me-2 text-amber"></i>이달 일별 입출고
+                </div>
+                <div class="card-body">
+                    <div class="chart-wrap">
+                        <canvas id="inoutChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-pie-chart me-2 text-amber"></i>화주사별 매출 비중
+                </div>
+                <div class="card-body d-flex align-items-center justify-content-center">
+                    <div style="max-width:260px;width:100%;">
+                        <canvas id="clientPieChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 재고 현황 + 품절/부족 상위 #}
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-boxes me-2 text-amber"></i>보관 유형별 재고 분포
+                </div>
+                <div class="card-body d-flex align-items-center justify-content-center">
+                    <div style="max-width:240px;width:100%;">
+                        <canvas id="storageDonut"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-exclamation-triangle me-2" style="color:#ef4444;"></i>재고 부족 상위 10개
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                        <thead>
+                            <tr><th>SKU</th><th>화주사</th><th class="text-end">재고</th><th>상태</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for s in low_stock|default([]) %}
+                            <tr>
+                                <td class="fw-semibold">{{ s.name|truncate(16) }}</td>
+                                <td class="text-muted">{{ s.client_name or '-' }}</td>
+                                <td class="text-end fw-bold {{ 'text-danger' if s.total_qty == 0 else 'text-warning' }}">
+                                    {{ s.total_qty }}
+                                </td>
+                                <td>
+                                    {% if s.total_qty == 0 %}<span class="badge badge-cancel">품절</span>
+                                    {% else %}<span class="badge badge-wait">부족</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-center text-muted py-3">재고 부족 없음</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 화주사별 KPI 상세 #}
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-table me-2 text-amber"></i>화주사별 KPI 상세
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mb-0" style="font-size:0.85rem;">
+                    <thead>
+                        <tr>
+                            <th>화주사</th>
+                            <th class="text-end">매출</th>
+                            <th class="text-end">출고건</th>
+                            <th class="text-end">SKU수</th>
+                            <th class="text-end">재고량</th>
+                            <th class="text-end">보관비</th>
+                            <th class="text-end">출고비</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in client_kpi|default([]) %}
+                        <tr>
+                            <td class="fw-semibold">{{ row.client_name }}</td>
+                            <td class="text-end fw-bold text-amber">{{ '{:,.0f}'.format(row.revenue|default(0)) }}</td>
+                            <td class="text-end">{{ '{:,}'.format(row.shipment_count|default(0)) }}</td>
+                            <td class="text-end">{{ row.sku_count|default(0) }}</td>
+                            <td class="text-end">{{ '{:,}'.format(row.total_qty|default(0)) }}</td>
+                            <td class="text-end text-muted">{{ '{:,.0f}'.format(row.storage_fee|default(0)) }}</td>
+                            <td class="text-end text-muted">{{ '{:,.0f}'.format(row.shipment_fee|default(0)) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="7" class="text-center text-muted py-4">데이터 없음</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const monthly   = {{ monthly_data|default([])|tojson }};
+const inoutData = {{ inout_data|default([])|tojson }};
+const clientPie = {{ client_pie|default([])|tojson }};
+const storageData = {{ storage_data|default({})|tojson }};
+
+Chart.defaults.font.family = 'Pretendard Variable, sans-serif';
+Chart.defaults.font.size   = 11;
+Chart.defaults.color       = '#888';
+
+// 월별 매출
+new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+        labels: monthly.map(m => m.month),
+        datasets: [{
+            label: '매출(원)',
+            data: monthly.map(m => m.revenue),
+            backgroundColor: 'rgba(232,160,32,0.7)',
+            borderColor: '#e8a020', borderWidth: 0, borderRadius: 4
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: true, ticks: { callback: v => (v/10000).toFixed(0) + '만' } }
+        }
+    }
+});
+
+// 출고량 추이
+new Chart(document.getElementById('shipmentChart'), {
+    type: 'line',
+    data: {
+        labels: monthly.map(m => m.month),
+        datasets: [{
+            label: '출고건',
+            data: monthly.map(m => m.shipment_count),
+            borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)',
+            borderWidth: 2, fill: true, tension: 0.4,
+            pointBackgroundColor: '#2563eb', pointRadius: 3
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true } }
+    }
+});
+
+// 일별 입출고
+new Chart(document.getElementById('inoutChart'), {
+    type: 'bar',
+    data: {
+        labels: inoutData.map(d => d.date),
+        datasets: [
+            { label: '입고', data: inoutData.map(d => d.inbound),  backgroundColor: 'rgba(232,160,32,0.7)', borderRadius: 3 },
+            { label: '출고', data: inoutData.map(d => d.outbound), backgroundColor: 'rgba(37,99,235,0.7)',  borderRadius: 3 }
+        ]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'top' } },
+        scales: { x: { stacked: false }, y: { beginAtZero: true } }
+    }
+});
+
+// 화주사별 파이
+if (clientPie.length) {
+    const palette = ['#e8a020','#2563eb','#22c55e','#8b5cf6','#f97316','#06b6d4','#ec4899'];
+    new Chart(document.getElementById('clientPieChart'), {
+        type: 'doughnut',
+        data: {
+            labels: clientPie.map(c => c.name),
+            datasets: [{
+                data: clientPie.map(c => c.revenue),
+                backgroundColor: palette.slice(0, clientPie.length),
+                borderWidth: 2, borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            plugins: {
+                legend: { position: 'bottom', labels: { boxWidth: 12, padding: 10 } },
+                tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed.toLocaleString() + '원' } }
+            }
+        }
+    });
+}
+
+// 보관 유형 도넛
+const storageLabels = ['상온', '냉장', '냉동'];
+const storageVals   = [storageData.room||0, storageData.cold||0, storageData.frozen||0];
+new Chart(document.getElementById('storageDonut'), {
+    type: 'doughnut',
+    data: {
+        labels: storageLabels,
+        datasets: [{
+            data: storageVals,
+            backgroundColor: ['#e8a020','#2563eb','#8b5cf6'],
+            borderWidth: 2, borderColor: '#fff'
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } }
+    }
+});
+</script>
+{% endblock %}

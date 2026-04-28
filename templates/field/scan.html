@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}바코드 스캔 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .scan-input-xl {
+        font-size: 1.8rem; padding: 1rem 1.2rem; text-align: center;
+        border: 2px solid var(--border); border-radius: 10px; letter-spacing: 1px;
+    }
+    .scan-input-xl:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(232,160,32,0.2); outline: none; }
+    .sku-result-card {
+        border: 2px solid var(--amber); border-radius: 14px; padding: 1.5rem;
+        background: var(--amber-pale); animation: fadeIn 0.2s ease; display: none;
+    }
+    .sku-result-card.show { display: block; }
+    .sku-name-lg { font-size: 1.4rem; font-weight: 800; }
+    .sku-code-sm { font-size: 0.88rem; color: var(--text-muted); margin-top: 0.2rem; }
+    .sku-qty-lg  { font-size: 2.5rem; font-weight: 900; color: var(--amber); line-height: 1; }
+    .loc-badge   { display: inline-block; padding: 0.3rem 0.8rem; border-radius: 8px;
+                   background: var(--amber); color: #fff; font-weight: 700; font-size: 0.88rem; margin: 0.2rem; }
+    .error-banner {
+        position: fixed; top: 0; left: 0; right: 0;
+        background: #ef4444; color: #fff; text-align: center;
+        font-size: 1rem; font-weight: 700; padding: 0.75rem; z-index: 9999; display: none;
+    }
+    .error-banner.show { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .history-row { padding: 0.55rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+    .history-row:last-child { border-bottom: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="errBanner" class="error-banner"></div>
+
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-upc-scan me-2 text-amber"></i>바코드 스캔</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">SKU / 로케이션 조회</div>
+    </div>
+    <a href="/field" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>현장 홈
+    </a>
+</div>
+
+<div class="page-body">
+
+    {# 스캔 입력 #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <label class="form-label fw-bold">바코드 스캔 / 직접 입력</label>
+            <input type="text" id="scanInput" class="form-control scan-input-xl"
+                   placeholder="바코드 스캔..." autocomplete="off" autofocus>
+            <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-amber flex-fill" onclick="doScan()">
+                    <i class="bi bi-search me-1"></i>조회
+                </button>
+                <button class="btn btn-outline-secondary" onclick="clearResult()">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# 조회 결과 #}
+    <div class="sku-result-card mb-3" id="resultCard">
+        <div class="d-flex align-items-start justify-content-between mb-3">
+            <div class="flex-grow-1">
+                <div class="sku-name-lg" id="resName">—</div>
+                <div class="sku-code-sm" id="resCode">—</div>
+                <div class="mt-1" id="resBadges"></div>
+            </div>
+            <div class="text-end">
+                <div class="sku-qty-lg" id="resQty">—</div>
+                <div style="font-size:0.82rem;color:var(--text-muted);">재고량</div>
+            </div>
+        </div>
+        <div class="row g-2" style="font-size:0.85rem;">
+            <div class="col-6">
+                <div class="text-muted mb-1">보관 조건</div>
+                <div id="resStorage" class="fw-semibold">—</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted mb-1">유통기한</div>
+                <div id="resExpiry" class="fw-semibold">—</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted mb-1">화주사</div>
+                <div id="resClient" class="fw-semibold">—</div>
+            </div>
+            <div class="col-6">
+                <div class="text-muted mb-1">카테고리</div>
+                <div id="resCategory" class="fw-semibold">—</div>
+            </div>
+        </div>
+        <div class="mt-3">
+            <div class="text-muted mb-1" style="font-size:0.82rem;">로케이션</div>
+            <div id="resLocations">—</div>
+        </div>
+    </div>
+
+    {# 최근 조회 이력 #}
+    <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-clock-history me-2 text-amber"></i>최근 조회</span>
+            <button class="btn btn-outline-secondary btn-sm" onclick="clearHistory()">지우기</button>
+        </div>
+        <div class="card-body p-3" id="historyList">
+            <div class="text-center text-muted py-2" style="font-size:0.85rem;">조회 이력이 없습니다</div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+const scanInput = document.getElementById('scanInput');
+let history = [];
+
+scanInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doScan(); } });
+document.addEventListener('click', e => {
+    if (!e.target.closest('button,a,input')) scanInput.focus();
+});
+window.addEventListener('DOMContentLoaded', () => scanInput.focus());
+
+function doScan() {
+    const barcode = scanInput.value.trim();
+    if (!barcode) return;
+
+    fetch('/field/api/sku-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ barcode })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            beep(880, 0.1);
+            showResult(d.sku);
+            addHistory(barcode, d.sku);
+        } else {
+            beep(300, 0.3, 'square');
+            showErr(d.error || '조회 실패: ' + barcode);
+        }
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function showResult(sku) {
+    document.getElementById('resName').textContent = sku.name || '—';
+    document.getElementById('resCode').textContent = sku.sku_code || '—';
+    document.getElementById('resQty').textContent = (sku.total_qty ?? 0).toLocaleString();
+
+    const storageMap = { room: '상온', cold: '냉장', frozen: '냉동' };
+    document.getElementById('resStorage').textContent = storageMap[sku.storage_temp] || '—';
+    document.getElementById('resExpiry').textContent = sku.expiry_date ? sku.expiry_date.slice(0,10) : '—';
+    document.getElementById('resClient').textContent = sku.client_name || '—';
+    document.getElementById('resCategory').textContent = sku.category || '—';
+
+    const badges = document.getElementById('resBadges');
+    badges.innerHTML = '';
+    if (sku.total_qty <= 0) badges.innerHTML += '<span class="badge badge-cancel">품절</span> ';
+    else if (sku.total_qty <= 10) badges.innerHTML += '<span class="badge badge-wait">재고부족</span> ';
+    else badges.innerHTML += '<span class="badge badge-done">정상</span> ';
+
+    const locs = document.getElementById('resLocations');
+    if (sku.locations && sku.locations.length) {
+        locs.innerHTML = sku.locations.map(l => `<span class="loc-badge">${l}</span>`).join('');
+    } else {
+        locs.innerHTML = '<span class="text-muted">로케이션 정보 없음</span>';
+    }
+
+    document.getElementById('resultCard').classList.add('show');
+}
+
+function clearResult() {
+    document.getElementById('resultCard').classList.remove('show');
+    scanInput.value = '';
+    scanInput.focus();
+}
+
+function addHistory(barcode, sku) {
+    const t = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    history.unshift({ barcode, name: sku.name, qty: sku.total_qty, t });
+    if (history.length > 20) history.pop();
+    renderHistory();
+}
+
+function renderHistory() {
+    const el = document.getElementById('historyList');
+    if (!history.length) {
+        el.innerHTML = '<div class="text-center text-muted py-2" style="font-size:0.85rem;">조회 이력이 없습니다</div>';
+        return;
+    }
+    el.innerHTML = history.map(h =>
+        `<div class="history-row d-flex justify-content-between align-items-center">
+            <div>
+                <span class="fw-semibold">${h.name || h.barcode}</span>
+                <span class="text-muted ms-2" style="font-size:0.78rem;">${h.barcode}</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="fw-bold" style="color:var(--amber);">${(h.qty ?? 0).toLocaleString()}</span>
+                <small class="text-muted">${h.t}</small>
+            </div>
+        </div>`
+    ).join('');
+}
+
+function clearHistory() {
+    history = [];
+    renderHistory();
+}
+
+function showErr(msg) {
+    const b = document.getElementById('errBanner');
+    b.textContent = msg; b.classList.add('show');
+    setTimeout(() => b.classList.remove('show'), 3500);
+}
+
+function beep(freq, dur, type='sine') {
+    try {
+        const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type; o.frequency.value = freq; g.gain.value = 0.15;
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur);
+    } catch(e) {}
+}
+</script>
+{% endblock %}

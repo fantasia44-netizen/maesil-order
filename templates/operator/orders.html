@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}주문 / 출고 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-cart3 me-2 text-amber"></i>주문 / 출고</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
+            전체 {{ total_count|default(0) }}건
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/operator/orders/export" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-download me-1"></i>엑셀
+        </a>
+        <button class="btn btn-amber btn-sm" data-bs-toggle="modal" data-bs-target="#bulkShipModal">
+            <i class="bi bi-truck me-1"></i>일괄 출고
+        </button>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# ── 상태 탭 ── #}
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+        {% for s, label, badge_class in [
+            ('', '전체', 'bg-secondary'),
+            ('pending', '대기', 'badge-wait'),
+            ('confirmed', '확인', 'badge-process'),
+            ('packing', '패킹', 'badge-process'),
+            ('shipped', '출고', 'badge-done'),
+            ('cancelled', '취소', 'badge-cancel')
+        ] %}
+        <a href="/operator/orders?status={{ s }}{% if filter_client_id %}&client_id={{ filter_client_id }}{% endif %}"
+           class="btn btn-sm {{ 'btn-amber' if filter_status == s or (not filter_status and not s) else 'btn-outline-secondary' }}">
+            {{ label }}
+            <span class="badge {{ badge_class }} ms-1" style="font-size:0.72rem;">
+                {{ counts.get(s if s else 'total', 0)|default(0) }}
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+
+    {# ── 필터 ── #}
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form class="d-flex gap-2 flex-wrap align-items-center" method="get">
+                {% if filter_status %}
+                <input type="hidden" name="status" value="{{ filter_status }}">
+                {% endif %}
+                <input type="text" name="search" class="form-control form-control-sm"
+                       placeholder="주문번호 / 수령인" value="{{ filter_search or '' }}" style="max-width:200px;">
+                <select name="client_id" class="form-select form-select-sm" style="max-width:160px;">
+                    <option value="">전체 화주사</option>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}" {% if filter_client_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+                <select name="channel" class="form-select form-select-sm" style="max-width:130px;">
+                    <option value="">전체 채널</option>
+                    {% for ch in ['스마트스토어','쿠팡','자사몰','직접'] %}
+                    <option value="{{ ch }}" {% if filter_channel == ch %}selected{% endif %}>{{ ch }}</option>
+                    {% endfor %}
+                </select>
+                <input type="date" name="date_from" class="form-control form-control-sm"
+                       value="{{ filter_date_from or '' }}" style="max-width:140px;">
+                <span class="text-muted" style="font-size:0.8rem;">~</span>
+                <input type="date" name="date_to" class="form-control form-control-sm"
+                       value="{{ filter_date_to or '' }}" style="max-width:140px;">
+                <button class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-search me-1"></i>검색
+                </button>
+            </form>
+        </div>
+    </div>
+
+    {# ── 주문 테이블 ── #}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="checkAll" class="form-check-input"></th>
+                            <th>주문번호</th>
+                            <th>화주사</th>
+                            <th>채널</th>
+                            <th>수령인</th>
+                            <th>연락처</th>
+                            <th>상품</th>
+                            <th>상태</th>
+                            <th>주문일</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for o in orders %}
+                        <tr>
+                            <td><input type="checkbox" class="form-check-input row-check" value="{{ o.id }}"></td>
+                            <td class="fw-semibold" style="font-size:0.82rem;">
+                                <a href="/operator/orders/{{ o.id }}" class="text-decoration-none" style="color:var(--text);">
+                                    {{ o.order_no or o.id }}
+                                </a>
+                            </td>
+                            <td style="font-size:0.82rem;">{{ o.client_name|default('-') }}</td>
+                            <td style="font-size:0.82rem;">{{ o.channel or '-' }}</td>
+                            <td style="font-size:0.82rem;">{{ o.recipient_name or '-' }}</td>
+                            <td class="text-muted" style="font-size:0.78rem;">{{ o.recipient_phone or '-' }}</td>
+                            <td style="font-size:0.78rem;color:var(--text-muted);">
+                                {{ o.item_summary|default('') | truncate(20) }}
+                            </td>
+                            <td>
+                                {% set s = o.status %}
+                                {% if s == 'pending' %}<span class="badge badge-wait">대기</span>
+                                {% elif s == 'confirmed' %}<span class="badge badge-process">확인</span>
+                                {% elif s == 'packing' %}<span class="badge badge-process">패킹</span>
+                                {% elif s == 'shipped' %}<span class="badge badge-done">출고</span>
+                                {% elif s == 'delivered' %}<span class="badge badge-done">배달</span>
+                                {% elif s == 'cancelled' %}<span class="badge badge-cancel">취소</span>
+                                {% else %}<span class="badge bg-secondary">{{ s }}</span>{% endif %}
+                            </td>
+                            <td class="text-muted" style="font-size:0.78rem;">
+                                {{ o.created_at[:10] if o.created_at else '-' }}
+                            </td>
+                            <td>
+                                <a href="/operator/orders/{{ o.id }}"
+                                   class="btn btn-outline-secondary btn-sm py-0 px-2">
+                                    <i class="bi bi-chevron-right"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="10" class="text-center text-muted py-5">
+                                <i class="bi bi-cart-x" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                                주문이 없습니다
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {# 페이지네이션 #}
+            {% if total_pages|default(1) > 1 %}
+            <div class="d-flex justify-content-center py-3" style="border-top:1px solid var(--border);">
+                <nav>
+                    <ul class="pagination pagination-sm mb-0">
+                        {% for p in range(1, (total_pages|default(1)) + 1) %}
+                        <li class="page-item {{ 'active' if p == current_page|default(1) else '' }}">
+                            <a class="page-link" href="?page={{ p }}{% if filter_status %}&status={{ filter_status }}{% endif %}{% if filter_search %}&search={{ filter_search }}{% endif %}">
+                                {{ p }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </nav>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+{# ── 일괄 출고 모달 ── #}
+<div class="modal fade" id="bulkShipModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-truck me-2"></i>일괄 출고 처리</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size:0.88rem;">
+                    선택한 주문을 일괄 출고 처리합니다.<br>
+                    상태가 <strong>확인</strong> 또는 <strong>패킹</strong>인 주문만 처리됩니다.
+                </p>
+                <div id="bulkSelectedInfo" class="alert alert-warning py-2" style="font-size:0.85rem;">
+                    선택된 주문: <strong id="selectedCount">0</strong>건
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-amber" id="doBulkShip">
+                    <i class="bi bi-truck me-1"></i>출고 처리
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+// 전체 선택
+document.getElementById('checkAll')?.addEventListener('change', function () {
+    document.querySelectorAll('.row-check').forEach(c => c.checked = this.checked);
+    updateSelectedCount();
+});
+document.querySelectorAll('.row-check').forEach(c =>
+    c.addEventListener('change', updateSelectedCount));
+
+function updateSelectedCount() {
+    const cnt = document.querySelectorAll('.row-check:checked').length;
+    const el = document.getElementById('selectedCount');
+    if (el) el.textContent = cnt;
+}
+
+// 일괄 출고
+document.getElementById('doBulkShip')?.addEventListener('click', function () {
+    const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.value);
+    if (!ids.length) { alert('주문을 선택하세요.'); return; }
+
+    fetch('/operator/orders/bulk-ship', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ order_ids: ids })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) { location.reload(); }
+        else { alert('오류: ' + (d.error || '알 수 없음')); }
+    });
+});
+</script>
+{% endblock %}

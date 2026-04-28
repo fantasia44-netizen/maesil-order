@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}내 물류 현황 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-speedometer2 me-2 text-amber"></i>내 물류 현황</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
+            {{ client_name|default('') }}
+            &nbsp;·&nbsp; {{ now.strftime('%Y년 %m월 %d일') if now else '' }}
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/client/orders" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-cart3 me-1"></i>주문 현황
+        </a>
+        <a href="/client/billing" class="btn btn-amber btn-sm">
+            <i class="bi bi-receipt me-1"></i>과금 내역
+        </a>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# ── KPI ── #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-blue">
+                <div class="kpi-label">보관 SKU</div>
+                <div class="kpi-value" style="color:#2563eb;">{{ sku_count|default(0) }}</div>
+                <div class="kpi-sub">등록 상품 수</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-green">
+                <div class="kpi-label">총 재고</div>
+                <div class="kpi-value" style="color:#16a34a;">{{ '{:,}'.format(total_qty|default(0)) }}</div>
+                <div class="kpi-sub">개</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-amber">
+                <div class="kpi-label">진행 중 주문</div>
+                <div class="kpi-value text-amber">{{ in_progress|default(0) }}</div>
+                <div class="kpi-sub">대기 · 확인 · 패킹</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-green">
+                <div class="kpi-label">이달 출고 완료</div>
+                <div class="kpi-value" style="color:#16a34a;">{{ shipped_count|default(0) }}</div>
+                <div class="kpi-sub">건</div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 재고 요약 + 최근 주문 ── #}
+    <div class="row g-3 mb-4">
+
+        {# 재고 현황 #}
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-box-seam me-2 text-amber"></i>내 재고 요약</span>
+                    <a href="/client/inventory" class="btn btn-outline-secondary btn-sm">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>상품명</th>
+                                <th class="text-end">재고</th>
+                                <th>상태</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sku in top_skus|default([]) %}
+                            <tr>
+                                <td style="font-size:0.85rem;">
+                                    <div class="fw-semibold">{{ sku.name }}</div>
+                                    <div class="text-muted" style="font-size:0.75rem;">{{ sku.sku_code }}</div>
+                                </td>
+                                <td class="text-end fw-bold {{ 'text-danger' if sku.quantity <= 10 else '' }}">
+                                    {{ '{:,}'.format(sku.quantity|default(0)) }}
+                                </td>
+                                <td>
+                                    {% if sku.quantity == 0 %}<span class="badge badge-cancel">품절</span>
+                                    {% elif sku.quantity <= 10 %}<span class="badge badge-wait">부족</span>
+                                    {% else %}<span class="badge badge-done">정상</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="3" class="text-center text-muted py-4">재고 데이터 없음</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        {# 최근 주문 #}
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-cart3 me-2 text-amber"></i>최근 주문</span>
+                    <a href="/client/orders" class="btn btn-outline-secondary btn-sm">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>주문번호</th>
+                                    <th>채널</th>
+                                    <th>수령인</th>
+                                    <th>상태</th>
+                                    <th>주문일</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for o in recent_orders|default([]) %}
+                                <tr>
+                                    <td class="fw-semibold" style="font-size:0.82rem;">{{ o.order_no or o.id }}</td>
+                                    <td style="font-size:0.82rem;">{{ o.channel or '-' }}</td>
+                                    <td style="font-size:0.82rem;">{{ o.recipient_name or '-' }}</td>
+                                    <td>
+                                        {% set s = o.status %}
+                                        {% if s == 'pending' %}<span class="badge badge-wait">대기</span>
+                                        {% elif s in ('confirmed','packing') %}<span class="badge badge-process">{{ '확인' if s == 'confirmed' else '패킹' }}</span>
+                                        {% elif s in ('shipped','delivered') %}<span class="badge badge-done">출고</span>
+                                        {% elif s == 'cancelled' %}<span class="badge badge-cancel">취소</span>
+                                        {% else %}<span class="badge bg-secondary">{{ s }}</span>{% endif %}
+                                    </td>
+                                    <td class="text-muted" style="font-size:0.78rem;">
+                                        {{ o.created_at[:10] if o.created_at else '-' }}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted py-4">주문이 없습니다</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 이달 과금 요약 ── #}
+    <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-receipt me-2 text-amber"></i>이달 과금 요약</span>
+            <a href="/client/billing" class="btn btn-outline-secondary btn-sm">전체 내역</a>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-6 col-md-3">
+                    <div class="text-center p-3" style="background:var(--amber-pale);border-radius:10px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:0.35rem;">보관비</div>
+                        <div style="font-size:1.2rem;font-weight:800;color:var(--amber);">
+                            {{ '{:,.0f}'.format(billing_summary.storage|default(0)) }}원
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="text-center p-3" style="background:#eff6ff;border-radius:10px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:0.35rem;">출고비</div>
+                        <div style="font-size:1.2rem;font-weight:800;color:#2563eb;">
+                            {{ '{:,.0f}'.format(billing_summary.shipment|default(0)) }}원
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="text-center p-3" style="background:#f0fdf4;border-radius:10px;">
+                        <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;margin-bottom:0.35rem;">부가서비스</div>
+                        <div style="font-size:1.2rem;font-weight:800;color:#16a34a;">
+                            {{ '{:,.0f}'.format(billing_summary.extra|default(0)) }}원
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="text-center p-3" style="background:#1e293b;border-radius:10px;">
+                        <div style="font-size:0.75rem;color:#94a3b8;font-weight:600;margin-bottom:0.35rem;">합계</div>
+                        <div style="font-size:1.2rem;font-weight:800;color:var(--amber-light);">
+                            {{ '{:,.0f}'.format(billing_summary.total|default(0)) }}원
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

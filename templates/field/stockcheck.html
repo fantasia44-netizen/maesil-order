@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}재고 실사 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    .scan-input-lg {
+        font-size: 1.4rem; padding: 0.75rem 1rem; text-align: center;
+        border: 2px solid var(--border); border-radius: 10px;
+    }
+    .scan-input-lg:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(232,160,32,0.2); outline: none; }
+    .count-card {
+        border: 2px solid var(--border); border-radius: 14px; padding: 1rem 1.25rem;
+        margin-bottom: 0.65rem; transition: all 0.2s;
+    }
+    .count-card.match   { border-color: #22c55e; background: rgba(34,197,94,0.04); }
+    .count-card.diff    { border-color: #ef4444; background: rgba(239,68,68,0.04); }
+    .count-card.pending { border-color: var(--amber); background: var(--amber-pale); }
+    .diff-badge { font-size: 0.82rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 6px; }
+    .diff-pos   { background: #dcfce7; color: #15803d; }
+    .diff-neg   { background: #fee2e2; color: #b91c1c; }
+    .error-banner {
+        position: fixed; top: 0; left: 0; right: 0;
+        background: #ef4444; color: #fff; text-align: center;
+        font-size: 1rem; font-weight: 700; padding: 0.75rem; z-index: 9999; display: none;
+    }
+    .error-banner.show { display: block; }
+    .session-header { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="errBanner" class="error-banner"></div>
+
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-clipboard2-check me-2 text-amber"></i>재고 실사</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);">로케이션 단위 실물 카운트</div>
+    </div>
+    <a href="/field" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>현장 홈
+    </a>
+</div>
+
+<div class="page-body">
+
+    {# 세션 상태 #}
+    <div class="row g-2 mb-3">
+        <div class="col-4">
+            <div class="kpi-card text-center py-2">
+                <div class="kpi-label">스캔 완료</div>
+                <div class="kpi-value text-amber" id="cntTotal">0</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card text-center py-2">
+                <div class="kpi-label">일치</div>
+                <div class="kpi-value" style="color:#22c55e;" id="cntMatch">0</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card text-center py-2">
+                <div class="kpi-label">차이</div>
+                <div class="kpi-value" style="color:#ef4444;" id="cntDiff">0</div>
+            </div>
+        </div>
+    </div>
+
+    {# 입력 폼 #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-12">
+                    <label class="form-label fw-bold" style="font-size:0.85rem;">로케이션</label>
+                    <input type="text" id="locationInput" class="form-control form-control-sm"
+                           placeholder="예: A-01-01" autocomplete="off" style="text-transform:uppercase;">
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-bold" style="font-size:0.85rem;">바코드 스캔 / SKU</label>
+                    <input type="text" id="barcodeInput" class="form-control scan-input-lg"
+                           placeholder="바코드 스캔..." autocomplete="off" autofocus>
+                </div>
+                <div class="col-6">
+                    <label class="form-label fw-bold" style="font-size:0.85rem;">실사 수량</label>
+                    <input type="number" id="countQty" class="form-control form-control-sm"
+                           min="0" value="1" style="font-size:1.1rem;font-weight:700;">
+                </div>
+                <div class="col-6 d-flex align-items-end">
+                    <button class="btn btn-amber w-100" onclick="submitCount()">
+                        <i class="bi bi-check2 me-1"></i>등록
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# 실사 목록 #}
+    <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span><i class="bi bi-list-check me-2 text-amber"></i>실사 내역</span>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" onclick="submitAll()" id="submitBtn" disabled>
+                    <i class="bi bi-cloud-upload me-1"></i>전송
+                </button>
+                <button class="btn btn-outline-danger btn-sm" onclick="resetSession()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>초기화
+                </button>
+            </div>
+        </div>
+        <div class="card-body p-3" id="countList">
+            <div class="text-center text-muted py-4" style="font-size:0.85rem;">
+                <i class="bi bi-clipboard2" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>
+                바코드를 스캔하여 실사를 시작하세요
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+let counts = [];
+
+const barcodeInput = document.getElementById('barcodeInput');
+const locationInput = document.getElementById('locationInput');
+
+barcodeInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submitCount(); } });
+locationInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); barcodeInput.focus(); } });
+window.addEventListener('DOMContentLoaded', () => barcodeInput.focus());
+
+function submitCount() {
+    const barcode  = barcodeInput.value.trim();
+    const location = locationInput.value.trim().toUpperCase();
+    const qty      = parseInt(document.getElementById('countQty').value) || 0;
+
+    if (!barcode) { showErr('바코드를 입력하세요'); barcodeInput.focus(); return; }
+    if (!location) { showErr('로케이션을 입력하세요'); locationInput.focus(); return; }
+
+    fetch('/field/api/stock-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ barcode, location, count_qty: qty })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            beep(880, 0.1);
+            const entry = {
+                id: d.id,
+                sku_name: d.sku_name,
+                sku_code: d.sku_code,
+                barcode,
+                location,
+                count_qty: qty,
+                system_qty: d.system_qty,
+                diff: qty - d.system_qty,
+                t: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+            };
+            counts.unshift(entry);
+            renderList();
+            barcodeInput.value = '';
+            document.getElementById('countQty').value = 1;
+            barcodeInput.focus();
+        } else {
+            beep(300, 0.3, 'square');
+            showErr(d.error || '등록 실패');
+        }
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function renderList() {
+    const match = counts.filter(c => c.diff === 0).length;
+    const diff  = counts.filter(c => c.diff !== 0).length;
+
+    document.getElementById('cntTotal').textContent = counts.length;
+    document.getElementById('cntMatch').textContent = match;
+    document.getElementById('cntDiff').textContent  = diff;
+    document.getElementById('submitBtn').disabled = counts.length === 0;
+
+    if (!counts.length) {
+        document.getElementById('countList').innerHTML =
+            '<div class="text-center text-muted py-4" style="font-size:0.85rem;">' +
+            '<i class="bi bi-clipboard2" style="font-size:2rem;opacity:0.3;display:block;margin-bottom:0.5rem;"></i>' +
+            '바코드를 스캔하여 실사를 시작하세요</div>';
+        return;
+    }
+
+    document.getElementById('countList').innerHTML = counts.map(c => {
+        const cls   = c.diff === 0 ? 'match' : 'diff';
+        const diffHtml = c.diff !== 0
+            ? `<span class="diff-badge ${c.diff > 0 ? 'diff-pos' : 'diff-neg'}">${c.diff > 0 ? '+' : ''}${c.diff}</span>`
+            : '<span class="badge badge-done">일치</span>';
+        return `<div class="count-card ${cls}">
+            <div class="d-flex align-items-start justify-content-between">
+                <div>
+                    <div class="fw-semibold">${c.sku_name || c.barcode}</div>
+                    <div class="text-muted" style="font-size:0.78rem;">${c.sku_code || ''} · <span class="fw-semibold" style="color:var(--amber);">${c.location}</span></div>
+                </div>
+                <div class="text-end">
+                    ${diffHtml}
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-top:0.2rem;">${c.t}</div>
+                </div>
+            </div>
+            <div class="d-flex gap-4 mt-2" style="font-size:0.82rem;">
+                <span>실사 <strong>${c.count_qty}</strong></span>
+                <span>시스템 <strong>${c.system_qty}</strong></span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function submitAll() {
+    if (!counts.length) return;
+    if (!confirm(`${counts.length}건의 실사 결과를 전송하시겠습니까?`)) return;
+
+    fetch('/field/api/stock-check-submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ entries: counts })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.ok) {
+            alert(`실사 완료 — ${d.count}건 전송됨`);
+            counts = [];
+            renderList();
+        } else showErr(d.error || '전송 실패');
+    })
+    .catch(() => showErr('네트워크 오류'));
+}
+
+function resetSession() {
+    if (counts.length && !confirm('실사 내역을 모두 지우시겠습니까?')) return;
+    counts = [];
+    renderList();
+    barcodeInput.value = '';
+    locationInput.value = '';
+    barcodeInput.focus();
+}
+
+function showErr(msg) {
+    const b = document.getElementById('errBanner');
+    b.textContent = msg; b.classList.add('show');
+    setTimeout(() => b.classList.remove('show'), 3500);
+}
+
+function beep(freq, dur, type='sine') {
+    try {
+        const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = type; o.frequency.value = freq; g.gain.value = 0.15;
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + dur);
+    } catch(e) {}
+}
+</script>
+{% endblock %}

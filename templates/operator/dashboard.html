@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}대시보드 — 플로워{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-speedometer2 me-2 text-amber"></i>대시보드</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
+            {{ now.strftime('%Y년 %m월 %d일') if now else '' }}
+            &nbsp;·&nbsp; 화주사 {{ client_count|default(0) }}개 운영 중
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/operator/orders" class="btn btn-amber btn-sm">
+            <i class="bi bi-cart-plus me-1"></i>주문 처리
+        </a>
+        <button class="btn btn-outline-secondary btn-sm" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# ── 알림 배너 ── #}
+    {% if (low_stock_count|default(0)) > 0 or (expiring_count|default(0)) > 0 %}
+    <div class="mb-4">
+        {% if (low_stock_count|default(0)) > 0 %}
+        <div class="alert alert-danger d-flex align-items-center gap-2 py-2 mb-2" style="font-size:0.85rem;border-radius:10px;">
+            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+            <div>
+                <strong>재고 부족 {{ low_stock_count }}건</strong> —
+                {% for item in (low_stock or [])[:3] %}
+                    {{ item.sku_code }} (현재 {{ item.quantity }}개){{ ', ' if not loop.last }}
+                {% endfor %}
+                {% if low_stock_count > 3 %} 외 {{ low_stock_count - 3 }}건{% endif %}
+            </div>
+            <a href="/operator/inventory" class="ms-auto text-danger fw-bold text-decoration-none" style="white-space:nowrap;">
+                확인 →
+            </a>
+        </div>
+        {% endif %}
+        {% if (expiring_count|default(0)) > 0 %}
+        <div class="alert alert-warning d-flex align-items-center gap-2 py-2 mb-0" style="font-size:0.85rem;border-radius:10px;">
+            <i class="bi bi-clock-fill flex-shrink-0"></i>
+            <div><strong>유통기한 임박 {{ expiring_count }}건</strong> (7일 이내)</div>
+            <a href="/operator/inventory" class="ms-auto text-warning fw-bold text-decoration-none" style="white-space:nowrap;">
+                확인 →
+            </a>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── KPI 카드 ── #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-amber">
+                <div class="kpi-label"><i class="bi bi-hourglass-split me-1"></i>처리 대기</div>
+                <div class="kpi-value {% if (pending_orders|default(0)) > 0 %}text-amber{% endif %}">
+                    {{ pending_orders|default(0) }}
+                </div>
+                <div class="kpi-sub">확인 {{ order_counts.get('confirmed',0)|default(0) }} · 패킹 {{ order_counts.get('packing',0)|default(0) }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-green">
+                <div class="kpi-label"><i class="bi bi-truck me-1"></i>오늘 출고</div>
+                <div class="kpi-value" style="color:#16a34a;">{{ today_shipped|default(0) }}</div>
+                <div class="kpi-sub">전체 {{ total_orders|default(0) }}건 중</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-blue">
+                <div class="kpi-label"><i class="bi bi-boxes me-1"></i>등록 SKU</div>
+                <div class="kpi-value" style="color:#2563eb;">{{ total_skus|default(0) }}</div>
+                <div class="kpi-sub">
+                    부족 <span class="{% if (low_stock_count|default(0)) > 0 %}text-danger fw-bold{% endif %}">{{ low_stock_count|default(0) }}</span>
+                    · 임박 <span class="{% if (expiring_count|default(0)) > 0 %}text-warning fw-bold{% endif %}">{{ expiring_count|default(0) }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="kpi-card kpi-amber">
+                <div class="kpi-label"><i class="bi bi-currency-won me-1"></i>이달 매출</div>
+                <div class="kpi-value">{{ '{:,.0f}'.format(monthly_total|default(0)) }}</div>
+                <div class="kpi-sub">화주사 {{ client_count|default(0) }}개</div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 메인 콘텐츠 ── #}
+    <div class="row g-3 mb-4">
+
+        {# 최근 주문 #}
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-cart3 me-2 text-amber"></i>최근 주문</span>
+                    <a href="/operator/orders" class="btn btn-outline-secondary btn-sm">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>주문번호</th>
+                                    <th>화주사</th>
+                                    <th>수령인</th>
+                                    <th>상태</th>
+                                    <th>일시</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for o in (recent_orders or []) %}
+                                <tr style="cursor:pointer;" onclick="location.href='/operator/orders/{{ o.id }}'">
+                                    <td class="fw-semibold" style="font-size:0.82rem;">{{ o.order_no or o.id }}</td>
+                                    <td style="font-size:0.82rem;">{{ o.client_name or '-' }}</td>
+                                    <td style="font-size:0.82rem;">{{ o.recipient_name or '-' }}</td>
+                                    <td>
+                                        {% set s = o.status %}
+                                        {% if s == 'pending' %}<span class="badge badge-wait">대기</span>
+                                        {% elif s == 'confirmed' %}<span class="badge badge-process">확인</span>
+                                        {% elif s == 'packing' %}<span class="badge badge-process">패킹</span>
+                                        {% elif s in ('shipped','delivered') %}<span class="badge badge-done">출고</span>
+                                        {% elif s == 'cancelled' %}<span class="badge badge-cancel">취소</span>
+                                        {% else %}<span class="badge bg-secondary">{{ s }}</span>{% endif %}
+                                    </td>
+                                    <td class="text-muted" style="font-size:0.78rem;">
+                                        {{ o.created_at[:16] if o.created_at else '-' }}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="5" class="text-center text-muted py-4">주문이 없습니다</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# 화주사별 매출 #}
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-building me-2 text-amber"></i>이달 화주사별 매출</span>
+                </div>
+                <div class="card-body p-0">
+                    {% if client_revenue %}
+                    <table class="table mb-0">
+                        <thead><tr><th>화주사</th><th class="text-end">금액(원)</th></tr></thead>
+                        <tbody>
+                            {% for name, total in (client_revenue or {}).items() %}
+                            {% if total > 0 %}
+                            <tr>
+                                <td style="font-size:0.85rem;">{{ name }}</td>
+                                <td class="text-end fw-semibold text-amber" style="font-size:0.85rem;">
+                                    {{ '{:,.0f}'.format(total) }}
+                                </td>
+                            </tr>
+                            {% endif %}
+                            {% else %}
+                            <tr><td colspan="2" class="text-center text-muted py-4">데이터 없음</td></tr>
+                            {% endfor %}
+                        </tbody>
+                        {% if monthly_total|default(0) > 0 %}
+                        <tfoot>
+                            <tr style="border-top:2px solid var(--border);">
+                                <td class="fw-bold">합계</td>
+                                <td class="text-end fw-bold text-amber">{{ '{:,.0f}'.format(monthly_total|default(0)) }}</td>
+                            </tr>
+                        </tfoot>
+                        {% endif %}
+                    </table>
+                    {% else %}
+                    <div class="text-center text-muted py-4">데이터 없음</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 입출고 현황 + 재고 알림 ── #}
+    <div class="row g-3">
+
+        {# 입출고 추이 #}
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-bar-chart me-2 text-amber"></i>최근 7일 입출고
+                </div>
+                <div class="card-body">
+                    <canvas id="inoutChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+
+        {# 재고 부족 목록 #}
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span><i class="bi bi-exclamation-circle me-2 text-danger"></i>재고 부족</span>
+                    <a href="/operator/inventory" class="btn btn-outline-danger btn-sm">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    {% if low_stock %}
+                    <table class="table mb-0">
+                        <thead><tr><th>SKU</th><th>화주사</th><th class="text-end">현재</th></tr></thead>
+                        <tbody>
+                            {% for item in (low_stock or [])[:8] %}
+                            <tr>
+                                <td style="font-size:0.82rem;" class="fw-semibold">{{ item.sku_code }}</td>
+                                <td style="font-size:0.82rem;" class="text-muted">{{ item.client_name or '-' }}</td>
+                                <td class="text-end text-danger fw-bold" style="font-size:0.82rem;">{{ item.quantity }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-check-circle text-success" style="font-size:1.5rem;"></i>
+                        <div class="mt-2" style="font-size:0.85rem;">부족 재고 없음</div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>{# /page-body #}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const labels  = {{ inout_labels  | tojson | default('[]') }};
+    const inData  = {{ inout_in      | tojson | default('[]') }};
+    const outData = {{ inout_out     | tojson | default('[]') }};
+
+    if (!document.getElementById('inoutChart')) return;
+
+    new Chart(document.getElementById('inoutChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '입고',
+                    data: inData,
+                    backgroundColor: 'rgba(232,160,32,0.7)',
+                    borderRadius: 4,
+                },
+                {
+                    label: '출고',
+                    data: outData,
+                    backgroundColor: 'rgba(59,130,246,0.7)',
+                    borderRadius: 4,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top', labels: { font: { size: 12 }, boxWidth: 12 } },
+                tooltip: { mode: 'index', intersect: false }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+            }
+        }
+    });
+})();
+</script>
+{% endblock %}

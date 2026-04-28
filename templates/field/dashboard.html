@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}현장 모드 — 플로워{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 현장 모드: 큰 터치 영역, 고대비 */
+    .field-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.6rem;
+        padding: 1.75rem 1rem;
+        background: var(--bg-card);
+        border: 2px solid var(--border);
+        border-radius: 16px;
+        text-decoration: none;
+        color: var(--text);
+        transition: all 0.18s;
+        text-align: center;
+        min-height: 130px;
+        position: relative;
+        overflow: hidden;
+    }
+    .field-card:hover, .field-card:active {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        text-decoration: none;
+        color: var(--text);
+    }
+    .field-card.amber  { border-color: var(--amber);  }
+    .field-card.blue   { border-color: #3b82f6; }
+    .field-card.green  { border-color: #22c55e; }
+    .field-card.purple { border-color: #8b5cf6; }
+    .field-card.pink   { border-color: #ec4899; }
+    .field-card.teal   { border-color: #14b8a6; }
+
+    .field-card:hover.amber  { background: var(--amber-pale); }
+    .field-card:hover.blue   { background: #eff6ff; }
+    .field-card:hover.green  { background: #f0fdf4; }
+    .field-card:hover.purple { background: #f5f3ff; }
+    .field-card:hover.pink   { background: #fdf2f8; }
+    .field-card:hover.teal   { background: #f0fdfa; }
+
+    .field-card .fc-icon { font-size: 2.2rem; line-height: 1; }
+    .field-card .fc-label { font-size: 1rem; font-weight: 700; }
+    .field-card .fc-desc  { font-size: 0.75rem; color: var(--text-muted); }
+
+    .field-card .fc-badge {
+        position: absolute;
+        top: 0.6rem; right: 0.6rem;
+        background: #ef4444;
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 0 0.45rem;
+        min-width: 1.3rem;
+        text-align: center;
+    }
+
+    .work-stat {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.7rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .work-stat:last-child { border-bottom: none; }
+    .work-stat-val {
+        font-size: 1.6rem;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.03em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4><i class="bi bi-grid-3x3-gap-fill me-2 text-amber"></i>현장 모드</h4>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">
+            {{ today|default('') }}
+            &nbsp;·&nbsp; {{ current_user.username }}
+        </div>
+    </div>
+    <div class="text-end" style="font-size:0.85rem;color:var(--text-muted);">
+        <i class="bi bi-clock me-1"></i><span id="liveClock"></span>
+    </div>
+</div>
+
+<div class="page-body">
+
+    {# ── 오늘 작업 요약 ── #}
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-clipboard-data me-2 text-amber"></i>오늘 작업 현황
+        </div>
+        <div class="card-body">
+            <div class="row g-0">
+                <div class="col-6 col-md-3">
+                    <div class="work-stat pe-3">
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">입고</div>
+                        </div>
+                        <div class="work-stat-val" style="color:#3b82f6;">{{ inbound_cnt|default(0) }}</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="work-stat px-3" style="border-left:1px solid var(--border);">
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">출고</div>
+                        </div>
+                        <div class="work-stat-val" style="color:#22c55e;">{{ outbound_cnt|default(0) }}</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="work-stat px-3" style="border-left:1px solid var(--border);">
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">창고이동</div>
+                        </div>
+                        <div class="work-stat-val text-amber">{{ transfer_cnt|default(0) }}</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="work-stat ps-3" style="border-left:1px solid var(--border);">
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;">조정</div>
+                        </div>
+                        <div class="work-stat-val" style="color:#8b5cf6;">{{ adjust_cnt|default(0) }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 작업 메뉴 ── #}
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-4">
+            <a href="/field/inbound" class="field-card blue">
+                <div class="fc-icon" style="color:#3b82f6;"><i class="bi bi-box-arrow-in-down"></i></div>
+                <div class="fc-label">입고 스캔</div>
+                <div class="fc-desc">바코드 스캔으로 입고</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4">
+            <a href="/field/shipping" class="field-card green">
+                {% if (pending_ship|default(0)) > 0 %}
+                <div class="fc-badge">{{ pending_ship }}</div>
+                {% endif %}
+                <div class="fc-icon" style="color:#22c55e;"><i class="bi bi-truck"></i></div>
+                <div class="fc-label">출고 / 상차</div>
+                <div class="fc-desc">송장 스캔으로 출고</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4">
+            <a href="/field/picking" class="field-card purple">
+                {% if (pending_pick|default(0)) > 0 %}
+                <div class="fc-badge">{{ pending_pick }}</div>
+                {% endif %}
+                <div class="fc-icon" style="color:#8b5cf6;"><i class="bi bi-list-check"></i></div>
+                <div class="fc-label">피킹</div>
+                <div class="fc-desc">피킹리스트 처리</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4">
+            <a href="/field/transfer" class="field-card amber">
+                <div class="fc-icon text-amber"><i class="bi bi-arrow-left-right"></i></div>
+                <div class="fc-label">창고 이동</div>
+                <div class="fc-desc">위치 간 재고 이동</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4">
+            <a href="/field/stockcheck" class="field-card teal">
+                <div class="fc-icon" style="color:#14b8a6;"><i class="bi bi-clipboard-check"></i></div>
+                <div class="fc-label">재고 실사</div>
+                <div class="fc-desc">실수량 확인</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4">
+            <a href="/field/scan" class="field-card pink">
+                <div class="fc-icon" style="color:#ec4899;"><i class="bi bi-upc-scan"></i></div>
+                <div class="fc-label">바코드 스캔</div>
+                <div class="fc-desc">SKU 조회 / 확인</div>
+            </a>
+        </div>
+    </div>
+
+    {# ── 최근 작업 로그 ── #}
+    {% if recent_movements|default([]) %}
+    <div class="card">
+        <div class="card-header">
+            <i class="bi bi-clock-history me-2 text-amber"></i>오늘 작업 로그
+        </div>
+        <div class="card-body p-0">
+            <table class="table mb-0" style="font-size:0.82rem;">
+                <thead>
+                    <tr><th>시간</th><th>유형</th><th>SKU</th><th class="text-end">수량</th><th>처리자</th></tr>
+                </thead>
+                <tbody>
+                    {% for m in recent_movements %}
+                    <tr>
+                        <td class="text-muted">{{ m.created_at[11:16] if m.created_at else '-' }}</td>
+                        <td>
+                            {% if m.movement_type == 'inbound' %}<span class="badge badge-process">입고</span>
+                            {% elif m.movement_type == 'outbound' %}<span class="badge badge-done">출고</span>
+                            {% elif 'transfer' in (m.movement_type or '') %}<span class="badge badge-amber">이동</span>
+                            {% elif m.movement_type == 'adjust' %}<span class="badge bg-secondary">조정</span>
+                            {% else %}<span class="badge bg-light text-dark">{{ m.movement_type }}</span>{% endif %}
+                        </td>
+                        <td class="fw-semibold">{{ m.sku_code|default(m.sku_id|default('-')) }}</td>
+                        <td class="text-end fw-bold">{{ m.quantity }}</td>
+                        <td class="text-muted">{{ m.user_name|default('-') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function tick() {
+    const el = document.getElementById('liveClock');
+    if (el) {
+        const now = new Date();
+        el.textContent = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    setTimeout(tick, 1000);
+})();
+</script>
+{% endblock %}
